@@ -1,0 +1,14 @@
+{
+  "name": "agent-team-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local single-user CLI agent groups with independent pair conversations",
+  "engines": { "node": ">=22.13.0" },
+  "bin": { "agent-team": "src/cli.mjs" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/cli.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}

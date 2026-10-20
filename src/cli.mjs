@@ -1,0 +1,122 @@
+#!/usr/bin/env node
+import { parseArgs } from 'node:util';
+import { resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout, stderr } from 'node:process';
+import { startServer, socketFor } from './server.mjs';
+import { rpc, serveMcp } from './rpc.mjs';
+
+const options = {
+  data: { type: 'string', default: 'work/local' }, port: { type: 'string', default: '0' },
+  name: { type: 'string', default: '我的 Agent 群' }, workspace: { type: 'string', default: process.cwd() },
+  lead: { type: 'string', default: 'codex' }, members: { type: 'string', default: '' },
+  group: { type: 'string' }, host: { type: 'string' }, member: { type: 'string' }, text: { type: 'string' },
+  hosts: { type: 'string' }, socket: { type: 'string' }, endpoint: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+};
+export function parseMembers(text = '') {
+  return text ? text.split(',').filter(Boolean).map(item => {
+    const [name, host, ...extra] = item.trim().split('=');
+    if (!name || !host || extra.length) throw new Error('成员格式：名称=宿主，用逗号分隔');
+    return { name, host };
+  }) : [];
+}
+async function main() {
+  const { values, positionals } = parseArgs({ options, allowPositionals: true });
+  const command = positionals[0] ?? 'start';
+  if (values.help) return console.log(`agent-team — 本机 CLI Agent 群（Node >=22.13）
+
+一条命令开始：
+  npm start -- --lead codex --members 配色=dsh,质感=claude --workspace /项目目录
+继续已有群：
+  npm start -- --group 群编号
+
+命令：start / serve / new / chat / groups / members / add / remove / delete / retry / stop
+  --data 目录       本地数据（默认 work/local）
+  --port 端口       只读面板端口，默认随机
+  --hosts 文件      CLI 宿主别名及适配器配置
+  --group 编号      操作的群
+  --text 文本       chat 单次私聊（先运行 serve）
+  --member 名称     remove / stop 的成员
+
+聊天中：/members /add 名称=宿主 /remove 名称 /stop 名称 /retry /groups /use 群编号 /delete /quit
+普通输入只发给主 Agent，不进入群记录。Ctrl+C 停止当前总线；群配置与消息保留。
+主 Agent 和成员使用宿主现有认证。请先登录相应 CLI。`);
+  const directory = resolve(values.data);
+  if (command === 'mcp') return serveMcp(values.socket, values.endpoint, process.env.AGENT_TEAM_KEY, process.env.AGENT_TEAM_TURN);
+  const socketPath = socketFor(directory);
+  const groupArgs = () => ({ name: values.name, workspace: values.workspace, lead: { name: '主 Agent', host: values.lead }, members: parseMembers(values.members) });
+  if (!['start', 'serve'].includes(command)) {
+    let request;
+    if (command === 'new') request = { op: 'new', args: groupArgs() };
+    else if (command === 'groups') request = { op: 'groups' };
+    else if (command === 'chat' && values.text) request = { op: 'chat', group: values.group, text: values.text };
+    else if (command === 'chat') return interactive(socketPath, values.group);
+    else if (command === 'members') request = { op: 'members', group: values.group };
+    else if (command === 'add') request = { op: 'add', group: values.group, args: { name: values.member, host: values.host } };
+    else if (['remove', 'stop'].includes(command)) request = { op: command, group: values.group, member: values.member };
+    else if (['retry', 'delete'].includes(command)) request = { op: command, group: values.group };
+    else throw new Error('未知命令，使用 --help 查看');
+    console.log(JSON.stringify(await rpc(socketPath, request), null, 2));
+    return;
+  }
+  let readline;
+  if (command === 'start') readline = createInterface({ input: stdin, output: stdout });
+  let confirming = false;
+  const confirm = async text => {
+    // An idle readline prompt already owns input. Background pairs must not steal it.
+    if (!readline?.agentTeamBusy || confirming) return false;
+    confirming = true;
+    try { return /^y(es)?$/i.test((await readline.question(`${text} [y/N] `)).trim()); }
+    finally { confirming = false; }
+  };
+  const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts, confirm });
+  console.log(`Agent Team 0.1.0\n只读面板：${server.url}\n数据目录：${directory}`);
+  server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
+  let shuttingDown;
+  const shutdown = () => shuttingDown ??= (async () => { readline?.close(); await server.close(); })();
+  process.once('SIGTERM', () => shutdown().then(() => process.exit(0)));
+  process.once('SIGINT', () => shutdown().then(() => process.exit(0)));
+  if (command === 'serve') return;
+  try {
+    const group = values.group ? server.bus.store.group(values.group) : server.bus.createGroup(groupArgs());
+    console.log(`群：${group.name} (${group.id})\n成员入群会自述能力。直接输入与主 Agent 聊天；/help 查看本地命令。`);
+    await interactive(socketPath, group.id, readline);
+  } finally { await shutdown(); }
+}
+
+async function interactive(socketPath, initialGroup, existing) {
+  const readline = existing ?? createInterface({ input: stdin, output: stdout });
+  let group = initialGroup;
+  try {
+    if (!group) throw new Error('需要 --group 群编号');
+    while (!readline.closed) {
+      let line;
+      try { line = (await readline.question('\n你 > ')).trim(); } catch { break; }
+      if (!line) continue;
+      if (line === '/quit') break;
+      try {
+        let request;
+        if (line === '/help') { console.log('/members /add 名称=宿主 /remove 名称 /stop 名称 /retry /groups /use 群编号 /delete /quit'); continue; }
+        if (line.startsWith('/use ')) { group = line.slice(5).trim(); console.log(await rpc(socketPath, { op: 'members', group })); continue; }
+        if (line === '/members') request = { op: 'members', group };
+        else if (line === '/groups') request = { op: 'groups' };
+        else if (line === '/retry') request = { op: 'retry', group };
+        else if (line.startsWith('/add ')) request = { op: 'add', group, args: parseMembers(line.slice(5))[0] };
+        else if (line.startsWith('/remove ')) request = { op: 'remove', group, member: line.slice(8).trim() };
+        else if (line.startsWith('/stop ')) request = { op: 'stop', group, member: line.slice(6).trim() };
+        else if (line === '/delete') {
+          if (!/^y(es)?$/i.test((await readline.question('删除本群配置与记录？宿主历史不会删除。[y/N] ')).trim())) continue;
+          console.log(await rpc(socketPath, { op: 'delete', group })); break;
+        } else if (line.startsWith('/')) throw new Error('未知本地命令');
+        else request = { op: 'chat', group, text: line };
+        readline.agentTeamBusy = true;
+        let result;
+        try { result = await rpc(socketPath, request); }
+        finally { readline.agentTeamBusy = false; }
+        console.log(typeof result === 'string' ? `\n主 Agent > ${result}` : JSON.stringify(result, null, 2));
+      } catch (error) { stderr.write(`\n${error.message}\n`); }
+    }
+  } finally { if (!existing) readline.close(); }
+}
+
+main().catch(error => { stderr.write(`agent-team: ${error.message}\n`); process.exitCode = 1; });

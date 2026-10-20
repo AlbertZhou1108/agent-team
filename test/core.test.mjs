@@ -1,0 +1,303 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
+import { runJsonProcess } from '../src/hosts/process.mjs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Bus } from '../src/bus.mjs';
+import { startServer } from '../src/server.mjs';
+import { rpc } from '../src/rpc.mjs';
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+async function until(fn) { const end = Date.now() + 2500; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
+function fixture(t, run) {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-test-'));
+  const calls = [];
+  const host = { async run(ctx) {
+    calls.push(ctx);
+    ctx.onSession(ctx.endpoint.session ?? `native-${ctx.endpoint.id}`);
+    ctx.onEvent({ type: 'host-event', prompt: ctx.prompt });
+    if (ctx.endpoint.context === 'profile') { await ctx.onTool('profile_set', { text: 'I can help.' }); ctx.onAccepted(); return 'profile final'; }
+    return run ? run(ctx) : (ctx.onAccepted(), 'host final, not a group message');
+  } };
+  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  const group = bus.createGroup({ name: 'group', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'one', host: 'fake' }, { name: 'two', host: 'fake' }] });
+  const members = bus.members(group.id);
+  t.after(async () => { if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  return { bus, group, members, directory, calls, host };
+}
+function tools(bus, member) { const e = bus.store.endpoint(member.id, 'private'); return (name, args = {}) => bus.tool(e.id, e.key, name, args); }
+
+test('notes wait; next formal message carries notes from another sender exactly once', async t => {
+  const { bus, members, calls } = fixture(t); const [lead, one, two] = members;
+  await until(() => bus.running.size === 0);
+  await tools(bus, two)('note', { to: lead.id, text: 'third-party note' }); await tick();
+  assert.equal(calls.filter(c => c.endpoint.context.startsWith('pair:')).length, 0);
+  const sent = await tools(bus, one)('send', { to: lead.id, text: 'formal' });
+  await until(() => calls.some(c => c.endpoint.peer === one.id)); await until(() => bus.running.size === 0);
+  const input = bus.store.get('SELECT payload FROM outbox'); const payload = JSON.parse(input.payload);
+  assert.equal(payload.message.id, sent.messageId); assert.equal(payload.notes.length, 1); assert.equal(payload.notes[0].sender, two.id);
+  await tools(bus, one)('send', { to: lead.id, text: 'second formal' }); await until(() => bus.store.all('SELECT * FROM outbox').length === 2); await until(() => bus.running.size === 0);
+  assert.equal(JSON.parse(bus.store.all('SELECT payload FROM outbox')[1].payload).notes.length, 0);
+  assert.equal(bus.store.all("SELECT * FROM messages WHERE text LIKE '%host final%'").length, 0);
+});
+
+test('different peers get separate recipient contexts and may run concurrently', async t => {
+  const { bus, members, calls } = fixture(t, ctx => new Promise((resolve, reject) => { ctx.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); }));
+  const [lead, one, two] = members;
+  await until(() => bus.running.size === 0);
+  await tools(bus, lead)('send', { to: one.id, text: 'a' });
+  await tools(bus, two)('send', { to: one.id, text: 'b' });
+  await until(() => bus.running.size === 2);
+  const endpoints = calls.filter(c => c.endpoint.member_id === one.id && c.endpoint.context.startsWith('pair:')).map(c => c.endpoint);
+  assert.equal(endpoints.length, 2); assert.notEqual(endpoints[0].id, endpoints[1].id);
+});
+
+test('messages accumulated within one busy pair become one ordered next input', async t => {
+  let release;
+  const { bus, members } = fixture(t, ctx => new Promise(resolve => { release = () => { ctx.onAccepted(); resolve('done'); }; }));
+  const [lead, one] = members;
+  await until(() => bus.running.size === 0);
+  await tools(bus, lead)('send', { to: one.id, text: 'first' });
+  await until(() => release);
+  await tools(bus, lead)('send', { to: one.id, text: 'second' });
+  await tools(bus, lead)('send', { to: one.id, text: 'third' });
+  assert.equal(bus.store.all('SELECT * FROM outbox').length, 1);
+  release(); await until(() => bus.store.all('SELECT * FROM outbox').length === 2);
+  const input = JSON.parse(bus.store.all('SELECT payload FROM outbox')[1].payload);
+  assert.equal(input.message.text, 'second'); assert.deepEqual(input.additionalMessages.map(m => m.text), ['third']);
+  release(); await until(() => bus.running.size === 0);
+  assert.equal(bus.store.all('SELECT * FROM outbox').length, 2);
+});
+
+test('identity cannot be supplied, member profiles are self-only, cross-group addressing is rejected', async t => {
+  const { bus, members, group, directory } = fixture(t); const [lead, one] = members;
+  await until(() => bus.running.size === 0);
+  await assert.rejects(tools(bus, one)('profile_set', { text: 'spoof', member: lead.id }), /不允许/);
+  await assert.rejects(tools(bus, one)('profile_set', JSON.parse('{"text":"spoof","constructor":"pretend"}')), /不允许/);
+  await assert.rejects(tools(bus, one)('group_remove', { member: lead.id }), /不可使用/);
+  await tools(bus, one)('profile_set', { text: 'own profile' });
+  assert.equal(bus.store.member(one.id).profile, 'own profile'); assert.equal(bus.store.member(lead.id).profile, 'I can help.');
+  const other = bus.createGroup({ name: 'other', workspace: directory, lead: { name: 'other', host: 'fake' } });
+  await assert.rejects(tools(bus, one)('send', { to: other.lead, text: 'cross-group' }), /找不到/);
+  const e = bus.store.endpoint(lead.id, 'private');
+  await assert.rejects(bus.tool(e.id, 'wrong', 'members', {}), /来源无效/);
+  assert.equal(bus.members(group.id).length, 3);
+});
+
+test('removal immediately revokes all endpoint access and retains message identity', async t => {
+  const { bus, members, group } = fixture(t); const [lead, one] = members;
+  await until(() => bus.running.size === 0);
+  const call = tools(bus, one);
+  await call('note', { to: lead.id, text: 'retained' });
+  await bus.removeMember(group.id, one.id);
+  for (const [name, args] of [['members', {}], ['read', {}], ['profile_set', { text: 'no' }], ['send', { to: lead.id, text: 'no' }]]) await assert.rejects(call(name, args), /已移除/);
+  assert.equal(bus.store.get('SELECT sender FROM messages').sender, one.id);
+});
+
+test('private user input and final text are absent from shared records and panel snapshot', async t => {
+  const { bus, group } = fixture(t); await until(() => bus.running.size === 0);
+  await bus.privateTurn(group.id, 'PRIVATE_SENTINEL_182');
+  assert.equal(bus.store.all("SELECT * FROM messages WHERE text LIKE '%PRIVATE_SENTINEL%'").length, 0);
+  assert.equal(bus.store.all("SELECT * FROM history WHERE event LIKE '%PRIVATE_SENTINEL%'").length, 0);
+  const snapshot = JSON.stringify(bus.snapshot()); assert.ok(!snapshot.includes('private')); assert.ok(!snapshot.includes('"key"'));
+});
+
+test('ordinary failure reports honestly and does not automatically retry', async t => {
+  let attempts = 0;
+  const { bus, members } = fixture(t, async () => { attempts++; throw new Error('host unavailable'); });
+  const [lead, one] = members; await until(() => bus.running.size === 0);
+  await tools(bus, lead)('send', { to: one.id, text: 'delivery' });
+  await until(() => bus.store.get('SELECT error FROM outbox')?.error);
+  bus.pump(); await tick(); assert.equal(attempts, 1);
+  assert.equal(bus.store.get("SELECT kind FROM messages WHERE sender='system'").kind, 'system');
+});
+
+test('restart recovers identical persisted input with stable message and note ids', async t => {
+  const { bus, members, directory } = fixture(t, ctx => new Promise((resolve, reject) => { ctx.signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }); }));
+  const [lead, one, two] = members; await until(() => bus.running.size === 0);
+  await tools(bus, two)('note', { to: one.id, text: 'keep me' });
+  await tools(bus, lead)('send', { to: one.id, text: 'recover' });
+  await until(() => bus.store.get('SELECT payload FROM outbox'));
+  const before = bus.store.get('SELECT payload FROM outbox').payload;
+  await bus.close();
+  let received;
+  const restarted = new Bus({ directory, hosts: new Map([['fake', { async run(ctx) { received = ctx.prompt; ctx.onAccepted(); return 'done'; } }]]) });
+  t.after(async () => { if (!restarted.closing) await restarted.close(); });
+  restarted.start(); await until(() => restarted.store.get('SELECT accepted FROM outbox')?.accepted);
+  assert.equal(restarted.store.get('SELECT payload FROM outbox').payload, before);
+  assert.ok(received.includes(JSON.parse(before).message.id));
+  // Close before the fixture removes its directory.
+  await restarted.close();
+});
+
+test('HTTP panel requires its launch link, is read-only, rejects DNS rebinding, paginates records', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-panel-test-'));
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]) });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  const base = new URL(server.url).origin;
+  assert.equal((await fetch(base)).status, 401);
+  const entry = await fetch(server.url, { redirect: 'manual' }); assert.equal(entry.status, 303);
+  const cookie = entry.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie };
+  assert.equal((await fetch(base + '/api/snapshot', { headers })).status, 200);
+  assert.equal((await fetch(base + '/api/snapshot', { headers, method: 'POST' })).status, 403);
+  const rebinding = await new Promise((resolve, reject) => { const request = http.get(base + '/api/snapshot', { headers: { ...headers, host: 'attacker.example' } }, response => { response.resume(); resolve(response.statusCode); }); request.on('error', reject); });
+  assert.equal(rebinding, 403);
+  const group = await rpc(server.socketPath, { op: 'new', args: { name: 'panel', workspace: directory, lead: { name: 'lead', host: 'fake' } } });
+  for (let i = 0; i < 205; i++) server.bus.store.append(group.id, 'system', group.lead, 'system', `notice-${i}`);
+  const first = await (await fetch(base + `/api/messages?group=${group.id}`, { headers })).json(); assert.equal(first.length, 200);
+  const second = await (await fetch(base + `/api/messages?group=${group.id}&after=${first.at(-1).seq}`, { headers })).json(); assert.equal(second.length, 5);
+});
+
+test('second bus cannot open the same data directory', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-lock-test-'));
+  const server = await startServer({ directory, hosts: new Map() });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  await assert.rejects(startServer({ directory, hosts: new Map() }), /已有群总线/);
+});
+
+test('group deletion removes framework records and leaves shared files untouched', async t => {
+  const { bus, members, group, directory } = fixture(t); await until(() => bus.running.size === 0);
+  const file = join(directory, 'shared-code.txt'); writeFileSync(file, 'keep');
+  await tools(bus, members[0])('note', { to: members[1].id, text: 'delete records' });
+  await bus.deleteGroup(group.id);
+  assert.equal(bus.store.all('SELECT * FROM messages').length, 0); assert.equal(bus.store.all('SELECT * FROM members').length, 0);
+  assert.equal(readFileSync(file, 'utf8'), 'keep');
+});
+
+test('RPC rejects a connection closed before a reply rather than hanging', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-rpc-test-')), socketPath = join(directory, 'rpc.sock');
+  const server = net.createServer(socket => { socket.on('data', () => socket.destroy()); });
+  await new Promise(resolve => server.listen(socketPath, resolve));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(directory, { recursive: true, force: true }); });
+  await assert.rejects(rpc(socketPath, { op: 'ping' }), /断开连接/);
+});
+
+test('CLI process driver observes real output and responds to cancellation', async () => {
+  const abort = new AbortController();
+  let observed = false;
+  const running = runJsonProcess(process.execPath, ['-e', 'console.log(JSON.stringify({type:"started"}));setInterval(()=>{},1000)'], {
+    workspace: tmpdir(), signal: abort.signal,
+    onEvent(event) { observed = event.type === 'started'; },
+    onRow() { abort.abort(); },
+  });
+  await assert.rejects(running, /中断/);
+  assert.ok(observed);
+});
+
+test('message provenance anchors distinct sends to one turn and rejects stale or model supplied identity', async t => {
+  const { bus, members } = fixture(t, async ctx => {
+    ctx.onNativeTurn('native-turn-7');
+    await ctx.onTool('note', { to: members[1].id, text: 'first' }, { nativeCallId: 'native-call-1' });
+    await ctx.onTool('note', { to: members[1].id, text: 'second' });
+    ctx.onAccepted(); return 'final-result';
+  });
+  await until(() => bus.running.size === 0);
+  const endpoint = bus.store.endpoint(members[0].id, `pair:${members[1].id}`, members[1].id);
+  await bus.runEndpoint(endpoint, 'public input');
+  const messages = bus.store.all("SELECT * FROM messages WHERE kind='note'");
+  const first = bus.store.messageTrace(messages[0].id), second = bus.store.messageTrace(messages[1].id);
+  assert.equal(first.source.turnId, second.source.turnId);
+  assert.notEqual(first.source.eventSeq, second.source.eventSeq);
+  assert.notEqual(first.source.callId, second.source.callId);
+  assert.equal(first.source.nativeCallId, 'native-call-1');
+  const trace = bus.store.turnTrace(first.source.turnId);
+  assert.deepEqual(trace.nativeTurnRefs, ['native-turn-7']);
+  assert.equal(trace.outgoingMessages.length, 2);
+  assert.ok(trace.events.every(row => row.turn_id === first.source.turnId));
+  assert.equal(JSON.parse(trace.events.find(row => row.seq === first.source.eventSeq).event).name, 'note');
+  assert.ok(trace.events.some(row => JSON.parse(row.event).text === 'final-result'));
+  await assert.rejects(bus.tool(endpoint.id, endpoint.key, 'members', {}, { turnId: first.source.turnId }), /当前执行回合/);
+  await assert.rejects(bus.tool(endpoint.id, endpoint.key, 'members', { turnId: first.source.turnId }), /不允许/);
+});
+
+test('failed input retry has distinct attempts with the same formal and note ids', async t => {
+  let fail = true;
+  const { bus, members, group } = fixture(t, async ctx => { if (fail) throw new Error('retry-test'); ctx.onAccepted(); return 'ok'; });
+  await until(() => bus.running.size === 0);
+  const note = await tools(bus, members[2])('note', { to: members[1].id, text: 'attached' });
+  const sent = await tools(bus, members[0])('send', { to: members[1].id, text: 'formal' });
+  await until(() => bus.store.get('SELECT error FROM outbox')?.error);
+  fail = false; bus.retry(group.id);
+  await until(() => bus.running.size === 0 && bus.store.get('SELECT accepted FROM outbox')?.accepted);
+  const attempts = bus.store.messageTrace(sent.messageId).inputAttempts;
+  assert.equal(attempts.length, 2); assert.notEqual(attempts[0].id, attempts[1].id);
+  assert.equal(bus.store.messageTrace(note.messageId).inputAttempts.length, 2);
+  for (const attempt of attempts) assert.deepEqual(bus.store.turnTrace(attempt.id).inputMessages.map(row => row.id), [sent.messageId, note.messageId]);
+  assert.ok(bus.store.turnTrace(attempts[0].id).events.some(row => JSON.parse(row.event).type === 'framework.error'));
+  assert.ok(bus.store.turnTrace(attempts[1].id).events.some(row => JSON.parse(row.event).type === 'framework.input_accepted'));
+});
+
+test('private sending origin is redacted while receiving turn remains observable', async t => {
+  let privateTurn;
+  const { bus, members, group } = fixture(t, async ctx => {
+    if (ctx.endpoint.context === 'private') {
+      privateTurn = ctx.turnId;
+      await ctx.onTool('send', { to: members[1].id, text: 'public-message' });
+    }
+    ctx.onAccepted(); return 'PRIVATE_FINAL';
+  });
+  await until(() => bus.running.size === 0);
+  await bus.privateTurn(group.id, 'PRIVATE_INPUT');
+  await until(() => bus.running.size === 0);
+  const message = bus.store.get("SELECT * FROM messages WHERE kind='send'");
+  const trace = bus.store.messageTrace(message.id);
+  assert.deepEqual(trace.source, { kind: 'private' });
+  assert.equal(trace.inputAttempts.length, 1);
+  assert.equal(bus.store.turnTrace(privateTurn), null);
+  assert.ok(!JSON.stringify(trace).includes(privateTurn));
+  assert.equal(bus.store.all('SELECT * FROM history WHERE turn_id=?', privateTurn).length, 0);
+  assert.ok(!JSON.stringify(message).includes(privateTurn));
+});
+
+test('legacy database migrates additively and remains unknown across reopen', async t => {
+  const { Store } = await import('../src/store.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'agent-migration-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let store = new Store(directory);
+  store.run('INSERT INTO groups VALUES(?,?,?,?,?)', 'g', 'legacy', directory, null, 'old');
+  store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', 'm', 'g', 'old', 'fake', 'lead');
+  const endpoint = store.endpoint('m', 'profile');
+  const message = store.append('g', 'm', 'm', 'note', 'legacy-text');
+  store.history(endpoint.id, { type: 'legacy-event' });
+  store.db.exec('DROP INDEX history_turn; ALTER TABLE history DROP COLUMN turn_id; DROP TABLE message_origins; DROP TABLE native_turn_refs; DROP TABLE turn_inputs; DROP TABLE turns;');
+  store.close();
+  for (let i = 0; i < 2; i++) {
+    store = new Store(directory);
+    assert.equal(store.get('SELECT text FROM messages WHERE id=?', message.id).text, 'legacy-text');
+    assert.equal(store.get('SELECT turn_id FROM history').turn_id, null);
+    assert.deepEqual(store.messageTrace(message.id).source, { kind: 'unknown' });
+    store.close();
+  }
+});
+
+test('trace HTTP API paginates one turn and denies private and missing turns equally', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-trace-api-'));
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) {
+    if (ctx.endpoint.context === 'profile') await ctx.onTool('profile_set', { text: 'ready' });
+    for (let i = 0; i < 205; i++) ctx.onEvent({ type: 'step', i });
+    ctx.onAccepted(); return 'done';
+  } }]]) });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  const group = server.bus.createGroup({ name: 'trace', workspace: directory, lead: { name: 'lead', host: 'fake' } });
+  await until(() => server.bus.running.size === 0);
+  await server.bus.privateTurn(group.id, 'secret');
+  const privateId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='private'").id;
+  const publicId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='profile'").id;
+  const entry = await fetch(server.url, { redirect: 'manual' });
+  const headers = { cookie: entry.headers.get('set-cookie').split(';')[0] }, base = new URL(server.url).origin;
+  for (const id of [privateId, 'missing']) assert.equal((await fetch(`${base}/api/turn?turn=${id}`, { headers })).status, 404);
+  const first = await (await fetch(`${base}/api/turn?turn=${publicId}`, { headers })).json();
+  assert.equal(first.events.length, 200);
+  const next = await (await fetch(`${base}/api/turn?turn=${publicId}&after=${first.nextAfter}`, { headers })).json();
+  assert.ok(next.events.length > 0); assert.ok(next.events.every(row => row.seq > first.nextAfter));
+  const message = server.bus.store.append(group.id, 'system', group.lead, 'system', 'notice');
+  const trace = await (await fetch(`${base}/api/message-trace?message=${message.id}`, { headers })).json();
+  assert.deepEqual(trace.source, { kind: 'system' });
+  await server.bus.deleteGroup(group.id);
+  assert.equal(server.bus.store.all('SELECT * FROM turns').length, 0);
+  assert.equal(server.bus.store.all('SELECT * FROM history').length, 0);
+});
