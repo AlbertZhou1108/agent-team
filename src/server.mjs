@@ -107,6 +107,9 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           } else if (url.pathname === '/api/turn') {
             value = bus.store.turnTrace(url.searchParams.get('turn'), cursor(url));
             if (!value) return fail(404, 'Not found');
+          } else if (url.pathname === '/api/models') {
+            value = bus.store.endpointModels(url.searchParams.get('endpoint'), cursor(url));
+            if (!value) return fail(404, '不存在可观测的群会话');
           } else if (url.pathname === '/api/history') {
             const endpoint = bus.store.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", url.searchParams.get('endpoint'));
             if (!endpoint) return fail(404, '不存在可观测的群会话');

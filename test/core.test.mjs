@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { runJsonProcess } from '../src/hosts/process.mjs';
+import { createClaudeHost, readClaudeSessionMetadata } from '../src/hosts/cli-hosts.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
@@ -278,6 +279,7 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   const directory = mkdtempSync(join(tmpdir(), 'agent-trace-api-'));
   const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) {
     if (ctx.endpoint.context === 'profile') await ctx.onTool('profile_set', { text: 'ready' });
+    ctx.onModel({ phase: 'session', model: 'test-model', reasoningEffort: 'low', source: 'test' });
     for (let i = 0; i < 205; i++) ctx.onEvent({ type: 'step', i });
     ctx.onAccepted(); return 'done';
   } }]]) });
@@ -287,11 +289,21 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   await server.bus.privateTurn(group.id, 'secret');
   const privateId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='private'").id;
   const publicId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='profile'").id;
+  const publicEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', publicId).endpoint_id;
+  const privateEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', privateId).endpoint_id;
   const entry = await fetch(server.url, { redirect: 'manual' });
   const headers = { cookie: entry.headers.get('set-cookie').split(';')[0] }, base = new URL(server.url).origin;
   for (const id of [privateId, 'missing']) assert.equal((await fetch(`${base}/api/turn?turn=${id}`, { headers })).status, 404);
   const first = await (await fetch(`${base}/api/turn?turn=${publicId}`, { headers })).json();
   assert.equal(first.events.length, 200);
+  assert.deepEqual(first.modelObservations.map(event => event.model), ['test-model']);
+  assert.equal(first.currentModel.model, 'test-model');
+  assert.equal(first.currentReasoningEffort.reasoningEffort, 'low');
+  const models = await (await fetch(`${base}/api/models?endpoint=${publicEndpoint}`, { headers })).json();
+  assert.equal(models.currentModel.model, 'test-model');
+  assert.equal(models.currentReasoningEffort.reasoningEffort, 'low');
+  assert.equal(models.observations.length, 1);
+  assert.equal((await fetch(`${base}/api/models?endpoint=${privateEndpoint}`, { headers })).status, 404);
   const next = await (await fetch(`${base}/api/turn?turn=${publicId}&after=${first.nextAfter}`, { headers })).json();
   assert.ok(next.events.length > 0); assert.ok(next.events.every(row => row.seq > first.nextAfter));
   const message = server.bus.store.append(group.id, 'system', group.lead, 'system', 'notice');
@@ -300,4 +312,88 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   await server.bus.deleteGroup(group.id);
   assert.equal(server.bus.store.all('SELECT * FROM turns').length, 0);
   assert.equal(server.bus.store.all('SELECT * FROM history').length, 0);
+});
+
+test('Claude adapter records requested, session, live model changes and verified effort', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-claude-model-'));
+  const configDirectory = join(directory, 'claude-config');
+  const fake = join(directory, 'fake-claude.mjs');
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  writeFileSync(fake, `#!/usr/bin/env node
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+const settings = JSON.parse(args[args.indexOf('--settings') + 1]);
+const effort = settings.env?.CLAUDE_CODE_EFFORT_LEVEL ?? null;
+const sessionId = ${JSON.stringify(sessionId)};
+const project = join(process.env.AGENT_TEST_CLAUDE_CONFIG, 'projects', 'fixture');
+mkdirSync(project, { recursive: true });
+const transcript = [
+  { type: 'assistant', message: { model: 'provider-a' }, effort },
+  { type: 'assistant', message: { model: 'provider-b' }, effort },
+];
+writeFileSync(join(project, sessionId + '.jsonl'), transcript.map(JSON.stringify).join('\\n') + '\\n');
+console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId, model: 'claude-alias' }));
+for (const row of transcript) console.log(JSON.stringify({ type: 'assistant', session_id: sessionId, message: row.message }));
+console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: false, result: 'done', modelUsage: { 'claude-alias': { outputTokens: 1 } } }));
+`);
+  chmodSync(fake, 0o700);
+  process.env.AGENT_TEST_CLAUDE_CONFIG = configDirectory;
+  t.after(() => { delete process.env.AGENT_TEST_CLAUDE_CONFIG; rmSync(directory, { recursive: true, force: true }); });
+  const observations = [], sessions = [];
+  const host = createClaudeHost({
+    directory, socketPath: join(directory, 'bus.sock'), command: fake, model: 'opus',
+    reasoningEffort: 'low', configDirectory,
+  });
+  const result = await host.run({
+    endpoint: { id: 'endpoint', key: 'key', session: null }, turnId: 'turn',
+    workspace: directory, prompt: 'probe', instructions: 'rules', tools: [],
+    signal: new AbortController().signal,
+    onSession: value => sessions.push(value), onAccepted: () => {},
+    onModel: value => observations.push(value), onEvent: () => {},
+    onNativeTurn: () => {}, onTool: async () => ({}),
+  });
+  assert.equal(result, 'done');
+  assert.deepEqual(sessions, [sessionId]);
+  assert.deepEqual(observations, [
+    { phase: 'requested', model: 'opus', reasoningEffort: 'low', source: 'adapter.config' },
+    { phase: 'session', model: 'claude-alias', provider: 'claude', source: 'claude.system.init' },
+    { phase: 'assistant', model: 'provider-a', provider: 'claude', source: 'claude.assistant.message' },
+    { phase: 'assistant', model: 'provider-b', provider: 'claude', source: 'claude.assistant.message' },
+    { phase: 'usage', models: ['claude-alias'], provider: 'claude', source: 'claude.result.modelUsage' },
+    { phase: 'verified', model: 'provider-b', reasoningEffort: 'low', provider: 'claude', source: 'claude.project_transcript' },
+  ]);
+  assert.deepEqual(readClaudeSessionMetadata(sessionId, configDirectory).at(-1), { model: 'provider-b', reasoningEffort: 'low' });
+  await assert.rejects(async () => createClaudeHost({ reasoningEffort: 'unsupported' }), /思考强度无效/);
+});
+
+test('model observations are turn-scoped and never exposed from private sessions', async t => {
+  const { bus, members } = fixture(t, async ctx => {
+    if (ctx.endpoint.context === 'private') {
+      ctx.onModel({ phase: 'assistant', model: 'private-model', source: 'test' });
+    } else if (ctx.prompt === 'next turn') {
+      ctx.onModel({ phase: 'session', model: 'new-session-model', reasoningEffort: 'high', source: 'test' });
+    } else {
+      ctx.onModel({ phase: 'assistant', model: 'first-model', source: 'test' });
+      ctx.onModel({ phase: 'assistant', model: 'second-model', source: 'test' });
+    }
+    ctx.onAccepted();
+    return 'done';
+  });
+  await until(() => bus.running.size === 0);
+  const endpoint = bus.store.endpoint(members[0].id, `pair:${members[1].id}`, members[1].id);
+  await bus.runEndpoint(endpoint, 'public');
+  const turn = bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context LIKE 'pair:%' ORDER BY t.rowid DESC");
+  const trace = bus.store.turnTrace(turn.id);
+  assert.deepEqual(trace.modelObservations.map(event => event.model), ['first-model', 'second-model']);
+  assert.equal(trace.currentModel.model, 'second-model');
+  assert.equal(trace.currentReasoningEffort, null);
+  const events = trace.events.map(row => JSON.parse(row.event)).filter(event => event.type === 'framework.model');
+  assert.deepEqual(events.map(event => event.model), ['first-model', 'second-model']);
+  await bus.runEndpoint(endpoint, 'next turn');
+  const endpointModels = bus.store.endpointModels(endpoint.id);
+  assert.equal(endpointModels.currentModel.model, 'new-session-model');
+  assert.equal(endpointModels.currentReasoningEffort.reasoningEffort, 'high');
+  await bus.privateTurn(members[0].group_id, 'private');
+  assert.equal(bus.store.all("SELECT * FROM history WHERE event LIKE '%private-model%'").length, 0);
 });

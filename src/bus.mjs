@@ -205,6 +205,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       onNativeTurn: ref => { this.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
       onTool: (name, args, metadata = {}) => this.tool(endpoint.id, endpoint.key, name, args, { ...metadata, turnId }),
       onSession: session => { this.store.run('UPDATE endpoints SET session=? WHERE id=?', session, endpoint.id); endpoint.session = session; this.store.run('UPDATE turns SET session=? WHERE id=?', session, turnId); },
+      onModel: observation => { this.store.history(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
       onEvent: event => { if (!this.closing) this.store.history(endpoint.id, event, turnId); },
     }));
     live.done = promise;
@@ -223,10 +224,12 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
   }
   retry(groupId) { this.store.group(groupId); this.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.pump(); return { retryRequested: true }; }
   snapshot() {
+    const endpoints = this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE context!='private'")
+      .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) }));
     return {
       groups: this.store.all('SELECT * FROM groups ORDER BY created'),
       members: this.store.all('SELECT * FROM members ORDER BY rowid'),
-      endpoints: this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE context!='private'"),
+      endpoints,
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.running.values()].filter(({ endpoint }) => endpoint.context !== 'private').map(({ endpoint }) => endpoint.id),
     };

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-export function createCodexHost({ command = 'codex', model }) {
+export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   let child, init, nextId = 0, stderr = '';
   const pending = new Map(), active = new Map(), ended = new Map(), waits = new Map();
   const send = value => child.stdin.write(JSON.stringify(value) + '\n');
@@ -65,11 +65,20 @@ export function createCodexHost({ command = 'codex', model }) {
       await ready();
       const { endpoint, prompt, instructions, onSession, onAccepted, signal } = context;
       if (signal.aborted) throw new Error('回合已中断');
-      const options = { cwd: context.workspace, approvalPolicy: 'never', sandbox: 'workspace-write', developerInstructions: instructions, ...(model ? { model } : {}) };
+      const options = {
+        cwd: context.workspace, approvalPolicy: 'never', sandbox: 'workspace-write', developerInstructions: instructions,
+        ...(model ? { model } : {}),
+        ...(reasoningEffort ? { config: { model_reasoning_effort: reasoningEffort } } : {}),
+      };
+      if (model || reasoningEffort) context.onModel({ phase: 'requested', model: model ?? null, reasoningEffort: reasoningEffort ?? null, source: 'adapter.config' });
       const result = endpoint.session
         ? await request('thread/resume', { threadId: endpoint.session, ...options })
         : await request('thread/start', { ...options, dynamicTools: context.tools.map(tool => ({ type: 'function', name: `agent_team_${tool.name}`, description: tool.description, inputSchema: tool.inputSchema })) });
       const thread = result.thread.id;
+      context.onModel({
+        phase: 'session', model: result.model, provider: result.modelProvider, reasoningEffort: result.reasoningEffort,
+        source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start',
+      });
       onSession(thread);
       const live = { ...context, text: '' };
       active.set(thread, live);

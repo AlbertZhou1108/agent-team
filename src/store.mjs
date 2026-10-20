@@ -3,6 +3,30 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+function modelObservations(rows) {
+  return rows.flatMap(row => {
+    const event = JSON.parse(row.event);
+    return event.type === 'framework.model' ? [{ seq: row.seq, created: row.created, turnId: row.turn_id, ...event }] : [];
+  });
+}
+
+function latestWith(observations, field, phases) {
+  for (const phase of phases) {
+    const found = [...observations].reverse().find(observation => observation.phase === phase && observation[field] != null);
+    if (found) return { [field]: found[field], phase: found.phase, source: found.source, seq: found.seq, ...(found.turnId ? { turnId: found.turnId } : {}) };
+  }
+  return null;
+}
+
+function deriveCurrentModel(observations) {
+  const latest = [...observations].reverse().find(observation => observation.phase !== 'usage' && (observation.model != null || observation.reasoningEffort != null));
+  const current = latest?.turnId ? observations.filter(observation => observation.turnId === latest.turnId) : observations;
+  return {
+    currentModel: latestWith(current, 'model', ['assistant', 'verified', 'session', 'requested']),
+    currentReasoningEffort: latestWith(current, 'reasoningEffort', ['verified', 'session', 'requested']),
+  };
+}
+
 export class Store {
   constructor(directory) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -111,13 +135,26 @@ export class Store {
     const inputAttempts = this.all(`SELECT t.id,t.endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE i.message_id=? AND e.context!='private' ORDER BY t.rowid`, id);
     return { messageId: id, source, inputAttempts };
   }
+  endpointModels(id, after = 0) {
+    const endpoint = this.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", id);
+    if (!endpoint) return null;
+    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
+    const observations = all.filter(observation => observation.seq > after).slice(0, 200);
+    return { ...deriveCurrentModel(all), observations, nextAfter: observations.at(-1)?.seq ?? after };
+  }
+  endpointModelSummary(id) {
+    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
+    return deriveCurrentModel(all);
+  }
   turnTrace(id, after = 0) {
     const turn = this.publicTurn(id);
     if (!turn) return null;
     const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
+    const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE turn_id=? ORDER BY seq', id));
     return { turn, nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),
       inputMessages: this.all('SELECT m.id,m.kind,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal', id),
       outgoingMessages: this.all('SELECT message_id,event_seq,call_id,native_call_id FROM message_origins WHERE turn_id=? ORDER BY rowid', id),
+      ...deriveCurrentModel(observations), modelObservations: observations,
       events, nextAfter: events.at(-1)?.seq ?? after };
   }
   close() { this.db.close(); }

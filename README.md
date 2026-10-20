@@ -81,9 +81,11 @@ npm start -- chat --group 群编号 --text '读取群记录并汇总' --data wor
 }
 ```
 
-通过 `--hosts /路径/hosts.json` 加载。Claude、Codex 可额外设置 `model`；DSH 本版使用其 headless profile 的模型，不编造未验证的覆盖参数。`command` 可指定 CLI 的绝对路径。
+通过 `--hosts /路径/hosts.json` 加载。Claude、Codex 可额外设置 `model` 和 `reasoningEffort`；Claude 支持 `low`、`medium`、`high`、`xhigh`、`max`。DSH 本版使用其 headless profile 的模型，不编造未验证的覆盖参数。`command` 可指定 CLI 的绝对路径。
 
-Claude 默认 `permissionMode: "dontAsk"`，显式允许群工具，保留宿主自身的工具权限规则。`allowEdits: true` 额外允许 Read/Edit/Write/Glob/Grep；没有默认放开任意 Bash 或全局绕过权限。DSH 沿用其 profile 的权限，Codex 使用共享目录的 workspace-write、never 审批策略。工作目录不是框架的文件权限边界。
+Claude 默认 `permissionMode: "dontAsk"`，显式允许群工具，保留宿主自身的工具权限规则。指定 `reasoningEffort` 时，适配器会在 Claude 设置中显式覆盖用户默认值，避免命令行参数被 `CLAUDE_CODE_EFFORT_LEVEL` 静默覆盖。`allowEdits: true` 额外允许 Read/Edit/Write/Glob/Grep；没有默认放开任意 Bash 或全局绕过权限。DSH 沿用其 profile 的权限，Codex 使用共享目录的 workspace-write、never 审批策略。工作目录不是框架的文件权限边界。
+
+每轮观测会分别记录请求配置、宿主会话别名、助手消息实际报告的模型和结算标识。Claude 的思考强度在回合结束后从其项目会话记录核实；Codex 从启动或恢复响应核实。模型变化会追加新的 `framework.model` 事件。
 
 新宿主可通过 `{"module":"/绝对路径/adapter.mjs"}` 导出 `createHost(options)` 接入，无需修改群路由核心。接口见 [适配器说明](docs/adapters.md)。
 
@@ -100,7 +102,7 @@ Claude 默认 `permissionMode: "dontAsk"`，显式允许群工具，保留宿主
 
 ## 面板与当前限制
 
-面板展示群、成员、自述、消息和群内宿主会话事件，按双人对话过滤并分页读取。不会展示用户私聊。
+面板展示群、成员、自述、消息和群内宿主会话事件，按双人对话过滤并分页读取。会话列表显示由整轮观测推导的当前模型与思考强度；选中会话后可查看模型变化时间线及原始事件。不会展示用户私聊。
 
 事件视图来自实际观察到的宿主事件流。尤其 DSH headless 对部分字符串有自身截断，它**不等同于宿主原生完整历史查看器**。宿主历史仍以各宿主为准。
 
