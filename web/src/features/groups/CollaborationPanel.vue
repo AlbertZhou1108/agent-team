@@ -12,6 +12,11 @@ const labels: Record<string, string> = { active: '进行中', closing: '收尾�
 const label = (value: string) => labels[value] ?? value;
 const name = (id: string) => props.members.find(m => m.id === id)?.name ?? id;
 const pending = computed(() => data.value?.requests.filter(r => r.state === 'pending') ?? []);
+const phaseLabel = computed(() => {
+  const state = data.value?.state;
+  if (state?.phase !== 'closed') return label(state?.phase ?? '');
+  return state.outcome === 'completed' ? '目标已完成 · 群可继续沟通' : '目标未完成 · 群已停止';
+});
 const effectivePolicy = (item: { policy: string }, role: string) => (
   role === 'reviewer' && item.policy === 'workspace-write' ? 'read-only' : item.policy
 );
@@ -26,17 +31,18 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       <section class="flex flex-col gap-2">
         <h3 class="font-semibold">团队状态</h3>
         <div class="flex flex-wrap gap-2">
-          <Badge>{{ label(data.state.phase) }}</Badge>
+          <Badge>{{ phaseLabel }}</Badge>
           <Badge v-if="data.state.outcome">{{ label(data.state.outcome) }}</Badge>
           <Badge>契约 v{{ data.contract.version }}</Badge>
         </div>
         <p>{{ data.runningCount ?? 0 }} 个运行 · {{ data.pendingMessages?.length ?? 0 }} 条未处理消息 · {{ pending.length }} 项待用户决定</p>
+        <p v-if="data.state.phase === 'closed' && data.communicationOpen" class="text-muted-foreground">目标已完成，群保持开放；后续交流默认仅沟通，不会自动恢复已验收工作。</p>
         <details v-for="runtime in data.unknown" :key="runtime.turn_id" open>
           <summary>宿主运行待核实</summary>
           <p class="break-all">{{ runtime.turn_id }} · {{ runtime.detail }}</p>
         </details>
         <p v-if="data.state.final" class="whitespace-pre-wrap">{{ data.state.final }}</p>
-        <p v-if="data.state.finish_reason">收尾依据：{{ data.state.finish_reason }}</p>
+        <p v-if="data.state.finish_reason">完成依据：{{ data.state.finish_reason }}</p>
       </section>
 
       <section class="flex flex-col gap-2">

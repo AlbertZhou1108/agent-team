@@ -19,7 +19,7 @@
 | 用户私聊和公开执行记录隔离 | Bus、Server、面板 API | 完成 |
 | 三宿主沟通、只读、允许修改策略装配 | `src/hosts/*` | 完成 |
 | Codex 原生子 Agent/wait 绕过防护 | Codex Adapter | 完成 |
-| `active → closing → closed`、遗留消息处置 | Collaboration、Bus | 完成 |
+| `active → closing → closed`、遗留消息处置、完成目标后保持群通信 | Collaboration、Bus | 完成 |
 | 重启待核实、用户终止、持久最终交付 | Collaboration、Bus | 完成 |
 | 契约、工作项、审查接受、收尾只读面板 | Vue 面板、HTTP API | 完成 |
 | 核心规则、前端、类型和构建检查 | `test/`、`web/` | 完成 |
@@ -45,7 +45,7 @@
 
 ### 2.3 面板运行数跨群污染
 
-已结束群打开协作页时，标题使用了全局运行 endpoint 数，会显示其他群正在运行。修复为只统计当前群 endpoint。
+已完成目标的群打开协作页时，标题使用了全局运行 endpoint 数，会显示其他群正在运行。修复为只统计当前群 endpoint。
 
 ### 2.4 主 Agent错误继承契约权限
 

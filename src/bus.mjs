@@ -114,6 +114,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
 成员要由用户确认后加入；不要自行扩充团队。不需要回复时可以沉默，避免无意义的相互致谢。
 主 Agent的团队消息统一进入coordination会话；用户私聊独立，不能直接派工。工作项由主 Agent调度会话维护，成员用send自然语言汇报。契约不可自行修改，需用户批准。
 收到汇报后依据目标缺口决定继续、等待、接受或收尾，不必回复致谢。不存在固定讨论轮数。
+目标完成后群仍可继续沟通。后续消息只用于交流、解释结果和追问；不得改写已验收工作项、重新派工、执行命令、读写项目、重复收尾或扩大原契约权限。新的执行目标需要用户重新确认。
 团队唤醒由框架负责。不得创建、等待、打断或管理 Codex 原生子 Agent；不要调用 spawn/wait/agent 类原生协同工具。需要等待新信息时只结束当前回合，不要阻塞等待；框架会把下一条群消息作为同一个调度会话的新回合投递。
 当前有效契约与执行状态：${JSON.stringify(this.collaboration.read(member.group_id))}`;
   }
@@ -163,7 +164,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     }
     if (name === 'profile_set') { this.store.run('UPDATE members SET profile=? WHERE id=?', args.text, member.id); return { member: member.id, profile: args.text }; }
     if (name === 'send' || name === 'note') {
-      this.collaboration.requireActive(groupId);
+      this.collaboration.requireCommunication(groupId);
       const target = this.resolveMember(groupId, args.to);
       if (target.id === member.id) throw new Error('不能向自己发消息');
       const message = this.store.transaction(() => {
@@ -231,7 +232,9 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       if (entry) this.deliver(entry);
     }
   }
-  canRun(groupId) { return this.collaboration.state(groupId)?.phase === 'active' && !this.collaboration.unknown(groupId).length; }
+  canRun(groupId) {
+    return this.collaboration.communicationOpen(groupId) && !this.collaboration.unknown(groupId).length;
+  }
   disposed(entry) {
     const input = JSON.parse(entry.payload);
     return [input.message, ...(input.additionalMessages ?? [])].some(m => this.store.get('SELECT 1 FROM message_dispositions WHERE message_id=?', m.id));
@@ -250,7 +253,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     });
   }
   async runEndpoint(endpoint, text, onAccepted = () => {}, inputs = []) {
-    this.collaboration.requireActive(endpoint.group_id);
+    this.collaboration.requireCommunication(endpoint.group_id);
     if (this.running.has(endpoint.id)) throw new Error('该会话正在运行');
     const member = this.store.member(endpoint.member_id);
     const group = this.store.group(member.group_id);
@@ -322,7 +325,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     for (const { abort } of active) abort.abort();
     await Promise.allSettled(active.map(item => item.done));
   }
-  retry(groupId) { this.collaboration.requireActive(groupId); this.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.pump(); return { retryRequested: true }; }
+  retry(groupId) { this.collaboration.requireCommunication(groupId); this.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.pump(); return { retryRequested: true }; }
   reconcile(groupId) {
     if (this.collaboration.reconcile(groupId, [...this.running.values()].some(r => r.endpoint.group_id === groupId))) this.emit('finished', { groupId });
   }
@@ -334,7 +337,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     return decision;
   }
   directive(groupId, text) {
-    this.collaboration.requireActive(groupId);
+    this.collaboration.requireCommunication(groupId);
     const group = this.store.group(groupId);
     const message = this.store.append(groupId, 'user', group.lead, 'send', text);
     this.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, null, this.collaboration.state(groupId).contract_version);

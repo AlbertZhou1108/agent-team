@@ -13,7 +13,7 @@ const definitions = [
   ['collaboration_read', '读取本群有效契约、工作项、审查与接受、待用户决定及运行状态；records通过after分页。', { after: { type: 'integer', minimum: 0 } }, []],
   ['work_item_update', '主 Agent管理工作项。command是JSON：创建含title,purpose,standard,participants[{memberId,role:executor|collaborator|reviewer}],policy,allowShell,reviewRequired；policy为该项实际最高访问需求，允许命令须同时由契约授权；reviewer运行时自动收窄为只读。更新含id,itemRevision,state,note。证据evidence是汇报messageId数组；artifact为确定成果版本；reviews为[{messageId,artifact}]。状态pending→in_progress→pending_decision→accepted；blocked/返工/重开回in_progress。每次读取当前revision，使用唯一operationId。', { command: string, revision: { type: 'integer', minimum: 1 }, operationId: string }, ['command', 'revision', 'operationId']],
   ['contract_change_request', '提出契约变更，等待用户批准。contract为完整契约JSON，不能自行批准。', { contract: string, reason: string }, ['contract', 'reason']],
-  ['team_finish', '请求收尾。command为JSON:{outcome:"completed",final:最终交付,note:理由,coverage:{c1:[已接受工作项ID]},dispositions:[{messageId,reason}]}。先通知成员收束；未处理消息需给出处理理由。工具先返回closing，实际停止后框架才关闭。', { command: string, revision: { type: 'integer', minimum: 1 }, operationId: string }, ['command', 'revision', 'operationId']],
+  ['team_finish', '完成当前目标。command为JSON:{outcome:"completed",final:最终交付,note:理由,coverage:{c1:[已接受工作项ID]},dispositions:[{messageId,reason}]}。先通知成员收束；未处理消息需给出处理理由。工具先返回closing，实际停止后目标才完成。完成后群仍可继续沟通，但不会自动重新派工。', { command: string, revision: { type: 'integer', minimum: 1 }, operationId: string }, ['command', 'revision', 'operationId']],
   ['finish_withdraw', '撤回尚未完成的收尾请求，记录理由后恢复工作，契约不变。', { reason: string }, ['reason']],
 ];
 const preparationDefinitions = [

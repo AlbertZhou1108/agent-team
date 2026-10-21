@@ -94,7 +94,7 @@ export class Store {
   }
   pending() {
     return this.all(`SELECT m.* FROM messages m JOIN members r ON r.id=m.recipient JOIN team_state s ON s.group_id=m.group_id
-      WHERE s.phase='active' AND m.kind='send' AND r.removed IS NULL
+      WHERE (s.phase='active' OR (s.phase='closed' AND s.outcome='completed')) AND m.kind='send' AND r.removed IS NULL
       AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
       AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
   }

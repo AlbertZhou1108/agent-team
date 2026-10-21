@@ -93,11 +93,26 @@ export class Collaboration {
     return result;
   }
   state(groupId) { return this.store.get('SELECT * FROM team_state WHERE group_id=?', groupId); }
+  communicationOpen(groupId) {
+    const s = this.state(groupId);
+    return s?.phase === 'active' || (s?.phase === 'closed' && s.outcome === 'completed');
+  }
+  communicationOnly(groupId) {
+    const s = this.state(groupId);
+    return s?.phase === 'closed' && s.outcome === 'completed';
+  }
   requireActive(groupId) {
     const s = this.state(groupId);
     if (!s) throw new Error('旧群尚未确认目标契约，仅供查看');
     if (s.phase !== 'active') throw new Error(`团队处于${s.phase}，不能派发工作`);
     if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能继续派发');
+    return s;
+  }
+  requireCommunication(groupId) {
+    const s = this.state(groupId);
+    if (!s) throw new Error('旧群尚未确认目标契约，仅供查看');
+    if (!this.communicationOpen(groupId)) throw new Error(`团队处于${s.phase}，当前不接受消息`);
+    if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能继续投递');
     return s;
   }
   contract(groupId) {
@@ -115,9 +130,9 @@ export class Collaboration {
   read(groupId, after = 0) {
     this.store.group(groupId);
     const s = this.state(groupId);
-    if (!s) return { legacy: true, contract: null, state: null, items: [], requests: [], records: [], unknown: [] };
+    if (!s) return { legacy: true, contract: null, state: null, communicationOpen: false, items: [], requests: [], records: [], unknown: [] };
     const records = this.store.all('SELECT * FROM work_records WHERE group_id=? AND seq>? ORDER BY seq LIMIT 100', groupId, after).map(r => ({ ...r, body: parse(r.body) }));
-    return { legacy: false, contract: this.contract(groupId), state: s,
+    return { legacy: false, contract: this.contract(groupId), state: s, communicationOpen: this.communicationOpen(groupId),
       items: this.store.all('SELECT id FROM work_items WHERE group_id=? ORDER BY rowid', groupId).map(r => this.item(r.id, groupId)),
       requests: this.store.all("SELECT id,base_version,kind,body,state,created FROM change_requests WHERE group_id=? ORDER BY rowid", groupId).map(r => ({ ...r, body: parse(r.body) })),
       records, nextAfter: records.at(-1)?.seq ?? after, unknown: this.unknown(groupId),
@@ -128,13 +143,25 @@ export class Collaboration {
   }
   record(groupId, itemId, type, body) { this.store.run('INSERT INTO work_records(group_id,work_item_id,type,body,created) VALUES(?,?,?,?,?)', groupId, itemId, type, json(body), now()); }
   messageContext(groupId, itemId) {
-    const s = this.requireActive(groupId);
+    const s = this.requireCommunication(groupId);
+    if (itemId && this.communicationOnly(groupId)) throw new Error('目标已完成，后续沟通不能关联旧工作项');
     if (itemId) this.item(itemId, groupId);
     return { workItemId: itemId ?? null, contractVersion: s.contract_version };
   }
   policy(endpoint, inputs = []) {
     const contract = this.contract(endpoint.group_id);
     if (!contract) throw new Error('缺少已确认契约');
+    const state = this.state(endpoint.group_id);
+    if (this.communicationOnly(endpoint.group_id)) {
+      return {
+        mode: 'communication',
+        allowShell: false,
+        domain: 'communication',
+        contractVersion: contract.version,
+        boundary: contract.body.boundary,
+        goalCompleted: true,
+      };
+    }
     const effective = message => {
       const context = this.store.get('SELECT work_item_id FROM message_context WHERE message_id=?', message.id);
       if (!context?.work_item_id) return { mode: 'communication', allowShell: false };

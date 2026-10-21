@@ -73,6 +73,7 @@ export interface CollaborationState {
   legacy: boolean;
   contract: { version: number; hash: string; body: { goal: string; scope: string; boundary: string; confirmation: string; delivery: string; policy: string; allowShell: boolean; criteria: Array<{ id: string; text: string }> } } | null;
   state: { revision: number; phase: string; outcome: string | null; final: string | null; finish_reason: string | null } | null;
+  communicationOpen: boolean;
   items: Array<{ id: string; revision: number; state: string; title: string; purpose: string; standard: string; policy: string; allowShell: boolean; reviewRequired: boolean; participants: Array<{ memberId: string; role: string }>; artifact: string | null; evidence: string[]; reviews: Array<{ messageId: string; artifact: string }> }>;
   requests: Array<{ id: string; kind: string; state: string; base_version: number; body: unknown }>;
   records: Array<{ seq: number; work_item_id: string | null; type: string; body: unknown; created: string }>;

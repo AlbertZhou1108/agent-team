@@ -37,18 +37,18 @@ flowchart TD
 | --- | --- |
 | `preparations` | 建群准备、契约草案、revision、hash、准备会话与最终群 |
 | `contract_versions` | 群、版本、契约正文、hash、用户确认来源 |
-| `team_state` | 整体 revision、有效契约版本、`active/closing/closed`、目标结果和最终交付 |
+| `team_state` | 整体 revision、有效契约版本、当前目标执行阶段 `active/closing/closed`、目标结果和最终交付 |
 | `work_items` | 工作项 revision、状态和已校验正文 |
 | `work_records` | 追加式工作项、接受、用户决定、收尾和关闭记录 |
 | `change_requests` | 契约与成员变更提案、基准版本和用户决定 |
 | `collaboration_operations` | `operationId` 的命令 hash 与幂等结果 |
 | `runtime_attempts` | 每个框架回合的宿主运行、策略、契约版本及结束状态 |
 | `messages`、`message_context` | 群消息及逐消息工作项/契约版本关联 |
-| `message_dispositions` | 收尾时每条消息的处理去向 |
+| `message_dispositions` | 完成当前目标时每条遗留消息的处理去向 |
 | `outbox`、`attached` | 待投递输入、宿主接受边界与消息附件关系 |
 | `turns`、`native_turn_refs` | 框架回合、宿主会话及可用的原生回合引用 |
 | `history`、`message_origins` | 宿主事件、工具调用/结果和消息发送锚点 |
-| `user_outputs` | 团队关闭后持久化的最终用户交付 |
+| `user_outputs` | 当前目标完成后持久化的最终用户交付 |
 | `endpoint_session_bindings` | endpoint 与 Adapter 提供会话域之间的物理 session/thread 绑定 |
 | `endpoint_session_policies` | 每个会话域最近一次实际应用的能力签名 |
 
@@ -191,7 +191,7 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 6. 写入 dispositions、`closing` 与最终交付；
 7. 增加整体 revision，并保存 operation 结果。
 
-第 4 至第 6 步处于同一 SQLite 事务，之后 `requireActive` 拒绝新派发，因此不会在检查与关闭之间继续生成待处理消息。
+第 4 至第 6 步处于同一 SQLite 事务，之后 `requireActive` 拒绝新派发，因此不会在检查与完成之间继续生成参与目标执行的待处理消息。
 
 运行回合在 `finally` 删除内存 Map 后调用 `reconcile`。只有：
 
@@ -201,6 +201,8 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 - 没有未处理消息；
 
 才写入 `closed` 和 `user_outputs`。
+
+`closed` 表示当前目标结束，不表示群被删除或停用。`outcome=completed` 时，`communicationOpen` 保持为真：新消息继续保存、排队和投递，但 `policy()` 强制使用 `communication`、禁止命令，消息不能关联旧工作项。主 Agent仍可解释成果和追问，但不能通过管理工具重新派工、重开已验收成果或改写最终交付。没有新消息时群保持空闲；只有用户删除群或终止未完成目标时，正常通信才停止。
 
 用户 `terminate` 原子进入 `closing`、保存 `outcome=incomplete`、取消剩余投递并停止相关运行；全部停止并核实后同样可进入 `closed`，但结果仍为未完成。
 
