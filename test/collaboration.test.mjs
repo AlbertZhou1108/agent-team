@@ -28,7 +28,11 @@ async function fixture(t, run) {
   const apply = command => bus.collaboration.apply(actor, command, bus.collaboration.state(group.id).revision, `op-${++op}`);
   const create = (extra = {}) => apply({ title: '成果', purpose: '满足目标', standard: '可复核', participants: [{ memberId: members[1].id, role: 'executor' }, { memberId: members[2].id, role: 'reviewer' }], note: '派发', ...extra }).item;
   const update = (item, change) => apply({ id: item.id, itemRevision: bus.collaboration.item(item.id, group.id).revision, note: '依据证据推进', ...change }).item;
-  const report = (member, text) => bus.store.append(group.id, member.id, group.lead, 'send', text);
+  const report = (member, text) => {
+    const message = bus.store.append(group.id, member.id, group.lead, 'send', text);
+    bus.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, null, bus.collaboration.state(group.id).contract_version);
+    return message;
+  };
   return { bus, group, directory, spec, members, actor, apply, create, update, report, calls };
 }
 

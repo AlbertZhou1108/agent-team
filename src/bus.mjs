@@ -4,7 +4,7 @@ import { statSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
-import { Collaboration } from './collaboration.mjs';
+import { Collaboration, roleNameKey } from './collaboration.mjs';
 
 export class Bus extends EventEmitter {
   constructor({ directory, hosts, confirm = async () => false }) {
@@ -49,8 +49,9 @@ export class Bus extends EventEmitter {
     const names = new Set();
     for (const person of people) {
       this.requireHost(person.host);
-      if (!person.name?.trim() || person.name.length > 100 || names.has(person.name)) throw new Error('成员名称为空、重复或过长');
-      names.add(person.name);
+      const key = person.name?.trim() ? roleNameKey(person.name) : '';
+      if (!key || person.name.length > 100 || names.has(key)) throw new Error('成员名称为空、重复或过长');
+      names.add(key);
     }
     return this.collaboration.prepare({ name, workspace, lead, members, ...(existingGroupId ? { existingGroupId } : {}) });
   }
@@ -65,6 +66,7 @@ export class Bus extends EventEmitter {
       for (const person of people) {
         const memberId = randomUUID();
         this.store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', memberId, id, person.name, person.host, person.role);
+        this.collaboration.reserveMemberName(id, memberId, person.name);
         if (person.role === 'lead') this.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
       }
       return this.store.group(id);
@@ -74,15 +76,21 @@ export class Bus extends EventEmitter {
   }
   members(groupId) { this.store.group(groupId); return this.store.all('SELECT * FROM members WHERE group_id=? AND removed IS NULL ORDER BY rowid', groupId); }
   resolveMember(groupId, value) {
-    const member = this.store.get('SELECT * FROM members WHERE group_id=? AND (id=? OR name=?) AND removed IS NULL', groupId, value, value);
+    const member = this.store.get('SELECT * FROM members WHERE group_id=? AND id=? AND removed IS NULL', groupId, value)
+      ?? this.store.get(`SELECT m.* FROM members m JOIN role_names r ON r.member_id=m.id
+        WHERE m.group_id=? AND m.removed IS NULL AND r.name_key=?`, groupId, roleNameKey(value));
     if (!member) throw new Error(`群内找不到成员: ${value}`);
     return member;
   }
   async addMember(groupId, { name, host }) {
     this.collaboration.requireActive(groupId); this.requireHost(host);
     if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
+    const state = this.collaboration.state(groupId);
     const id = randomUUID();
-    this.store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', id, groupId, name, host, 'member');
+    this.store.transaction(() => {
+      this.store.run('INSERT INTO members(id,group_id,name,host,role,joined_goal_version) VALUES(?,?,?,?,?,?)', id, groupId, name.trim(), host, 'member', state.goal_version);
+      this.collaboration.reserveMemberName(groupId, id, name);
+    });
     this.introduce(this.store.member(id));
     return this.store.member(id);
   }
@@ -90,7 +98,8 @@ export class Bus extends EventEmitter {
     const member = this.resolveMember(groupId, memberId);
     if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
     if (this.collaboration.read(groupId).items.some(i => !['accepted', 'cancelled'].includes(i.state) && i.participants.some(p => p.memberId === member.id))) throw new Error('成员仍有未完成责任，请先重新分配工作');
-    this.store.run('UPDATE members SET removed=? WHERE id=?', new Date().toISOString(), member.id);
+    const state = this.collaboration.state(groupId);
+    this.store.run('UPDATE members SET removed=?,removed_goal_version=? WHERE id=?', new Date().toISOString(), state?.goal_version ?? null, member.id);
     await this.stopWhere(endpoint => endpoint.member_id === member.id);
     return { removed: member.id };
   }
@@ -114,7 +123,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
 成员要由用户确认后加入；不要自行扩充团队。不需要回复时可以沉默，避免无意义的相互致谢。
 主 Agent的团队消息统一进入coordination会话；用户私聊独立，不能直接派工。工作项由主 Agent调度会话维护，成员用send自然语言汇报。契约不可自行修改，需用户批准。
 收到汇报后依据目标缺口决定继续、等待、接受或收尾，不必回复致谢。不存在固定讨论轮数。
-目标完成后群仍可继续沟通。后续消息只用于交流、解释结果和追问；不得改写已验收工作项、重新派工、执行命令、读写项目、重复收尾或扩大原契约权限。新的执行目标需要用户重新确认。
+目标完成或失败终止后，群仍可继续沟通。后续消息只用于交流、解释结果和追问；不得改写上一目标的工作项、重新派工、执行命令、读写项目、重复收尾或扩大原契约权限。用户明确要求下一项执行任务时，只能调用next_goal_request提交完整新契约，等待用户批准后启动新的目标版本；聊天内容本身不会自动成为新目标。
 团队唤醒由框架负责。不得创建、等待、打断或管理 Codex 原生子 Agent；不要调用 spawn/wait/agent 类原生协同工具。需要等待新信息时只结束当前回合，不要阻塞等待；框架会把下一条群消息作为同一个调度会话的新回合投递。
 当前有效契约与执行状态：${JSON.stringify(this.collaboration.read(member.group_id))}`;
   }
@@ -156,6 +165,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       return result;
     }
     if (name === 'contract_change_request') return this.collaboration.request(groupId, 'contract', { contract: JSON.parse(args.contract), reason: args.reason });
+    if (name === 'next_goal_request') return this.collaboration.request(groupId, 'next_goal', { contract: JSON.parse(args.contract), reason: args.reason });
     if (name === 'finish_withdraw') { this.collaboration.reopen(groupId, args.reason); return { phase: 'active' }; }
     if (name === 'members') return this.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
     if (name === 'read') {
@@ -371,7 +381,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       sessionBindings,
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.running.values()].filter(({ endpoint }) => endpoint.context !== 'private').map(({ endpoint }) => endpoint.id),
-      collaboration: this.store.all('SELECT group_id,phase,outcome,revision FROM team_state'),
+      collaboration: this.store.all('SELECT group_id,goal_version,phase,outcome,revision FROM team_state'),
     };
   }
   async close() {

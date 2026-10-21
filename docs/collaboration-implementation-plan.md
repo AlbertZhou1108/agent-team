@@ -19,8 +19,9 @@
 | 用户私聊和公开执行记录隔离 | Bus、Server、面板 API | 完成 |
 | 三宿主沟通、只读、允许修改策略装配 | `src/hosts/*` | 完成 |
 | Codex 原生子 Agent/wait 绕过防护 | Codex Adapter | 完成 |
-| `active → closing → closed`、遗留消息处置、完成目标后保持群通信 | Collaboration、Bus | 完成 |
+| 单活动目标、目标版本复用、遗留消息处置、结束后保持群通信 | Collaboration、Bus | 完成 |
 | 重启待核实、用户终止、持久最终交付 | Collaboration、Bus | 完成 |
+| 角色名称历史唯一、删除后不复用身份或会话 | Collaboration、Bus | 完成 |
 | 契约、工作项、审查接受、收尾只读面板 | Vue 面板、HTTP API | 完成 |
 | 核心规则、前端、类型和构建检查 | `test/`、`web/` | 完成 |
 

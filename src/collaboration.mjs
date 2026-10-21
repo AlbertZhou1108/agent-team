@@ -5,6 +5,9 @@ const json = value => JSON.stringify(value);
 const parse = value => JSON.parse(value);
 const digest = value => createHash('sha256').update(json(value)).digest('hex');
 const modes = ['communication', 'read-only', 'workspace-write'];
+export function roleNameKey(name) {
+  return name.normalize('NFKC').trim().toLowerCase();
+}
 export function policyDomain(policy) {
   const mode = typeof policy === 'string' ? policy : policy?.mode;
   if (!modes.includes(mode)) throw new Error('未知执行策略');
@@ -42,22 +45,37 @@ export class Collaboration {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS preparations(id TEXT PRIMARY KEY,spec TEXT NOT NULL,contract TEXT,revision INTEGER NOT NULL DEFAULT 0,hash TEXT,session TEXT,key TEXT NOT NULL,group_id TEXT,created TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS contract_versions(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,version INTEGER NOT NULL,body TEXT NOT NULL,hash TEXT NOT NULL,approval TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(group_id,version));
-      CREATE TABLE IF NOT EXISTS team_state(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,revision INTEGER NOT NULL DEFAULT 1,contract_version INTEGER NOT NULL DEFAULT 1,phase TEXT NOT NULL DEFAULT 'active',outcome TEXT,final TEXT,finish_reason TEXT);
-      CREATE TABLE IF NOT EXISTS work_items(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,revision INTEGER NOT NULL,state TEXT NOT NULL,body TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS work_records(seq INTEGER PRIMARY KEY AUTOINCREMENT,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,work_item_id TEXT,type TEXT NOT NULL,body TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS team_state(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,revision INTEGER NOT NULL DEFAULT 1,goal_version INTEGER NOT NULL DEFAULT 1,contract_version INTEGER NOT NULL DEFAULT 1,phase TEXT NOT NULL DEFAULT 'active',outcome TEXT,final TEXT,finish_reason TEXT);
+      CREATE TABLE IF NOT EXISTS work_items(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,goal_version INTEGER NOT NULL DEFAULT 1,revision INTEGER NOT NULL,state TEXT NOT NULL,body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS work_records(seq INTEGER PRIMARY KEY AUTOINCREMENT,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,goal_version INTEGER NOT NULL DEFAULT 1,work_item_id TEXT,type TEXT NOT NULL,body TEXT NOT NULL,created TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS change_requests(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,base_version INTEGER NOT NULL,kind TEXT NOT NULL,body TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',created TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS collaboration_operations(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,id TEXT NOT NULL,hash TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(group_id,id));
       CREATE TABLE IF NOT EXISTS message_context(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,work_item_id TEXT,contract_version INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS message_dispositions(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,state TEXT NOT NULL,reason TEXT NOT NULL,created TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runtime_attempts(turn_id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,endpoint_id TEXT NOT NULL,state TEXT NOT NULL,policy TEXT NOT NULL,contract_version INTEGER NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
-      CREATE TABLE IF NOT EXISTS user_outputs(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,body TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS user_outputs(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,goal_version INTEGER NOT NULL DEFAULT 1,body TEXT NOT NULL,created TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS work_records_group ON work_records(group_id,seq);
       CREATE INDEX IF NOT EXISTS runtime_group ON runtime_attempts(group_id,state);
       CREATE TABLE IF NOT EXISTS endpoint_policy(endpoint_id TEXT PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,signature TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS endpoint_session_bindings(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
       CREATE TABLE IF NOT EXISTS endpoint_session_policies(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
       CREATE TABLE IF NOT EXISTS preparation_policy(preparation_id TEXT PRIMARY KEY REFERENCES preparations(id) ON DELETE CASCADE,signature TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS role_names(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name_key TEXT NOT NULL,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,PRIMARY KEY(group_id,name_key));
     `);
+    const ensureColumn = (table, name, definition) => {
+      if (!store.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        store.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    for (const table of ['team_state', 'work_items', 'work_records', 'user_outputs']) ensureColumn(table, 'goal_version', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn('members', 'joined_goal_version', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn('members', 'removed_goal_version', 'INTEGER');
+    for (const member of store.all('SELECT id,group_id,name FROM members ORDER BY rowid')) {
+      const key = roleNameKey(member.name);
+      const prior = store.get('SELECT member_id FROM role_names WHERE group_id=? AND name_key=?', member.group_id, key);
+      if (prior && prior.member_id !== member.id) throw new Error('历史成员名称规范化后重复，无法安全迁移角色名称');
+      store.run('INSERT OR IGNORE INTO role_names(group_id,name_key,member_id) VALUES(?,?,?)', member.group_id, key, member.id);
+    }
     // A missing in-memory process is not proof that an interrupted owner's host stopped.
     store.run("UPDATE runtime_attempts SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
   }
@@ -95,11 +113,11 @@ export class Collaboration {
   state(groupId) { return this.store.get('SELECT * FROM team_state WHERE group_id=?', groupId); }
   communicationOpen(groupId) {
     const s = this.state(groupId);
-    return s?.phase === 'active' || (s?.phase === 'closed' && s.outcome === 'completed');
+    return s?.phase === 'active' || s?.phase === 'closed';
   }
   communicationOnly(groupId) {
     const s = this.state(groupId);
-    return s?.phase === 'closed' && s.outcome === 'completed';
+    return s?.phase === 'closed';
   }
   requireActive(groupId) {
     const s = this.state(groupId);
@@ -115,6 +133,22 @@ export class Collaboration {
     if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能继续投递');
     return s;
   }
+  requireNextGoal(groupId) {
+    const s = this.state(groupId);
+    if (!s) throw new Error('旧群尚未确认目标契约，仅供查看');
+    if (s.phase !== 'closed' || !['completed', 'incomplete'].includes(s.outcome)) throw new Error('只有已经结束的当前目标可以启动下一版目标');
+    if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能启动下一版目标');
+    return s;
+  }
+  reserveMemberName(groupId, memberId, name) {
+    const key = roleNameKey(name);
+    try {
+      this.store.run('INSERT INTO role_names(group_id,name_key,member_id) VALUES(?,?,?)', groupId, key, memberId);
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE constraint failed: role_names')) throw new Error(`角色名称已被本团队历史使用：${name.trim()}`);
+      throw error;
+    }
+  }
   contract(groupId) {
     const s = this.state(groupId);
     if (!s) return null;
@@ -125,7 +159,11 @@ export class Collaboration {
   item(id, groupId) {
     const r = this.store.get('SELECT * FROM work_items WHERE id=? AND group_id=?', id, groupId);
     if (!r) throw new Error('工作项不属于当前群');
-    return { id: r.id, revision: r.revision, state: r.state, ...parse(r.body) };
+    return { id: r.id, goalVersion: r.goal_version, revision: r.revision, state: r.state, ...parse(r.body) };
+  }
+  currentItems(groupId, state = this.state(groupId)) {
+    return this.store.all('SELECT id FROM work_items WHERE group_id=? AND goal_version=? ORDER BY rowid', groupId, state.goal_version)
+      .map(row => this.item(row.id, groupId));
   }
   read(groupId, after = 0) {
     this.store.group(groupId);
@@ -138,14 +176,18 @@ export class Collaboration {
       records, nextAfter: records.at(-1)?.seq ?? after, unknown: this.unknown(groupId),
       pendingMessages: this.pending(groupId),
       runningCount: this.store.get("SELECT COUNT(*) AS n FROM runtime_attempts WHERE group_id=? AND state='running'", groupId).n,
-      outputs: this.store.all('SELECT id,body,created FROM user_outputs WHERE group_id=? ORDER BY rowid', groupId),
+      outputs: this.store.all('SELECT id,goal_version,body,created FROM user_outputs WHERE group_id=? ORDER BY rowid', groupId)
+        .map(row => ({ id: row.id, goalVersion: row.goal_version, body: row.body, created: row.created })),
     };
   }
-  record(groupId, itemId, type, body) { this.store.run('INSERT INTO work_records(group_id,work_item_id,type,body,created) VALUES(?,?,?,?,?)', groupId, itemId, type, json(body), now()); }
+  record(groupId, itemId, type, body) {
+    const goalVersion = this.state(groupId)?.goal_version ?? 1;
+    this.store.run('INSERT INTO work_records(group_id,goal_version,work_item_id,type,body,created) VALUES(?,?,?,?,?,?)', groupId, goalVersion, itemId, type, json(body), now());
+  }
   messageContext(groupId, itemId) {
     const s = this.requireCommunication(groupId);
-    if (itemId && this.communicationOnly(groupId)) throw new Error('目标已完成，后续沟通不能关联旧工作项');
-    if (itemId) this.item(itemId, groupId);
+    if (itemId && this.communicationOnly(groupId)) throw new Error('目标已经结束，后续沟通不能关联旧工作项');
+    if (itemId && this.item(itemId, groupId).goalVersion !== s.goal_version) throw new Error('工作项不属于当前目标');
     return { workItemId: itemId ?? null, contractVersion: s.contract_version };
   }
   policy(endpoint, inputs = []) {
@@ -159,7 +201,8 @@ export class Collaboration {
         domain: 'communication',
         contractVersion: contract.version,
         boundary: contract.body.boundary,
-        goalCompleted: true,
+        goalCompleted: state.outcome === 'completed',
+        goalOutcome: state.outcome,
       };
     }
     const effective = message => {
@@ -200,8 +243,10 @@ export class Collaboration {
     });
   }
   updateItem(groupId, c) {
+    const goalState = this.requireActive(groupId);
     const creating = !c.id;
     const previous = creating ? null : this.item(c.id, groupId);
+    if (previous && previous.goalVersion !== goalState.goal_version) throw new Error('工作项属于先前的目标，不能修改');
     if (!creating && c.itemRevision !== previous.revision) throw new Error('工作项版本冲突');
     const id = c.id ?? randomUUID();
     const state = c.state ?? previous?.state ?? 'pending';
@@ -231,6 +276,8 @@ export class Collaboration {
     const message = mid => {
       const m = this.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', mid, groupId);
       if (!m || m.kind !== 'send') throw new Error('引用消息不属于本群正式汇报');
+      const context = this.store.get('SELECT contract_version FROM message_context WHERE message_id=?', mid);
+      if (context?.contract_version !== this.contract(groupId).version) throw new Error('消息不属于当前目标契约版本');
       return m;
     };
     for (const mid of body.evidence) {
@@ -253,20 +300,23 @@ export class Collaboration {
       text(c.cancellation.reason, '取消依据');
       if (c.cancellation.kind === 'covered') {
         if (!c.cancellation.by?.length) throw new Error('需要覆盖责任的其他工作项');
-        for (const other of c.cancellation.by) if (other === id || this.item(other, groupId).state !== 'accepted') throw new Error('覆盖项必须是其他已接受成果');
+        for (const other of c.cancellation.by) {
+          const target = this.item(other, groupId);
+          if (other === id || target.goalVersion !== goalState.goal_version || target.state !== 'accepted') throw new Error('覆盖项必须是当前目标的其他已接受成果');
+        }
       }
       body.cancellation = c.cancellation;
     } else if (previous?.cancellation) body.cancellation = previous.cancellation;
     const next = (previous?.revision ?? 0) + 1;
-    if (creating) this.store.run('INSERT INTO work_items VALUES(?,?,?,?,?)', id, groupId, next, state, json(body));
+    if (creating) this.store.run('INSERT INTO work_items(id,group_id,goal_version,revision,state,body) VALUES(?,?,?,?,?,?)', id, groupId, goalState.goal_version, next, state, json(body));
     else this.store.run('UPDATE work_items SET revision=?,state=?,body=? WHERE id=?', next, state, json(body), id);
     this.record(groupId, id, 'work_item', { actor: 'lead', from: previous?.state ?? null, state, note: c.note ?? '', itemRevision: next, body });
     return { item: this.item(id, groupId) };
   }
   request(groupId, kind, body) {
-    const s = this.requireActive(groupId);
+    const s = kind === 'next_goal' ? this.requireNextGoal(groupId) : this.requireActive(groupId);
     const id = randomUUID();
-    if (kind === 'contract') body = { contract: validateContract(body.contract), reason: text(body.reason, '变更原因') };
+    if (kind === 'contract' || kind === 'next_goal') body = { contract: validateContract(body.contract), reason: text(body.reason, kind === 'next_goal' ? '新目标理由' : '变更原因') };
     else if (kind !== 'member_add') throw new Error('未知确认请求');
     this.store.run('INSERT INTO change_requests(id,group_id,base_version,kind,body,created) VALUES(?,?,?,?,?,?)', id, groupId, s.contract_version, kind, json(body), now());
     return { requestId: id, state: 'pending', requiresUser: true };
@@ -275,13 +325,17 @@ export class Collaboration {
     return this.store.transaction(() => {
       const r = this.store.get('SELECT * FROM change_requests WHERE id=? AND group_id=?', id, groupId);
       if (!r || r.state !== 'pending') throw new Error('待确认请求不存在');
-      const s = this.requireActive(groupId);
+      const s = r.kind === 'next_goal' ? this.requireNextGoal(groupId) : this.requireActive(groupId);
       if (s.contract_version !== version || r.base_version !== version) throw new Error('确认基准版本已过期');
       if (approved && hasRunning) throw new Error('请先收束当前回合，再批准变更');
       if (approved && r.kind === 'contract') {
         const body = parse(r.body).contract;
         this.store.run('INSERT INTO contract_versions VALUES(?,?,?,?,?,?)', groupId, version + 1, json(body), digest(body), json({ requestId: id, source: 'local-user' }), now());
         this.store.run('UPDATE team_state SET contract_version=contract_version+1,revision=revision+1 WHERE group_id=?', groupId);
+      } else if (approved && r.kind === 'next_goal') {
+        const body = parse(r.body).contract;
+        this.store.run('INSERT INTO contract_versions VALUES(?,?,?,?,?,?)', groupId, version + 1, json(body), digest(body), json({ requestId: id, source: 'local-user', goalVersion: s.goal_version + 1 }), now());
+        this.store.run("UPDATE team_state SET goal_version=goal_version+1,contract_version=contract_version+1,phase='active',outcome=NULL,final=NULL,finish_reason=NULL,revision=revision+1 WHERE group_id=?", groupId);
       }
       this.store.run('UPDATE change_requests SET state=? WHERE id=?', approved ? 'approved' : 'rejected', id);
       this.record(groupId, null, 'user_decision', { requestId: id, approved, kind: r.kind, version });
@@ -291,7 +345,7 @@ export class Collaboration {
   finish(groupId, c) {
     if (c.outcome !== 'completed') throw new Error('未完成终止需要用户通过terminate明确决定');
     text(c.final, '最终交付'); text(c.note, '收尾理由');
-    const items = this.read(groupId).items;
+    const items = this.currentItems(groupId);
     if (items.some(i => !['accepted', 'cancelled'].includes(i.state))) throw new Error('仍有未关闭工作项');
     for (const criterion of this.contract(groupId).body.criteria) {
       const ids = c.coverage?.[criterion.id];
@@ -327,7 +381,7 @@ export class Collaboration {
     if (!s || s.phase !== 'closing' || running || this.unknown(groupId).length || this.pending(groupId).length) return false;
     this.store.transaction(() => {
       this.store.run("UPDATE team_state SET phase='closed',revision=revision+1 WHERE group_id=?", groupId);
-      this.store.run('INSERT INTO user_outputs VALUES(?,?,?,?)', randomUUID(), groupId, s.final ?? s.finish_reason, now());
+      this.store.run('INSERT INTO user_outputs(id,group_id,goal_version,body,created) VALUES(?,?,?,?,?)', randomUUID(), groupId, s.goal_version, s.final ?? s.finish_reason, now());
       this.record(groupId, null, 'closed', { outcome: s.outcome });
     });
     return true;

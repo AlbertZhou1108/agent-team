@@ -37,9 +37,9 @@ flowchart TD
 | --- | --- |
 | `preparations` | 建群准备、契约草案、revision、hash、准备会话与最终群 |
 | `contract_versions` | 群、版本、契约正文、hash、用户确认来源 |
-| `team_state` | 整体 revision、有效契约版本、当前目标执行阶段 `active/closing/closed`、目标结果和最终交付 |
-| `work_items` | 工作项 revision、状态和已校验正文 |
-| `work_records` | 追加式工作项、接受、用户决定、收尾和关闭记录 |
+| `team_state` | 整体 revision、目标版本、有效契约版本、当前目标执行阶段、目标结果和最终交付 |
+| `work_items` | 目标版本、工作项 revision、状态和已校验正文 |
+| `work_records` | 目标版本、追加式工作项、接受、用户决定、收尾和关闭记录 |
 | `change_requests` | 契约与成员变更提案、基准版本和用户决定 |
 | `collaboration_operations` | `operationId` 的命令 hash 与幂等结果 |
 | `runtime_attempts` | 每个框架回合的宿主运行、策略、契约版本及结束状态 |
@@ -48,7 +48,8 @@ flowchart TD
 | `outbox`、`attached` | 待投递输入、宿主接受边界与消息附件关系 |
 | `turns`、`native_turn_refs` | 框架回合、宿主会话及可用的原生回合引用 |
 | `history`、`message_origins` | 宿主事件、工具调用/结果和消息发送锚点 |
-| `user_outputs` | 当前目标完成后持久化的最终用户交付 |
+| `user_outputs` | 按目标版本持久化的最终用户交付 |
+| `role_names` | 团队历史中规范化后唯一的角色名称，删除角色后仍保留 |
 | `endpoint_session_bindings` | endpoint 与 Adapter 提供会话域之间的物理 session/thread 绑定 |
 | `endpoint_session_policies` | 每个会话域最近一次实际应用的能力签名 |
 
@@ -205,6 +206,12 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 `closed` 表示当前目标结束，不表示群被删除或停用。`outcome=completed` 时，`communicationOpen` 保持为真：新消息继续保存、排队和投递，但 `policy()` 强制使用 `communication`、禁止命令，消息不能关联旧工作项。主 Agent仍可解释成果和追问，但不能通过管理工具重新派工、重开已验收成果或改写最终交付。没有新消息时群保持空闲；只有用户删除群或终止未完成目标时，正常通信才停止。
 
 用户 `terminate` 原子进入 `closing`、保存 `outcome=incomplete`、取消剩余投递并停止相关运行；全部停止并核实后同样可进入 `closed`，但结果仍为未完成。
+
+`next_goal_request` 用于在 `closed + completed|incomplete` 后提交完整新契约。用户批准时，事务增加目标版本和契约版本，将阶段重置为 `active`，清空当前目标的 outcome、final 和 finish reason；旧工作项与 `user_outputs` 保持原目标版本。聊天本身不会触发该事务。
+
+同一时间只允许一个 `active` 目标。工作项创建、修改、完成条件覆盖和证据引用都绑定当前 `goal_version`；跨目标修改或拿旧成果覆盖新目标是错误。历史工作项和交付在新目标启动后只读。
+
+角色名称以 NFKC、去首尾空白和小写规范化后存入 `role_names`。角色删除只软删除成员并撤销端点，名称与历史记录永久保留；没有恢复接口。新增角色必须使用新名称、成员 ID 和宿主会话。
 
 ## 9. 只读 HTTP 与面板
 
