@@ -5,6 +5,12 @@ import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { Collaboration, roleNameKey } from './collaboration.mjs';
+import {
+  DEFAULT_USER_MODEL_RULES,
+  SMART_COST_RULES,
+  SMART_PERFORMANCE_RULES,
+  normalizeModelPolicy,
+} from './model-policy.mjs';
 
 export class Bus extends EventEmitter {
   constructor({ directory, hosts, confirm = async () => false }) {
@@ -20,6 +26,8 @@ export class Bus extends EventEmitter {
     this.running = new Map();
     this.closing = false;
     this.preparing = new Map();
+    this.modelCatalogCache = null;
+    this.modelCatalogPending = null;
   }
   start() {
     // Serving the panel does not implicitly resume historical work.
@@ -32,7 +40,183 @@ export class Bus extends EventEmitter {
     const support = host?.supportsPolicy?.({ member, policy }) ?? { supported: true };
     if (support === false || support.supported === false) throw new Error(`${member.name}（${member.host}）不支持${policy.mode}${policy.allowShell ? ' + 命令' : ''}：${support.reason ?? '宿主能力不足'}`);
   }
-  prepareGroup({ name, workspace, lead, members = [], existingGroupId }) {
+  async modelCatalog({ refresh = false } = {}) {
+    if (!refresh && this.modelCatalogCache && Date.now() - this.modelCatalogCache.created < 30000) {
+      return { ...this.modelCatalogCache.value, cached: true };
+    }
+    if (!refresh && this.modelCatalogPending) return this.modelCatalogPending;
+    this.modelCatalogPending = (async () => {
+      const hosts = await Promise.all([...this.hosts].map(async ([hostName, host]) => {
+        if (typeof host.listModels !== 'function') {
+          return { host: hostName, ok: false, error: '宿主适配器未提供模型目录' };
+        }
+        let timer;
+        try {
+          const catalog = await Promise.race([
+            Promise.resolve().then(() => host.listModels()),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error('模型目录探测超时')), 25000);
+            }),
+          ]);
+          return { host: hostName, ok: true, catalog };
+        } catch (error) {
+          return { host: hostName, ok: false, error: error instanceof Error ? error.message : String(error) };
+        } finally {
+          clearTimeout(timer);
+        }
+      }));
+      const value = { version: 1, generatedAt: new Date().toISOString(), hosts };
+      this.modelCatalogCache = { created: Date.now(), value };
+      return { ...value, cached: false };
+    })();
+    try {
+      return await this.modelCatalogPending;
+    } finally {
+      this.modelCatalogPending = null;
+    }
+  }
+  modelPolicy(groupId) {
+    this.store.group(groupId);
+    return this.store.get('SELECT mode,rules,created,updated FROM team_model_policy WHERE group_id=?', groupId);
+  }
+  updateModelPolicy(groupId, value) {
+    this.store.group(groupId);
+    const policy = normalizeModelPolicy(value);
+    this.store.run(
+      'UPDATE team_model_policy SET mode=?,rules=?,updated=? WHERE group_id=?',
+      policy.mode,
+      policy.rules,
+      new Date().toISOString(),
+      groupId,
+    );
+    return this.modelPolicy(groupId);
+  }
+  defaultModelSelection(hostName) {
+    const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
+    if (!cached) return null;
+    const catalog = cached.catalog;
+    const model = catalog.models.find(item => item.key === catalog.defaultModel)
+      ?? catalog.models.find(item => item.isDefault)
+      ?? catalog.models[0];
+    if (!model) return null;
+    return {
+      model_provider: model.provider ?? null,
+      model: model.id,
+      reasoning_effort: model.defaultReasoningEffort ?? null,
+    };
+  }
+  validateRolePlan(roles, spec, catalog) {
+    if (!Array.isArray(roles)) throw new Error('角色模型计划必须是数组');
+    const expected = new Map((spec.members ?? []).map(member => [roleNameKey(member.name), member]));
+    const seen = new Set();
+    return roles.map(role => {
+      const key = roleNameKey(role?.name ?? '');
+      const member = expected.get(key);
+      if (!member) throw new Error(`角色模型计划包含未知角色: ${role?.name ?? ''}`);
+      if (seen.has(key)) throw new Error(`角色模型计划重复包含: ${member.name}`);
+      seen.add(key);
+      const model = typeof role.model === 'string' ? role.model.trim() : '';
+      if (!model) throw new Error(`${member.name}缺少model`);
+      const host = catalog.hosts.find(item => item.host === member.host && item.ok && item.catalog);
+      if (!host) throw new Error(`${member.name}的宿主没有可用模型目录`);
+      const candidates = host.catalog.models.filter(item => item.id === model);
+      const provider = typeof role.model_provider === 'string' && role.model_provider.trim()
+        ? role.model_provider.trim()
+        : null;
+      const selected = candidates.find(item => !provider || item.provider === provider);
+      if (!selected) throw new Error(`${member.name}选择的模型不在${member.host}目录中: ${model}`);
+      const supported = selected.reasoningEfforts.length
+        ? selected.reasoningEfforts
+        : host.catalog.reasoningEfforts;
+      const effort = typeof role.reasoning_effort === 'string' && role.reasoning_effort.trim()
+        ? role.reasoning_effort.trim()
+        : selected.defaultReasoningEffort ?? null;
+      if (!effort) throw new Error(`${member.name}需要明确reasoning_effort`);
+      if (supported.length && !supported.some(item => item.id === effort)) {
+        throw new Error(`${member.name}选择的思考强度不受支持: ${effort}`);
+      }
+      return {
+        name: member.name,
+        host: member.host,
+        model_provider: selected.provider ?? provider,
+        model: selected.id,
+        reasoning_effort: effort,
+      };
+    }).map((planned, index, all) => {
+      if (index === all.length - 1 && seen.size !== expected.size) {
+        const missing = [...expected.values()].filter(member => !seen.has(roleNameKey(member.name))).map(member => member.name);
+        throw new Error(`角色模型计划缺少角色: ${missing.join(', ')}`);
+      }
+      return planned;
+    });
+  }
+  async ensureRolePlan(preparation, host) {
+    if (!preparation.contract || !(preparation.spec.members ?? []).length || preparation.rolePlan) return preparation;
+    const catalog = await this.modelCatalog({ refresh: true });
+    const compactCatalog = {
+      hosts: catalog.hosts.map(item => ({
+        host: item.host,
+        ok: item.ok,
+        error: item.error,
+        models: item.catalog?.models.map(model => ({
+          id: model.id,
+          label: model.label,
+          provider: model.provider ?? null,
+          reasoningEfforts: model.reasoningEfforts.map(effort => effort.id),
+          defaultReasoningEffort: model.defaultReasoningEffort ?? null,
+          isDefault: model.isDefault,
+        })),
+      })),
+    };
+    const key = this.store.get('SELECT key FROM preparations WHERE id=?', preparation.id).key;
+    let correction = '';
+    let lastError;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const text = await host.run({
+        endpoint: {
+          id: `preparation-plan:${preparation.id}:${attempt}`,
+          key,
+          session: null,
+          context: 'preparation-plan',
+          group_id: null,
+        },
+        turnId: randomUUID(),
+        workspace: preparation.spec.workspace,
+        prompt: `请为以下普通角色制定最终模型计划。\n团队模型策略：${JSON.stringify({ mode: preparation.spec.modelMode, rules: preparation.spec.modelRules })}\n角色：${JSON.stringify(preparation.spec.members.map(member => ({ name: member.name, host: member.host })))}\n实时模型目录：${JSON.stringify(compactCatalog)}\n只返回JSON对象，格式为{"roles":[{"name":"角色名","model_provider":null或provider,"model":"目录中的id","reasoning_effort":"目录支持强度"}]}。必须覆盖全部普通角色，每个角色都必须明确给出reasoning_effort，不得选择目录外模型，不得输出解释。${correction}`,
+        instructions: '你是负责普通角色模型配置的主 Agent。只依据给定模型目录和团队规则输出严格 JSON，不调用工具，不修改项目。',
+        tools: [],
+        policy: { mode: 'communication', contractVersion: 0 },
+        previousPolicy: null,
+        signal: new AbortController().signal,
+        modelSelection: null,
+        onSession() {},
+        onAccepted() {},
+        onNativeTurn() {},
+        onModel() {},
+        onSelection() {},
+        onEvent() {},
+        onTool: async () => { throw new Error('模型规划会话不能调用工具'); },
+      });
+      try {
+        const body = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        const start = body.indexOf('{');
+        const end = body.lastIndexOf('}');
+        if (start < 0 || end < start) throw new Error('主 Agent模型规划没有返回JSON');
+        const parsed = JSON.parse(body.slice(start, end + 1));
+        return this.collaboration.setRolePlan(
+          preparation.id,
+          preparation.revision,
+          parsed.roles,
+          (roles, spec) => this.validateRolePlan(roles, spec, catalog),
+        );
+      } catch (error) {
+        lastError = error;
+        correction = `\n上一次计划被框架拒绝，原因：${error.message}。请修正并只返回完整JSON。`;
+      }
+    }
+    throw lastError;
+  }
+  prepareGroup({ name, workspace, lead, members = [], existingGroupId, modelMode, modelRules }) {
     if (existingGroupId) {
       const g = this.store.group(existingGroupId);
       if (this.collaboration.state(g.id)) throw new Error('该群已有目标契约');
@@ -46,6 +230,7 @@ export class Bus extends EventEmitter {
     workspace = resolve(workspace);
     if (!statSync(workspace).isDirectory()) throw new Error('工作目录无效');
     const people = [{ ...lead, role: 'lead' }, ...members.map(member => ({ ...member, role: 'member' }))];
+    const policy = normalizeModelPolicy({ mode: modelMode, rules: modelRules });
     const names = new Set();
     for (const person of people) {
       this.requireHost(person.host);
@@ -53,10 +238,20 @@ export class Bus extends EventEmitter {
       if (!key || person.name.length > 100 || names.has(key)) throw new Error('成员名称为空、重复或过长');
       names.add(key);
     }
-    return this.collaboration.prepare({ name, workspace, lead, members, ...(existingGroupId ? { existingGroupId } : {}) });
+    return this.collaboration.prepare({
+      name,
+      workspace,
+      lead,
+      members,
+      modelMode: policy.mode,
+      modelRules: policy.rules,
+      ...(existingGroupId ? { existingGroupId } : {}),
+    });
   }
   createGroup() { throw new Error('请先准备并由用户确认目标契约，再创建团队'); }
   confirmPreparation(id, revision, hash) {
+    const preparation = this.collaboration.preparation(id);
+    const planned = new Map((preparation.rolePlan?.roles ?? []).map(role => [roleNameKey(role.name), role]));
     const group = this.collaboration.confirmPreparation(id, revision, hash, spec => {
       if (spec.existingGroupId) return this.store.group(spec.existingGroupId);
       const { name, workspace, lead, members } = spec;
@@ -65,7 +260,21 @@ export class Bus extends EventEmitter {
       this.store.run('INSERT INTO groups VALUES(?,?,?,?,?)', id, name, workspace, null, new Date().toISOString());
       for (const person of people) {
         const memberId = randomUUID();
-        this.store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', memberId, id, person.name, person.host, person.role);
+        const roleSelection = person.role === 'lead'
+          ? preparation.sessionModel
+          : planned.get(roleNameKey(person.name));
+        const selection = roleSelection ?? this.defaultModelSelection(person.host);
+        this.store.run(
+          'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
+          memberId,
+          id,
+          person.name,
+          person.host,
+          person.role,
+          selection?.model_provider ?? null,
+          selection?.model ?? null,
+          selection?.reasoning_effort ?? null,
+        );
         this.collaboration.reserveMemberName(id, memberId, person.name);
         if (person.role === 'lead') this.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
       }
@@ -82,13 +291,35 @@ export class Bus extends EventEmitter {
     if (!member) throw new Error(`群内找不到成员: ${value}`);
     return member;
   }
-  async addMember(groupId, { name, host }) {
+  async addMember(groupId, { name, host, model_provider, model, reasoning_effort }) {
     this.collaboration.requireActive(groupId); this.requireHost(host);
     if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
     const state = this.collaboration.state(groupId);
+    let selection = model
+      ? { model_provider: model_provider ?? null, model, reasoning_effort }
+      : this.defaultModelSelection(host);
+    if (model) {
+      const catalog = await this.modelCatalog({ refresh: true });
+      [selection] = this.validateRolePlan(
+        [{ name, host, model_provider, model, reasoning_effort }],
+        { members: [{ name, host }] },
+        catalog,
+      );
+    }
     const id = randomUUID();
     this.store.transaction(() => {
-      this.store.run('INSERT INTO members(id,group_id,name,host,role,joined_goal_version) VALUES(?,?,?,?,?,?)', id, groupId, name.trim(), host, 'member', state.goal_version);
+      this.store.run(
+        'INSERT INTO members(id,group_id,name,host,role,joined_goal_version,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?,?)',
+        id,
+        groupId,
+        name.trim(),
+        host,
+        'member',
+        state.goal_version,
+        selection?.model_provider ?? null,
+        selection?.model ?? null,
+        selection?.reasoning_effort ?? null,
+      );
       this.collaboration.reserveMemberName(groupId, id, name);
     });
     this.introduce(this.store.member(id));
@@ -125,6 +356,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
 收到汇报后依据目标缺口决定继续、等待、接受或收尾，不必回复致谢。不存在固定讨论轮数。
 目标完成或失败终止后，群仍可继续沟通。后续消息只用于交流、解释结果和追问；不得改写上一目标的工作项、重新派工、执行命令、读写项目、重复收尾或扩大原契约权限。用户明确要求下一项执行任务时，只能调用next_goal_request提交完整新契约，等待用户批准后启动新的目标版本；聊天内容本身不会自动成为新目标。
 团队唤醒由框架负责。不得创建、等待、打断或管理 Codex 原生子 Agent；不要调用 spawn/wait/agent 类原生协同工具。需要等待新信息时只结束当前回合，不要阻塞等待；框架会把下一条群消息作为同一个调度会话的新回合投递。
+团队模型策略：${JSON.stringify(this.modelPolicy(member.group_id))}。主 Agent继承当前会话模型；普通角色必须从model_catalog实时目录选择，并严格按mode与rules决定。
 当前有效契约与执行状态：${JSON.stringify(this.collaboration.read(member.group_id))}`;
   }
   introduce(member) {
@@ -156,6 +388,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const member = this.store.member(endpoint.member_id);
     validateTool(member.role, name, args, endpoint.context);
     const groupId = member.group_id;
+    if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
     if (name === 'collaboration_read') return this.collaboration.read(groupId, args.after ?? 0);
     if (name === 'work_item_update' || name === 'team_finish') {
       const command = JSON.parse(args.command);
@@ -198,7 +431,33 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
         this.requireHost(host);
         return { name, host };
       });
-      return this.prepareGroup({ name: args.name, workspace: args.workspace, lead: { name: member.name, host: member.host }, members: people });
+      const preparation = this.prepareGroup({
+        name: args.name,
+        workspace: args.workspace,
+        lead: { name: member.name, host: member.host },
+        members: people,
+        modelMode: args.model_mode,
+        modelRules: args.model_rules,
+      });
+      if (member.model) {
+        this.collaboration.updateSessionModel(preparation.id, {
+          model_provider: member.model_provider ?? null,
+          model: member.model,
+          reasoning_effort: member.reasoning_effort ?? null,
+        });
+      }
+      if (args.roles) {
+        const parsed = JSON.parse(args.roles);
+        const roles = Array.isArray(parsed) ? parsed : parsed?.roles;
+        const catalog = await this.modelCatalog({ refresh: true });
+        this.collaboration.setRolePlan(
+          preparation.id,
+          preparation.revision,
+          roles,
+          (candidate, spec) => this.validateRolePlan(candidate, spec, catalog),
+        );
+      }
+      return this.collaboration.preparation(preparation.id);
     }
     if (name === 'group_add') {
       this.requireHost(args.host);
@@ -294,6 +553,11 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const promise = Promise.resolve().then(() => host.run({
       endpoint: effectiveEndpoint, turnId, workspace: group.workspace, prompt: text, instructions: this.rules(endpoint),
       tools: toolsFor(member.role, endpoint.context), policy, previousPolicy, signal: abort.signal,
+      modelSelection: {
+        model_provider: member.model_provider ?? null,
+        model: member.model ?? null,
+        reasoning_effort: member.reasoning_effort ?? null,
+      },
       onAccepted: () => { onAccepted(); this.store.history(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
       onNativeTurn: ref => { this.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
       onTool: (name, args, metadata = {}) => this.tool(endpoint.id, endpoint.key, name, args, { ...metadata, turnId }),
@@ -305,6 +569,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
         this.store.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
       },
       onModel: observation => { this.store.history(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
+      onSelection: selection => { if (selection?.model) this.store.history(endpoint.id, { type: 'framework.model_selection', ...selection }, turnId); },
       onPolicy: observation => {
         if (observation.signature) {
           this.store.run('INSERT INTO endpoint_session_policies VALUES(?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET signature=excluded.signature', endpoint.id, sessionKey, observation.signature);
@@ -379,6 +644,14 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       members: this.store.all('SELECT * FROM members ORDER BY rowid'),
       endpoints,
       sessionBindings,
+      modelPolicies: this.store.all('SELECT group_id,mode,rules,created,updated FROM team_model_policy ORDER BY created'),
+      modelPolicyDefaults: {
+        smart: {
+          performance: SMART_PERFORMANCE_RULES,
+          cost: SMART_COST_RULES,
+        },
+        user: DEFAULT_USER_MODEL_RULES,
+      },
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.running.values()].filter(({ endpoint }) => endpoint.context !== 'private').map(({ endpoint }) => endpoint.id),
       collaboration: this.store.all('SELECT group_id,goal_version,phase,outcome,revision FROM team_state'),
@@ -407,6 +680,18 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     validateTool('preparation', name, args);
     if (name === 'preparation_read') return this.collaboration.preparation(id);
     if (name === 'contract_propose') return this.collaboration.propose(id, JSON.parse(args.contract), args.revision);
+    if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
+    if (name === 'team_plan_update') {
+      const parsed = JSON.parse(args.roles);
+      const roles = Array.isArray(parsed) ? parsed : parsed?.roles;
+      const catalog = await this.modelCatalog({ refresh: true });
+      return this.collaboration.setRolePlan(
+        id,
+        args.revision,
+        roles,
+        (candidate, spec) => this.validateRolePlan(candidate, spec, catalog),
+      );
+    }
     throw new Error('准备阶段工具不可用');
   }
   async preparationTurn(id, text) {
@@ -418,14 +703,23 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const host = this.hosts.get(p.spec.lead.host);
     const abort = new AbortController(), turnId = randomUUID();
     const live = { abort, turnId, done: null }; this.preparing.set(id, live);
+    let selection = null;
     const instructions = `你是用户的主 Agent。当前对话处于建群前准备，尚未创建任何团队。只与用户明确目标契约，不执行项目任务。通过contract_propose更新草案，用户确认权不在你手中。
 契约JSON字段：goal、scope、boundary、confirmation、delivery均为文本；criteria为非空完成条件文本数组；policy为communication、read-only、workspace-write之一；allowShell为是否允许必要命令的布尔值，默认false。Codex项目只读需要允许沙箱命令才能读取项目，否则应选择可直接读取文件的其他宿主。只提出必要权限，不默认扩大。
+当前模型策略mode=${p.spec.modelMode ?? 'user'}；普通角色规则=${JSON.stringify(p.spec.modelRules ?? '')}。所有普通角色最终都必须通过model_catalog读取实时目录，并使用team_plan_update提交name、model_provider、model、reasoning_effort。只能选择目录中真实存在的模型和强度；主 Agent不在普通角色计划中。
 当前准备记录：${JSON.stringify(p)}。没有关键歧义时整理草案；存在重要不确定性时向用户提问。不得自行批准。`;
     live.done = Promise.resolve().then(() => host.run({ endpoint, turnId, workspace: p.spec.workspace, prompt: text, instructions, tools: toolsFor('preparation'), policy: { mode: 'communication', contractVersion: 0 }, previousPolicy: this.store.get('SELECT signature FROM preparation_policy WHERE preparation_id=?', id), signal: abort.signal,
-      onSession: session => this.store.run('UPDATE preparations SET session=? WHERE id=?', session, id), onAccepted() {}, onNativeTurn() {}, onModel() {}, onEvent() {},
+      onSession: session => this.store.run('UPDATE preparations SET session=? WHERE id=?', session, id), onAccepted() {}, onNativeTurn() {}, onModel() {},
+      onSelection: value => { if (value?.model) selection = value; },
+      onEvent() {},
       onPolicy: observation => { if (observation.signature) this.store.run('INSERT INTO preparation_policy VALUES(?,?) ON CONFLICT(preparation_id) DO UPDATE SET signature=excluded.signature', id, observation.signature); },
       onTool: (name, args) => this.preparationTool(id, raw.key, name, args, turnId),
     }));
-    try { return await live.done; } finally { this.preparing.delete(id); }
+    try {
+      const result = await live.done;
+      if (selection) this.collaboration.updateSessionModel(id, selection);
+      await this.ensureRolePlan(this.collaboration.preparation(id), host);
+      return result;
+    } finally { this.preparing.delete(id); }
   }
 }

@@ -4,12 +4,13 @@
 
 ## 读取接口
 
-沿用本机面板启动链接建立的 Cookie；所有接口只读。
+沿用本机面板启动链接建立的 Cookie。查询接口只读；`POST /api/model-policy` 是唯一设置写入口，只接受当前团队的 `{group,mode,rules}`。
 
 - `GET /api/snapshot`：返回群、成员、群会话、活动运行和团队阶段摘要。
 - `GET /api/collaboration?group=<群编号>&after=<记录序号>`：返回有效契约、工作项、证据引用、待用户决定、收尾状态、未处理消息、待核实运行和分页流转记录。
 - `GET /api/message-trace?message=<消息编号>`：返回 `source` 和 `inputAttempts`。
 - `GET /api/models?endpoint=<会话编号>&after=<事件序号>`：返回该群会话由观测推导的 `currentModel`、`currentReasoningEffort`、增量 `modelObservations` 和 `nextAfter`。
+- `GET /api/model-catalog?refresh=0|1`：返回各宿主当前可选择的模型和思考强度；默认缓存 30 秒，`refresh=1` 强制探测。
 - `GET /api/turn?turn=<框架回合编号>&after=<事件序号>`：返回回合、原生回合引用、输入消息编号、输出消息及发送锚点、当前模型摘要、整轮 `modelObservations`、顺序事件。事件每页最多 200 条，用 `nextAfter` 继续读取。
 - 原有 `/api/history` 每条事件增加 `turn_id`，旧事件为 null。
 

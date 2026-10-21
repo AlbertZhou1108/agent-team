@@ -14,15 +14,33 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
   const dsh = resolve(dir, 'dsh.patch.json');
   writeFileSync(claude, JSON.stringify({ mcpServers: { agent_team: config } }), { mode: 0o600 });
   const overlay = [{ insert: [{ id: 'agent-team-mcp', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'agent_team', transport: 'stdio', ...config, failOnStartupError: true, reconnect: { enabled: false } } }] }];
-  if (execution) overlay.push(
-    { id: 'tools', config: { mode: 'native' } },
-    { id: 'session-persistence-jsonl', config: { root: resolve(directory, 'host-sessions', 'dsh') } },
-    { id: 'storage-json', config: { root: resolve(directory, 'host-storage', 'dsh') } },
-    { id: 'sandbox-policy', config: { mode: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', workspaceRoot: execution.workspace } },
-    { id: 'approval', config: { policy: 'never' } },
-    { id: 'permission', config: { presets: { team: { sandbox: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', approval: 'never' } }, defaultPreset: 'team' } },
-    { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('./dsh-policy.mjs', import.meta.url)), config: execution }] },
-  );
+  if (execution) {
+    overlay.push(
+      { id: 'tools', config: { mode: 'native' } },
+      { id: 'session-persistence-jsonl', config: { root: resolve(directory, 'host-sessions', 'dsh') } },
+      { id: 'storage-json', config: { root: resolve(directory, 'host-storage', 'dsh') } },
+      { id: 'sandbox-policy', config: { mode: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', workspaceRoot: execution.workspace } },
+      { id: 'approval', config: { policy: 'never' } },
+      { id: 'permission', config: { presets: { team: { sandbox: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', approval: 'never' } }, defaultPreset: 'team' } },
+    );
+    if (execution.modelSelection?.model) {
+      if (!execution.modelSelection.model_provider) throw new Error('DSH角色模型缺少model_provider');
+      overlay.push({
+        id: 'agent-default-model',
+        config: {
+          provider: execution.modelSelection.model_provider,
+          model: execution.modelSelection.model,
+          ...(execution.modelSelection.reasoning_effort
+            ? { reasoningEffort: execution.modelSelection.reasoning_effort }
+            : {}),
+        },
+      });
+    }
+    overlay.push(
+      { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('./dsh-policy.mjs', import.meta.url)), config: execution }] },
+      { insert: [{ id: 'agent-team-model-observer', name: fileURLToPath(new URL('./dsh-model-observer.mjs', import.meta.url)) }] },
+    );
+  }
   writeFileSync(dsh, JSON.stringify(overlay), { mode: 0o600 });
   return { claude, dsh };
 }

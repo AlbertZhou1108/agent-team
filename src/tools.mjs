@@ -5,11 +5,25 @@ const definitions = [
   ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。', { after: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 200 }, sender: string }, []],
   ['members', '读取本群成员与能力自述。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
-  ['group_add', '主 Agent 提议添加成员；框架会向正在聊天的用户请求确认。', { name: string, host: string }, ['name', 'host']],
+  ['group_add', '主 Agent 提议添加成员；框架会向正在聊天的用户请求确认。必须从模型目录选择该角色的模型和思考强度。', {
+    name: string,
+    host: string,
+    model_provider: string,
+    model: string,
+    reasoning_effort: string,
+  }, ['name', 'host', 'model', 'reasoning_effort']],
   ['group_remove', '主 Agent 移除成员；立即撤销框架访问并尽力停止相关会话。', { member: string }, ['member']],
   ['group_delete', '主 Agent 删除本群；框架会先请求用户确认。宿主历史与用户私聊保留。', {}, []],
-  ['group_create', '主 Agent 提议建群；用户确认后建立。members 可选，格式 名称=宿主,名称=宿主。返回新群编号，用户可 /use 切换。', { name: string, workspace: string, members: string }, ['name', 'workspace']],
+  ['group_create', '主 Agent 提议建群；用户确认后建立。members 可选，格式 名称=宿主,名称=宿主。model_mode为smart|user，model_rules为自然语言模型策略。', {
+    name: string,
+    workspace: string,
+    members: string,
+    model_mode: string,
+    model_rules: string,
+    roles: string,
+  }, ['name', 'workspace']],
   ['groups', '主 Agent 列出自己可见的群。', {}, []],
+  ['model_catalog', '读取当前实时模型目录。只能从返回目录中选择模型和思考强度。', {}, []],
   ['collaboration_read', '读取本群有效契约、工作项、审查与接受、待用户决定及运行状态；records通过after分页。', { after: { type: 'integer', minimum: 0 } }, []],
   ['work_item_update', '主 Agent管理工作项。command是JSON：创建含title,purpose,standard,participants[{memberId,role:executor|collaborator|reviewer}],policy,allowShell,reviewRequired；policy为该项实际最高访问需求，允许命令须同时由契约授权；reviewer运行时自动收窄为只读。更新含id,itemRevision,state,note。证据evidence是汇报messageId数组；artifact为确定成果版本；reviews为[{messageId,artifact}]。状态pending→in_progress→pending_decision→accepted；blocked/返工/重开回in_progress。每次读取当前revision，使用唯一operationId。', { command: string, revision: { type: 'integer', minimum: 1 }, operationId: string }, ['command', 'revision', 'operationId']],
   ['contract_change_request', '提出契约变更，等待用户批准。contract为完整契约JSON，不能自行批准。', { contract: string, reason: string }, ['contract', 'reason']],
@@ -20,11 +34,16 @@ const definitions = [
 const preparationDefinitions = [
   ['preparation_read', '读取当前建群准备记录和契约草案。', {}, []],
   ['contract_propose', '提出完整契约草案，等待用户确认，不会创建团队。contract为JSON，字段goal,scope,boundary,confirmation,delivery文本，criteria文本数组，policy为communication|read-only|workspace-write。', { contract: string, revision: { type: 'integer', minimum: 0 } }, ['contract', 'revision']],
+  ['model_catalog', '读取当前实时模型目录。必须只从返回目录中选择普通角色的模型和思考强度。', {}, []],
+  ['team_plan_update', '为所有普通角色提交最终模型计划。roles是JSON数组，每项包含name、model_provider、model、reasoning_effort；主 Agent不在此计划中。', {
+    roles: string,
+    revision: { type: 'integer', minimum: 0 },
+  }, ['roles', 'revision']],
 ];
 export function toolsFor(role, context = 'coordination') {
   const source = role === 'preparation' ? preparationDefinitions : definitions.filter(([name], i) => {
     if (context === 'profile') return ['members', 'profile_set'].includes(name);
-    if (context === 'private') return ['members', 'read', 'collaboration_read', ...(role === 'lead' ? ['contract_change_request', 'group_create'] : [])].includes(name);
+    if (context === 'private') return ['members', 'read', 'collaboration_read', 'model_catalog', ...(role === 'lead' ? ['contract_change_request', 'group_create'] : [])].includes(name);
     return role === 'lead' ? context === 'coordination' || !['work_item_update', 'team_finish', 'finish_withdraw'].includes(name) : i < 5 || name === 'collaboration_read';
   });
   return source.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } }));

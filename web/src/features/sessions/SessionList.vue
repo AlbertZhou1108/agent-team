@@ -17,6 +17,11 @@ const emit = defineEmits<{ select: [id: string] }>();
 function memberName(id: string) {
   return props.members.find(member => member.id === id)?.name ?? id;
 }
+function configuredModel(id: string) {
+  const member = props.members.find(item => item.id === id);
+  if (!member?.model) return null;
+  return `${member.model_provider ? `${member.model_provider}/` : ''}${member.model} · ${member.reasoning_effort ?? '默认强度'}`;
+}
 function domains(endpointId: string) {
   return props.sessionBindings
     .filter(binding => binding.endpoint_id === endpointId)
@@ -48,8 +53,13 @@ function domainLabel(domain: string) {
           <span class="font-normal text-dim">· {{ endpoint.context === 'coordination' ? '统一调度' : endpoint.peer ? `与 ${memberName(endpoint.peer)}` : '入群自述' }}</span>
         </span>
         <span class="mt-1 block truncate text-left font-mono text-[9px] text-dim">
-          {{ endpoint.modelState.currentModel?.model ?? '模型未知' }}
-          · {{ endpoint.modelState.currentReasoningEffort?.reasoningEffort ?? '强度未知' }}
+          <template v-if="endpoint.modelState.currentModel?.model">
+            {{ endpoint.modelState.currentModel.model }}
+            · {{ endpoint.modelState.currentReasoningEffort?.reasoningEffort ?? '强度未知' }}
+          </template>
+          <template v-else>
+            {{ configuredModel(endpoint.member_id) ?? '模型未知' }}
+          </template>
         </span>
         <span v-if="domains(endpoint.id).length" class="mt-1 flex flex-wrap gap-1">
           <Badge v-for="domain in domains(endpoint.id)" :key="domain" variant="default">{{ domainLabel(domain) }}</Badge>

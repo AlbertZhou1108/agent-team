@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, policyObservation } from './policies.mjs';
+import { modelCatalog } from './catalog.mjs';
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   let child, init, nextId = 0, stderr = '', serverNames = [];
@@ -74,6 +75,30 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   }
   return {
     sessionKey({ policy }) { return policy.domain ?? (policy.mode === 'communication' ? 'communication' : 'project'); },
+    async listModels() {
+      await ready();
+      const models = [];
+      let cursor = null;
+      do {
+        const page = await request('model/list', { cursor, includeHidden: false, limit: 100 });
+        models.push(...(page.data ?? []).map(model => ({
+          id: model.id ?? model.model,
+          label: model.displayName ?? model.id ?? model.model,
+          description: model.description,
+          inputModalities: model.inputModalities,
+          reasoningEfforts: (model.supportedReasoningEfforts ?? []).map(effort => ({
+            id: effort.reasoningEffort,
+            label: effort.reasoningEffort,
+            description: effort.description,
+          })),
+          defaultReasoningEffort: model.defaultReasoningEffort,
+          isDefault: model.isDefault === true,
+        })));
+        cursor = page.nextCursor ?? null;
+      } while (cursor);
+      const preferred = models.find(model => model.isDefault) ?? models[0];
+      return modelCatalog({ host: 'codex', source: 'codex.model/list', models, defaultModel: preferred?.id ?? null });
+    },
     supportsPolicy({ policy }) {
       return policy.mode === 'communication' || policy.allowShell
         ? { supported: true }
@@ -82,18 +107,20 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
     async run(context) {
       await ready();
       const { endpoint, prompt, instructions, onSession, onAccepted, signal } = context;
+      const selectedModel = context.modelSelection?.model ?? model;
+      const selectedEffort = context.modelSelection?.reasoning_effort ?? reasoningEffort;
       if (signal.aborted) throw new Error('回合已中断');
       const policy = executionPolicy(context);
       if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要契约明确允许沙箱命令；请调整安排或由用户批准契约变更');
-      const config = { ...codexPolicyConfig(policy, serverNames), ...(reasoningEffort ? { model_reasoning_effort: reasoningEffort } : {}) };
+      const config = { ...codexPolicyConfig(policy, serverNames), ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) };
       const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
       if (endpoint.session && context.previousPolicy?.signature !== signature) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
       const options = {
         cwd: context.workspace, approvalPolicy: 'never', sandbox: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', developerInstructions: instructions,
-        ...(model ? { model } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
         config,
       };
-      if (model || reasoningEffort) context.onModel({ phase: 'requested', model: model ?? null, reasoningEffort: reasoningEffort ?? null, source: 'adapter.config' });
+      if (selectedModel || selectedEffort) context.onModel({ phase: 'requested', model: selectedModel ?? null, reasoningEffort: selectedEffort ?? null, source: context.modelSelection ? 'member.selection' : 'adapter.config' });
       const result = endpoint.session
         ? await request('thread/resume', { threadId: endpoint.session, ...options })
         : await request('thread/start', { ...options, dynamicTools: context.tools.map(tool => ({ type: 'function', name: `agent_team_${tool.name}`, description: tool.description, inputSchema: tool.inputSchema })) });
@@ -103,6 +130,12 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         phase: 'session', model: result.model, provider: result.modelProvider, reasoningEffort: result.reasoningEffort,
         source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start',
       });
+      if (result.model) {
+        context.onSelection?.({
+          model: result.model,
+          reasoning_effort: result.reasoningEffort ?? null,
+        });
+      }
       onSession(thread);
       const live = { ...context, text: '' };
       active.set(thread, live);

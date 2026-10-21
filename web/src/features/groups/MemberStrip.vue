@@ -25,7 +25,13 @@ defineProps<{
           </Badge>
           <Badge v-else variant="default">{{ member.role === 'lead' ? '主 Agent' : '成员' }}</Badge>
         </div>
-        <p class="mt-0.5 font-mono text-[10px] text-dim">{{ member.host }}</p>
+        <p class="mt-0.5 font-mono text-[10px] text-dim">
+          {{ member.host }}
+          <template v-if="member.model">
+            · {{ member.model_provider ? `${member.model_provider}/` : '' }}{{ member.model }}
+            · {{ member.reasoning_effort ?? '默认强度' }}
+          </template>
+        </p>
         <p class="mt-2 line-clamp-3 text-xs leading-5 text-muted">
           {{ member.profile || '尚未提交能力自述' }}
         </p>

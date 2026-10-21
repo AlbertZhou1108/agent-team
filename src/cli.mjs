@@ -15,6 +15,7 @@ const options = {
   hosts: { type: 'string' }, socket: { type: 'string' }, endpoint: { type: 'string' }, help: { type: 'boolean', short: 'h' },
   preparation: { type: 'string' }, contract: { type: 'string' }, revision: { type: 'string' }, hash: { type: 'string' },
   request: { type: 'string' }, version: { type: 'string' }, reason: { type: 'string' }, turn: { type: 'string' },
+  'model-mode': { type: 'string' }, 'model-rules': { type: 'string' },
 };
 export function parseMembers(text = '') {
   return text ? text.split(',').filter(Boolean).map(item => {
@@ -33,7 +34,8 @@ async function main() {
 继续已有群：
   npm start -- --group 群编号
 
-命令：start / serve / prepare / preparation-chat / preparation / propose / approve / chat / groups / members / add / remove / delete / retry / stop
+命令：start / serve / models / prepare / preparation-chat / preparation / propose / approve / chat / groups / members / add / remove / delete / retry / stop
+  models             重新探测并输出各宿主的可用模型目录
   prepare --contract 文件.json  载入已整理的契约草案（不会直接建群）
   preparation-chat --preparation 编号 --text 文本  继续建群准备对话
   approve --preparation 编号 --revision 版本 --hash 摘要  展示契约并确认
@@ -41,6 +43,8 @@ async function main() {
   --data 目录       本地数据（默认 work/local）
   --port 端口       只读面板端口，默认随机
   --hosts 文件      CLI 宿主别名及适配器配置
+  --model-mode     模型策略：smart 或 user
+  --model-rules    模型策略自然语言规则
   --group 编号      操作的群
   --text 文本       chat 单次私聊（先运行 serve）
   --member 名称     remove / stop 的成员
@@ -51,7 +55,14 @@ async function main() {
   const directory = resolve(values.data);
   if (command === 'mcp') return serveMcp(values.socket, values.endpoint, process.env.AGENT_TEAM_KEY, process.env.AGENT_TEAM_TURN);
   const socketPath = socketFor(directory);
-  const groupArgs = () => ({ name: values.name, workspace: values.workspace, lead: { name: '主 Agent', host: values.lead }, members: parseMembers(values.members) });
+  const groupArgs = () => ({
+    name: values.name,
+    workspace: values.workspace,
+    lead: { name: '主 Agent', host: values.lead },
+    members: parseMembers(values.members),
+    modelMode: values['model-mode'],
+    modelRules: values['model-rules'],
+  });
   if (!['start', 'serve'].includes(command)) {
     let request;
     if (command === 'new' || command === 'prepare') {
@@ -71,6 +82,7 @@ async function main() {
       request = { op: 'approve_preparation', id: p.id, revision: p.revision, hash: p.hash };
     }
     else if (command === 'groups') request = { op: 'groups' };
+    else if (command === 'models') request = { op: 'model_catalog', refresh: true };
     else if (command === 'chat' && values.text) request = { op: 'chat', group: values.group, text: values.text };
     else if (command === 'chat') return interactive(socketPath, values.group);
     else if (command === 'members') request = { op: 'members', group: values.group };

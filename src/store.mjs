@@ -43,6 +43,15 @@ export class Store {
       CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
       CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);`);
+    for (const [name, definition] of [
+      ['model_provider', 'TEXT'],
+      ['model', 'TEXT'],
+      ['reasoning_effort', 'TEXT'],
+    ]) {
+      if (!this.all('PRAGMA table_info(members)').some(column => column.name === name)) {
+        this.db.exec(`ALTER TABLE members ADD COLUMN ${name} ${definition}`);
+      }
+    }
     this.transaction(() => {
       this.db.exec(`CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session TEXT,created TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS turn_inputs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));

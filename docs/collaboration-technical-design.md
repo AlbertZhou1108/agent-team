@@ -23,9 +23,9 @@ flowchart TD
 | `src/collaboration.mjs` | 契约、工作项、证据、审查、接受、收尾状态与结构性校验 |
 | `src/store.mjs` | SQLite 迁移、事务、消息、回合、附件、来源与查询 |
 | `src/tools.mjs` | 各角色和上下文可见的框架工具及参数校验 |
-| `src/hosts/*` | 把策略映射为宿主参数，报告会话、接受、事件、模型和结束事实 |
-| `src/server.mjs` | Unix socket RPC、可信控制入口、只读 HTTP/API 和静态面板 |
-| `web/` | Vue 只读观测面板 |
+| `src/hosts/*` | 把策略映射为宿主参数，报告模型目录、会话、接受、事件、模型和结束事实 |
+| `src/server.mjs` | Unix socket RPC、可信控制入口、查询 API、受限设置写入和静态面板 |
+| `web/` | Vue 观测面板、主题与团队模型策略设置 |
 
 框架不提供统一文件编辑器、工作流 DSL、通用网络沙箱或分布式协调层。
 
@@ -35,7 +35,8 @@ flowchart TD
 
 | 表 | 内容 |
 | --- | --- |
-| `preparations` | 建群准备、契约草案、revision、hash、准备会话与最终群 |
+| `preparations` | 建群准备、契约草案、revision、hash、准备会话模型选择、普通角色模型计划与最终群 |
+| `team_model_policy` | 团队级 `{mode,rules}` 模型策略 |
 | `contract_versions` | 群、版本、契约正文、hash、用户确认来源 |
 | `team_state` | 整体 revision、目标版本、有效契约版本、当前目标执行阶段、目标结果和最终交付 |
 | `work_items` | 目标版本、工作项 revision、状态和已校验正文 |
@@ -62,6 +63,8 @@ flowchart TD
 ```text
 用户提出目标
   → 主 Agent 在 preparation 会话整理契约
+  → 主 Agent读取实时模型目录并提出普通角色模型计划
+  → 主 Agent继承 preparation 会话自身的模型选择
   → propose 生成新 revision 与 hash
   → 用户查看并对指定 revision/hash 确认
   → 同一事务创建群、契约 v1 与成员
@@ -158,6 +161,7 @@ flowchart TD
 
 - headless 使用 invocation-only patch，不修改用户全局 profile；
 - 每次回合加入团队 MCP、会话/存储隔离、sandbox、approval 与策略插件；
+- 角色存在模型选择时加入 `agent-default-model` 覆盖，并由模型观察插件报告实际请求路由；
 - 策略插件在 Agent 创建时显式设置 session sandbox，并通过 Agent scope `tools.restrict` 裁剪工具；
 - `workspace-write` 才开放 write/edit，`allowShell` 才开放 bash。
 
@@ -172,6 +176,7 @@ flowchart TD
 - `onNativeTurn`：可用的原生回合编号；
 - `onEvent`：真实宿主事件；
 - `onModel`：请求、会话、助手、结算和核实的模型观测；
+- `onSelection`：可复用的宿主模型选择名称和核实强度；
 - `onPolicy`：请求及实际执行配置。
 
 Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时框架使用单一 `default` 域并复用 session。框架持久保存每个 endpoint 的会话域绑定，而不是把 Codex thread 规则写进协作核心。
@@ -213,21 +218,24 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 
 角色名称以 NFKC、去首尾空白和小写规范化后存入 `role_names`。角色删除只软删除成员并撤销端点，名称与历史记录永久保留；没有恢复接口。新增角色必须使用新名称、成员 ID 和宿主会话。
 
-## 9. 只读 HTTP 与面板
+## 9. HTTP 查询、设置与面板
 
-服务只绑定 `127.0.0.1`，校验 Host、同源、GET-only 和启动 Cookie。API 只返回群内公开事实：
+服务只绑定 `127.0.0.1`，校验 Host、同源、请求方法和启动 Cookie。除 `POST /api/model-policy` 保存当前团队模型策略外，API 只接受 GET：
 
 - `/api/snapshot`
 - `/api/collaboration`
 - `/api/messages`
 - `/api/history`
 - `/api/models`
+- `/api/model-catalog`
 - `/api/message-trace`
 - `/api/turn`
 
 Vue 面板包括群导航、消息时间线、成员、协作状态、宿主会话、模型变化和轨迹视图。协作页读取服务端持久事实，不从聊天正文推断完成。
 
-开发脚本可通过 `AGENT_TEAM_DEV_NO_AUTH=1` 关闭启动 Cookie，但仍保留 Host、同源、GET-only 和本机绑定检查。生产启动始终要求入口链接。
+开发脚本可通过 `AGENT_TEAM_DEV_NO_AUTH=1` 关闭启动 Cookie，但仍保留 Host、同源、请求方法和本机绑定检查。生产启动始终要求入口链接。
+
+`/api/model-catalog` 按宿主汇总当前可选模型。目录由 Adapter 的零业务调用 `listModels()` 提供：Codex 使用 app-server 目录，Claude 解析 `/model` 与 `/effort`，DSH 使用 Cordis `modelCatalog`。结果短时缓存，`refresh=1` 强制刷新；单个宿主失败不影响其他宿主。模型目录是发现结果，不是团队授权或实际运行证明。
 
 ## 10. 验证
 

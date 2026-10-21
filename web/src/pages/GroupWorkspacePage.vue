@@ -17,6 +17,7 @@ import {
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
+import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import MessageFeed from '@/features/messages/MessageFeed.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
 import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
@@ -46,6 +47,7 @@ const members = computed(() => snapshot.value?.members ?? []);
 const endpoints = computed(() => snapshot.value?.endpoints ?? []);
 const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
 const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
+const modelPolicyDefaults = computed(() => snapshot.value?.modelPolicyDefaults);
 
 function routeString(value: unknown) {
   return Array.isArray(value) ? String(value[0] ?? '') : typeof value === 'string' ? value : '';
@@ -63,6 +65,9 @@ const currentRunningEndpoints = computed(() => {
   const ids = new Set(currentEndpoints.value.map(endpoint => endpoint.id));
   return runningEndpoints.value.filter(id => ids.has(id));
 });
+const currentModelPolicy = computed(() => (
+  snapshot.value?.modelPolicies.find(policy => policy.group_id === groupId.value)
+));
 
 const selectedSessionId = computed(() => routeString(route.query.session));
 const selectedEndpoint = computed(() => currentEndpoints.value.find(endpoint => endpoint.id === selectedSessionId.value));
@@ -178,6 +183,11 @@ function closeContextPanel() {
   ui.closeInspector();
 }
 
+async function modelPolicySaved() {
+  await snapshotQuery.refetch();
+  toast.success('模型策略已保存', { description: '仅影响之后创建的角色' });
+}
+
 function setTab(tab: InspectorTab) {
   replaceQuery({ tab, panel: 'details' });
 }
@@ -217,6 +227,7 @@ async function refreshAll() {
       :groups="groups"
       :current-group-id="group?.id"
       @select="selectGroup"
+      @open-settings="ui.openSettings()"
     />
 
     <main class="min-w-0 p-3 sm:p-4">
@@ -368,5 +379,13 @@ async function refreshAll() {
         </aside>
       </div>
     </main>
+    <SettingsDialog
+      :open="ui.settingsOpen"
+      :group="group"
+      :policy="currentModelPolicy"
+      :defaults="modelPolicyDefaults"
+      @close="ui.closeSettings()"
+      @saved="modelPolicySaved"
+    />
   </div>
 </template>

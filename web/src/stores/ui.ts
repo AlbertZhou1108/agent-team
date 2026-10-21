@@ -8,10 +8,11 @@ function load() {
       sidebarCollapsed: false,
       inspectorOpen: false,
       inspectorWidth: 440,
+      settingsOpen: false,
       ...JSON.parse(localStorage.getItem(storageKey) ?? '{}'),
     };
   } catch {
-    return { sidebarCollapsed: false, inspectorOpen: false, inspectorWidth: 440 };
+    return { sidebarCollapsed: false, inspectorOpen: false, inspectorWidth: 440, settingsOpen: false };
   }
 }
 
@@ -33,6 +34,12 @@ export const useUiStore = defineStore('ui', {
     },
     closeInspector() {
       this.inspectorOpen = false;
+    },
+    openSettings() {
+      this.settingsOpen = true;
+    },
+    closeSettings() {
+      this.settingsOpen = false;
     },
     setInspectorWidth(width: number) {
       this.inspectorWidth = Math.min(680, Math.max(340, width));

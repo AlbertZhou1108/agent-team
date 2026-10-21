@@ -14,6 +14,9 @@ export interface Member {
   role: 'lead' | 'member';
   profile: string;
   removed: string | null;
+  model_provider: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
 }
 
 export interface ModelObservation {
@@ -44,6 +47,62 @@ export interface ModelState {
   currentReasoningEffort: ModelSummary | null;
 }
 
+export interface CatalogReasoningEffort {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface CatalogModel {
+  key: string;
+  id: string;
+  label: string;
+  provider?: string;
+  description?: string;
+  inputModalities?: string[];
+  contextWindow?: number;
+  reasoningEfforts: CatalogReasoningEffort[];
+  defaultReasoningEffort?: string;
+  isDefault: boolean;
+}
+
+export interface HostModelCatalog {
+  version: number;
+  host: string;
+  source: string;
+  defaultModel: string | null;
+  reasoningEfforts: CatalogReasoningEffort[];
+  models: CatalogModel[];
+}
+
+export interface ModelCatalogResponse {
+  version: number;
+  generatedAt: string;
+  cached: boolean;
+  hosts: Array<{
+    host: string;
+    ok: boolean;
+    catalog?: HostModelCatalog;
+    error?: string;
+  }>;
+}
+
+export interface TeamModelPolicy {
+  group_id: string;
+  mode: 'smart' | 'user';
+  rules: string;
+  created: string;
+  updated: string;
+}
+
+export interface ModelPolicyDefaults {
+  smart: {
+    performance: string;
+    cost: string;
+  };
+  user: string;
+}
+
 export interface SessionEndpoint {
   id: string;
   group_id: string;
@@ -59,6 +118,8 @@ export interface Snapshot {
   members: Member[];
   endpoints: SessionEndpoint[];
   sessionBindings: SessionBinding[];
+  modelPolicies: TeamModelPolicy[];
+  modelPolicyDefaults: ModelPolicyDefaults;
   runningEndpoints: string[];
 }
 

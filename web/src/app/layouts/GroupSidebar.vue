@@ -2,13 +2,10 @@
 import {
   ChevronsLeft,
   ChevronsRight,
-  Monitor,
-  Moon,
-  Sun,
+  Settings2,
 } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
-import { usePreferencesStore, type ThemePreference } from '@/stores/preferences';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
 import { cn } from '@/lib/utils';
@@ -20,17 +17,11 @@ defineProps<{
 
 const emit = defineEmits<{
   select: [id: string];
+  openSettings: [];
 }>();
 
-const preferences = usePreferencesStore();
 const ui = useUiStore();
 const connection = useConnectionStore();
-
-const themes: Array<{ value: ThemePreference; icon: typeof Sun; label: string }> = [
-  { value: 'dark', icon: Moon, label: '深色' },
-  { value: 'light', icon: Sun, label: '浅色' },
-  { value: 'system', icon: Monitor, label: '跟随系统' },
-];
 </script>
 
 <template>
@@ -76,25 +67,6 @@ const themes: Array<{ value: ThemePreference; icon: typeof Sun; label: string }>
     </nav>
 
     <div v-if="!ui.sidebarCollapsed" class="mt-5 space-y-3 border-t border-[var(--border)] pt-4">
-      <div class="flex items-center justify-between px-2">
-        <span class="eyebrow">主题</span>
-        <div class="flex rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-0.5">
-          <Button
-            v-for="item in themes"
-            :key="item.value"
-            size="icon"
-            variant="ghost"
-            :class="cn(
-              'size-7 rounded-md',
-              preferences.theme === item.value && 'bg-[var(--surface-active)] text-[var(--foreground)]',
-            )"
-            :title="item.label"
-            @click="preferences.setTheme(item.value)"
-          >
-            <component :is="item.icon" :size="13" />
-          </Button>
-        </div>
-      </div>
       <div class="flex items-center gap-2 px-2 text-[10px]">
         <span :class="['status-dot', connection.status === 'online' ? 'status-online' : connection.status === 'error' ? 'status-error' : 'status-connecting']" />
         <span class="min-w-0 flex-1 truncate text-muted">
@@ -105,6 +77,17 @@ const themes: Array<{ value: ThemePreference; icon: typeof Sun; label: string }>
         </span>
       </div>
     </div>
+
+    <Button
+      variant="ghost"
+      size="sm"
+      class="mt-3 justify-start px-2 text-muted"
+      :title="ui.sidebarCollapsed ? '设置' : '打开设置'"
+      @click="emit('openSettings')"
+    >
+      <Settings2 :size="15" />
+      <span v-if="!ui.sidebarCollapsed">设置</span>
+    </Button>
 
     <Button
       variant="ghost"

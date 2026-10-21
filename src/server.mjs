@@ -80,13 +80,15 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
     });
     await new Promise((resolve, reject) => { ipc.once('error', reject); ipc.listen(socketPath, resolve); });
     socketOwned = true; chmodSync(socketPath, 0o600);
-    panel = http.createServer((request, response) => {
+    panel = http.createServer(async (request, response) => {
       const fail = (status, text) => { response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); response.end(text); };
       try {
         const actualPort = panel.address().port;
         if (request.headers.host !== `127.0.0.1:${actualPort}` && request.headers.host !== `localhost:${actualPort}`) return fail(403, 'Invalid host');
-        if (request.method !== 'GET' || request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Read-only local panel');
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
+        if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
+        const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
+        if (request.method !== 'GET' && !isPolicyMutation) return fail(403, 'Read-only local panel');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -97,7 +99,13 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         if (panelAuth && !(request.headers.cookie ?? '').split(';').some(part => part.trim() === `agent_team=${key}`)) return fail(401, '请打开启动时输出的面板链接');
         if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
           let value;
-          if (url.pathname === '/api/snapshot') value = bus.snapshot();
+          if (isPolicyMutation) {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            value = bus.updateModelPolicy(body.group, { mode: body.mode, rules: body.rules });
+          } else if (url.pathname === '/api/snapshot') value = bus.snapshot();
+          else if (url.pathname === '/api/model-policy') value = bus.modelPolicy(url.searchParams.get('group'));
+          else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
           else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);
@@ -139,6 +147,22 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
 }
 
 function cursor(url) { const value = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(value) || value < 0) throw new Error('游标无效'); return value; }
+function readJsonBody(request, limit = 65536) {
+  return new Promise((resolve, reject) => {
+    let size = 0, data = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => {
+      size += Buffer.byteLength(chunk);
+      if (size > limit) { reject(new Error('请求体过大')); request.destroy(); return; }
+      data += chunk;
+    });
+    request.on('end', () => {
+      try { resolve(JSON.parse(data)); }
+      catch { reject(new Error('JSON请求体无效')); }
+    });
+    request.on('error', reject);
+  });
+}
 
 const panelRoot = fileURLToPath(new URL('../web/dist', import.meta.url));
 const contentTypes = new Map([
@@ -166,6 +190,7 @@ export async function handleRpc(bus, request) {
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });
   if (request.op === 'groups') return bus.store.all('SELECT * FROM groups ORDER BY created');
+  if (request.op === 'model_catalog') return bus.modelCatalog({ refresh: request.refresh === true });
   if (request.op === 'new') return bus.createGroup(request.args);
   if (request.op === 'prepare') return bus.prepareGroup(request.args);
   if (request.op === 'preparation') return bus.collaboration.preparation(request.id);

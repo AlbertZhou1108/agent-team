@@ -99,7 +99,7 @@ npm start -- chat --group 群编号 --data work/local
 npm start -- chat --group 群编号 --text '读取群记录并汇总' --data work/local
 ```
 
-群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，必须先打开启动时提供的带入口 key 链接。面板没有聊天或管理写入口。
+群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，必须先打开启动时提供的带入口 key 链接。除当前团队的模型策略设置外，面板没有聊天、确认、角色管理或工作流写入口。
 
 ## 宿主配置与新适配器
 
@@ -129,6 +129,23 @@ Codex 每回合明确 `readOnly`/`workspaceWrite` 沙箱策略，并裁剪原生
 
 每轮观测会分别记录请求配置、宿主会话别名、助手消息实际报告的模型和结算标识。Claude 的思考强度在回合结束后从其项目会话记录核实；Codex 从启动或恢复响应核实。模型变化会追加新的 `framework.model` 事件。
 
+### 模型目录发现
+
+框架可按需读取每个宿主当前可选择的模型，不调用业务模型。Codex 使用 app-server 的 `model/list`；Claude 使用 stream-json 会话中的 `/model` 和 `/effort`；DSH 通过 invocation-only Cordis probe 调用 `modelCatalog`。Claude 和 DSH 的探测均不修改用户 profile。
+
+```bash
+# 需要已有 serve 或 start 总线
+npm start -- models --data work/local
+```
+
+只读面板接口为 `GET /api/model-catalog`，结果缓存 30 秒；`?refresh=1` 强制重新探测。返回结构按宿主隔离失败，包含模型选择名称、展示名称、可用思考强度和默认值。Claude 的 CC Switch 或代理映射不参与目录命名，框架直接使用 Claude Code 暴露的名称；实际回合使用的模型仍由 `framework.model` 单独记录。
+
+团队模型策略保存为 `mode` 和自然语言 `rules`。`mode=smart` 使用智能策略，`rules` 明确性能优先或成本优先及角色规则；`mode=user` 同样用自然语言描述用户规则。启动时可用 `--model-mode` 和 `--model-rules` 设置，未提供时使用平衡的用户配置规则。
+
+首次建群时，准备会话的主 Agent通过 `model_catalog` 和 `team_plan_update` 为普通角色提出模型计划；框架校验目录、provider 和思考强度。若契约已提出但角色计划缺失，框架会让同一宿主的主 Agent执行一次严格 JSON 规划并自动纠正一次校验错误。主 Agent自身继承准备会话最后一轮成功运行的模型名称和核实强度。
+
+每个角色分别保存 `model_provider`、`model` 和 `reasoning_effort`。普通角色按团队规则解析，主 Agent继承会话模型；不保存模式、规则匹配或选择理由。模型不存在或强度不受支持时，建群被拒绝，不静默回退。
+
 新宿主可通过 `{"module":"/绝对路径/adapter.mjs"}` 导出 `createHost(options)` 接入，无需修改群路由核心。接口见 [适配器说明](docs/adapters.md)。
 
 ## 消息语义
@@ -145,7 +162,7 @@ Codex 每回合明确 `readOnly`/`workspaceWrite` 沙箱策略，并裁剪原生
 
 ## 面板与当前限制
 
-面板展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。面板没有聊天、确认或管理写入口，也不会展示用户私聊。
+面板展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。侧栏设置菜单可以切换主题并保存当前团队的模型策略；策略只影响之后创建的角色。面板没有聊天、确认、重试或角色管理写入口，也不会展示用户私聊。
 
 事件视图来自实际观察到的宿主事件流。尤其 DSH headless 对部分字符串有自身截断，它**不等同于宿主原生完整历史查看器**。宿主历史仍以各宿主为准。
 
@@ -164,7 +181,7 @@ npm run test:web    # 前端适配器测试
 npm run dev         # Node API :62048 + Vite :5173
 ```
 
-开发脚本会设置 `AGENT_TEAM_DEV_NO_AUTH=1`，因此可以直接打开 `http://127.0.0.1:5173/`，不需要在每次重启后重新设置 Cookie。该开关只影响开发启动脚本；直接启动 `src/cli.mjs`、执行 `npm start` 或运行生产构建时仍要求启动链接鉴权。开发模式仍保留 Host、跨站、GET-only 和 `127.0.0.1` 绑定检查。
+开发脚本会设置 `AGENT_TEAM_DEV_NO_AUTH=1`，因此可以直接打开 `http://127.0.0.1:5173/`，不需要在每次重启后重新设置 Cookie。该开关只影响开发启动脚本；直接启动 `src/cli.mjs`、执行 `npm start` 或运行生产构建时仍要求启动链接鉴权。开发模式仍保留 Host、跨站、请求方法和 `127.0.0.1` 绑定检查；唯一允许的 POST 是团队模型策略保存。
 
 `npm start` 会先运行生产构建。若直接用其他进程启动 `src/cli.mjs`，请先执行 `npm run build`。Vue Router 使用 History 模式；Node 会先完成鉴权和 API 路由，再对非 API、非静态资源的页面路径回退到 `web/dist/index.html`。
 

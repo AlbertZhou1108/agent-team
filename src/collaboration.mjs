@@ -1,4 +1,5 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { DEFAULT_USER_MODEL_RULES } from './model-policy.mjs';
 
 const now = () => new Date().toISOString();
 const json = value => JSON.stringify(value);
@@ -44,6 +45,7 @@ export class Collaboration {
     this.policyValidator = () => ({ supported: true });
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS preparations(id TEXT PRIMARY KEY,spec TEXT NOT NULL,contract TEXT,revision INTEGER NOT NULL DEFAULT 0,hash TEXT,session TEXT,key TEXT NOT NULL,group_id TEXT,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS team_model_policy(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS contract_versions(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,version INTEGER NOT NULL,body TEXT NOT NULL,hash TEXT NOT NULL,approval TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(group_id,version));
       CREATE TABLE IF NOT EXISTS team_state(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,revision INTEGER NOT NULL DEFAULT 1,goal_version INTEGER NOT NULL DEFAULT 1,contract_version INTEGER NOT NULL DEFAULT 1,phase TEXT NOT NULL DEFAULT 'active',outcome TEXT,final TEXT,finish_reason TEXT);
       CREATE TABLE IF NOT EXISTS work_items(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,goal_version INTEGER NOT NULL DEFAULT 1,revision INTEGER NOT NULL,state TEXT NOT NULL,body TEXT NOT NULL);
@@ -68,8 +70,15 @@ export class Collaboration {
       }
     };
     for (const table of ['team_state', 'work_items', 'work_records', 'user_outputs']) ensureColumn(table, 'goal_version', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn('preparations', 'model_provider', 'TEXT');
+    ensureColumn('preparations', 'model', 'TEXT');
+    ensureColumn('preparations', 'reasoning_effort', 'TEXT');
+    ensureColumn('preparations', 'role_plan', 'TEXT');
     ensureColumn('members', 'joined_goal_version', 'INTEGER NOT NULL DEFAULT 1');
     ensureColumn('members', 'removed_goal_version', 'INTEGER');
+    for (const group of store.all('SELECT id FROM groups')) {
+      store.run('INSERT OR IGNORE INTO team_model_policy VALUES(?,?,?,?,?)', group.id, 'user', DEFAULT_USER_MODEL_RULES, now(), now());
+    }
     for (const member of store.all('SELECT id,group_id,name FROM members ORDER BY rowid')) {
       const key = roleNameKey(member.name);
       const prior = store.get('SELECT member_id FROM role_names WHERE group_id=? AND name_key=?', member.group_id, key);
@@ -87,7 +96,40 @@ export class Collaboration {
   preparation(id) {
     const row = this.store.get('SELECT * FROM preparations WHERE id=?', id);
     if (!row) throw new Error('准备记录不存在');
-    return { id: row.id, spec: parse(row.spec), contract: row.contract ? parse(row.contract) : null, revision: row.revision, hash: row.hash, groupId: row.group_id, created: row.created };
+    return {
+      id: row.id,
+      spec: parse(row.spec),
+      contract: row.contract ? parse(row.contract) : null,
+      revision: row.revision,
+      hash: row.hash,
+      groupId: row.group_id,
+      created: row.created,
+      sessionModel: row.model
+        ? { model_provider: row.model_provider ?? null, model: row.model, reasoning_effort: row.reasoning_effort ?? null }
+        : null,
+      rolePlan: row.role_plan ? parse(row.role_plan) : null,
+    };
+  }
+  updateSessionModel(id, selection) {
+    const p = this.preparation(id);
+    if (p.groupId) throw new Error('准备会话已经建群');
+    if (!selection?.model) throw new Error('会话模型选择缺少model');
+    this.store.run(
+      'UPDATE preparations SET model_provider=?,model=?,reasoning_effort=? WHERE id=?',
+      selection.model_provider ?? null,
+      selection.model,
+      selection.reasoning_effort ?? null,
+      id,
+    );
+    return this.preparation(id);
+  }
+  setRolePlan(id, revision, roles, validate) {
+    const p = this.preparation(id);
+    if (p.groupId) throw new Error('准备会话已经建群');
+    if (p.revision !== revision) throw new Error('准备记录版本冲突，请重新读取');
+    const plan = { roles: validate(roles, p.spec) };
+    this.store.run('UPDATE preparations SET role_plan=? WHERE id=?', json(plan), id);
+    return this.preparation(id);
   }
   propose(id, contract, revision) {
     const p = this.preparation(id);
@@ -105,6 +147,14 @@ export class Collaboration {
       const group = create(p.spec);
       this.store.run('INSERT INTO contract_versions VALUES(?,?,?,?,?,?)', group.id, 1, json(p.contract), hash, json({ preparationId: id, revision, source: 'local-user' }), now());
       this.store.run('INSERT INTO team_state(group_id) VALUES(?)', group.id);
+      this.store.run(
+        'INSERT OR IGNORE INTO team_model_policy VALUES(?,?,?,?,?)',
+        group.id,
+        p.spec.modelMode ?? 'user',
+        p.spec.modelRules ?? DEFAULT_USER_MODEL_RULES,
+        now(),
+        now(),
+      );
       this.store.run('UPDATE preparations SET group_id=? WHERE id=?', group.id, id);
       return group;
     });

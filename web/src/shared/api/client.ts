@@ -2,9 +2,11 @@ import type {
   CollaborationState,
   HistoryRow,
   MessageTrace,
+  ModelCatalogResponse,
   MessageRow,
   ModelsPage,
   Snapshot,
+  TeamModelPolicy,
   TurnTrace,
 } from './raw-types';
 
@@ -30,6 +32,17 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function mutate<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text());
+  return response.json() as Promise<T>;
+}
+
 function query(path: string, values: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
@@ -44,6 +57,12 @@ export const api = {
   },
   snapshot(signal?: AbortSignal) {
     return request<Snapshot>('/api/snapshot', signal);
+  },
+  modelCatalog(refresh = false, signal?: AbortSignal) {
+    return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined }), signal);
+  },
+  updateModelPolicy(group: string, mode: TeamModelPolicy['mode'], rules: string) {
+    return mutate<TeamModelPolicy>('/api/model-policy', { group, mode, rules });
   },
   messages(group: string, after = 0, signal?: AbortSignal) {
     return request<MessageRow[]>(query('/api/messages', { group, after }), signal);
