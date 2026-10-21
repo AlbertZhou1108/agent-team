@@ -4,11 +4,46 @@
   "private": true,
   "type": "module",
   "description": "Local single-user CLI agent groups with independent pair conversations",
-  "engines": { "node": ">=22.13.0" },
-  "bin": { "agent-team": "src/cli.mjs" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "agent-team": "src/cli.mjs"
+  },
   "scripts": {
+    "prestart": "npm run build",
     "start": "node --disable-warning=ExperimentalWarning src/cli.mjs",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "AGENT_TEAM_DEV_NO_AUTH=1 node --disable-warning=ExperimentalWarning src/cli.mjs serve --data work/dev --port 62048",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "typecheck": "vue-tsc --noEmit -p web/tsconfig.json",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs && vitest run --config web/vite.config.ts",
+    "test:core": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs",
+    "test:web": "vitest run --config web/vite.config.ts",
+    "check": "node scripts/check.mjs && npm run typecheck"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.60.0",
+    "@tanstack/vue-query": "^5.104.5",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "pinia": "^4.1.0",
+    "reka-ui": "^2.11.0",
+    "tailwind-merge": "^3.7.0",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0",
+    "vue-sonner": "^2.0.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "concurrently": "^10.0.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "vue-tsc": "^3.3.13"
   }
 }

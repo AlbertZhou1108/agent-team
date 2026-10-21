@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
+import { executionPolicy, claudeBuiltins, policyObservation } from './policies.mjs';
 
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -38,16 +39,20 @@ export function createClaudeHost({
   return {
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
+      const policy = executionPolicy(context);
       const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId);
       const allowed = context.tools.map(tool => `mcp__agent_team__${tool.name}`);
-      if (allowEdits) allowed.push('Read', 'Edit', 'Write', 'Glob', 'Grep');
+      const builtins = claudeBuiltins(policy);
+      allowed.push(...builtins);
       const settings = { disableAllHooks: true };
+      if (policy.allowShell) settings.sandbox = { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, ...(policy.mode === 'read-only' ? { filesystem: { denyWrite: [context.workspace] } } : {}) };
       if (reasoningEffort) settings.env = { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort };
-      const args = ['-p', '--setting-sources', 'user', '--settings', JSON.stringify(settings), '--strict-mcp-config', '--mcp-config', files.claude, '--allowedTools', ...allowed, '--permission-mode', permissionMode, '--output-format', 'stream-json', '--verbose', '--append-system-prompt', instructions];
+      const args = ['-p', '--setting-sources', 'user', '--settings', JSON.stringify(settings), '--strict-mcp-config', '--mcp-config', files.claude, '--tools', builtins.join(','), '--allowedTools', allowed.join(','), '--permission-mode', 'dontAsk', '--output-format', 'stream-json', '--verbose', '--append-system-prompt', instructions];
       if (endpoint.session) args.push('--resume', endpoint.session);
       if (model) args.push('--model', model);
       if (reasoningEffort) args.push('--effort', reasoningEffort);
-      args.push(prompt);
+      args.push('--', prompt);
+      context.onPolicy?.(policyObservation('claude', policy, { builtins, allowed, mode: 'dontAsk', sandbox: settings.sandbox ?? null }));
       let result, sessionId = endpoint.session;
       let assistantModel = null;
       if (model || reasoningEffort) context.onModel({ phase: 'requested', model: model ?? null, reasoningEffort: reasoningEffort ?? null, source: 'adapter.config' });
@@ -89,10 +94,12 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
   return {
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
-      const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId);
+      const policy = executionPolicy(context);
+      const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId, { ...policy, workspace: context.workspace, tools: context.tools.map(t => `mcp__agent_team__${t.name}`) });
       const args = ['headless', '--patch', files.dsh, '--json'];
       if (endpoint.session) args.push('--session-id', endpoint.session);
       args.push(`${instructions}\n\n当前输入：\n${prompt}`);
+      context.onPolicy?.(policyObservation('dsh', policy, { sessionPolicy: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', agentScopedToolRestriction: true, approval: 'never' }));
       let text, end;
       await runJsonProcess(command, args, { ...context, onRow(row) {
         if (row.type === 'status' && row.phase === 'turn_start' && row.turn !== undefined) context.onNativeTurn(row.turn);

@@ -6,14 +6,24 @@ import { fileURLToPath } from 'node:url';
 
 export const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 
-export function writeMcpFiles(directory, socketPath, endpoint, turnId) {
+export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution) {
   const dir = resolve(directory, 'endpoints', endpoint.id);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const config = { command: process.execPath, args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--endpoint', endpoint.id], env: { AGENT_TEAM_KEY: endpoint.key, AGENT_TEAM_TURN: turnId } };
   const claude = resolve(dir, 'claude.json');
   const dsh = resolve(dir, 'dsh.patch.json');
   writeFileSync(claude, JSON.stringify({ mcpServers: { agent_team: config } }), { mode: 0o600 });
-  writeFileSync(dsh, JSON.stringify([{ insert: [{ id: 'agent-team-mcp', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'agent_team', transport: 'stdio', ...config, failOnStartupError: true, reconnect: { enabled: false } } }] }]), { mode: 0o600 });
+  const overlay = [{ insert: [{ id: 'agent-team-mcp', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'agent_team', transport: 'stdio', ...config, failOnStartupError: true, reconnect: { enabled: false } } }] }];
+  if (execution) overlay.push(
+    { id: 'tools', config: { mode: 'native' } },
+    { id: 'session-persistence-jsonl', config: { root: resolve(directory, 'host-sessions', 'dsh') } },
+    { id: 'storage-json', config: { root: resolve(directory, 'host-storage', 'dsh') } },
+    { id: 'sandbox-policy', config: { mode: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', workspaceRoot: execution.workspace } },
+    { id: 'approval', config: { policy: 'never' } },
+    { id: 'permission', config: { presets: { team: { sandbox: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', approval: 'never' } }, defaultPreset: 'team' } },
+    { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('./dsh-policy.mjs', import.meta.url)), config: execution }] },
+  );
+  writeFileSync(dsh, JSON.stringify(overlay), { mode: 0o600 });
   return { claude, dsh };
 }
 

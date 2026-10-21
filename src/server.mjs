@@ -1,9 +1,9 @@
 import net from 'node:net';
 import http from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
-import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
+import { extname, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { toolsFor } from './tools.mjs';
 import { rpc } from './rpc.mjs';
@@ -29,7 +29,7 @@ export async function loadHosts({ directory, socketPath, configFile }) {
   return hosts;
 }
 
-export async function startServer({ directory, port = 0, hosts, configFile, confirm }) {
+export async function startServer({ directory, port = 0, hosts, configFile, confirm, panelAuth = true }) {
   directory = resolve(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
@@ -90,14 +90,15 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
-        response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
-        if (url.pathname === '/' && url.searchParams.get('key') === key) {
+        response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+        if (panelAuth && url.pathname === '/' && url.searchParams.get('key') === key) {
           response.writeHead(303, { Location: '/', 'Set-Cookie': `agent_team=${key}; HttpOnly; SameSite=Strict; Path=/` }); return response.end();
         }
-        if (!(request.headers.cookie ?? '').split(';').some(part => part.trim() === `agent_team=${key}`)) return fail(401, '请打开启动时输出的面板链接');
-        if (url.pathname.startsWith('/api/')) {
+        if (panelAuth && !(request.headers.cookie ?? '').split(';').some(part => part.trim() === `agent_team=${key}`)) return fail(401, '请打开启动时输出的面板链接');
+        if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
           let value;
           if (url.pathname === '/api/snapshot') value = bus.snapshot();
+          else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);
             value = bus.store.all('SELECT * FROM messages WHERE group_id=? AND seq>? ORDER BY seq LIMIT 200', group, cursor(url));
@@ -117,26 +118,67 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           } else return fail(404, 'Not found');
           response.writeHead(200, { 'Content-Type': 'application/json' }); return response.end(JSON.stringify(value));
         }
-        const files = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] };
-        const file = files[url.pathname];
-        if (!file) return fail(404, 'Not found');
-        response.writeHead(200, { 'Content-Type': `${file[1]}; charset=utf-8` }); response.end(readFileSync(new URL(`../web/${file[0]}`, import.meta.url)));
+        const staticFile = resolvePanelFile(url.pathname, request.headers.accept);
+        if (!staticFile) return fail(404, 'Not found');
+        if (!existsSync(staticFile.path)) return staticFile.type === 'text/html'
+          ? fail(503, '面板尚未构建，请运行 npm run build')
+          : fail(404, 'Not found');
+        response.writeHead(200, { 'Content-Type': `${staticFile.type}; charset=utf-8` }); response.end(readFileSync(staticFile.path));
       } catch (error) { fail(400, error.message); }
     });
     await new Promise((resolve, reject) => { panel.once('error', reject); panel.listen(port, '127.0.0.1', resolve); });
     bus.start();
-    return { bus, socketPath, url: `http://127.0.0.1:${panel.address().port}/?key=${key}`, close };
+    return {
+      bus,
+      socketPath,
+      url: panelAuth ? `http://127.0.0.1:${panel.address().port}/?key=${key}` : `http://127.0.0.1:${panel.address().port}/`,
+      panelAuth,
+      close,
+    };
   } catch (error) { await close(); throw error; }
 }
 
 function cursor(url) { const value = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(value) || value < 0) throw new Error('游标无效'); return value; }
 
+const panelRoot = fileURLToPath(new URL('../web/dist', import.meta.url));
+const contentTypes = new Map([
+  ['.html', 'text/html'], ['.js', 'text/javascript'], ['.css', 'text/css'],
+  ['.json', 'application/json'], ['.svg', 'image/svg+xml'], ['.png', 'image/png'],
+  ['.webp', 'image/webp'], ['.woff', 'font/woff'], ['.woff2', 'font/woff2'],
+]);
+
+export function resolvePanelFile(pathname, accept = '') {
+  const index = resolve(panelRoot, 'index.html');
+  const wantsHtml = accept.includes('text/html');
+  if (pathname === '/' || pathname === '/index.html') return { path: index, type: 'text/html' };
+  if (pathname.startsWith('/assets/')) {
+    const assetsRoot = resolve(panelRoot, 'assets');
+    const candidate = resolve(panelRoot, `.${pathname}`);
+    if (!candidate.startsWith(`${assetsRoot}${sep}`)) return null;
+    return { path: candidate, type: contentTypes.get(extname(candidate)) ?? 'application/octet-stream' };
+  }
+  if (!extname(pathname) && wantsHtml) return { path: index, type: 'text/html' };
+  return null;
+}
+
 export async function handleRpc(bus, request) {
   if (request.op === 'ping') return { version: '0.1.0' };
-  if (request.op === 'tools') { const endpoint = bus.store.authenticate(request.endpoint, request.key); return toolsFor(bus.store.member(endpoint.member_id).role); }
+  if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });
   if (request.op === 'groups') return bus.store.all('SELECT * FROM groups ORDER BY created');
   if (request.op === 'new') return bus.createGroup(request.args);
+  if (request.op === 'prepare') return bus.prepareGroup(request.args);
+  if (request.op === 'preparation') return bus.collaboration.preparation(request.id);
+  if (request.op === 'propose') return bus.collaboration.propose(request.id, request.contract, request.revision);
+  if (request.op === 'preparation_chat') return bus.preparationTurn(request.id, request.text);
+  if (request.op === 'approve_preparation') return bus.confirmPreparation(request.id, request.revision, request.hash);
+  if (request.op === 'collaboration') return bus.collaboration.read(request.group, request.after ?? 0);
+  if (request.op === 'decide') return bus.decideRequest(request.group, request.id, request.approved === true, request.version);
+  if (request.op === 'directive') return bus.directive(request.group, request.text);
+  if (request.op === 'terminate') return bus.terminate(request.group, request.reason);
+  if (request.op === 'reopen') { bus.collaboration.reopen(request.group, request.reason); return bus.collaboration.read(request.group); }
+  if (request.op === 'resolve_runtime') { bus.collaboration.resolveRuntime(request.group, request.turn, request.reason); bus.reconcile(request.group); return bus.collaboration.read(request.group); }
+  if (request.op === 'reset_session') return bus.resetSession(request.endpoint, request.reason);
   if (request.op === 'chat') {
     if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 48000) throw new Error('私聊输入无效');
     return bus.privateTurn(request.group, request.text);

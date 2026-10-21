@@ -8,8 +8,9 @@ import { createClaudeHost, readClaudeSessionMetadata } from '../src/hosts/cli-ho
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
-import { startServer } from '../src/server.mjs';
+import { resolvePanelFile, startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
+import { confirmedGroup, testContract } from './helpers.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 2500; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
@@ -24,12 +25,12 @@ function fixture(t, run) {
     return run ? run(ctx) : (ctx.onAccepted(), 'host final, not a group message');
   } };
   const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
-  const group = bus.createGroup({ name: 'group', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'one', host: 'fake' }, { name: 'two', host: 'fake' }] });
+  const group = confirmedGroup(bus, { name: 'group', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'one', host: 'fake' }, { name: 'two', host: 'fake' }] });
   const members = bus.members(group.id);
   t.after(async () => { if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
   return { bus, group, members, directory, calls, host };
 }
-function tools(bus, member) { const e = bus.store.endpoint(member.id, 'private'); return (name, args = {}) => bus.tool(e.id, e.key, name, args); }
+function tools(bus, member) { const e = bus.store.endpoint(member.id, member.role === 'lead' ? 'coordination' : 'pair:test'); return (name, args = {}) => bus.tool(e.id, e.key, name, args); }
 
 test('notes wait; next formal message carries notes from another sender exactly once', async t => {
   const { bus, members, calls } = fixture(t); const [lead, one, two] = members;
@@ -37,7 +38,7 @@ test('notes wait; next formal message carries notes from another sender exactly 
   await tools(bus, two)('note', { to: lead.id, text: 'third-party note' }); await tick();
   assert.equal(calls.filter(c => c.endpoint.context.startsWith('pair:')).length, 0);
   const sent = await tools(bus, one)('send', { to: lead.id, text: 'formal' });
-  await until(() => calls.some(c => c.endpoint.peer === one.id)); await until(() => bus.running.size === 0);
+  await until(() => calls.some(c => c.endpoint.context === 'coordination')); await until(() => bus.running.size === 0);
   const input = bus.store.get('SELECT payload FROM outbox'); const payload = JSON.parse(input.payload);
   assert.equal(payload.message.id, sent.messageId); assert.equal(payload.notes.length, 1); assert.equal(payload.notes[0].sender, two.id);
   await tools(bus, one)('send', { to: lead.id, text: 'second formal' }); await until(() => bus.store.all('SELECT * FROM outbox').length === 2); await until(() => bus.running.size === 0);
@@ -81,7 +82,7 @@ test('identity cannot be supplied, member profiles are self-only, cross-group ad
   await assert.rejects(tools(bus, one)('group_remove', { member: lead.id }), /不可使用/);
   await tools(bus, one)('profile_set', { text: 'own profile' });
   assert.equal(bus.store.member(one.id).profile, 'own profile'); assert.equal(bus.store.member(lead.id).profile, 'I can help.');
-  const other = bus.createGroup({ name: 'other', workspace: directory, lead: { name: 'other', host: 'fake' } });
+  const other = confirmedGroup(bus, { name: 'other', workspace: directory, lead: { name: 'other', host: 'fake' } });
   await assert.rejects(tools(bus, one)('send', { to: other.lead, text: 'cross-group' }), /找不到/);
   const e = bus.store.endpoint(lead.id, 'private');
   await assert.rejects(bus.tool(e.id, 'wrong', 'members', {}), /来源无效/);
@@ -127,7 +128,10 @@ test('restart recovers identical persisted input with stable message and note id
   let received;
   const restarted = new Bus({ directory, hosts: new Map([['fake', { async run(ctx) { received = ctx.prompt; ctx.onAccepted(); return 'done'; } }]]) });
   t.after(async () => { if (!restarted.closing) await restarted.close(); });
-  restarted.start(); await until(() => restarted.store.get('SELECT accepted FROM outbox')?.accepted);
+  restarted.start(); await tick();
+  assert.equal(received, undefined, '重启不应自动恢复已中断输入');
+  restarted.retry(JSON.parse(before).groupId);
+  await until(() => restarted.store.get('SELECT accepted FROM outbox')?.accepted);
   assert.equal(restarted.store.get('SELECT payload FROM outbox').payload, before);
   assert.ok(received.includes(JSON.parse(before).message.id));
   // Close before the fixture removes its directory.
@@ -147,10 +151,39 @@ test('HTTP panel requires its launch link, is read-only, rejects DNS rebinding, 
   assert.equal((await fetch(base + '/api/snapshot', { headers, method: 'POST' })).status, 403);
   const rebinding = await new Promise((resolve, reject) => { const request = http.get(base + '/api/snapshot', { headers: { ...headers, host: 'attacker.example' } }, response => { response.resume(); resolve(response.statusCode); }); request.on('error', reject); });
   assert.equal(rebinding, 403);
-  const group = await rpc(server.socketPath, { op: 'new', args: { name: 'panel', workspace: directory, lead: { name: 'lead', host: 'fake' } } });
+  const prep = await rpc(server.socketPath, { op: 'prepare', args: { name: 'panel', workspace: directory, lead: { name: 'lead', host: 'fake' } } });
+  const proposed = await rpc(server.socketPath, { op: 'propose', id: prep.id, revision: 0, contract: testContract });
+  const group = await rpc(server.socketPath, { op: 'approve_preparation', id: prep.id, revision: proposed.revision, hash: proposed.hash });
   for (let i = 0; i < 205; i++) server.bus.store.append(group.id, 'system', group.lead, 'system', `notice-${i}`);
   const first = await (await fetch(base + `/api/messages?group=${group.id}`, { headers })).json(); assert.equal(first.length, 200);
   const second = await (await fetch(base + `/api/messages?group=${group.id}&after=${first.at(-1).seq}`, { headers })).json(); assert.equal(second.length, 5);
+  assert.equal(resolvePanelFile('/groups/example', 'text/html').type, 'text/html');
+  assert.equal(resolvePanelFile('/groups/example', 'application/json'), null);
+  assert.equal(resolvePanelFile('/assets/missing.js', 'text/javascript').type, 'text/javascript');
+  assert.equal(resolvePanelFile('/assets/../../package.json', 'text/html'), null);
+});
+
+test('development panel can opt out of the launch-link cookie without weakening local request checks', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-panel-no-auth-'));
+  const server = await startServer({
+    directory,
+    panelAuth: false,
+    hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]),
+  });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  const base = new URL(server.url).origin;
+  assert.equal(server.panelAuth, false);
+  assert.equal(server.url, `${base}/`);
+  assert.equal((await fetch(base + '/api/snapshot')).status, 200);
+  assert.equal((await fetch(base + '/api/snapshot', { method: 'POST' })).status, 403);
+  const rebinding = await new Promise((resolve, reject) => {
+    const request = http.get(base + '/api/snapshot', { headers: { host: 'attacker.example' } }, response => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    request.on('error', reject);
+  });
+  assert.equal(rebinding, 403);
 });
 
 test('second bus cannot open the same data directory', async t => {
@@ -232,21 +265,22 @@ test('failed input retry has distinct attempts with the same formal and note ids
   assert.ok(bus.store.turnTrace(attempts[1].id).events.some(row => JSON.parse(row.event).type === 'framework.input_accepted'));
 });
 
-test('private sending origin is redacted while receiving turn remains observable', async t => {
+test('private conversation cannot dispatch; explicitly shared user directive has observable receiving turn', async t => {
   let privateTurn;
   const { bus, members, group } = fixture(t, async ctx => {
     if (ctx.endpoint.context === 'private') {
       privateTurn = ctx.turnId;
-      await ctx.onTool('send', { to: members[1].id, text: 'public-message' });
+      await assert.rejects(ctx.onTool('send', { to: members[1].id, text: 'public-message' }), /不可使用/);
     }
     ctx.onAccepted(); return 'PRIVATE_FINAL';
   });
   await until(() => bus.running.size === 0);
   await bus.privateTurn(group.id, 'PRIVATE_INPUT');
+  bus.directive(group.id, 'public-message');
   await until(() => bus.running.size === 0);
   const message = bus.store.get("SELECT * FROM messages WHERE kind='send'");
   const trace = bus.store.messageTrace(message.id);
-  assert.deepEqual(trace.source, { kind: 'private' });
+  assert.deepEqual(trace.source, { kind: 'unknown' });
   assert.equal(trace.inputAttempts.length, 1);
   assert.equal(bus.store.turnTrace(privateTurn), null);
   assert.ok(!JSON.stringify(trace).includes(privateTurn));
@@ -284,7 +318,7 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
     ctx.onAccepted(); return 'done';
   } }]]) });
   t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
-  const group = server.bus.createGroup({ name: 'trace', workspace: directory, lead: { name: 'lead', host: 'fake' } });
+  const group = confirmedGroup(server.bus, { name: 'trace', workspace: directory, lead: { name: 'lead', host: 'fake' } });
   await until(() => server.bus.running.size === 0);
   await server.bus.privateTurn(group.id, 'secret');
   const privateId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='private'").id;

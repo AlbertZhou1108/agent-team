@@ -6,6 +6,8 @@
 
 沿用本机面板启动链接建立的 Cookie；所有接口只读。
 
+- `GET /api/snapshot`：返回群、成员、群会话、活动运行和团队阶段摘要。
+- `GET /api/collaboration?group=<群编号>&after=<记录序号>`：返回有效契约、工作项、证据引用、待用户决定、收尾状态、未处理消息、待核实运行和分页流转记录。
 - `GET /api/message-trace?message=<消息编号>`：返回 `source` 和 `inputAttempts`。
 - `GET /api/models?endpoint=<会话编号>&after=<事件序号>`：返回该群会话由观测推导的 `currentModel`、`currentReasoningEffort`、增量 `modelObservations` 和 `nextAfter`。
 - `GET /api/turn?turn=<框架回合编号>&after=<事件序号>`：返回回合、原生回合引用、输入消息编号、输出消息及发送锚点、当前模型摘要、整轮 `modelObservations`、顺序事件。事件每页最多 200 条，用 `nextAfter` 继续读取。
@@ -23,10 +25,12 @@ Codex 的原生 turn id 和 DSH 暴露的 turn 引用单独保存，结合宿主
 
 模型观测记录为 `framework.model` 事件，并通过 `modelObservations` 提供整轮汇总。`phase` 区分 requested、session、assistant、usage 和 verified；`source` 标明信息来自适配器配置、宿主会话、助手消息流、用量结算或宿主内部会话记录。`currentModel` 优先采用最新的 assistant 观测，再回退到 verified、session、requested，usage 不覆盖当前模型；`currentReasoningEffort` 优先采用 verified，再回退到 session、requested。Claude 在当前版本从项目 JSONL 核实 `reasoningEffort`，该格式属于宿主内部存储，升级后必须回归验证。Codex 的启动与恢复响应直接提供模型、提供方和思考强度。
 
+每个回合还记录 `framework.session_scope`，标明逻辑策略域、Adapter 会话 key、复用的宿主 session 以及是否已存在绑定。`/api/snapshot` 的 `sessionBindings` 返回 endpoint 与各策略域物理会话的持久绑定；Codex 可出现 `communication` 和 `project` 两个 thread，Claude/DSH 默认是共享的 `default` session。
+
 ## 隐私与兼容
 
 私聊中主动发送到群的消息可以查询，但出处仅返回 `{ "kind": "private" }`，不公开私聊 turnId、输入或过程。直接查询私聊回合和不存在的回合都返回 404。私聊内容不写入共享 history。
 
 数据库使用增量迁移保留旧消息和旧事件，不通过正文、时间相近等方式推测旧记录的关联；没有保存出处的消息返回 unknown。框架外直接写入或没有执行元数据的管理调用也保留为 unknown。
 
-本次未修改面板样式和交互；未来 Vue 面板可组合这两个接口展示消息下的执行过程。
+Vue 面板通过前端适配层把这些原始记录聚合为 `TurnView` 和 `TraceStep`：合并 Codex 流式推理增量、配对统一工具调用与结果、过滤 Token 级宿主元数据，并保留原始事件视图。后端事件格式不需要修改；未知事件仍以原始 JSON 降级展示。

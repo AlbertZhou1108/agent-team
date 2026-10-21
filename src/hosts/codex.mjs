@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { executionPolicy, codexPolicyConfig, policyObservation } from './policies.mjs';
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
-  let child, init, nextId = 0, stderr = '';
+  let child, init, nextId = 0, stderr = '', serverNames = [];
   const pending = new Map(), active = new Map(), ended = new Map(), waits = new Map();
   const send = value => child.stdin.write(JSON.stringify(value) + '\n');
   const fail = error => {
+    error.runtimeUnknown = true;
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(error); }
     pending.clear();
     for (const entry of waits.values()) { clearTimeout(entry.timer); entry.reject(error); }
@@ -15,7 +17,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   function request(method, params, timeout = 60000) {
     return new Promise((resolve, reject) => {
       const id = ++nextId;
-      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Codex ${method} 超时`)); }, timeout);
+      const timer = setTimeout(() => { pending.delete(id); reject(Object.assign(new Error(`Codex ${method} 超时，宿主执行状态待核实`), { runtimeUnknown: true })); }, timeout);
       pending.set(id, { resolve, reject, timer });
       send({ id, method, params });
     });
@@ -34,6 +36,14 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       if (!name.startsWith('agent_team_')) return send({ id: row.id, error: { code: -32601, message: 'Unowned tool' } });
       try { const value = await context.onTool(name.slice(11), row.params.arguments, { nativeCallId: row.params.callId }); send({ id: row.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify(value) }], success: true } }); }
       catch (error) { send({ id: row.id, result: { contentItems: [{ type: 'inputText', text: error.message }], success: false } }); }
+    }
+    if (row.method === 'item/started' && row.params.item?.type === 'collabAgentToolCall' && context) {
+      const turnId = row.params.turnId;
+      const error = new Error('Codex 原生子 Agent/协同工具不属于团队回合，已请求中断；请只结束当前回合，由框架投递下一条消息');
+      context.violation ??= error;
+      const waiter = waits.get(turnId);
+      if (waiter) { clearTimeout(waiter.timer); waits.delete(turnId); waiter.reject(error); }
+      request('turn/interrupt', { threadId: row.params.threadId, turnId }, 10000).catch(() => {});
     }
     if (row.method === 'item/completed' && row.params.item?.type === 'agentMessage' && context) context.text = row.params.item.text ?? '';
     if (row.method === 'turn/completed') {
@@ -57,24 +67,38 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       });
       await request('initialize', { clientInfo: { name: 'agent-team', version: '0.1.0' }, capabilities: { experimentalApi: true } });
       send({ method: 'initialized' });
+      const configuration = await request('config/read', { includeLayers: false });
+      serverNames = Object.keys(configuration.config?.mcp_servers ?? {});
     })();
     return init;
   }
   return {
+    sessionKey({ policy }) { return policy.domain ?? (policy.mode === 'communication' ? 'communication' : 'project'); },
+    supportsPolicy({ policy }) {
+      return policy.mode === 'communication' || policy.allowShell
+        ? { supported: true }
+        : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要契约允许沙箱命令' };
+    },
     async run(context) {
       await ready();
       const { endpoint, prompt, instructions, onSession, onAccepted, signal } = context;
       if (signal.aborted) throw new Error('回合已中断');
+      const policy = executionPolicy(context);
+      if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要契约明确允许沙箱命令；请调整安排或由用户批准契约变更');
+      const config = { ...codexPolicyConfig(policy, serverNames), ...(reasoningEffort ? { model_reasoning_effort: reasoningEffort } : {}) };
+      const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
+      if (endpoint.session && context.previousPolicy?.signature !== signature) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
       const options = {
-        cwd: context.workspace, approvalPolicy: 'never', sandbox: 'workspace-write', developerInstructions: instructions,
+        cwd: context.workspace, approvalPolicy: 'never', sandbox: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', developerInstructions: instructions,
         ...(model ? { model } : {}),
-        ...(reasoningEffort ? { config: { model_reasoning_effort: reasoningEffort } } : {}),
+        config,
       };
       if (model || reasoningEffort) context.onModel({ phase: 'requested', model: model ?? null, reasoningEffort: reasoningEffort ?? null, source: 'adapter.config' });
       const result = endpoint.session
         ? await request('thread/resume', { threadId: endpoint.session, ...options })
         : await request('thread/start', { ...options, dynamicTools: context.tools.map(tool => ({ type: 'function', name: `agent_team_${tool.name}`, description: tool.description, inputSchema: tool.inputSchema })) });
       const thread = result.thread.id;
+      context.onPolicy?.({ ...policyObservation('codex', policy, { config, turnSandbox: policy.mode === 'workspace-write' ? 'workspaceWrite' : 'readOnly', tools: context.tools.map(t => t.name) }), signature });
       context.onModel({
         phase: 'session', model: result.model, provider: result.modelProvider, reasoningEffort: result.reasoningEffort,
         source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start',
@@ -87,12 +111,15 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       signal.addEventListener('abort', interrupt, { once: true });
       try {
         if (signal.aborted) throw new Error('回合已中断');
-        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }] })).turn;
+        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: policy.mode === 'workspace-write'
+          ? { type: 'workspaceWrite', writableRoots: [context.workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
+          : { type: 'readOnly', networkAccess: false } })).turn;
         context.onNativeTurn(turn.id);
         onAccepted();
         if (signal.aborted) interrupt();
+        if (live.violation) throw live.violation;
         const complete = ended.get(turn.id) ?? await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => { waits.delete(turn.id); interrupt(); reject(new Error('Codex 回合超过 15 分钟，已请求中断')); }, 900000);
+          const timer = setTimeout(() => { waits.delete(turn.id); interrupt(); reject(Object.assign(new Error('Codex 回合超过 15 分钟，已请求中断，停止结果待核实'), { runtimeUnknown: true })); }, 900000);
           waits.set(turn.id, { resolve, reject, timer });
         });
         ended.delete(turn.id);

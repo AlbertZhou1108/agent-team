@@ -93,18 +93,26 @@ export class Store {
     return this.get('SELECT * FROM messages WHERE id=?', id);
   }
   pending() {
-    return this.all(`SELECT m.* FROM messages m JOIN members r ON r.id=m.recipient
-      WHERE m.kind='send' AND r.removed IS NULL AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
+    return this.all(`SELECT m.* FROM messages m JOIN members r ON r.id=m.recipient JOIN team_state s ON s.group_id=m.group_id
+      WHERE s.phase='active' AND m.kind='send' AND r.removed IS NULL
+      AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
   }
-  prepare(message, endpoint) {
+  prepare(message, endpoint, canBatch = () => true) {
     return this.transaction(() => {
       if (this.get('SELECT 1 FROM attached WHERE message_id=?', message.id)) return null;
       this.member(endpoint.member_id);
       const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, message.recipient);
-      const additional = this.all(`SELECT m.* FROM messages m WHERE m.sender=? AND m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, message.sender, message.recipient, message.id);
-      const payload = { groupId: message.group_id, conversation: [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
+      const candidates = this.all(`SELECT m.* FROM messages m WHERE ${endpoint.context === 'coordination' ? '' : 'm.sender=? AND '}m.recipient=? AND m.kind='send' AND m.id!=?
+        AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
+        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, ...(endpoint.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
+      const additional = [];
+      for (const candidate of candidates) {
+        if (canBatch([message, ...additional, candidate])) additional.push(candidate);
+      }
+      const annotate = m => ({ ...m, workItemId: this.get('SELECT work_item_id FROM message_context WHERE message_id=?', m.id)?.work_item_id ?? null });
+      const payload = { groupId: message.group_id, conversation: endpoint.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message: annotate(message), ...(additional.length ? { additionalMessages: additional.map(annotate) } : {}), notes };
       const id = randomUUID();
       this.run('INSERT INTO outbox(id,endpoint_id,payload) VALUES(?,?,?)', id, endpoint.id, JSON.stringify(payload));
       for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO attached VALUES(?,?)', item.id, id);
