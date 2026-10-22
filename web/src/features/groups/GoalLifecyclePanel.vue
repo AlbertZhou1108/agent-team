@@ -268,7 +268,7 @@ function dropGoal(targetId: string) {
             <CollapsibleTrigger as-child>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 :aria-label="currentOpen ? '收起当前任务' : '展开当前任务'"
                 :title="currentOpen ? '收起' : '展开'"
               >
@@ -349,7 +349,7 @@ function dropGoal(targetId: string) {
             <CollapsibleTrigger as-child>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 :aria-label="queueOpen ? '收起任务队列' : '展开任务队列'"
                 :title="queueOpen ? '收起' : '展开'"
               >
@@ -433,7 +433,7 @@ function dropGoal(targetId: string) {
             <CollapsibleTrigger as-child>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 :aria-label="draftsOpen ? '收起任务草稿' : '展开任务草稿'"
                 :title="draftsOpen ? '收起' : '展开'"
               >
@@ -505,7 +505,7 @@ function dropGoal(targetId: string) {
             <CollapsibleTrigger as-child>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 :aria-label="historyOpen ? '收起任务历史' : '展开任务历史'"
                 :title="historyOpen ? '收起' : '展开'"
               >
