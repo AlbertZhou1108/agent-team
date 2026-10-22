@@ -675,10 +675,20 @@
   color: var(--primary);
 }
 
+.agent-mark > svg {
+  width: 18px;
+  height: 18px;
+}
+
 .agent-mark-small {
   width: 34px;
   height: 34px;
   border-radius: 10px;
+}
+
+.agent-mark-small > svg {
+  width: 16px;
+  height: 16px;
 }
 
 .agent-catalog-state {
