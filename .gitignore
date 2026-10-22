@@ -3,3 +3,9 @@ work/
 node_modules/
 web/dist/
 *.sqlite*
+
+# 本地调研/过程材料，不入库
+research/
+
+# 本地 DSH 工作区指令，不入库
+/AGENTS.md
