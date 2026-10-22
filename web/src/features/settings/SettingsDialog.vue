@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
+  Archive,
   ArrowLeft,
   Monitor,
   Moon,
@@ -10,6 +11,7 @@ import {
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type {
+  Group,
   ModelPolicy,
   ModelPolicyDefaults,
 } from '@/shared/api/raw-types';
@@ -26,11 +28,13 @@ const props = defineProps<{
   embedded?: boolean;
   policy?: ModelPolicy;
   defaults?: ModelPolicyDefaults;
+  archivedTeams?: Group[];
 }>();
 
 const emit = defineEmits<{
   close: [];
   saved: [policy: ModelPolicy];
+  restoreTeam: [team: Group];
 }>();
 
 const preferences = usePreferencesStore();
@@ -255,6 +259,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
               </ToggleGroupItem>
             </ToggleGroup>
             <p class="text-[11px] text-muted">{{ activeColorTheme.description }}</p>
+          </section>
+
+          <section class="flex flex-col gap-3 border-t border-[var(--border)] pt-6">
+            <div>
+              <h3 class="text-sm font-semibold">归档团队</h3>
+              <p class="mt-1 text-xs text-muted">归档团队不接收消息，也不启动 Goal；恢复后继续使用原队列。</p>
+            </div>
+            <p v-if="!archivedTeams?.length" class="rounded-lg border border-dashed p-3 text-xs text-muted">
+              没有归档团队。
+            </p>
+            <div v-else class="flex flex-col gap-2">
+              <div
+                v-for="team in archivedTeams"
+                :key="team.id"
+                class="flex items-center gap-3 rounded-xl border bg-[var(--surface-raised)] p-3"
+              >
+                <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                  <Archive />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <strong class="block truncate text-xs">{{ team.name }}</strong>
+                  <small class="block truncate font-mono text-[10px] text-dim">{{ team.id }}</small>
+                </span>
+                <Button variant="outline" size="sm" @click="emit('restoreTeam', team)">恢复</Button>
+              </div>
+            </div>
           </section>
 
           <section class="space-y-3 border-t border-[var(--border)] pt-6">

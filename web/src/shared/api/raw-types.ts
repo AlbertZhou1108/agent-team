@@ -4,6 +4,8 @@ export interface Group {
   workspace: string;
   lead: string | null;
   created: string;
+  state?: 'open' | 'archived';
+  revision?: number;
 }
 
 export interface Member {

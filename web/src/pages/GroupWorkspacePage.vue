@@ -17,10 +17,12 @@ import {
   Bot,
   MessagesSquare,
   PanelRightOpen,
+  Target,
 } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
+import GoalLifecyclePanel from '@/features/groups/GoalLifecyclePanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
@@ -45,6 +47,8 @@ import {
   usePanelAgentStore,
 } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
+import { api } from '@/shared/api/client';
+import type { Group } from '@/shared/api/raw-types';
 
 const route = useRoute();
 const router = useRouter();
@@ -55,7 +59,7 @@ const snapshotQuery = useSnapshotQuery();
 const panelAgentQuery = usePanelAgentQuery();
 
 const snapshot = computed(() => snapshotQuery.data.value);
-const groups = computed(() => snapshot.value?.groups ?? []);
+const allGroups = computed(() => snapshot.value?.groups ?? []);
 const members = computed(() => snapshot.value?.members ?? []);
 const actors = computed(() => snapshot.value?.actors ?? []);
 const endpoints = computed(() => snapshot.value?.endpoints ?? []);
@@ -68,6 +72,10 @@ function routeString(value: unknown) {
 }
 
 const groupId = computed(() => routeString(route.params.groupId));
+const groups = computed(() => allGroups.value.filter(team => (
+  team.state !== 'archived' || team.id === groupId.value
+)));
+const archivedGroups = computed(() => allGroups.value.filter(team => team.state === 'archived'));
 const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
 const isSettingsRoute = computed(() => route.name === 'settings');
 const group = computed(() => groups.value.find(item => item.id === groupId.value));
@@ -172,13 +180,14 @@ const activeTab = computed<InspectorTab>(() => {
   const value = routeString(route.query.tab);
   return value === 'events' || value === 'models' ? value : 'trace';
 });
-type ContextPanel = 'members' | 'sessions' | 'details' | 'collaboration';
+type ContextPanel = 'goals' | 'members' | 'sessions' | 'details' | 'collaboration';
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
-  if (value === 'members' || value === 'sessions' || value === 'details' || value === 'collaboration') return value;
-  return selectedSessionId.value ? 'details' : 'members';
+  if (value === 'goals' || value === 'members' || value === 'sessions' || value === 'details' || value === 'collaboration') return value;
+  return selectedSessionId.value ? 'details' : 'goals';
 });
 const contextTabs: Array<{ value: ContextPanel; label: string; icon: typeof Bot }> = [
+  { value: 'goals', label: '目标', icon: Target },
   { value: 'collaboration', label: '协作', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
   { value: 'sessions', label: '会话', icon: MessagesSquare },
@@ -327,6 +336,20 @@ async function modelPolicySaved() {
   toast.success('全局模型策略已保存', { description: '将用于新团队初始角色和已有团队新增角色' });
 }
 
+async function restoreArchivedTeam(team: Group) {
+  try {
+    await api.restoreTeamGoals(team.id, {
+      revision: team.revision ?? 1,
+      operationId: globalThis.crypto?.randomUUID?.()
+        ?? `restore-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    });
+    await snapshotQuery.refetch();
+    toast.success(`已恢复 ${team.name}`);
+  } catch (error) {
+    toast.error('恢复团队失败', { description: String(error) });
+  }
+}
+
 function setTab(tab: InspectorTab) {
   replaceQuery({ tab, panel: 'details' });
 }
@@ -413,8 +436,10 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         embedded
         :policy="currentModelPolicy"
         :defaults="modelPolicyDefaults"
+        :archived-teams="archivedGroups"
         @close="closeSettingsPage"
         @saved="modelPolicySaved"
+        @restore-team="restoreArchivedTeam"
       />
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
@@ -551,7 +576,8 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
             </button>
           </div>
           <div v-show="!ui.contextCollapsed" class="context-scroll">
-            <CollaborationPanel v-if="contextPanel === 'collaboration'" :group-id="groupId" :members="members" />
+            <GoalLifecyclePanel v-if="contextPanel === 'goals'" :team-id="groupId" />
+            <CollaborationPanel v-else-if="contextPanel === 'collaboration'" :group-id="groupId" :members="members" />
             <MemberStrip
               v-else-if="contextPanel === 'members'"
               :members="currentMembers"

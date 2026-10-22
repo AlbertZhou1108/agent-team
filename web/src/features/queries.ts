@@ -23,6 +23,16 @@ export function useCollaborationQuery(groupId: MaybeRefOrGetter<string | undefin
   return { ...query, state, records };
 }
 
+export function useTeamGoalsQuery(teamId: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: computed(() => ['team-goals', toValue(teamId)] as const),
+    queryFn: ({ signal }) => api.teamGoals(toValue(teamId)!, signal),
+    enabled: computed(() => Boolean(toValue(teamId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useSnapshotQuery() {
   return useQuery({
     queryKey: ['snapshot'],
