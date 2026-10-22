@@ -96,13 +96,11 @@ finalizing ──terminate──────────────────
 
 启动准入不判断任务是否会成功。已经启动后的网络、模型、工具或成员失败属于运行失败，不把 Goal 自动放回队列。
 
-## 3. 仍需在对应阶段前确认的语义
+## 3. 已确认的授权、交接与失败语义
 
-以下项不能由实现人员静默决定：
+本阶段开始前已经确认：
 
 ### 3.1 Goal Draft 确认
-
-建议默认：
 
 - 用户明确提出工作请求后，Main Agent 可以创建 Goal Draft。
 - 用户必须确认 Goal Draft，才能生成 Queued Goal。
@@ -120,8 +118,6 @@ finalizing ──terminate──────────────────
 
 ### 3.3 运行失败传播
 
-建议默认：
-
 - Agent Turn 失败不自动终止 Goal。
 - Work Item 根据错误进入 `blocked`、重试或有依据的取消。
 - Main Agent 可以继续调度或向用户报告。
@@ -135,7 +131,7 @@ finalizing ──terminate──────────────────
 
 ```js
 lifecycle.read(teamId)
-lifecycle.apply(teamId, command, expectedRevision, operationId)
+lifecycle.apply(teamId, actor, command, expectedRevision, operationId)
 lifecycle.advance(teamId, trigger)
 ```
 
@@ -390,7 +386,7 @@ Main Agent 可读写可观察状态，并可提出 Draft。用户决定权保持
 | 阶段 | 内容 | 退出条件 |
 | --- | --- | --- |
 | 0 | 独立提交当前已完成的 Panel Agent continuation 修改 | 工作树基线明确，完整测试通过 |
-| 1 | 新表、Team/Goal 状态机、迁移 fixture | 领域与迁移测试通过，不接 UI |
+| 1 | 新表、Team/Goal 状态机、迁移 fixture | 已完成：核心状态、队列、归档、cutoff 和旧状态迁移测试通过；尚未接入 Bus/UI |
 | 2 | Goal Draft、Queue 和调度器 | 队列、跳过、幂等和重启恢复通过 |
 | 3 | `goal_id` 消息上下文、消费和 cutoff | 收尾门禁测试通过 |
 | 4 | Bus、RPC、HTTP 和 Agent 工具接入 | 无旧 phase 读写，API 鉴权通过 |
