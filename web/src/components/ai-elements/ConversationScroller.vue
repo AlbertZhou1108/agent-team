@@ -1,0 +1,113 @@
+<script setup lang="ts">
+import {
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
+import { ArrowDown } from '@lucide/vue';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+const props = withDefaults(defineProps<{
+  ids: Array<string | number>;
+  resetKey?: string | number;
+  viewportClass?: string;
+  streamClass?: string;
+  contentClass?: string;
+  threshold?: number;
+  ariaLabel?: string;
+}>(), {
+  resetKey: undefined,
+  viewportClass: '',
+  streamClass: '',
+  contentClass: '',
+  threshold: 24,
+  ariaLabel: '会话消息',
+});
+
+const stream = ref<HTMLElement>();
+const content = ref<HTMLElement>();
+const atBottom = ref(true);
+let observer: ResizeObserver | undefined;
+
+function updatePosition() {
+  const element = stream.value;
+  if (!element) return;
+  atBottom.value = (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+    <= props.threshold
+  );
+}
+
+function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+  const element = stream.value;
+  if (!element) return;
+  element.scrollTo({ top: element.scrollHeight, behavior });
+  updatePosition();
+}
+
+watch(
+  () => props.ids.map(id => String(id)).join('\u0000'),
+  async () => {
+    // Capture intent before Vue appends content and changes scroll geometry.
+    const follow = atBottom.value;
+    await nextTick();
+    if (follow) scrollToBottom();
+    else updatePosition();
+  },
+  { flush: 'pre' },
+);
+
+watch(
+  () => props.resetKey,
+  async () => {
+    atBottom.value = true;
+    await nextTick();
+    scrollToBottom();
+  },
+);
+
+onMounted(() => {
+  scrollToBottom();
+  observer = new ResizeObserver(() => {
+    if (atBottom.value) scrollToBottom();
+    else updatePosition();
+  });
+  if (content.value) observer.observe(content.value);
+  if (stream.value) observer.observe(stream.value);
+});
+
+onBeforeUnmount(() => observer?.disconnect());
+
+defineExpose({ scrollToBottom });
+</script>
+
+<template>
+  <div :class="cn('relative min-h-0', viewportClass)">
+    <div
+      ref="stream"
+      role="log"
+      aria-relevant="additions"
+      :aria-label="ariaLabel"
+      :class="cn('min-h-0', streamClass)"
+      @scroll="updatePosition"
+    >
+      <div ref="content" :class="contentClass">
+        <slot />
+      </div>
+    </div>
+    <Button
+      v-if="!atBottom"
+      class="jump-to-bottom rounded-full"
+      variant="secondary"
+      size="icon"
+      aria-label="回到底部"
+      title="回到底部"
+      @click="scrollToBottom('smooth')"
+    >
+      <ArrowDown />
+    </Button>
+  </div>
+</template>

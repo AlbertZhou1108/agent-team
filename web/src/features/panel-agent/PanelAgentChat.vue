@@ -22,14 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from '@/components/ui/message-scroller';
+import ConversationScroller from '@/components/ai-elements/ConversationScroller.vue';
 import {
   Trace,
   TraceDescription,
@@ -79,6 +72,10 @@ const activeTeam = computed(() => (
 const visibleMessages = computed(() => (
   filterPanelMessagesForContext(props.messages, activeTeamId.value)
 ));
+const visibleMessageIds = computed(() => [
+  ...visibleMessages.value.map(message => message.id),
+  ...(props.contextRunning ? ['panel-agent-running'] : []),
+]);
 const selectedContext = computed({
   get: () => activeTeamId.value || globalContext,
   set: value => {
@@ -139,72 +136,71 @@ const suggestions = [
     </div>
 
     <div class="min-h-0 flex-1">
-      <MessageScrollerProvider auto-scroll default-scroll-position="end">
-        <MessageScroller>
-          <MessageScrollerViewport aria-label="Panel Agent 私人会话">
-            <MessageScrollerContent class="gap-5 px-4 py-5">
-              <Empty
-                v-if="!visibleMessages.length"
-                class="min-h-[360px] border-0"
+      <ConversationScroller
+        :ids="visibleMessageIds"
+        :reset-key="activeTeamId || globalContext"
+        aria-label="Panel Agent 私人会话"
+        viewport-class="size-full min-h-0"
+        stream-class="size-full overflow-y-auto scroll-fade-b scrollbar-thin scrollbar-gutter-stable overscroll-contain contain-content"
+        content-class="flex min-h-full flex-col gap-5 px-4 py-5"
+      >
+        <Empty
+          v-if="!visibleMessages.length"
+          class="min-h-[360px] border-0"
+        >
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Bot />
+            </EmptyMedia>
+            <EmptyTitle>
+              {{ activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
+            </EmptyTitle>
+            <EmptyDescription>
+              {{
+                activeTeam
+                  ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
+                  : '可以询问团队状态、解释阻塞，或者让我准备一个新团队。'
+              }}
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent v-if="!activeTeam">
+            <div class="flex flex-wrap justify-center gap-2">
+              <Button
+                v-for="suggestion in suggestions"
+                :key="suggestion"
+                variant="outline"
+                size="sm"
+                @click="draft = suggestion"
               >
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Bot />
-                  </EmptyMedia>
-                  <EmptyTitle>
-                    {{ activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
-                  </EmptyTitle>
-                  <EmptyDescription>
-                    {{
-                      activeTeam
-                        ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
-                        : '可以询问团队状态、解释阻塞，或者让我准备一个新团队。'
-                    }}
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent v-if="!activeTeam">
-                  <div class="flex flex-wrap justify-center gap-2">
-                    <Button
-                      v-for="suggestion in suggestions"
-                      :key="suggestion"
-                      variant="outline"
-                      size="sm"
-                      @click="draft = suggestion"
-                    >
-                      {{ suggestion }}
-                    </Button>
-                  </div>
-                </EmptyContent>
-              </Empty>
+                {{ suggestion }}
+              </Button>
+            </div>
+          </EmptyContent>
+        </Empty>
 
-              <MessageScrollerItem
-                v-for="message in visibleMessages"
-                :key="message.id"
-                :message-id="message.id"
-                :scroll-anchor="message.role === 'user'"
-              >
+        <div
+          v-for="message in visibleMessages"
+          :key="message.id"
+          :data-message-id="message.id"
+        >
                 <PanelAgentMessage :message="message" :teams="teams" />
-              </MessageScrollerItem>
+        </div>
 
-              <MessageScrollerItem
-                v-if="contextRunning"
-                message-id="panel-agent-running"
-              >
-                <Trace>
-                  <TraceLine status="running">
-                    <TraceIcon>
-                      <LoaderCircle class="animate-spin" />
-                    </TraceIcon>
-                    <TraceTitle>Panel Agent 正在处理</TraceTitle>
-                    <TraceDescription>{{ agent.model ?? agent.host }}</TraceDescription>
-                  </TraceLine>
-                </Trace>
-              </MessageScrollerItem>
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton />
-        </MessageScroller>
-      </MessageScrollerProvider>
+        <div
+          v-if="contextRunning"
+          data-message-id="panel-agent-running"
+        >
+          <Trace>
+            <TraceLine status="running">
+              <TraceIcon>
+                <LoaderCircle class="animate-spin" />
+              </TraceIcon>
+              <TraceTitle>Panel Agent 正在处理</TraceTitle>
+              <TraceDescription>{{ agent.model ?? agent.host }}</TraceDescription>
+            </TraceLine>
+          </Trace>
+        </div>
+      </ConversationScroller>
     </div>
 
     <div v-if="actionError" class="error-banner mx-4 mt-3" role="alert">

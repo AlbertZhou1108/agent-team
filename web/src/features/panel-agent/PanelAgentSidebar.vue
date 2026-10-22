@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import {
   ArrowUpRight,
   Check,
+  ChevronsUpDown,
   CircleAlert,
   FileClock,
   MoreHorizontal,
@@ -11,6 +13,11 @@ import {
 } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,12 +42,19 @@ import type {
   PanelUnknownTurn,
 } from './types';
 
-defineProps<{
+const props = defineProps<{
   teams: PanelTeam[];
   pendingActions: PanelAction[];
   pendingPreparations: PanelPreparation[];
   unknown: PanelUnknownTurn[];
 }>();
+const teamsOpen = ref(props.teams.length > 0);
+watch(
+  () => props.teams.length,
+  count => {
+    teamsOpen.value = count > 0;
+  },
+);
 const activeTeamId = defineModel<string>({ required: true });
 const emit = defineEmits<{
   openTeam: [teamId: string];
@@ -92,9 +106,25 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
       </ItemGroup>
     </section>
 
-    <section class="panel agent-side-card">
-      <h2 class="text-sm font-semibold">团队关系</h2>
-      <ItemGroup class="mt-3 gap-1">
+    <Collapsible v-model:open="teamsOpen" class="panel agent-side-card flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <h2 class="text-sm font-semibold">团队关系</h2>
+          <Badge>{{ teams.length }}</Badge>
+        </div>
+        <CollapsibleTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            :aria-label="teamsOpen ? '收起团队关系' : '展开团队关系'"
+            :title="teamsOpen ? '收起' : '展开'"
+          >
+            <ChevronsUpDown />
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent>
+        <ItemGroup class="gap-1">
         <Item
           v-for="team in teams"
           :key="team.id"
@@ -161,8 +191,9 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
             </DropdownMenuContent>
           </DropdownMenu>
         </Item>
-      </ItemGroup>
-    </section>
+        </ItemGroup>
+      </CollapsibleContent>
+    </Collapsible>
 
     <section v-if="pendingPreparations.length" class="panel agent-side-card">
       <h2 class="text-sm font-semibold">等待确认</h2>

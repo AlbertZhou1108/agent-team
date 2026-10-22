@@ -142,7 +142,7 @@ const currentController = computed(() => (
   })()
 ));
 const sidebarGroupId = computed(() => (
-  isPanelAgentRoute.value ? routeString(route.query.team) || undefined : group.value?.id
+  isPanelAgentRoute.value ? undefined : group.value?.id
 ));
 const pausedMemberIds = computed(() => new Set(
   currentController.value?.kind === 'panel_agent'
