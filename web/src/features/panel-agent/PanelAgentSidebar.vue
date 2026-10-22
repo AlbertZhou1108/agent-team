@@ -115,11 +115,11 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
         <CollapsibleTrigger as-child>
           <Button
             variant="ghost"
-            size="icon-sm"
-            :aria-label="teamsOpen ? '收起团队关系' : '展开团队关系'"
-            :title="teamsOpen ? '收起' : '展开'"
+            size="icon"
+            class="size-8"
           >
             <ChevronsUpDown />
+            <span class="sr-only">{{ teamsOpen ? '收起团队关系' : '展开团队关系' }}</span>
           </Button>
         </CollapsibleTrigger>
       </div>
