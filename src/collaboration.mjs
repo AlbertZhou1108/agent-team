@@ -162,6 +162,7 @@ export class Collaboration {
   }
   state(groupId) { return this.store.get('SELECT * FROM team_state WHERE group_id=?', groupId); }
   communicationOpen(groupId) {
+    if ((this.store.group(groupId).state ?? 'open') !== 'open') return false;
     const s = this.state(groupId);
     return s?.phase === 'active' || s?.phase === 'closed';
   }
@@ -179,6 +180,9 @@ export class Collaboration {
   requireCommunication(groupId) {
     const s = this.state(groupId);
     if (!s) throw new Error('旧群尚未确认目标契约，仅供查看');
+    if ((this.store.group(groupId).state ?? 'open') !== 'open') {
+      throw new Error('Team已归档，当前不接受消息');
+    }
     if (!this.communicationOpen(groupId)) throw new Error(`团队处于${s.phase}，当前不接受消息`);
     if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能继续投递');
     return s;
@@ -261,6 +265,48 @@ export class Collaboration {
       groupId,
       goalVersion,
     )?.id ?? null;
+  }
+  adoptGoal(groupId, goal) {
+    const state = this.state(groupId);
+    if (!state || !goal?.contract?.contract) throw new Error('Goal缺少可投影契约');
+    if (state.phase === 'active' && state.goal_version === goal.number) return state;
+    const version = state.contract_version + 1;
+    this.store.transaction(() => {
+      this.store.run(
+        'INSERT INTO contract_versions VALUES(?,?,?,?,?,?)',
+        groupId,
+        version,
+        json(goal.contract.contract),
+        goal.contractHash ?? digest(goal.contract.contract),
+        json({ source: 'goal-lifecycle', goalId: goal.id, goalNumber: goal.number }),
+        now(),
+      );
+      this.store.run(
+        `UPDATE team_state
+         SET goal_version=?,contract_version=?,phase='active',outcome=NULL,final=NULL,
+             finish_reason=NULL,revision=revision+1
+         WHERE group_id=?`,
+        goal.number,
+        version,
+        groupId,
+      );
+      this.record(groupId, null, 'goal_activated', { goalId: goal.id, goalNumber: goal.number });
+    });
+    return this.state(groupId);
+  }
+  projectClosedGoal(groupId, goal) {
+    const state = this.state(groupId);
+    if (!state || state.goal_version !== goal?.number) return state;
+    this.store.run(
+      `UPDATE team_state
+       SET phase='closed',outcome=?,final=?,finish_reason=?,revision=revision+1
+       WHERE group_id=?`,
+      goal.outcome ?? (goal.state === 'completed' ? 'completed' : 'incomplete'),
+      goal.final ?? null,
+      goal.finishReason ?? null,
+      groupId,
+    );
+    return this.state(groupId);
   }
   policy(endpoint, inputs = []) {
     const contract = this.contract(endpoint.group_id);
@@ -472,9 +518,10 @@ export class Collaboration {
         OR EXISTS(SELECT 1 FROM panel_attached p JOIN panel_outbox o ON o.id=p.outbox_id WHERE p.message_id=m.id AND o.accepted IS NULL)
       ) ORDER BY m.seq`, groupId);
   }
-  reconcile(groupId, running) {
+  reconcile(groupId, running, { ignorePending = false } = {}) {
     const s = this.state(groupId);
-    if (!s || s.phase !== 'closing' || running || this.unknown(groupId).length || this.pending(groupId).length) return false;
+    if (!s || s.phase !== 'closing' || running || this.unknown(groupId).length) return false;
+    if (!ignorePending && this.pending(groupId).length) return false;
     this.store.transaction(() => {
       this.store.run("UPDATE team_state SET phase='closed',revision=revision+1 WHERE group_id=?", groupId);
       this.store.run(

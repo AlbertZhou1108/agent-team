@@ -391,6 +391,6 @@ Main Agent 可读写可观察状态，并可提出 Draft。用户决定权保持
 | 3 | `goal_id` 消息上下文、消费和 cutoff | 已完成：真实消息与运行写入 Goal，消费和 cutoff 领域测试通过；旧收尾流程通过兼容桥同步 |
 | 4 | Bus、RPC、HTTP 和 Agent 工具接入 | 进行中：Bus、Goal API、Agent Draft 工具、CLI/RPC 和客户端类型已接入；旧 phase 仍是运行时的兼容来源 |
 | 5 | 前端 Draft、Queue、Archived Team 和状态拆分 | 代码完成：前端测试、类型检查和构建通过；浏览器验收由用户执行 |
-| 6 | 旧字段兼容与清理、文档更新 | `npm test`、`npm run check`、构建和真实回放通过 |
+| 6 | 旧字段兼容与清理、文档更新 | 进行中：新 Goal 激活会反向投影到旧 Team 状态，旧收尾已接入 lifecycle 门禁；仍需真实回放和最终移除旧 phase |
 
 每个阶段应形成独立、可回滚的提交。阶段 1 开始前必须先确认第 3 节中的授权、交接和失败传播语义。

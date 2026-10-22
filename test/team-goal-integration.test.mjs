@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
-import { confirmedGroup } from './helpers.mjs';
+import { confirmedGroup, testContract } from './helpers.mjs';
 
 async function until(fn) {
   for (let index = 0; index < 400; index++) {
@@ -16,8 +16,10 @@ async function until(fn) {
 
 test('member reports to the Main Agent carry the Current Goal id', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-goal-integration-'));
+  const calls = [];
   const host = {
     async run(context) {
+      calls.push(context);
       if (context.endpoint.context === 'profile') {
         await context.onTool('profile_set', { text: 'ready' });
       }
@@ -67,9 +69,48 @@ test('member reports to the Main Agent carry the Current Goal id', async t => {
   assert.equal(context.goal_id, goal.id);
   await until(() => bus.running.size === 0);
 
+  const beforeQueue = bus.lifecycle.read(group.id);
+  const draft = bus.lifecycle.apply(
+    group.id,
+    { kind: 'main_agent', id: group.lead },
+    {
+      type: 'draft.create',
+      contract: { ...testContract, goal: 'next queued goal' },
+      requirements: { requiredMemberIds: [] },
+    },
+    beforeQueue.team.revision,
+    'integration-queue-draft',
+  );
+  const queued = bus.lifecycle.apply(
+    group.id,
+    { kind: 'user', id: 'local-user' },
+    {
+      type: 'draft.confirm',
+      draftId: draft.draft.id,
+      draftRevision: draft.draft.revision,
+      hash: draft.draft.hash,
+    },
+    draft.revision,
+    'integration-queue-confirm',
+  );
+  assert.equal(queued.goal.state, 'queued');
+
   await bus.terminate(group.id, 'integration test complete');
+  const promoted = bus.lifecycle.read(group.id).current;
+  assert.equal(promoted.id, queued.goal.id);
+  assert.equal(promoted.state, 'active');
+  assert.equal(bus.collaboration.state(group.id).phase, 'active');
+  assert.equal(bus.collaboration.state(group.id).goal_version, promoted.number);
+  assert.equal(bus.collaboration.contract(group.id).body.goal, 'next queued goal');
+  await until(() => calls.some(call => (
+    call.endpoint.context === 'coordination'
+    && call.prompt.includes(`Goal #${promoted.number}`)
+  )));
+  await until(() => bus.running.size === 0);
+
+  await bus.terminate(group.id, 'finish promoted goal');
   assert.equal(
-    bus.lifecycle.read(group.id).history.find(item => item.id === goal.id).state,
+    bus.lifecycle.read(group.id).history.find(item => item.id === promoted.id).state,
     'terminated',
   );
   const directive = bus.directive(group.id, 'post-goal team chat');

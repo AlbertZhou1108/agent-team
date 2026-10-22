@@ -36,6 +36,11 @@ export class Bus extends EventEmitter {
   start() {
     // Serving the panel does not implicitly resume historical work.
     for (const s of this.store.all("SELECT group_id FROM team_state WHERE phase='closing'")) this.reconcile(s.group_id);
+    for (const group of this.store.all('SELECT id FROM groups')) {
+      this.lifecycle.syncLegacyTeam(group.id);
+      this.lifecycle.advance(group.id);
+      this.syncLifecycleProjection(group.id);
+    }
     this.store.run("UPDATE panel_turns SET state='unknown',ended=? WHERE state='running'", new Date().toISOString());
     this.pumpPanelUpdates();
     this.pump();
@@ -1050,14 +1055,37 @@ export class Bus extends EventEmitter {
   teamGoals(teamId) {
     return this.lifecycle.read(teamId);
   }
-  applyTeamGoalCommand(teamId, command, expectedRevision, operationId) {
-    return this.lifecycle.apply(
+  async applyTeamGoalCommand(teamId, command, expectedRevision, operationId) {
+    if (command?.type === 'goal.terminate') {
+      await this.stopWhere(endpoint => endpoint.group_id === teamId);
+    }
+    const result = this.lifecycle.apply(
       teamId,
       { kind: 'user', id: 'local-user' },
       command,
       expectedRevision,
       operationId,
     );
+    this.syncLifecycleProjection(teamId);
+    return result;
+  }
+  syncLifecycleProjection(teamId) {
+    const goals = this.lifecycle.read(teamId);
+    if (goals.current) {
+      const before = this.collaboration.state(teamId);
+      this.collaboration.adoptGoal(teamId, goals.current);
+      if (before?.goal_version !== goals.current.number || before.phase !== 'active') {
+        this.directive(
+          teamId,
+          `用户已确认队列中的 Goal #${goals.current.number} 成为 Current Goal。请读取 Goal Contract 和团队状态，创建工作项并开始执行。`,
+        );
+      }
+      return;
+    }
+    const state = this.collaboration.state(teamId);
+    if (!state || !['active', 'closing'].includes(state.phase)) return;
+    const goal = goals.history.find(item => item.number === state.goal_version);
+    if (goal) this.collaboration.projectClosedGoal(teamId, goal);
   }
   updateModelPolicy(value) {
     const policy = normalizeModelPolicy(value);
@@ -1817,8 +1845,19 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
   }
   retry(groupId) { this.collaboration.requireCommunication(groupId); this.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.pump(); return { retryRequested: true }; }
   reconcile(groupId) {
-    if (this.collaboration.reconcile(groupId, [...this.running.values()].some(r => r.endpoint.group_id === groupId))) {
+    const goals = this.lifecycle.read(groupId);
+    if (
+      goals.current?.state === 'finalizing'
+      && (goals.current.unconsumedInboxCount ?? 0) > 0
+    ) return;
+    if (this.collaboration.reconcile(
+      groupId,
+      [...this.running.values()].some(r => r.endpoint.group_id === groupId),
+      { ignorePending: goals.current?.state === 'finalizing' },
+    )) {
       this.lifecycle.syncLegacyTeam(groupId);
+      this.lifecycle.advance(groupId);
+      this.syncLifecycleProjection(groupId);
       this.emit('finished', { groupId });
     }
   }

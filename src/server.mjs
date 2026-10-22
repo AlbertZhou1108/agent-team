@@ -121,7 +121,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });
           } else if (goalMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
-            value = handleGoalMutation(bus, url.pathname, await readJsonBody(request));
+            value = await handleGoalMutation(bus, url.pathname, await readJsonBody(request));
           } else if (isPanelMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
@@ -203,7 +203,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
 
 function cursor(url) { const value = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(value) || value < 0) throw new Error('游标无效'); return value; }
 
-function handleGoalMutation(bus, pathname, body) {
+async function handleGoalMutation(bus, pathname, body) {
   const draft = pathname.match(/^\/api\/teams\/([^/]+)\/goal-drafts\/([^/]+)\/(confirm|delete)$/);
   if (draft) {
     const teamId = decodeURIComponent(draft[1]);

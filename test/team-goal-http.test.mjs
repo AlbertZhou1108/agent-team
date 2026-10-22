@@ -108,6 +108,15 @@ test('goal lifecycle HTTP endpoints confirm queue and archive actions as the tru
   assert.equal(archived.team.state, 'archived');
   const read = await (await fetch(`${base}/api/teams/${group.id}/goals`)).json();
   assert.equal(read.team.state, 'archived');
+  const worker = server.bus.members(group.id).find(member => member.role === 'member');
+  const workerEndpoint = server.bus.store.endpoint(worker.id, `pair:${group.lead}`, group.lead);
+  await assert.rejects(
+    server.bus.tool(workerEndpoint.id, workerEndpoint.key, 'send', {
+      to: group.lead,
+      text: 'archived team message',
+    }),
+    /归档/,
+  );
 
   const restored = await post(base, `/api/teams/${group.id}/restore`, {
     revision: archived.revision,
