@@ -28,11 +28,12 @@ import {
 import {
   Item,
   ItemContent,
-  ItemDescription,
   ItemGroup,
   ItemMedia,
+  ItemSeparator,
   ItemTitle,
 } from '@/components/ui/item';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import PanelConfirmationItem from './PanelConfirmationItem.vue';
 import { isPreparationApprovable } from './preparation';
 import type {
@@ -65,13 +66,13 @@ const emit = defineEmits<{
   resolveRuntime: [turnId: string];
 }>();
 
-function toggleTeam(teamId: string) {
-  activeTeamId.value = activeTeamId.value === teamId ? '' : teamId;
+function selectTeam(teamId: string) {
+  activeTeamId.value = teamId;
 }
 
 function onTeamCardClick(teamId: string, event: MouseEvent) {
   if ((event.target as HTMLElement).closest('button')) return;
-  toggleTeam(teamId);
+  selectTeam(teamId);
 }
 </script>
 
@@ -124,74 +125,109 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent>
-        <ItemGroup class="gap-1">
-        <Item
-          v-for="team in teams"
-          :key="team.id"
-          :variant="activeTeamId === team.id ? 'muted' : 'default'"
-          size="sm"
-          class="cursor-pointer flex-nowrap px-2 py-2"
-          @click="onTeamCardClick(team.id, $event)"
+        <p class="px-1 pb-2 text-[11px] leading-4 text-muted-foreground">
+          选中团队即切换上下文；选择“全部团队”返回全局。
+        </p>
+        <ScrollArea
+          class="w-full pr-2"
+          item-selector="[data-team-relation-item]"
+          :max-visible-items="10"
+          aria-label="团队关系列表"
         >
-          <ItemMedia variant="icon">
-            <Users />
-          </ItemMedia>
-          <ItemContent class="min-w-0">
-            <button
-              type="button"
-              class="min-w-0 w-full text-left"
-              :aria-pressed="activeTeamId === team.id"
-              @click.stop="toggleTeam(team.id)"
+          <ItemGroup class="gap-1">
+            <Item
+              :variant="activeTeamId ? 'default' : 'muted'"
+              size="sm"
+              class="cursor-pointer flex-nowrap px-2 py-2"
+              @click="activeTeamId = ''"
             >
-              <ItemTitle class="w-full leading-snug">
-                <span class="block whitespace-normal [overflow-wrap:anywhere]">{{ team.name }}</span>
-              </ItemTitle>
-              <ItemDescription class="line-clamp-1 text-[10px]">
-                {{ team.controller.kind === 'panel_agent' ? 'Panel Agent 主控' : `当前：${team.controller.name}` }}
-              </ItemDescription>
-            </button>
-          </ItemContent>
-          <Badge
-            :variant="team.relation === 'main' ? 'success' : 'default'"
-            class="shrink-0 whitespace-nowrap"
-          >
-            {{ team.relation === 'main' ? '主 Agent' : '观察' }}
-          </Badge>
-          <DropdownMenu>
-            <DropdownMenuTrigger as-child>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="团队操作"
+              <ItemMedia variant="icon">
+                <Users />
+              </ItemMedia>
+              <ItemContent class="min-w-0">
+                <button
+                  type="button"
+                  class="min-w-0 w-full text-left"
+                  :aria-pressed="!activeTeamId"
+                  @click="activeTeamId = ''"
+                >
+                  <ItemTitle class="w-full leading-snug">全部团队</ItemTitle>
+                </button>
+              </ItemContent>
+              <Badge
+                :variant="activeTeamId ? 'default' : 'success'"
+                class="shrink-0 whitespace-nowrap"
               >
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuGroup>
-                <DropdownMenuItem @select="emit('openTeam', team.id)">
-                  <ArrowUpRight />
-                  打开团队
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  v-if="team.relation === 'observer'"
-                  @select="emit('takeover', team)"
+                {{ activeTeamId ? `${teams.length} 个` : '当前' }}
+              </Badge>
+            </Item>
+            <ItemSeparator />
+            <Item
+              v-for="team in teams"
+              :key="team.id"
+              data-team-relation-item
+              :variant="activeTeamId === team.id ? 'muted' : 'default'"
+              size="sm"
+              class="cursor-pointer flex-nowrap px-2 py-2"
+              @click="onTeamCardClick(team.id, $event)"
+            >
+              <ItemMedia variant="icon">
+                <Users />
+              </ItemMedia>
+              <ItemContent class="min-w-0">
+                <button
+                  type="button"
+                  class="min-w-0 w-full text-left"
+                  :aria-pressed="activeTeamId === team.id"
+                  @click.stop="selectTeam(team.id)"
                 >
-                  <ShieldCheck />
-                  接管团队
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  v-else-if="team.controller.assignment?.original_lead_id"
-                  @select="emit('handback', team)"
-                >
-                  <ArrowUpRight class="rotate-180" />
-                  交还原主 Agent
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </Item>
-        </ItemGroup>
+                  <ItemTitle class="w-full leading-snug">
+                    <span class="block whitespace-normal [overflow-wrap:anywhere]">{{ team.name }}</span>
+                  </ItemTitle>
+                </button>
+              </ItemContent>
+              <Badge
+                :variant="team.relation === 'main' ? 'success' : 'default'"
+                class="shrink-0 whitespace-nowrap"
+              >
+                {{ team.relation === 'main' ? '主 Agent' : '观察' }}
+              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="团队操作"
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem @select="emit('openTeam', team.id)">
+                      <ArrowUpRight />
+                      打开团队
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      v-if="team.relation === 'observer'"
+                      @select="emit('takeover', team)"
+                    >
+                      <ShieldCheck />
+                      接管团队
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      v-else-if="team.controller.assignment?.original_lead_id"
+                      @select="emit('handback', team)"
+                    >
+                      <ArrowUpRight class="rotate-180" />
+                      交还原主 Agent
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </Item>
+          </ItemGroup>
+        </ScrollArea>
       </CollapsibleContent>
     </Collapsible>
 

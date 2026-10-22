@@ -15,13 +15,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import {
   Trace,
@@ -65,7 +58,7 @@ const emit = defineEmits<{
   updateModel: [form: PanelAgentForm];
 }>();
 
-const globalContext = '__global__';
+const globalContextKey = '__global__';
 const activeTeam = computed(() => (
   props.teams.find(team => team.id === activeTeamId.value)
 ));
@@ -76,13 +69,6 @@ const visibleMessageIds = computed(() => [
   ...visibleMessages.value.map(message => message.id),
   ...(props.contextRunning ? ['panel-agent-running'] : []),
 ]);
-const selectedContext = computed({
-  get: () => activeTeamId.value || globalContext,
-  set: value => {
-    activeTeamId.value = value === globalContext ? '' : value;
-  },
-});
-
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
   '有哪些团队正在等待我的确认？',
@@ -94,7 +80,7 @@ const suggestions = [
   <ConversationPanel
     class="panel agent-chat"
     :ids="visibleMessageIds"
-    :reset-key="activeTeamId || globalContext"
+    :reset-key="activeTeamId || globalContextKey"
     :readonly="false"
     aria-label="Panel Agent 私人会话"
     viewport-class="size-full min-h-0"
@@ -119,33 +105,6 @@ const suggestions = [
           <Settings2 />
         </Button>
       </header>
-    </template>
-
-    <template #context>
-      <div class="agent-context-bar">
-        <span>团队上下文</span>
-        <Select v-model="selectedContext">
-          <SelectTrigger size="sm" class="max-w-72 flex-1 bg-background">
-            <SelectValue placeholder="选择团队上下文" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem :value="globalContext">全局</SelectItem>
-            <SelectItem
-              v-for="team in teams"
-              :key="team.id"
-              :value="team.id"
-            >
-              {{ team.name }} · {{ team.relation === 'main' ? '主 Agent' : '观察' }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <Badge
-          v-if="activeTeam"
-          :variant="activeTeam.relation === 'main' ? 'success' : 'default'"
-        >
-          {{ activeTeam.relation === 'main' ? '主 Agent' : '观察' }}
-        </Badge>
-      </div>
     </template>
 
     <Empty

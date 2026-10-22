@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { useCollaborationQuery } from '@/features/queries';
 import type { Member } from '@/shared/api/raw-types';
 
@@ -17,13 +18,33 @@ const phaseLabel = computed(() => {
   if (state?.phase !== 'closed') return label(state?.phase ?? '');
   return state.outcome === 'completed' ? '目标已完成 · 群可继续沟通' : '目标未完成 · 群可继续沟通';
 });
-const currentItems = computed(() => {
+const goalItems = computed(() => {
   const state = data.value?.state;
   return state ? data.value?.items.filter(item => item.goalVersion === state.goal_version) ?? [] : [];
+});
+const goalItemsHeading = computed(() => {
+  const state = data.value?.state;
+  if (!state) return '目标工作项';
+  if (state.phase === 'active' || state.phase === 'closing') {
+    return `当前目标工作项 · ${goalItems.value.length}`;
+  }
+  return `目标 #${state.goal_version} 工作项 · ${goalItems.value.length}`;
 });
 const historicalItems = computed(() => {
   const state = data.value?.state;
   return state ? data.value?.items.filter(item => item.goalVersion !== state.goal_version) ?? [] : [];
+});
+const currentOutput = computed(() => {
+  const state = data.value?.state;
+  return state
+    ? data.value?.outputs?.find(output => output.goalVersion === state.goal_version) ?? null
+    : null;
+});
+const historicalOutputs = computed(() => {
+  const state = data.value?.state;
+  return state
+    ? data.value?.outputs?.filter(output => output.goalVersion !== state.goal_version) ?? []
+    : [];
 });
 const effectivePolicy = (item: { policy: string }, role: string) => (
   role === 'reviewer' && item.policy === 'workspace-write' ? 'read-only' : item.policy
@@ -37,7 +58,7 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
     <p v-else-if="data?.legacy">本群尚未确认目标契约，保留历史供查看。继续工作前请在 CLI 中准备并确认契约。</p>
     <template v-else-if="data?.contract && data.state">
       <section class="flex flex-col gap-2">
-        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">团队状态</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">目标执行状态</h3>
         <div class="flex flex-wrap gap-2">
           <p class="w-full text-base font-semibold text-foreground">{{ phaseLabel }}</p>
           <Badge>目标 #{{ data.state.goal_version }}</Badge>
@@ -48,14 +69,6 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
         <details v-for="runtime in data.unknown" :key="runtime.turn_id" open>
           <summary>宿主运行待核实</summary>
           <p class="break-all">{{ runtime.turn_id }} · {{ runtime.detail }}</p>
-        </details>
-        <div v-if="data.state.final" class="rounded-lg border bg-muted/40 p-3">
-          <p class="mb-2 text-xs font-semibold text-muted-foreground">最终结果</p>
-          <p class="whitespace-pre-wrap">{{ data.state.final }}</p>
-        </div>
-        <details v-if="data.state.finish_reason" class="text-xs text-muted-foreground">
-          <summary class="cursor-pointer">{{ data.state.outcome === 'completed' ? '完成依据' : '结束依据' }}</summary>
-          <p class="mt-2">{{ data.state.finish_reason }}</p>
         </details>
       </section>
 
@@ -79,25 +92,27 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section class="flex flex-col gap-3">
-        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">当前目标工作项 · {{ currentItems.length }}</h3>
-        <p v-if="!currentItems.length">主 Agent尚未建立当前目标的工作项。</p>
-        <details v-for="item in currentItems" :key="item.id" class="min-w-0 rounded-lg border p-3">
-          <summary class="cursor-pointer">{{ item.title }} <Badge>{{ label(item.state) }}</Badge></summary>
-          <div class="mt-3 flex flex-col gap-2 text-xs text-muted-foreground">
-            <p>{{ item.purpose }}</p>
-            <p>接受标准：{{ item.standard }}</p>
-            <p v-for="participant in item.participants" :key="participant.memberId">
-              {{ name(participant.memberId) }} · {{ label(participant.role) }} · {{ label(effectivePolicy(item, participant.role)) }}
-            </p>
-            <p>工作项需求 {{ label(item.policy) }} · 命令{{ item.allowShell ? '允许' : '禁止' }} · {{ item.reviewRequired ? '要求独立审查' : '主 Agent决定是否审查' }}</p>
-            <p v-if="item.artifact" class="break-all">成果版本：{{ item.artifact }}</p>
-            <details v-if="item.evidence.length || item.reviews.length">
-              <summary>贡献 {{ item.evidence.length }} · 审查 {{ item.reviews.length }}</summary>
-              <p v-for="id in item.evidence" :key="id" class="break-all">汇报消息：{{ id }}</p>
-              <p v-for="review in item.reviews" :key="review.messageId" class="break-all">审查消息：{{ review.messageId }} · {{ review.artifact }}</p>
-            </details>
-          </div>
-        </details>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">{{ goalItemsHeading }}</h3>
+        <p v-if="!goalItems.length">主 Agent尚未建立该目标的工作项。</p>
+        <Card v-for="item in goalItems" :key="item.id" class="min-w-0 p-3">
+          <details>
+            <summary class="cursor-pointer">{{ item.title }} <Badge>{{ label(item.state) }}</Badge></summary>
+            <div class="mt-3 flex flex-col gap-2 text-xs text-muted-foreground">
+              <p>{{ item.purpose }}</p>
+              <p>接受标准：{{ item.standard }}</p>
+              <p v-for="participant in item.participants" :key="participant.memberId">
+                {{ name(participant.memberId) }} · {{ label(participant.role) }} · {{ label(effectivePolicy(item, participant.role)) }}
+              </p>
+              <p>工作项需求 {{ label(item.policy) }} · 命令{{ item.allowShell ? '允许' : '禁止' }} · {{ item.reviewRequired ? '要求独立审查' : '主 Agent决定是否审查' }}</p>
+              <p v-if="item.artifact" class="break-all">成果版本：{{ item.artifact }}</p>
+              <details v-if="item.evidence.length || item.reviews.length">
+                <summary>贡献 {{ item.evidence.length }} · 审查 {{ item.reviews.length }}</summary>
+                <p v-for="id in item.evidence" :key="id" class="break-all">汇报消息：{{ id }}</p>
+                <p v-for="review in item.reviews" :key="review.messageId" class="break-all">审查消息：{{ review.messageId }} · {{ review.artifact }}</p>
+              </details>
+            </div>
+          </details>
+        </Card>
       </section>
 
       <section v-if="historicalItems.length" class="flex flex-col gap-3">
@@ -113,12 +128,24 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
         </details>
       </section>
 
-      <section v-if="data.outputs?.length" class="flex flex-col gap-2">
-        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">目标交付历史</h3>
-        <details v-for="output in data.outputs" :key="output.id">
-          <summary class="cursor-pointer">目标 #{{ output.goalVersion }} · {{ new Date(output.created).toLocaleString('zh-CN') }}</summary>
-          <p class="mt-2 whitespace-pre-wrap">{{ output.body }}</p>
-        </details>
+      <section v-if="currentOutput || data.state.final" class="flex flex-col gap-2">
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">交付结果</h3>
+        <Card class="flex flex-col gap-2 p-3">
+          <p class="whitespace-pre-wrap">{{ currentOutput?.body ?? data.state.final }}</p>
+          <p v-if="currentOutput" class="text-xs text-muted-foreground">
+            {{ new Date(currentOutput.created).toLocaleString('zh-CN') }}
+          </p>
+        </Card>
+      </section>
+
+      <section v-if="historicalOutputs.length" class="flex flex-col gap-2">
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">历史交付</h3>
+        <Card v-for="output in historicalOutputs" :key="output.id" class="p-3">
+          <details>
+            <summary class="cursor-pointer">目标 #{{ output.goalVersion }} · {{ new Date(output.created).toLocaleString('zh-CN') }}</summary>
+            <p class="mt-2 whitespace-pre-wrap">{{ output.body }}</p>
+          </details>
+        </Card>
       </section>
 
       <section v-if="data.requests.length" class="flex flex-col gap-2">

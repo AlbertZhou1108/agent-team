@@ -533,6 +533,7 @@ test('legacy Team state migrates into an open Team and an explicit Goal exactly 
   assert.equal(state.current.number, 1);
   assert.equal(state.current.state, 'active');
   assert.equal(state.current.contract.contract.goal, testContract.goal);
+  assert.equal(state.current.contractHash, 'legacy-contract-hash');
   assert.equal(store.get('SELECT goal_id FROM work_items WHERE id=?', 'legacy-item').goal_id, state.current.id);
   assert.equal(store.get('SELECT goal_id FROM message_context WHERE message_id=?', legacyMessage.id).goal_id, state.current.id);
 
@@ -637,6 +638,72 @@ test('finalizing snapshots a cutoff and only unconsumed Goal Inbox messages befo
   assert.equal(withdrawn.current.state, 'active');
   assert.equal(withdrawn.current.cutoffSeq, null);
   assert.equal(withdrawn.current.unconsumedInboxCount, null);
+});
+
+test('legacy synchronization preserves the Finalization Cutoff after Goal completion', t => {
+  const { lifecycle, store } = fixture(t);
+  const created = lifecycle.apply(
+    'team',
+    { kind: 'main_agent', id: 'lead' },
+    {
+      type: 'draft.create',
+      contract: testContract,
+      requirements: { requiredMemberIds: [] },
+    },
+    1,
+    'cutoff-draft',
+  );
+  const confirmed = lifecycle.apply(
+    'team',
+    { kind: 'user', id: 'local-user' },
+    {
+      type: 'draft.confirm',
+      draftId: created.draft.id,
+      draftRevision: created.draft.revision,
+      hash: created.draft.hash,
+    },
+    created.revision,
+    'cutoff-confirm',
+  );
+  const report = store.append('team', 'lead', 'lead', 'send', 'cutoff message');
+  store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+    report.id,
+    null,
+    1,
+    confirmed.goal.id,
+  );
+  const finalizing = lifecycle.apply(
+    'team',
+    { kind: 'main_agent', id: 'lead' },
+    { type: 'goal.finish-request', goalId: confirmed.goal.id },
+    confirmed.revision,
+    'cutoff-finalize',
+  );
+  assert.equal(finalizing.current.cutoffSeq, report.seq);
+
+  store.run(
+    `INSERT INTO team_state(
+      group_id,revision,goal_version,contract_version,phase,outcome,final,finish_reason
+    ) VALUES(?,?,?,?,?,?,?,?)`,
+    'team',
+    1,
+    1,
+    1,
+    'active',
+    null,
+    null,
+    null,
+  );
+  store.run(
+    `UPDATE team_state
+     SET phase='closed',outcome='completed',final='done',finish_reason='synchronized'
+     WHERE group_id='team'`,
+  );
+  lifecycle.syncLegacyTeam('team');
+  const completed = lifecycle.read('team').history.find(goal => goal.id === confirmed.goal.id);
+  assert.equal(completed.state, 'completed');
+  assert.equal(completed.cutoffSeq, report.seq);
 });
 
 test('lifecycle commands are idempotent and reject reused operation ids or stale revisions', t => {

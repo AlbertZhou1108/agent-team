@@ -23,6 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTeamOrganization } from '@/stores/team-organization';
 
 const props = defineProps<{
@@ -254,80 +255,87 @@ onBeforeUnmount(() => {
                   <p class="mt-1 text-xs leading-5 text-muted">先在 CLI 中创建团队，完成后会自动显示在这里。</p>
                 </div>
               </div>
-              <TransitionGroup
+              <ScrollArea
                 v-else
-                name="team-home-card-motion"
-                tag="div"
-                class="team-home-grid"
+                class="w-full pr-2"
+                item-selector=".team-home-card"
+                :max-visible-items="10"
+                aria-label="全部团队列表"
               >
-                <article
-                  v-for="group in sortedGroups"
-                  :key="group.id"
-                  class="team-home-card"
-                  :class="{
-                    'team-home-card-dragging': draggingId === group.id,
-                    'team-home-card-pinned': isHomePinned(group.id),
-                    'team-home-card-drop-target': dropInsertion?.id === group.id,
-                    'team-home-card-settled': settledId === group.id,
-                    'team-insert-before': dropInsertion?.id === group.id && !dropInsertion.after,
-                    'team-insert-after': dropInsertion?.id === group.id && dropInsertion.after,
-                  }"
-                  :draggable="!isHomePinned(group.id)"
-                  :title="isHomePinned(group.id) ? '已置顶团队固定在前面' : '拖动调整首页排序'"
-                  @dragstart="startHomeDrag(group.id, $event)"
-                  @dragover="overHomeCard(group.id, $event)"
-                  @dragleave="leaveHomeCard(group.id, $event)"
-                  @drop="dropHomeCard(group.id, $event)"
-                  @dragend="clearHomeDrag"
+                <TransitionGroup
+                  name="team-home-card-motion"
+                  tag="div"
+                  class="team-home-grid"
                 >
-                  <button
-                    type="button"
-                    class="team-home-card-link"
-                    @click="emit('select', group.id)"
+                  <article
+                    v-for="group in sortedGroups"
+                    :key="group.id"
+                    class="team-home-card"
+                    :class="{
+                      'team-home-card-dragging': draggingId === group.id,
+                      'team-home-card-pinned': isHomePinned(group.id),
+                      'team-home-card-drop-target': dropInsertion?.id === group.id,
+                      'team-home-card-settled': settledId === group.id,
+                      'team-insert-before': dropInsertion?.id === group.id && !dropInsertion.after,
+                      'team-insert-after': dropInsertion?.id === group.id && dropInsertion.after,
+                    }"
+                    :draggable="!isHomePinned(group.id)"
+                    :title="isHomePinned(group.id) ? '已置顶团队固定在前面' : '拖动调整首页排序'"
+                    @dragstart="startHomeDrag(group.id, $event)"
+                    @dragover="overHomeCard(group.id, $event)"
+                    @dragleave="leaveHomeCard(group.id, $event)"
+                    @drop="dropHomeCard(group.id, $event)"
+                    @dragend="clearHomeDrag"
                   >
-                    <span class="flex items-start gap-3">
-                      <span
-                        class="team-home-avatar"
-                        :class="{ 'team-avatar-tagged': colorFor(group.id) }"
-                        :style="colorFor(group.id) ? { '--tag-color': colorFor(group.id) } : undefined"
-                      >
-                        {{ group.name.slice(0, 1) }}
+                    <button
+                      type="button"
+                      class="team-home-card-link"
+                      @click="emit('select', group.id)"
+                    >
+                      <span class="flex items-start gap-3">
+                        <span
+                          class="team-home-avatar"
+                          :class="{ 'team-avatar-tagged': colorFor(group.id) }"
+                          :style="colorFor(group.id) ? { '--tag-color': colorFor(group.id) } : undefined"
+                        >
+                          {{ group.name.slice(0, 1) }}
+                        </span>
+                        <span class="min-w-0 flex-1 text-left">
+                          <strong class="block truncate text-sm">{{ group.name }}</strong>
+                          <span class="mt-1 block truncate text-[11px] text-muted">{{ group.workspace }}</span>
+                        </span>
                       </span>
-                      <span class="min-w-0 flex-1 text-left">
-                        <strong class="block truncate text-sm">{{ group.name }}</strong>
-                        <span class="mt-1 block truncate text-[11px] text-muted">{{ group.workspace }}</span>
+                      <span class="mt-4 flex flex-wrap items-center gap-2">
+                        <Badge variant="default">{{ memberCountFor(group.id) }} 名成员</Badge>
+                        <Badge v-if="runningCountFor(group.id)" variant="accent">
+                          <Radio :size="9" class="animate-pulse" />
+                          {{ runningCountFor(group.id) }} 个运行中
+                        </Badge>
+                        <Badge v-if="folderNameFor(group.id)" variant="default">
+                          <Folder :size="9" />
+                          {{ folderNameFor(group.id) }}
+                        </Badge>
                       </span>
-                    </span>
-                    <span class="mt-4 flex flex-wrap items-center gap-2">
-                      <Badge variant="default">{{ memberCountFor(group.id) }} 名成员</Badge>
-                      <Badge v-if="runningCountFor(group.id)" variant="accent">
-                        <Radio :size="9" class="animate-pulse" />
-                        {{ runningCountFor(group.id) }} 个运行中
-                      </Badge>
-                      <Badge v-if="folderNameFor(group.id)" variant="default">
-                        <Folder :size="9" />
-                        {{ folderNameFor(group.id) }}
-                      </Badge>
-                    </span>
-                    <span class="mt-3 flex items-center gap-1 text-[10px] text-dim">
-                      <Clock3 :size="10" />
-                      {{ new Date(group.created).toLocaleString('zh-CN') }}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    class="team-home-pin"
-                    :class="{ 'team-home-pin-active': organization.homePinned.includes(group.id) }"
-                    :aria-label="organization.homePinned.includes(group.id) ? '取消首页置顶团队' : '首页置顶团队'"
-                    :aria-pressed="organization.homePinned.includes(group.id)"
-                    :title="organization.homePinned.includes(group.id) ? '取消首页置顶' : '首页置顶'"
-                    @dragstart.stop.prevent
-                    @click="organization.toggleHomePin(group.id)"
-                  >
-                    <Pin :size="15" :fill="organization.homePinned.includes(group.id) ? 'currentColor' : 'none'" />
-                  </button>
-                </article>
-              </TransitionGroup>
+                      <span class="mt-3 flex items-center gap-1 text-[10px] text-dim">
+                        <Clock3 :size="10" />
+                        {{ new Date(group.created).toLocaleString('zh-CN') }}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="team-home-pin"
+                      :class="{ 'team-home-pin-active': organization.homePinned.includes(group.id) }"
+                      :aria-label="organization.homePinned.includes(group.id) ? '取消首页置顶团队' : '首页置顶团队'"
+                      :aria-pressed="organization.homePinned.includes(group.id)"
+                      :title="organization.homePinned.includes(group.id) ? '取消首页置顶' : '首页置顶'"
+                      @dragstart.stop.prevent
+                      @click="organization.toggleHomePin(group.id)"
+                    >
+                      <Pin :size="15" :fill="organization.homePinned.includes(group.id) ? 'currentColor' : 'none'" />
+                    </button>
+                  </article>
+                </TransitionGroup>
+              </ScrollArea>
             </div>
           </CollapsibleContent>
         </Collapsible>

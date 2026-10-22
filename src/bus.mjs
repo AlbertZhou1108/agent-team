@@ -826,6 +826,9 @@ export class Bus extends EventEmitter {
       throw error;
     } finally {
       this.running.delete(session.id);
+      if (session.context === 'coordination' && session.group_id) {
+        this.reconcile(session.group_id);
+      }
       setImmediate(() => this.pumpPanelUpdates());
       setImmediate(() => this.pump());
     }

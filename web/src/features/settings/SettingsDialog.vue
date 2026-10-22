@@ -130,7 +130,7 @@ async function save() {
   try {
     const policy = await api.updateModelPolicy(mode.value, rules.value);
     emit('saved', policy);
-    emit('close');
+    if (!props.embedded) emit('close');
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {

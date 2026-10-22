@@ -651,6 +651,136 @@ test('Panel main receives member reports and can write only in the bound team co
   assert.equal(bus.collaboration.pending(group.id).length, 0);
 });
 
+test('a Panel coordination turn that finishes the Goal triggers final reconciliation', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-finish-'));
+  const calls = [];
+  let bus;
+  let reportId;
+  const host = hostFixture(calls);
+  const baseRun = host.run.bind(host);
+  host.run = async context => {
+    if (context.endpoint.context !== 'panel-coordination' || !context.prompt.includes('FINISH_PANEL_GOAL')) {
+      return baseRun(context);
+    }
+    calls.push({
+      endpoint: context.endpoint.id,
+      context: context.endpoint.context,
+      groupId: context.endpoint.group_id,
+      prompt: context.prompt,
+    });
+    context.onSession(context.endpoint.session ?? context.endpoint.id);
+    context.onAccepted();
+    const groupId = context.endpoint.group_id;
+    const item = bus.store.get(
+      'SELECT id FROM work_items WHERE group_id=? AND state=?',
+      groupId,
+      'accepted',
+    );
+    await context.onTool('team_finish', {
+      groupId,
+      command: {
+        outcome: 'completed',
+        final: 'Panel coordination completed',
+        note: 'accepted work covers the contract',
+        coverage: { c1: [item.id] },
+        dispositions: [{ messageId: reportId, reason: 'used as accepted evidence' }],
+      },
+      revision: bus.collaboration.state(groupId).revision,
+      operationId: 'panel-finish-goal',
+    });
+    return 'finished';
+  };
+  bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const group = confirmedGroup(bus, {
+    name: 'panel finish',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [{ name: 'worker', host: 'fake' }],
+  });
+  await until(() => !bus.running.size);
+  const agent = await createAgent(bus);
+  bus.takeoverTeam(group.id, 0);
+  const worker = bus.members(group.id).find(member => member.name === 'worker');
+  const coordination = bus.store.panelSession(agent.agent.id, 'coordination', group.id);
+  const provenance = { activeTeamId: group.id };
+  const goalId = bus.lifecycle.read(group.id).current.id;
+  let item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      title: 'panel finish work',
+      purpose: 'complete the approved contract',
+      standard: 'accepted evidence',
+      participants: [{ memberId: worker.id, role: 'executor' }],
+      policy: 'communication',
+      note: 'create work',
+    },
+    revision: bus.collaboration.state(group.id).revision,
+    operationId: 'panel-finish-create',
+  }, provenance);
+  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'in_progress',
+      note: 'start work',
+    },
+    revision: item.revision,
+    operationId: 'panel-finish-start',
+  }, provenance);
+  const report = bus.store.append(group.id, worker.id, agent.agent.id, 'send', 'accepted result');
+  reportId = report.id;
+  bus.store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+    report.id,
+    item.item.id,
+    bus.collaboration.state(group.id).contract_version,
+    goalId,
+  );
+  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'pending_decision',
+      artifact: 'accepted-v1',
+      evidence: [report.id],
+      note: 'accepted evidence attached',
+    },
+    revision: item.revision,
+    operationId: 'panel-finish-decision',
+  }, provenance);
+  await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'accepted',
+      note: 'accept result',
+    },
+    revision: item.revision,
+    operationId: 'panel-finish-accept',
+  }, provenance);
+
+  await bus.runPanelTurn({
+    session: { ...coordination, group_id: group.id },
+    panelAgent: bus.panelAgent(),
+    prompt: 'FINISH_PANEL_GOAL',
+    activeTeamId: group.id,
+    inputs: [report],
+  });
+  assert.equal(bus.collaboration.state(group.id).phase, 'closed');
+  assert.equal(bus.lifecycle.read(group.id).current, null);
+  assert.equal(bus.lifecycle.read(group.id).history[0].state, 'completed');
+  assert.equal(bus.store.all('SELECT * FROM user_outputs WHERE group_id=?', group.id).length, 1);
+});
+
 test('lead takeover and handback are revisioned and require an idle team', async t => {
   const { bus, directory } = await fixture(t);
   const group = confirmedGroup(bus, {

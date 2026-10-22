@@ -179,6 +179,7 @@ export class TeamGoalLifecycle {
            SET state=?,
                cutoff_seq=CASE WHEN ?='finalizing'
                  THEN COALESCE(cutoff_seq,(SELECT COALESCE(MAX(seq),0) FROM messages WHERE group_id=?))
+                 WHEN ? IN ('completed','terminated') THEN cutoff_seq
                  ELSE NULL END,
                outcome=?,final=?,finish_reason=?,
                ended=CASE WHEN ? IN ('completed','terminated','cancelled') THEN COALESCE(ended,?) ELSE NULL END
@@ -186,6 +187,7 @@ export class TeamGoalLifecycle {
           goalState,
           goalState,
           state.group_id,
+          goalState,
           state.outcome ?? null,
           state.final ?? null,
           state.finish_reason ?? null,
@@ -230,7 +232,7 @@ export class TeamGoalLifecycle {
         id,
         1,
         json(body),
-        digest(body),
+        contract.hash,
         contract.approval,
         created,
       );
@@ -240,6 +242,27 @@ export class TeamGoalLifecycle {
       });
     }
     for (const goal of this.store.all('SELECT * FROM goals ORDER BY group_id,number')) {
+      if (goal.id.startsWith('legacy-')) {
+        const state = this.store.get(
+          'SELECT contract_version,goal_version FROM team_state WHERE group_id=?',
+          goal.group_id,
+        );
+        if (state?.goal_version === goal.number) {
+          const contract = this.store.get(
+            'SELECT hash FROM contract_versions WHERE group_id=? AND version=?',
+            goal.group_id,
+            state.contract_version,
+          );
+          if (contract) {
+            this.store.run(
+              'UPDATE goal_contract_versions SET hash=? WHERE goal_id=? AND version=?',
+              contract.hash,
+              goal.id,
+              state.contract_version,
+            );
+          }
+        }
+      }
       this.store.run(
         'UPDATE work_items SET goal_id=? WHERE group_id=? AND goal_version=?',
         goal.id,
@@ -279,6 +302,23 @@ export class TeamGoalLifecycle {
         LIMIT 1
       )
       WHERE goal_id IS NULL
+    `);
+    this.store.run(`
+      UPDATE goals
+      SET cutoff_seq=(
+        SELECT MAX(messages.seq)
+        FROM messages
+        JOIN message_context ON message_context.message_id=messages.id
+        WHERE message_context.goal_id=goals.id
+      )
+      WHERE cutoff_seq IS NULL
+        AND state IN ('finalizing','completed','terminated')
+        AND EXISTS(
+          SELECT 1
+          FROM messages
+          JOIN message_context ON message_context.message_id=messages.id
+          WHERE message_context.goal_id=goals.id
+        )
     `);
     this.store.run(`
       UPDATE runtime_attempts
