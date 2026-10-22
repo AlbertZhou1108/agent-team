@@ -3,7 +3,14 @@ import type { Group } from '@/shared/api/raw-types';
 import { useTeamOrganization } from '@/stores/team-organization';
 import TeamMenu from './TeamMenu.vue';
 defineProps<{ group: Group; active: boolean; selected: boolean; collapsed: boolean }>();
-const emit = defineEmits<{ select: [event: MouseEvent]; drag: [event: DragEvent]; reorder: [event: DragEvent]; over: [event: DragEvent]; leave: [event: DragEvent] }>();
+const emit = defineEmits<{
+  select: [event: MouseEvent];
+  drag: [event: DragEvent];
+  reorder: [event: DragEvent];
+  over: [event: DragEvent];
+  leave: [event: DragEvent];
+  archive: [];
+}>();
 const org = useTeamOrganization();
 </script>
 <template>
@@ -25,6 +32,12 @@ const org = useTeamOrganization();
         <span class="mt-0.5 block truncate text-left font-mono text-[9px] text-dim">{{ group.id }}</span>
       </span>
     </button>
-    <TeamMenu v-if="!collapsed" :id="group.id" :name="group.name" />
+    <TeamMenu
+      v-if="!collapsed"
+      :id="group.id"
+      :name="group.name"
+      :archived="group.state === 'archived'"
+      @archive="emit('archive')"
+    />
   </div>
 </template>

@@ -33,6 +33,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [id: string];
+  archive: [id: string];
   openAgent: [];
   openSettings: [];
 }>();
@@ -194,7 +195,7 @@ function createFolder() {
     </form>
     <nav v-if="!ui.sidebarCollapsed" class="team-navigation mt-2 min-h-0 flex-1 overflow-y-auto" aria-label="团队列表" @dragover.prevent @drop="drop($event)" @dragend="clearDrag" @dragleave="leaveNavigation">
       <p v-if="pinned.length && !ui.sidebarCollapsed" class="team-section-label">置顶</p>
-      <TeamRow v-for="group in pinned" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+      <TeamRow v-for="group in pinned" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" @archive="emit('archive', group.id)" :class="insertionClass(group.id, 'team')" />
       <section v-for="folder in org.folders" :key="folder.id" class="team-folder" :class="[{ 'team-drop-target': dropTarget === folder.id }, insertionClass(folder.id, 'folder')]" @dragover.prevent.stop="overFolder(folder.id, $event)" @dragleave.self="dropTarget = undefined" @drop.stop="dropFolder(folder.id, $event)">
         <div class="team-folder-heading" draggable="true" @dragstart="dragFolder(folder.id, $event)">
           <button type="button" :title="folder.name" :aria-expanded="!folder.collapsed" class="team-folder-button" @click="org.toggleFolder(folder.id)">
@@ -205,13 +206,13 @@ function createFolder() {
           <TeamMenu v-if="!ui.sidebarCollapsed" :id="folder.id" :name="folder.name" folder />
         </div>
         <div v-if="!folder.collapsed" :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
-          <TeamRow v-for="group in folderTeams(folder.id)" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+          <TeamRow v-for="group in folderTeams(folder.id)" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" @archive="emit('archive', group.id)" :class="insertionClass(group.id, 'team')" />
           <p v-if="!folderTeams(folder.id).length && !ui.sidebarCollapsed" class="team-section-label">拖入团队</p>
         </div>
       </section>
       <div class="team-root-drop" @dragover.prevent.stop="dropTarget = dragging === 'team' ? 'root' : undefined; insertion = undefined" @drop.stop="drop($event)" :class="{ 'team-drop-target': dropTarget === 'root' }">
         <div v-if="org.folders.length" class="team-root-separator" role="separator" aria-label="文件夹与团队分隔" />
-        <TeamRow v-for="group in rootTeams" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+        <TeamRow v-for="group in rootTeams" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" @archive="emit('archive', group.id)" :class="insertionClass(group.id, 'team')" />
       </div>
       <p v-if="!groups.length && !ui.sidebarCollapsed" class="px-3 py-4 text-xs text-muted">还没有团队。先在 CLI 中创建团队。</p>
     </nav>

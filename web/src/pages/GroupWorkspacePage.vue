@@ -187,7 +187,7 @@ const contextPanel = computed<ContextPanel>(() => {
   return selectedSessionId.value ? 'details' : 'goals';
 });
 const contextTabs: Array<{ value: ContextPanel; label: string; icon: typeof Bot }> = [
-  { value: 'goals', label: '目标', icon: Target },
+  { value: 'goals', label: '任务', icon: Target },
   { value: 'collaboration', label: '协作', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
   { value: 'sessions', label: '会话', icon: MessagesSquare },
@@ -350,6 +350,23 @@ async function restoreArchivedTeam(team: Group) {
   }
 }
 
+async function archiveTeam(teamId: string) {
+  const team = allGroups.value.find(item => item.id === teamId);
+  if (!team || !window.confirm(`归档“${team.name}”？归档后团队不再接收消息或启动任务。`)) return;
+  try {
+    await api.archiveTeamGoals(team.id, {
+      revision: team.revision ?? 1,
+      operationId: globalThis.crypto?.randomUUID?.()
+        ?? `archive-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    });
+    await snapshotQuery.refetch();
+    if (groupId.value === team.id) router.push({ name: 'group' });
+    toast.success(`已归档 ${team.name}`);
+  } catch (error) {
+    toast.error('归档团队失败', { description: String(error) });
+  }
+}
+
 function setTab(tab: InspectorTab) {
   replaceQuery({ tab, panel: 'details' });
 }
@@ -419,6 +436,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
       @select="selectGroup"
+      @archive="archiveTeam"
       @open-agent="openPanelAgent"
       @open-settings="openSettingsPage"
     />
