@@ -31,33 +31,38 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
 </script>
 
 <template>
-  <div class="flex flex-col gap-5 p-1 text-xs leading-relaxed" data-testid="collaboration-panel">
+  <div class="flex flex-col collaboration-content gap-6 p-1 text-sm leading-relaxed" data-testid="collaboration-panel">
     <p v-if="query.isPending.value" role="status">正在读取协作状态…</p>
     <p v-else-if="query.error.value" role="alert">读取失败：{{ query.error.value.message }}</p>
     <p v-else-if="data?.legacy">本群尚未确认目标契约，保留历史供查看。继续工作前请在 CLI 中准备并确认契约。</p>
     <template v-else-if="data?.contract && data.state">
       <section class="flex flex-col gap-2">
-        <h3 class="font-semibold">团队状态</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">团队状态</h3>
         <div class="flex flex-wrap gap-2">
-          <Badge>{{ phaseLabel }}</Badge>
-          <Badge v-if="data.state.outcome">{{ label(data.state.outcome) }}</Badge>
+          <p class="w-full text-base font-semibold text-foreground">{{ phaseLabel }}</p>
           <Badge>目标 #{{ data.state.goal_version }}</Badge>
           <Badge>契约 v{{ data.contract.version }}</Badge>
         </div>
-        <p>{{ data.runningCount ?? 0 }} 个运行 · {{ data.pendingMessages?.length ?? 0 }} 条未处理消息 · {{ pending.length }} 项待用户决定</p>
-        <p v-if="data.state.phase === 'closed' && data.communicationOpen" class="text-muted-foreground">当前目标已经结束，群保持开放；后续交流默认仅沟通，不会自动恢复旧目标。需要新执行任务时，请由主 Agent提出下一版目标并由你确认。</p>
+        <p class="text-xs text-muted-foreground">{{ data.runningCount ?? 0 }} 个运行 · {{ data.pendingMessages?.length ?? 0 }} 条未处理消息 · {{ pending.length }} 项待用户决定</p>
+        <p v-if="data.state.phase === 'closed' && data.communicationOpen" class="text-xs text-muted-foreground">当前目标已经结束，群保持开放；后续交流默认仅沟通，不会自动恢复旧目标。需要新执行任务时，请由主 Agent提出下一版目标并由你确认。</p>
         <details v-for="runtime in data.unknown" :key="runtime.turn_id" open>
           <summary>宿主运行待核实</summary>
           <p class="break-all">{{ runtime.turn_id }} · {{ runtime.detail }}</p>
         </details>
-        <p v-if="data.state.final" class="whitespace-pre-wrap">{{ data.state.final }}</p>
-        <p v-if="data.state.finish_reason">{{ data.state.outcome === 'completed' ? '完成依据' : '结束依据' }}：{{ data.state.finish_reason }}</p>
+        <div v-if="data.state.final" class="rounded-lg border bg-muted/40 p-3">
+          <p class="mb-2 text-xs font-semibold text-muted-foreground">最终结果</p>
+          <p class="whitespace-pre-wrap">{{ data.state.final }}</p>
+        </div>
+        <details v-if="data.state.finish_reason" class="text-xs text-muted-foreground">
+          <summary class="cursor-pointer">{{ data.state.outcome === 'completed' ? '完成依据' : '结束依据' }}</summary>
+          <p class="mt-2">{{ data.state.finish_reason }}</p>
+        </details>
       </section>
 
       <section class="flex flex-col gap-2">
-        <h3 class="font-semibold">用户确认的目标契约</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">用户确认的目标契约</h3>
         <p class="whitespace-pre-wrap">{{ data.contract.body.goal }}</p>
-        <ol class="list-inside list-decimal">
+        <ol class="flex list-decimal flex-col gap-2 pl-5 text-xs text-muted-foreground">
           <li v-for="criterion in data.contract.body.criteria" :key="criterion.id">{{ criterion.text }}</li>
         </ol>
         <details>
@@ -74,11 +79,11 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section class="flex flex-col gap-3">
-        <h3 class="font-semibold">当前目标工作项 · {{ currentItems.length }}</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">当前目标工作项 · {{ currentItems.length }}</h3>
         <p v-if="!currentItems.length">主 Agent尚未建立当前目标的工作项。</p>
-        <details v-for="item in currentItems" :key="item.id" class="min-w-0" open>
+        <details v-for="item in currentItems" :key="item.id" class="min-w-0 rounded-lg border p-3">
           <summary class="cursor-pointer">{{ item.title }} <Badge>{{ label(item.state) }}</Badge></summary>
-          <div class="mt-2 flex flex-col gap-2">
+          <div class="mt-3 flex flex-col gap-2 text-xs text-muted-foreground">
             <p>{{ item.purpose }}</p>
             <p>接受标准：{{ item.standard }}</p>
             <p v-for="participant in item.participants" :key="participant.memberId">
@@ -96,10 +101,10 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section v-if="historicalItems.length" class="flex flex-col gap-3">
-        <h3 class="font-semibold">历史目标工作项 · {{ historicalItems.length }}</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">历史目标工作项 · {{ historicalItems.length }}</h3>
         <details v-for="item in historicalItems" :key="item.id" class="min-w-0">
           <summary class="cursor-pointer">目标 #{{ item.goalVersion }} · {{ item.title }} <Badge>{{ label(item.state) }}</Badge></summary>
-          <div class="mt-2 flex flex-col gap-2">
+          <div class="mt-3 flex flex-col gap-2 text-xs text-muted-foreground">
             <p>{{ item.purpose }}</p>
             <p>接受标准：{{ item.standard }}</p>
             <p v-if="item.artifact" class="break-all">成果版本：{{ item.artifact }}</p>
@@ -109,7 +114,7 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section v-if="data.outputs?.length" class="flex flex-col gap-2">
-        <h3 class="font-semibold">目标交付历史</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">目标交付历史</h3>
         <details v-for="output in data.outputs" :key="output.id">
           <summary class="cursor-pointer">目标 #{{ output.goalVersion }} · {{ new Date(output.created).toLocaleString('zh-CN') }}</summary>
           <p class="mt-2 whitespace-pre-wrap">{{ output.body }}</p>
@@ -117,7 +122,7 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section v-if="data.requests.length" class="flex flex-col gap-2">
-        <h3 class="font-semibold">用户决定</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">用户决定</h3>
         <p>请在 CLI 中查看并决定，面板仅展示。</p>
         <details v-for="request in data.requests" :key="request.id">
           <summary>{{ request.kind === 'contract' ? '契约变更' : request.kind === 'next_goal' ? '下一版目标' : '新增成员' }} · {{ label(request.state) }}</summary>
@@ -126,7 +131,7 @@ const effectivePolicy = (item: { policy: string }, role: string) => (
       </section>
 
       <section class="flex flex-col gap-2">
-        <h3 class="font-semibold">决定与流转记录</h3>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">决定与流转记录</h3>
         <details v-for="record in query.records.value" :key="record.seq">
           <summary class="cursor-pointer">#{{ record.seq }} {{ record.type }} · {{ new Date(record.created).toLocaleTimeString('zh-CN') }}</summary>
           <pre class="whitespace-pre-wrap break-all">{{ JSON.stringify(record.body, null, 2) }}</pre>

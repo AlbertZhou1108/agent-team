@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
 import { Crown, Radio } from '@lucide/vue';
 import type { Member } from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
@@ -32,9 +33,8 @@ defineProps<{
             · {{ member.reasoning_effort ?? '默认强度' }}
           </template>
         </p>
-        <p class="mt-2 line-clamp-3 text-xs leading-5 text-muted">
-          {{ member.profile || '尚未提交能力自述' }}
-        </p>
+        <ExpandableText class="mt-2 text-xs leading-5 text-muted" :lines="3"
+          :text="member.profile || '尚未提交能力自述'" />
       </div>
     </article>
   </section>

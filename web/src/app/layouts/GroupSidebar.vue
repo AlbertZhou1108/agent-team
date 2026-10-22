@@ -1,5 +1,13 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
+import TeamRow from './TeamRow.vue';
+import TeamMenu from './TeamMenu.vue';
+import { useTeamOrganization } from '@/stores/team-organization';
 import {
+  Folder,
+  FolderPlus,
+  ChevronDown,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Settings2,
@@ -10,7 +18,7 @@ import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
 import { cn } from '@/lib/utils';
 
-defineProps<{
+const props = defineProps<{
   groups: Group[];
   currentGroupId?: string;
 }>();
@@ -22,6 +30,111 @@ const emit = defineEmits<{
 
 const ui = useUiStore();
 const connection = useConnectionStore();
+const org = useTeamOrganization();
+const selected = ref<string[]>([]);
+const anchor = ref<string>();
+const creating = ref(false);
+const folderName = ref('');
+const dropTarget = ref<string>();
+const insertion = ref<{ id: string; kind: 'team' | 'folder'; after: boolean }>();
+const dragging = ref<'team' | 'folder'>();
+function clearDrag() { dropTarget.value = undefined; insertion.value = undefined; dragging.value = undefined; }
+function showTeamInsertion(id: string, event: DragEvent) {
+  dropTarget.value = undefined;
+  if (dragging.value !== 'team' || selected.value.includes(id)) { insertion.value = undefined; return; }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  insertion.value = { id, kind: 'team', after: event.clientY > rect.top + rect.height / 2 };
+}
+function leaveNavigation(event: DragEvent) {
+  const element = event.currentTarget as HTMLElement;
+  if (!element.contains(event.relatedTarget as Node | null)) { dropTarget.value = undefined; insertion.value = undefined; }
+}
+function leaveInsertion(event: DragEvent) {
+  const element = event.currentTarget as HTMLElement;
+  if (!element.contains(event.relatedTarget as Node | null)) insertion.value = undefined;
+}
+function overFolder(id: string, event: DragEvent) {
+  if (dragging.value === 'folder') {
+    dropTarget.value = undefined;
+    const element = event.currentTarget as HTMLElement;
+    const rect = (element.querySelector('.team-folder-heading') ?? element).getBoundingClientRect();
+    insertion.value = { id, kind: 'folder', after: event.clientY > rect.top + rect.height / 2 };
+  } else if (dragging.value === 'team') {
+    insertion.value = undefined; dropTarget.value = id;
+  }
+}
+function insertionClass(id: string, kind: 'team' | 'folder') {
+  return insertion.value?.id === id && insertion.value.kind === kind
+    ? (insertion.value.after ? 'team-insert-after' : 'team-insert-before') : '';
+}
+const sortedTeams = computed(() => [...props.groups].sort((a, b) => {
+  const index = (id: string) => { const value = org.order.indexOf(id); return value < 0 ? org.order.length + props.groups.findIndex(group => group.id === id) : value; };
+  return index(a.id) - index(b.id);
+}));
+const pinned = computed(() => sortedTeams.value.filter(group => org.teams[group.id]?.pinned));
+const rootTeams = computed(() => sortedTeams.value.filter(group => !org.teams[group.id]?.pinned &&
+  !org.folders.some(folder => folder.id === org.teams[group.id]?.folder)));
+const folderTeams = (id: string) => sortedTeams.value.filter(group => !org.teams[group.id]?.pinned && org.teams[group.id]?.folder === id);
+const visibleIds = computed(() => [...pinned.value, ...org.folders.flatMap(folder => folder.collapsed ? [] : folderTeams(folder.id)), ...rootTeams.value].map(group => group.id));
+function selectTeam(id: string, event: MouseEvent) {
+  if (event.shiftKey) {
+    const ids = visibleIds.value;
+    const start = ids.indexOf(anchor.value ?? id), end = ids.indexOf(id);
+    selected.value = Array.from(new Set([...selected.value, ...ids.slice(Math.min(start, end), Math.max(start, end) + 1)]));
+    if (!anchor.value) anchor.value = id;
+    return;
+  }
+  selected.value = [id]; anchor.value = id;
+  emit('select', id);
+}
+function startDrag(id: string, event: DragEvent) {
+  dragging.value = 'team';
+  if (!selected.value.includes(id)) selected.value = [id];
+  event.dataTransfer?.setData('application/x-agent-team-ids', JSON.stringify(selected.value));
+  event.dataTransfer?.setData('text/plain', selected.value.join(', '));
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+function reorderTeam(target: string, event: DragEvent) {
+  const raw = event.dataTransfer?.getData('application/x-agent-team-ids');
+  if (!raw) return;
+  event.preventDefault(); event.stopPropagation();
+  try {
+    const ids = JSON.parse(raw);
+    if (!Array.isArray(ids)) return;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    org.reorderTeams(ids.filter(id => props.groups.some(group => group.id === id)), target, event.clientY > rect.top + rect.height / 2, props.groups.map(group => group.id));
+  } catch { /* Ignore unrelated drag data. */ }
+  dropTarget.value = undefined; insertion.value = undefined;
+}
+function dragFolder(id: string, event: DragEvent) {
+  dragging.value = 'folder';
+  event.stopPropagation();
+  event.dataTransfer?.setData('application/x-agent-team-folder', id);
+  event.dataTransfer?.setData('text/plain', id);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+function dropFolder(target: string, event: DragEvent) {
+  const id = event.dataTransfer?.getData('application/x-agent-team-folder');
+  if (!id) { drop(event, target); return; }
+  event.preventDefault();
+  const element = event.currentTarget as HTMLElement;
+  const rect = (element.querySelector('.team-folder-heading') ?? element).getBoundingClientRect();
+  org.reorderFolder(id, target, event.clientY > rect.top + rect.height / 2);
+  dropTarget.value = undefined; insertion.value = undefined;
+}
+function drop(event: DragEvent, folder?: string) {
+  event.preventDefault(); dropTarget.value = undefined; insertion.value = undefined;
+  try {
+    const ids = JSON.parse(event.dataTransfer?.getData('application/x-agent-team-ids') ?? '[]');
+    if (Array.isArray(ids)) org.move(ids.filter(id => typeof id === 'string' && props.groups.some(group => group.id === id)), folder);
+  } catch { /* Ignore unrelated dragged content. */ }
+}
+function createFolder() {
+  const id = org.createFolder(folderName.value);
+  if (!id) return;
+  folderName.value = ''; creating.value = false;
+}
+
 </script>
 
 <template>
@@ -40,30 +153,36 @@ const connection = useConnectionStore();
     </div>
 
     <div v-if="!ui.sidebarCollapsed" class="mt-7 flex items-center justify-between px-2">
-      <span class="eyebrow">群</span>
-      <span class="font-mono text-[10px] text-dim">{{ groups.length }}</span>
+      <span class="flex items-center gap-2"><span class="eyebrow">团队</span></span>
+      <Button variant="ghost" size="icon" class="ml-auto text-dim" aria-label="新建团队文件夹" title="新建文件夹" @click="creating = !creating"><FolderPlus :size="15" /></Button>
     </div>
 
-    <nav class="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto">
-      <button
-        v-for="group in groups"
-        :key="group.id"
-        type="button"
-        :title="group.name"
-        :class="cn('group-nav-item', group.id === currentGroupId && 'group-nav-item-active')"
-        @click="emit('select', group.id)"
-      >
-        <span class="grid size-7 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] font-mono text-[10px]">
-          {{ group.name.slice(0, 1) }}
-        </span>
-        <span v-if="!ui.sidebarCollapsed" class="min-w-0 flex-1">
-          <span class="block truncate text-left text-xs font-medium">{{ group.name }}</span>
-          <span class="mt-0.5 block truncate text-left font-mono text-[9px] text-dim">{{ group.id }}</span>
-        </span>
-      </button>
-      <p v-if="!groups.length && !ui.sidebarCollapsed" class="px-3 py-4 text-xs leading-6 text-muted">
-        还没有群。先在 CLI 中创建群。
-      </p>
+    <form v-if="creating && !ui.sidebarCollapsed" class="mt-2 flex flex-col gap-2" @submit.prevent="createFolder">
+      <input v-model="folderName" class="field-select w-full" aria-label="文件夹名称" placeholder="文件夹名称" maxlength="60" @keydown.esc="creating = false" />
+      <div class="flex gap-2"><Button size="sm" type="submit">创建</Button><Button size="sm" variant="ghost" @click="creating = false">取消</Button></div>
+    </form>
+    <nav class="team-navigation mt-2 min-h-0 flex-1 overflow-y-auto" aria-label="团队列表" @dragover.prevent @drop="drop($event)" @dragend="clearDrag" @dragleave="leaveNavigation">
+      <p v-if="pinned.length && !ui.sidebarCollapsed" class="team-section-label">置顶</p>
+      <TeamRow v-for="group in pinned" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+      <section v-for="folder in org.folders" :key="folder.id" class="team-folder" :class="[{ 'team-drop-target': dropTarget === folder.id }, insertionClass(folder.id, 'folder')]" @dragover.prevent.stop="overFolder(folder.id, $event)" @dragleave.self="dropTarget = undefined" @drop.stop="dropFolder(folder.id, $event)">
+        <div class="team-folder-heading" draggable="true" @dragstart="dragFolder(folder.id, $event)">
+          <button type="button" :title="folder.name" :aria-expanded="!folder.collapsed" class="team-folder-button" @click="org.toggleFolder(folder.id)">
+            <Folder :size="16" class="shrink-0" :style="folder.color ? { color: folder.color } : undefined" />
+            <span v-if="!ui.sidebarCollapsed" class="min-w-0 truncate text-left">{{ folder.name }}</span>
+            <component :is="folder.collapsed ? ChevronRight : ChevronDown" v-if="!ui.sidebarCollapsed" :size="12" class="ml-auto shrink-0" />
+          </button>
+          <TeamMenu v-if="!ui.sidebarCollapsed" :id="folder.id" :name="folder.name" folder />
+        </div>
+        <div v-if="!folder.collapsed" :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
+          <TeamRow v-for="group in folderTeams(folder.id)" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+          <p v-if="!folderTeams(folder.id).length && !ui.sidebarCollapsed" class="team-section-label">拖入团队</p>
+        </div>
+      </section>
+      <div class="team-root-drop" @dragover.prevent.stop="dropTarget = dragging === 'team' ? 'root' : undefined; insertion = undefined" @drop.stop="drop($event)" :class="{ 'team-drop-target': dropTarget === 'root' }">
+        <div v-if="org.folders.length" class="team-root-separator" role="separator" aria-label="文件夹与团队分隔" />
+        <TeamRow v-for="group in rootTeams" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
+      </div>
+      <p v-if="!groups.length && !ui.sidebarCollapsed" class="px-3 py-4 text-xs text-muted">还没有团队。先在 CLI 中创建团队。</p>
     </nav>
 
     <div v-if="!ui.sidebarCollapsed" class="mt-5 space-y-3 border-t border-[var(--border)] pt-4">

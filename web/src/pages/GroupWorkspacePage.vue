@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  ref,
   watch,
   watchEffect,
 } from 'vue';
@@ -8,11 +9,12 @@ import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 import {
   Activity,
+  ChevronsLeft,
+  ChevronsRight,
   AlertTriangle,
   Bot,
   MessagesSquare,
   PanelRightOpen,
-  RefreshCw,
 } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
@@ -56,7 +58,7 @@ function routeString(value: unknown) {
 const groupId = computed(() => routeString(route.params.groupId));
 const group = computed(() => groups.value.find(item => item.id === groupId.value));
 const currentMembers = computed(() => members.value.filter(member => member.group_id === groupId.value && !member.removed));
-const currentEndpoints = computed(() => endpoints.value.filter(endpoint => endpoint.group_id === groupId.value));
+const currentEndpoints = computed(() => endpoints.value.filter(endpoint => endpoint.group_id === groupId.value && endpoint.context !== 'profile'));
 const currentSessionBindings = computed(() => {
   const ids = new Set(currentEndpoints.value.map(endpoint => endpoint.id));
   return sessionBindings.value.filter(binding => ids.has(binding.endpoint_id));
@@ -71,7 +73,16 @@ const currentModelPolicy = computed(() => (
 
 const selectedSessionId = computed(() => routeString(route.query.session));
 const selectedEndpoint = computed(() => currentEndpoints.value.find(endpoint => endpoint.id === selectedSessionId.value));
-const selectedPair = computed(() => routeString(route.query.pair));
+const selectedPair = computed(() => {
+  const endpoint = selectedEndpoint.value;
+  return endpoint?.peer ? [endpoint.member_id, endpoint.peer].sort().join(':') : '';
+});
+const conversationTitle = computed(() => {
+  const endpoint = selectedEndpoint.value;
+  if (!endpoint) return '全部群消息';
+  const name = (id: string) => members.value.find(member => member.id === id)?.name ?? id;
+  return endpoint.peer ? `${name(endpoint.member_id)} ↔ ${name(endpoint.peer)}` : `${name(endpoint.member_id)} · 统一调度`;
+});
 const activeTab = computed<InspectorTab>(() => {
   const value = routeString(route.query.tab);
   return value === 'events' || value === 'models' ? value : 'trace';
@@ -93,7 +104,13 @@ const messagesQuery = useMessagesQuery(() => groupId.value || undefined);
 const historyQuery = useHistoryQuery(() => selectedSessionId.value || undefined);
 const modelsQuery = useModelsQuery(() => selectedSessionId.value || undefined);
 
-const messageViews = computed(() => toMessageViews(messagesQuery.rows.value, members.value));
+const messageViews = computed(() => {
+  const endpoint = selectedEndpoint.value;
+  const rows = endpoint && !endpoint.peer
+    ? messagesQuery.rows.value.filter(row => row.sender === endpoint.member_id || row.recipient === endpoint.member_id)
+    : messagesQuery.rows.value;
+  return toMessageViews(rows, members.value);
+});
 const endpointHosts = computed(() => Object.fromEntries(
   currentEndpoints.value.map(endpoint => {
     const member = members.value.find(item => item.id === endpoint.member_id);
@@ -176,8 +193,14 @@ function selectGroup(id: string) {
 
 function selectSession(id: string) {
   ui.openInspector();
-  replaceQuery({ session: id, tab: 'trace', panel: 'details' });
+  replaceQuery({ session: id || undefined, pair: undefined, tab: 'trace', panel: 'sessions' });
 }
+
+watch([currentEndpoints, selectedSessionId], () => {
+  if (snapshot.value && selectedSessionId.value && !currentEndpoints.value.some(endpoint => endpoint.id === selectedSessionId.value)) {
+    replaceQuery({ session: undefined, pair: undefined });
+  }
+});
 
 function closeContextPanel() {
   ui.closeInspector();
@@ -206,23 +229,49 @@ async function loadInspectorMore() {
   }
 }
 
-async function refreshAll() {
-  try {
-    await Promise.all([
-      snapshotQuery.refetch(),
-      messagesQuery.refetch(),
-      selectedSessionId.value ? historyQuery.refetch() : undefined,
-      selectedSessionId.value ? modelsQuery.refetch() : undefined,
-    ]);
-    toast.success('观测数据已刷新');
-  } catch (error) {
-    toast.error('刷新失败', { description: String(error) });
-  }
+const resizing = ref(false);
+let drag: { side: 'left' | 'right'; x: number; width: number } | undefined;
+
+function resizeWidth(side: 'left' | 'right', width: number) {
+  const other = side === 'left'
+    ? (ui.contextCollapsed ? 60 : ui.contextWidth)
+    : (ui.sidebarCollapsed ? 76 : ui.sidebarWidth);
+  const max = Math.max(side === 'left' ? 180 : 280, window.innerWidth - other - 420);
+  if (side === 'left') ui.sidebarWidth = Math.round(Math.max(180, Math.min(400, max, width)));
+  else ui.contextWidth = Math.round(Math.max(280, Math.min(680, max, width)));
 }
+function beginResize(event: PointerEvent, side: 'left' | 'right') {
+  if (event.button !== 0) return;
+  const handle = event.currentTarget as HTMLElement;
+  handle.setPointerCapture(event.pointerId);
+  drag = { side, x: event.clientX, width: side === 'left' ? ui.sidebarWidth : ui.contextWidth };
+  resizing.value = true;
+  event.preventDefault();
+}
+function moveResize(event: PointerEvent) {
+  if (!drag) return;
+  resizeWidth(drag.side, drag.width + (event.clientX - drag.x) * (drag.side === 'left' ? 1 : -1));
+}
+function endResize() {
+  if (!drag) return;
+  drag = undefined;
+  resizing.value = false;
+  ui.persist();
+}
+function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  const direction = event.key === 'ArrowRight' ? 1 : -1;
+  resizeWidth(side, (side === 'left' ? ui.sidebarWidth : ui.contextWidth) + direction * (side === 'left' ? 16 : -16));
+  ui.persist();
+}
+
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'sidebar-is-collapsed': ui.sidebarCollapsed }">
+  <div class="app-shell" :class="{ 'sidebar-is-collapsed': ui.sidebarCollapsed, 'is-resizing': resizing }"
+    :style="{ '--sidebar-width': `${ui.sidebarWidth}px`, '--context-width': `${ui.contextWidth}px` }"
+  >
     <GroupSidebar
       :groups="groups"
       :current-group-id="group?.id"
@@ -230,8 +279,14 @@ async function refreshAll() {
       @open-settings="ui.openSettings()"
     />
 
+    <div v-if="!ui.sidebarCollapsed" class="sidebar-resize-handle left-resize-handle"
+      role="separator" tabindex="0" aria-label="调整左侧栏宽度" aria-orientation="vertical"
+      :aria-valuenow="ui.sidebarWidth" :aria-valuemin="180" :aria-valuemax="400"
+      @pointerdown="beginResize($event, 'left')" @pointermove="moveResize" @pointerup="endResize"
+      @pointercancel="endResize" @lostpointercapture="endResize" @keydown="keyboardResize($event, 'left')"
+    />
     <main class="min-w-0 p-3 sm:p-4">
-      <div class="workspace-shell">
+      <div class="workspace-shell" :class="{ 'context-is-collapsed': ui.contextCollapsed }">
         <section class="chat-window panel">
           <header class="chat-header">
             <span class="chat-avatar">◈</span>
@@ -258,18 +313,11 @@ async function refreshAll() {
               <PanelRightOpen :size="14" />
               群信息
             </Button>
-            <Button variant="outline" size="sm" :disabled="snapshotQuery.isFetching.value" @click="refreshAll">
-              <RefreshCw :size="14" :class="{ 'animate-spin': snapshotQuery.isFetching.value }" />
-              刷新
-            </Button>
+
           </header>
 
           <div class="chat-notice">
             <span class="status-dot status-online" />
-            <span>只读观测</span>
-            <span class="text-dim">·</span>
-            <span>每 2 秒同步</span>
-            <span class="text-dim">·</span>
             <span>{{ messagesQuery.rows.value.length }} 条群消息</span>
           </div>
 
@@ -291,20 +339,19 @@ async function refreshAll() {
           </div>
           <template v-else>
             <MessageFeed
+              :key="`${groupId}:${selectedSessionId}`"
               class="chat-feed"
               :messages="messageViews"
-              :members="members"
+              :title="conversationTitle"
               :selected-pair="selectedPair"
               :hosts="endpointHosts"
               :loading="messagesQuery.isPending.value"
               :has-next-page="messagesQuery.hasNextPage.value"
               :fetching-next-page="messagesQuery.isFetchingNextPage.value"
-              @update:selected-pair="replaceQuery({ pair: $event || undefined })"
               @load-more="messagesQuery.fetchNextPage()"
             />
             <footer class="chat-footer">
-              <span class="rounded-full bg-[var(--primary-muted)] px-2 py-1 text-[10px] font-medium text-[var(--primary)]">只读模式</span>
-              <span>{{ selectedPair ? '已筛选双人会话' : '全部对话' }}</span>
+              <span>{{ conversationTitle }}</span>
               <span class="text-dim">·</span>
               <span>{{ connection.lastSyncedAt?.toLocaleTimeString('zh-CN') ?? '等待同步' }}</span>
             </footer>
@@ -319,11 +366,16 @@ async function refreshAll() {
           @click="closeContextPanel"
         />
 
-        <aside :class="['context-panel', ui.inspectorOpen && 'context-panel-open']">
-          <header class="context-header">
+        <div v-if="!ui.contextCollapsed" class="sidebar-resize-handle right-resize-handle"
+          role="separator" tabindex="0" aria-label="调整右侧栏宽度" aria-orientation="vertical"
+          :aria-valuenow="ui.contextWidth" :aria-valuemin="280" :aria-valuemax="680"
+          @pointerdown="beginResize($event, 'right')" @pointermove="moveResize" @pointerup="endResize"
+          @pointercancel="endResize" @lostpointercapture="endResize" @keydown="keyboardResize($event, 'right')"
+        />
+        <aside :class="['context-panel', ui.inspectorOpen && 'context-panel-open', ui.contextCollapsed && 'context-panel-collapsed']">
+          <header v-show="!ui.contextCollapsed" class="context-header">
             <div class="min-w-0">
-              <p class="eyebrow">GROUP DETAILS</p>
-              <h2 class="mt-1 truncate text-sm font-medium">群信息与宿主状态</h2>
+              <h2 class="mt-1 truncate text-sm font-medium">群状态</h2>
             </div>
             <Badge>{{ currentMembers.length }} 人</Badge>
             <Button variant="ghost" size="icon" class="xl:hidden" @click="closeContextPanel">
@@ -334,15 +386,18 @@ async function refreshAll() {
             <button
               v-for="item in contextTabs"
               :key="item.value"
+              :title="item.label"
+              :aria-label="item.label"
+              :aria-pressed="contextPanel === item.value"
               type="button"
               :class="['context-tab', contextPanel === item.value && 'context-tab-active']"
               @click="setContextPanel(item.value)"
             >
               <component :is="item.icon" :size="13" />
-              {{ item.label }}
+              <span v-if="!ui.contextCollapsed">{{ item.label }}</span>
             </button>
           </div>
-          <div class="context-scroll">
+          <div v-show="!ui.contextCollapsed" class="context-scroll">
             <CollaborationPanel v-if="contextPanel === 'collaboration'" :group-id="groupId" :members="members" />
             <MemberStrip
               v-else-if="contextPanel === 'members'"
@@ -376,6 +431,19 @@ async function refreshAll() {
               @close="closeContextPanel"
             />
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="context-collapse-toggle hidden text-dim xl:inline-flex"
+            :title="ui.contextCollapsed ? '展开右侧栏' : '收起右侧栏'"
+            :aria-label="ui.contextCollapsed ? '展开右侧栏' : '收起右侧栏'"
+            :aria-expanded="!ui.contextCollapsed"
+            @click="ui.toggleContext()"
+          >
+            <ChevronsLeft v-if="ui.contextCollapsed" :size="15" />
+            <ChevronsRight v-else :size="15" />
+            <span v-if="!ui.contextCollapsed">收起</span>
+          </Button>
         </aside>
       </div>
     </main>

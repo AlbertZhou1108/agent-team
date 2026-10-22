@@ -3,7 +3,7 @@ import { createPinia } from 'pinia';
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query';
 import App from './App.vue';
 import { router } from './app/router';
-import { applyTheme, usePreferencesStore } from './stores/preferences';
+import { applyColorMode, applyColorTheme, usePreferencesStore } from './stores/preferences';
 import './styles/globals.css';
 
 function showFatal(error: unknown) {
@@ -41,12 +41,13 @@ try {
   app.use(VueQueryPlugin, { queryClient });
 
   const preferences = usePreferencesStore(pinia);
-  applyTheme(preferences.theme);
+  applyColorMode(preferences.colorMode);
+  applyColorTheme(preferences.colorTheme);
   document.documentElement.dataset.density = preferences.density;
 
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const handleSystemTheme = () => {
-    if (preferences.theme === 'system') applyTheme('system');
+    if (preferences.colorMode === 'system') applyColorMode('system');
   };
   media.addEventListener('change', handleSystemTheme);
 

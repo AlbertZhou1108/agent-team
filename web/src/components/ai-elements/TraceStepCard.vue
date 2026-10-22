@@ -44,21 +44,21 @@ const hidden = computed(() => props.step.kind === 'reasoning' && !preferences.sh
 </script>
 
 <template>
-  <details v-if="!hidden" class="trace-step group" :open="step.status === 'error'">
+  <details v-if="!hidden" class="trace-step group">
     <summary>
       <span :class="['trace-icon', `trace-${step.kind}`]">
         <component :is="icon" :size="14" />
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate text-xs font-medium text-[var(--foreground)]">{{ step.title }}</span>
-        <span v-if="step.summary" class="mt-0.5 line-clamp-2 block text-[11px] leading-5 text-muted">{{ step.summary }}</span>
       </span>
       <Badge :variant="badge.variant">
         <component :is="badge.icon" :size="10" :class="{ 'animate-spin': step.status === 'running' }" />
         {{ badge.text }}
       </Badge>
     </summary>
-    <div v-if="step.detail || step.raw.length" class="ml-9 mt-2 space-y-2 pb-2">
+    <div v-if="step.summary || step.detail || step.raw.length" class="ml-9 mt-2 flex flex-col gap-2 pb-2">
+      <p v-if="step.summary" class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{{ step.summary }}</p>
       <CodeBlock
         v-if="step.detail"
         :code="step.detail"

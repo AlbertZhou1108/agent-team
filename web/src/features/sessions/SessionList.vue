@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Bot, Radio } from '@lucide/vue';
 import type { Member, SessionBinding, SessionEndpoint } from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{ select: [id: string] }>();
 
+const conversations = computed(() => {
+  const seen = new Set<string>();
+  return props.endpoints.filter(endpoint => {
+    if (endpoint.context === 'profile') return false;
+    const key = endpoint.peer ? [endpoint.member_id, endpoint.peer].sort().join(':') : endpoint.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+});
+function selected(endpoint: SessionEndpoint) {
+  const active = props.endpoints.find(item => item.id === props.selectedId);
+  return endpoint.id === props.selectedId || Boolean(endpoint.peer && active?.peer &&
+    [endpoint.member_id, endpoint.peer].sort().join(':') === [active.member_id, active.peer].sort().join(':'));
+}
+
 function memberName(id: string) {
   return props.members.find(member => member.id === id)?.name ?? id;
 }
@@ -24,7 +41,7 @@ function configuredModel(id: string) {
 }
 function domains(endpointId: string) {
   return props.sessionBindings
-    .filter(binding => binding.endpoint_id === endpointId)
+    .filter(binding => binding.endpoint_id === endpointId && binding.session_key !== 'default')
     .map(binding => binding.session_key);
 }
 function domainLabel(domain: string) {
@@ -36,12 +53,17 @@ function domainLabel(domain: string) {
 </script>
 
 <template>
-  <div class="space-y-1.5">
+  <div class="flex flex-col gap-1.5">
+    <button type="button" :class="cn('session-item', !selectedId && 'session-item-active')" :aria-pressed="!selectedId" @click="emit('select', '')">
+      <span class="session-icon"><Bot :size="14" /></span>
+      <span class="text-xs font-medium">全部群消息</span>
+    </button>
     <button
-      v-for="endpoint in endpoints"
+      v-for="endpoint in conversations"
       :key="endpoint.id"
+      :aria-pressed="selected(endpoint)"
       type="button"
-      :class="cn('session-item', endpoint.id === selectedId && 'session-item-active')"
+      :class="cn('session-item', selected(endpoint) && 'session-item-active')"
       @click="emit('select', endpoint.id)"
     >
       <span class="session-icon">
@@ -70,6 +92,6 @@ function domainLabel(domain: string) {
         运行
       </Badge>
     </button>
-    <div v-if="!endpoints.length" class="empty-state compact">这个群还没有宿主会话。</div>
+    <div v-if="!conversations.length" class="empty-state compact">这个群还没有宿主会话。</div>
   </div>
 </template>

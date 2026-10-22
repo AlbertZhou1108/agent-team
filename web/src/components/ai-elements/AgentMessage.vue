@@ -4,6 +4,7 @@ import { Bot, Megaphone, MessageSquareText } from '@lucide/vue';
 import type { MessageView } from '@/shared/models/view-types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import ExpandableText from './ExpandableText.vue';
 
 const props = defineProps<{ message: MessageView }>();
 
@@ -25,8 +26,8 @@ const time = computed(() => new Intl.DateTimeFormat('zh-CN', {
     :class="cn(
       'message-card',
       `message-${message.kind}`,
-      message.kind === 'system'
-        ? 'message-system'
+      message.kind !== 'send'
+        ? 'message-notice'
         : message.senderIsLead
           ? 'message-right'
           : 'message-left',
@@ -48,7 +49,7 @@ const time = computed(() => new Intl.DateTimeFormat('zh-CN', {
       </Badge>
       <time class="message-time">{{ time }}</time>
     </div>
-    <p class="message-body">{{ message.text }}</p>
+    <ExpandableText class="message-body" :text="message.text" />
     <p class="message-id">#{{ message.seq }} · {{ message.id }}</p>
   </article>
 </template>

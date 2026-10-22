@@ -11,7 +11,6 @@ type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
 const props = defineProps<{
   messageId: string;
   hosts: Record<string, string>;
-  alignRight?: boolean;
 }>();
 
 const traceQuery = useQuery({
@@ -64,7 +63,6 @@ const stepCount = computed(() => turns.value.reduce((total, turn) => total + tur
   <div
     v-if="turnId"
     class="inline-trace"
-    :class="{ 'inline-trace-right': alignRight }"
   >
     <div v-if="turnQuery.isPending.value" class="inline-trace-loading">
       <LoaderCircle :size="12" class="animate-spin" />

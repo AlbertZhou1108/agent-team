@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia';
 
-export type ThemePreference = 'dark' | 'light' | 'system';
+export type ColorMode = 'dark' | 'light' | 'system';
+export type ColorTheme = 'mist' | 'neutral' | 'ocean' | 'forest' | 'rose' | 'amber';
 export type Density = 'comfortable' | 'compact';
 
 interface PreferencesState {
-  theme: ThemePreference;
+  colorMode: ColorMode;
+  colorTheme: ColorTheme;
+  appearanceVersion: number;
   density: Density;
   showReasoning: boolean;
   showRawPayloads: boolean;
@@ -15,26 +18,44 @@ const storageKey = 'agent-team:preferences';
 
 function load(): PreferencesState {
   const fallback: PreferencesState = {
-    theme: 'system',
+    colorMode: 'system',
+    colorTheme: 'mist',
+    appearanceVersion: 2,
     density: 'comfortable',
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
   };
   try {
-    return { ...fallback, ...JSON.parse(localStorage.getItem(storageKey) ?? '{}') };
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<PreferencesState> & {
+      theme?: ColorMode;
+    };
+    return {
+      ...fallback,
+      ...saved,
+      colorMode: saved.colorMode ?? saved.theme ?? fallback.colorMode,
+      colorTheme: (saved.appearanceVersion ?? 0) < 2
+        && (!saved.colorTheme || saved.colorTheme === 'neutral' || saved.colorTheme === 'ocean')
+        ? 'mist'
+        : saved.colorTheme ?? fallback.colorTheme,
+      appearanceVersion: 2,
+    };
   } catch {
     return fallback;
   }
 }
 
-export function resolveDark(theme: ThemePreference) {
-  return theme === 'dark'
-    || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+export function resolveDark(colorMode: ColorMode) {
+  return colorMode === 'dark'
+    || (colorMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
-export function applyTheme(theme: ThemePreference) {
-  document.documentElement.classList.toggle('dark', resolveDark(theme));
+export function applyColorMode(colorMode: ColorMode) {
+  document.documentElement.classList.toggle('dark', resolveDark(colorMode));
+}
+
+export function applyColorTheme(colorTheme: ColorTheme) {
+  document.documentElement.dataset.theme = colorTheme;
 }
 
 export const usePreferencesStore = defineStore('preferences', {
@@ -43,9 +64,14 @@ export const usePreferencesStore = defineStore('preferences', {
     persist() {
       localStorage.setItem(storageKey, JSON.stringify(this.$state));
     },
-    setTheme(theme: ThemePreference) {
-      this.theme = theme;
-      applyTheme(theme);
+    setColorMode(colorMode: ColorMode) {
+      this.colorMode = colorMode;
+      applyColorMode(colorMode);
+      this.persist();
+    },
+    setColorTheme(colorTheme: ColorTheme) {
+      this.colorTheme = colorTheme;
+      applyColorTheme(colorTheme);
       this.persist();
     },
     setDensity(density: Density) {
