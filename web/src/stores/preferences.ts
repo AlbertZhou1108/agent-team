@@ -15,7 +15,7 @@ const storageKey = 'agent-team:preferences';
 
 function load(): PreferencesState {
   const fallback: PreferencesState = {
-    theme: 'dark',
+    theme: 'system',
     density: 'comfortable',
     showReasoning: true,
     showRawPayloads: false,
