@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
 import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
-import ConversationScroller from '@/components/ai-elements/ConversationScroller.vue';
+import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import { Button } from '@/components/ui/button';
 
@@ -40,19 +40,20 @@ const messageIds = computed(() => filtered.value.map(message => message.id));
 </script>
 
 <template>
-  <section class="message-feed min-w-0">
-    <div class="message-toolbar">
-      <h3 class="truncate text-sm font-medium">{{ title ?? '全部群消息' }}</h3>
-    </div>
-
-    <ConversationScroller
-      :ids="messageIds"
-      :reset-key="selectedPair"
-      aria-label="团队消息"
-      viewport-class="message-viewport"
-      stream-class="message-stream"
-      content-class="message-content"
-    >
+  <ConversationPanel
+    class="message-feed min-w-0"
+    :ids="messageIds"
+    :reset-key="selectedPair"
+    aria-label="团队消息"
+    viewport-class="message-viewport"
+    stream-class="message-stream"
+    content-class="message-content"
+  >
+    <template #header>
+      <div class="message-toolbar">
+        <h3 class="truncate text-sm font-medium">{{ title ?? '全部群消息' }}</h3>
+      </div>
+    </template>
       <div v-for="group in messageGroups" :key="group.id" class="chat-message">
         <details v-if="group.notifications && group.messages.length > 1" class="notification-stack">
           <summary>
@@ -80,18 +81,18 @@ const messageIds = computed(() => filtered.value.map(message => message.id));
         <LoaderCircle :size="20" class="animate-spin" />
         <p>正在读取群消息…</p>
       </div>
-    </ConversationScroller>
-
-    <Button
-      v-if="hasNextPage"
-      variant="outline"
-      size="sm"
-      class="mb-2 mt-2 w-full"
-      :disabled="fetchingNextPage"
-      @click="emit('loadMore')"
-    >
-      <LoaderCircle v-if="fetchingNextPage" :size="13" class="animate-spin" />
-      {{ fetchingNextPage ? '正在加载' : '加载更多消息' }}
-    </Button>
-  </section>
+    <template #footer>
+      <Button
+        v-if="hasNextPage"
+        variant="outline"
+        size="sm"
+        class="mb-2 mt-2 w-full"
+        :disabled="fetchingNextPage"
+        @click="emit('loadMore')"
+      >
+        <LoaderCircle v-if="fetchingNextPage" :size="13" class="animate-spin" />
+        {{ fetchingNextPage ? '正在加载' : '加载更多消息' }}
+      </Button>
+    </template>
+  </ConversationPanel>
 </template>
