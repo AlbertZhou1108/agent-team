@@ -462,6 +462,147 @@ test('Panel Agent creates a team through existing revisioned preparation without
   assert.equal(controller.id, state.agent.id);
 });
 
+test('approved Panel preparation resumes the private Agent exactly once', async t => {
+  const { bus, directory, calls } = await fixture(t);
+  const state = await createAgent(bus);
+  const session = bus.store.panelSession(state.agent.id, 'private');
+  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
+    name: 'continuation team',
+    workspace: directory,
+    members: 'worker=fake',
+  });
+  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
+    preparationId: preparation.id,
+    contract: JSON.stringify(testContract),
+    revision: preparation.revision,
+  });
+  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
+    preparationId: preparation.id,
+    roles: JSON.stringify([{
+      name: 'worker',
+      model_provider: 'fake-provider',
+      model: 'fake-model',
+      reasoning_effort: 'low',
+    }]),
+    revision: preparation.revision,
+  });
+
+  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
+  const continuationId = `continuation:${preparation.id}:${preparation.revision}:${preparation.hash}`;
+  await until(() => calls.some(call => (
+    call.context === 'panel-private'
+    && call.prompt.includes('用户已经通过面板批准')
+  )));
+  await until(() => bus.store.get(
+    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
+    continuationId,
+  )?.delivered_turn_id);
+
+  const continuation = bus.store.get('SELECT * FROM panel_updates WHERE id=?', continuationId);
+  assert.equal(continuation.kind, 'continuation');
+  assert.equal(continuation.group_id, group.id);
+  assert.match(continuation.text, new RegExp(group.id));
+  assert.match(continuation.text, new RegExp(preparation.hash));
+  const continuationCalls = calls.filter(call => (
+    call.context === 'panel-private'
+    && call.prompt.includes('用户已经通过面板批准')
+  ));
+  assert.equal(continuationCalls.length, 1);
+  assert.match(continuationCalls[0].prompt, new RegExp(`activeTeamId=${group.id}`));
+  assert.ok(bus.store.get(
+    `SELECT id FROM panel_turns
+     WHERE context='private' AND active_team_id=? AND state='completed'`,
+    group.id,
+  ));
+
+  assert.equal(
+    bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash).id,
+    group.id,
+  );
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(
+    calls.filter(call => (
+      call.context === 'panel-private'
+      && call.prompt.includes('用户已经通过面板批准')
+    )).length,
+    1,
+  );
+  assert.equal(
+    bus.store.all('SELECT id FROM panel_updates WHERE kind=?', 'continuation').length,
+    1,
+  );
+});
+
+test('pending preparation continuation survives a service restart', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-continuation-restart-'));
+  const calls = [];
+  const hosts = new Map([['fake', hostFixture(calls)]]);
+  let bus = new Bus({ directory, hosts });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const state = await createAgent(bus);
+  const session = bus.store.panelSession(state.agent.id, 'private');
+  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
+    name: 'restart continuation',
+    workspace: directory,
+    members: 'worker=fake',
+  });
+  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
+    preparationId: preparation.id,
+    contract: JSON.stringify(testContract),
+    revision: preparation.revision,
+  });
+  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
+    preparationId: preparation.id,
+    roles: JSON.stringify([{
+      name: 'worker',
+      model_provider: 'fake-provider',
+      model: 'fake-model',
+      reasoning_effort: 'low',
+    }]),
+    revision: preparation.revision,
+  });
+
+  bus.running.set(session.id, {
+    endpoint: { id: session.id, context: 'panel-private', group_id: null },
+    activeTeamId: null,
+    turnId: 'synthetic-private-busy',
+    abort: new AbortController(),
+    done: Promise.resolve(),
+  });
+  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
+  const continuationId = `continuation:${preparation.id}:${preparation.revision}:${preparation.hash}`;
+  assert.ok(bus.store.get(
+    'SELECT id FROM panel_updates WHERE id=? AND delivered_turn_id IS NULL',
+    continuationId,
+  ));
+  await bus.close();
+
+  bus = new Bus({ directory, hosts });
+  bus.start();
+  await until(() => calls.some(call => (
+    call.context === 'panel-private'
+    && call.prompt.includes('用户已经通过面板批准')
+  )));
+  await until(() => bus.store.get(
+    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
+    continuationId,
+  )?.delivered_turn_id);
+  assert.equal(bus.store.get(
+    'SELECT group_id,kind FROM panel_updates WHERE id=?',
+    continuationId,
+  ).group_id, group.id);
+  assert.ok(bus.store.get(
+    'SELECT id FROM panel_turns WHERE context=? AND active_team_id=? AND state=?',
+    'private',
+    group.id,
+    'completed',
+  ));
+});
+
 test('Panel main receives member reports and can write only in the bound team context', async t => {
   const { bus, directory, calls } = await fixture(t);
   const state = await createAgent(bus);

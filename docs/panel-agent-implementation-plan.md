@@ -226,9 +226,9 @@
 
 ## 13. 已知问题
 
-### 3.1 批准 preparation 后 Panel Agent 不会自动继续
+### 13.1 批准 preparation 后 Panel Agent 自动继续
 
-状态：未修复。
+状态：已修复。
 
 复现：
 
@@ -239,8 +239,6 @@
 5. 团队中没有创建工作项、共享消息或 coordination 回合。
 6. 只有用户再次发送“继续执行”后，Panel Agent 才开始执行。
 
-实例：`2026-10-22` 本地测试中，准备记录 `1213175a-1515-4827-bac5-be604867ca64` 批准后创建了 `成员汇报演练 02`（`09d06ba0-7e3a-453c-b805-d8d9e68e80a9`）。团队处于 `active`、revision 1，关联成员只有角色自述，工作项和共享消息均为空，也没有新的 Panel 私人消息或 coordination 回合。
-
 原因：批准接口原子创建团队后只完成绑定；前端随后设置 `activeTeamId`，但没有创建持久化的“团队已批准，请继续”事件，也没有唤醒绑定到新团队的 Panel Agent 回合。Panel Agent 在等待批准时已经结束原回合，因此不会自行恢复。
 
-修复方向：批准成功后持久化一个幂等继续事件，并投递给 Panel Agent 私人回合，明确携带新 `groupId`。同一 preparation/revision/hash 只能产生一次继续事件；私人会话忙碌时排队。
+修复：团队创建事务内写入 `kind=continuation` 的 `panel_updates` 事件，ID 由 preparation/revision/hash 确定；现有更新泵自动将它交给绑定新团队的私人回合。重复批准不会重复创建事件，私人会话忙碌或服务重启时事件保持待交付。

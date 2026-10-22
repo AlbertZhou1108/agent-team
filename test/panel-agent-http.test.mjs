@@ -7,6 +7,14 @@ import { startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
 import { testContract } from './helpers.mjs';
 
+async function until(fn) {
+  for (let index = 0; index < 400; index++) {
+    if (fn()) return;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error('timeout');
+}
+
 const fakeHost = {
   async listModels() {
     return {
@@ -130,6 +138,14 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const approvedTeam = await approvedTeamResponse.json();
   assert.equal(approvedTeam.lead, null);
   assert.equal(server.bus.panelTeamRelation(approvedTeam.id), 'main');
+  const continuationId = `continuation:${panelPreparation.id}:${panelPreparation.revision}:${panelPreparation.hash}`;
+  await until(() => server.bus.store.get(
+    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
+    continuationId,
+  )?.delivered_turn_id);
+  const afterApproval = await (await fetch(base + '/api/panel-agent')).json();
+  assert.equal(afterApproval.conversation.at(-1).role, 'assistant');
+  assert.equal(afterApproval.conversation.at(-1).active_team_id, approvedTeam.id);
 
   const takeoverRequest = await server.bus.panelTool(
     privateSession.id,
