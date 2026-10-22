@@ -5,21 +5,16 @@ const definitions = [
   ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。', { after: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 200 }, sender: string }, []],
   ['members', '读取本群成员与能力自述。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
-  ['group_add', '主 Agent 提议添加成员；框架会向正在聊天的用户请求确认。必须从模型目录选择该角色的模型和思考强度。', {
+  ['group_add', '主 Agent 提议添加成员；框架会向正在聊天的用户请求确认，并按全局模型策略选择新角色模型。', {
     name: string,
     host: string,
-    model_provider: string,
-    model: string,
-    reasoning_effort: string,
-  }, ['name', 'host', 'model', 'reasoning_effort']],
+  }, ['name', 'host']],
   ['group_remove', '主 Agent 移除成员；立即撤销框架访问并尽力停止相关会话。', { member: string }, ['member']],
   ['group_delete', '主 Agent 删除本群；框架会先请求用户确认。宿主历史与用户私聊保留。', {}, []],
-  ['group_create', '主 Agent 提议建群；用户确认后建立。members 可选，格式 名称=宿主,名称=宿主。model_mode为smart|user，model_rules为自然语言模型策略。', {
+  ['group_create', '主 Agent 提议建群；用户确认后建立。members 可选，格式 名称=宿主,名称=宿主。', {
     name: string,
     workspace: string,
     members: string,
-    model_mode: string,
-    model_rules: string,
     roles: string,
   }, ['name', 'workspace']],
   ['groups', '主 Agent 列出自己可见的群。', {}, []],

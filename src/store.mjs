@@ -41,8 +41,27 @@ export class Store {
       CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
       CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_agents(id TEXT PRIMARY KEY,singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK(singleton=1),name TEXT NOT NULL,host TEXT NOT NULL,model_provider TEXT,model TEXT,reasoning_effort TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_sessions(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,session TEXT,policy_signature TEXT,key TEXT NOT NULL UNIQUE,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS panel_private_session ON panel_sessions(panel_agent_id) WHERE context='private';
+      CREATE UNIQUE INDEX IF NOT EXISTS panel_coordination_session ON panel_sessions(panel_agent_id,group_id) WHERE context='coordination';
+      CREATE TABLE IF NOT EXISTS panel_team_bindings(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,relation TEXT NOT NULL CHECK(relation IN ('observer','main')),created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(panel_agent_id,group_id));
+      CREATE TABLE IF NOT EXISTS team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent')),controller_id TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),text TEXT NOT NULL,active_team_id TEXT,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES panel_turns(id) ON DELETE SET NULL,text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
+      CREATE TABLE IF NOT EXISTS panel_turns(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,group_id TEXT,active_team_id TEXT,state TEXT NOT NULL,created TEXT NOT NULL,ended TEXT);
+      CREATE TABLE IF NOT EXISTS panel_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,turn_id TEXT,event TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_outbox(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
+      CREATE TABLE IF NOT EXISTS panel_attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES panel_outbox(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS panel_turn_inputs(turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
+      CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
+      CREATE TABLE IF NOT EXISTS panel_action_requests(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,action TEXT NOT NULL CHECK(action IN ('takeover','handback')),base_revision INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','confirmed','dismissed','failed')),detail TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
-      CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);`);
+      CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
+      CREATE INDEX IF NOT EXISTS panel_messages_agent ON panel_messages(panel_agent_id,seq);
+      CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
+      CREATE INDEX IF NOT EXISTS panel_history_session ON panel_history(session_id,seq);
+      CREATE INDEX IF NOT EXISTS panel_history_turn ON panel_history(turn_id,seq);`);
     for (const [name, definition] of [
       ['model_provider', 'TEXT'],
       ['model', 'TEXT'],
@@ -60,6 +79,13 @@ export class Store {
       if (!this.all('PRAGMA table_info(history)').some(column => column.name === 'turn_id')) this.db.exec('ALTER TABLE history ADD COLUMN turn_id TEXT REFERENCES turns(id) ON DELETE CASCADE');
       this.db.exec('CREATE INDEX IF NOT EXISTS history_turn ON history(turn_id,seq); CREATE INDEX IF NOT EXISTS inputs_message ON turn_inputs(message_id);');
     });
+    const ensureColumn = (table, name, definition) => {
+      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    ensureColumn('panel_sessions', 'policy_signature', 'TEXT');
+    ensureColumn('panel_messages', 'context', "TEXT NOT NULL DEFAULT 'private'");
   }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }
@@ -89,6 +115,38 @@ export class Store {
     }
     return endpoint;
   }
+  panelAgent() {
+    return this.get('SELECT * FROM panel_agents ORDER BY created LIMIT 1') ?? null;
+  }
+  panelSession(panelAgentId, context, groupId = null) {
+    const existing = context === 'private'
+      ? this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='private'", panelAgentId)
+      : this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='coordination' AND group_id=?", panelAgentId, groupId);
+    if (existing) return existing;
+    if (context === 'coordination') this.group(groupId);
+    const id = `panel-session-${randomUUID()}`;
+    const now = new Date().toISOString();
+    this.run(
+      'INSERT INTO panel_sessions(id,panel_agent_id,context,group_id,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?)',
+      id,
+      panelAgentId,
+      context,
+      groupId,
+      null,
+      null,
+      randomBytes(32).toString('hex'),
+      now,
+      now,
+    );
+    return this.get('SELECT * FROM panel_sessions WHERE id=?', id);
+  }
+  authenticatePanelSession(id, key) {
+    const session = this.get('SELECT * FROM panel_sessions WHERE id=? AND key=?', id, key);
+    if (!session) throw new Error('Panel Agent 会话来源无效');
+    const panelAgent = this.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    if (!panelAgent) throw new Error('Panel Agent 不存在');
+    return { session, panelAgent };
+  }
   authenticate(id, key) {
     const endpoint = this.get('SELECT * FROM endpoints WHERE id=? AND key=?', id, key);
     if (!endpoint) throw new Error('会话来源无效');
@@ -102,10 +160,15 @@ export class Store {
     return this.get('SELECT * FROM messages WHERE id=?', id);
   }
   pending() {
-    return this.all(`SELECT m.* FROM messages m JOIN members r ON r.id=m.recipient JOIN team_state s ON s.group_id=m.group_id
-      WHERE (s.phase='active' OR s.phase='closed') AND m.kind='send' AND r.removed IS NULL
+    return this.all(`SELECT m.* FROM messages m JOIN team_state s ON s.group_id=m.group_id
+      WHERE (s.phase='active' OR s.phase='closed') AND m.kind='send'
+      AND (
+        EXISTS(SELECT 1 FROM members r WHERE r.id=m.recipient AND r.removed IS NULL)
+        OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
+      )
       AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
-      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
+      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`);
   }
   prepare(message, endpoint, canBatch = () => true) {
     return this.transaction(() => {
@@ -128,6 +191,55 @@ export class Store {
       return { id, endpoint_id: endpoint.id, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
+  preparePanel(message, session, canBatch = () => true) {
+    return this.transaction(() => {
+      if (this.get('SELECT 1 FROM panel_attached WHERE message_id=?', message.id)) return null;
+      const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
+        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
+        AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient);
+      const candidates = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind='send' AND m.id!=?
+        AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
+        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
+        AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient, message.id);
+      const additional = [];
+      for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
+      const annotate = m => ({ ...m, workItemId: this.get('SELECT work_item_id FROM message_context WHERE message_id=?', m.id)?.work_item_id ?? null });
+      const payload = {
+        groupId: message.group_id,
+        conversation: 'coordination',
+        message: annotate(message),
+        ...(additional.length ? { additionalMessages: additional.map(annotate) } : {}),
+        notes,
+      };
+      const id = randomUUID();
+      this.run('INSERT INTO panel_outbox(id,session_id,payload) VALUES(?,?,?)', id, session.id, JSON.stringify(payload));
+      for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO panel_attached VALUES(?,?)', item.id, id);
+      return { id, session_id: session.id, payload: JSON.stringify(payload), accepted: null, error: null };
+    });
+  }
+  panelAppend(panelAgentId, context, role, text, activeTeamId = null) {
+    const id = randomUUID();
+    this.run(
+      'INSERT INTO panel_messages(id,panel_agent_id,context,role,text,active_team_id,created) VALUES(?,?,?,?,?,?,?)',
+      id,
+      panelAgentId,
+      context,
+      role,
+      text,
+      activeTeamId,
+      new Date().toISOString(),
+    );
+    return this.get('SELECT * FROM panel_messages WHERE id=?', id);
+  }
+  panelHistory(sessionId, event, turnId = null) {
+    return Number(this.run(
+      'INSERT INTO panel_history(session_id,turn_id,event,created) VALUES(?,?,?,?)',
+      sessionId,
+      turnId,
+      JSON.stringify(event),
+      new Date().toISOString(),
+    ).lastInsertRowid);
+  }
   createTurn(endpoint, inputs = []) {
     return this.transaction(() => {
       const id = randomUUID();
@@ -148,24 +260,83 @@ export class Store {
     const message = this.get('SELECT id,kind FROM messages WHERE id=?', id);
     if (!message) return null;
     const origin = this.get(`SELECT o.*,e.context,e.id AS endpoint_id FROM message_origins o JOIN turns t ON t.id=o.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE o.message_id=?`, id);
-    const source = !origin ? { kind: message.kind === 'system' ? 'system' : 'unknown' } : origin.context === 'private' ? { kind: 'private' } : { kind: 'group', turnId: origin.turn_id, endpointId: origin.endpoint_id, eventSeq: origin.event_seq, callId: origin.call_id, nativeCallId: origin.native_call_id };
-    const inputAttempts = this.all(`SELECT t.id,t.endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE i.message_id=? AND e.context!='private' ORDER BY t.rowid`, id);
+    const panelOrigin = this.get(`SELECT o.*,t.context,t.group_id AS turn_group_id,s.panel_agent_id
+      FROM panel_message_origins o JOIN panel_turns t ON t.id=o.turn_id JOIN panel_sessions s ON s.id=t.session_id
+      WHERE o.message_id=?`, id);
+    const source = panelOrigin
+      ? {
+          kind: panelOrigin.context === 'private' ? 'private' : 'panel',
+          turnId: panelOrigin.turn_id,
+          endpointId: null,
+          panelAgentId: panelOrigin.panel_agent_id,
+          groupId: panelOrigin.turn_group_id,
+          eventSeq: panelOrigin.event_seq,
+          callId: panelOrigin.call_id,
+          nativeCallId: panelOrigin.native_call_id,
+        }
+      : !origin
+        ? { kind: message.kind === 'system' ? 'system' : 'unknown' }
+        : origin.context === 'private'
+          ? { kind: 'private' }
+          : { kind: 'group', turnId: origin.turn_id, endpointId: origin.endpoint_id, eventSeq: origin.event_seq, callId: origin.call_id, nativeCallId: origin.native_call_id };
+    const inputAttempts = [
+      ...this.all(`SELECT t.id,t.endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE i.message_id=? AND e.context!='private' ORDER BY t.rowid`, id),
+      ...this.all(`SELECT t.id,t.session_id AS endpoint_id,s.session,t.created FROM panel_turn_inputs i JOIN panel_turns t ON t.id=i.turn_id JOIN panel_sessions s ON s.id=t.session_id WHERE i.message_id=? ORDER BY t.rowid`, id),
+    ];
     return { messageId: id, source, inputAttempts };
   }
   endpointModels(id, after = 0) {
     const endpoint = this.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", id);
-    if (!endpoint) return null;
-    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
+    const panelSession = endpoint ? null : this.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", id);
+    if (!endpoint && !panelSession) return null;
+    const all = modelObservations(endpoint
+      ? this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id)
+      : this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE session_id=? ORDER BY seq', id));
     const observations = all.filter(observation => observation.seq > after).slice(0, 200);
     return { ...deriveCurrentModel(all), observations, nextAfter: observations.at(-1)?.seq ?? after };
   }
   endpointModelSummary(id) {
-    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
+    const panelSession = this.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", id);
+    const all = modelObservations(panelSession
+      ? this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE session_id=? ORDER BY seq', id)
+      : this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
     return deriveCurrentModel(all);
   }
   turnTrace(id, after = 0) {
     const turn = this.publicTurn(id);
-    if (!turn) return null;
+    if (!turn) {
+      const panelTurn = this.get(`SELECT t.*,s.context AS session_context,s.panel_agent_id
+        FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
+        WHERE t.id=? AND s.context='coordination'`, id);
+      if (!panelTurn) return null;
+      const events = this.all('SELECT * FROM panel_history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
+      const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE turn_id=? ORDER BY seq', id));
+      return {
+        turn: {
+          id: panelTurn.id,
+          endpoint_id: panelTurn.session_id,
+          session: null,
+          created: panelTurn.created,
+          group_id: panelTurn.group_id,
+          member_id: panelTurn.panel_agent_id,
+          context: 'panel-coordination',
+          peer: null,
+        },
+        nativeTurnRefs: [],
+        inputMessages: this.all(
+          'SELECT m.id,m.kind,i.ordinal FROM panel_turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal',
+          id,
+        ),
+        outgoingMessages: this.all(
+          'SELECT message_id,event_seq,call_id,native_call_id FROM panel_message_origins WHERE turn_id=? ORDER BY rowid',
+          id,
+        ),
+        ...deriveCurrentModel(observations),
+        modelObservations: observations,
+        events,
+        nextAfter: events.at(-1)?.seq ?? after,
+      };
+    }
     const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
     const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE turn_id=? ORDER BY seq', id));
     return { turn, nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),

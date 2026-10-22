@@ -15,7 +15,6 @@ const options = {
   hosts: { type: 'string' }, socket: { type: 'string' }, endpoint: { type: 'string' }, help: { type: 'boolean', short: 'h' },
   preparation: { type: 'string' }, contract: { type: 'string' }, revision: { type: 'string' }, hash: { type: 'string' },
   request: { type: 'string' }, version: { type: 'string' }, reason: { type: 'string' }, turn: { type: 'string' },
-  'model-mode': { type: 'string' }, 'model-rules': { type: 'string' },
 };
 export function parseMembers(text = '') {
   return text ? text.split(',').filter(Boolean).map(item => {
@@ -41,10 +40,8 @@ async function main() {
   approve --preparation 编号 --revision 版本 --hash 摘要  展示契约并确认
   state / requests / decide / direct / terminate / reopen / resolve-runtime  团队状态与用户决定
   --data 目录       本地数据（默认 work/local）
-  --port 端口       只读面板端口，默认随机
+  --port 端口       面板端口，默认随机
   --hosts 文件      CLI 宿主别名及适配器配置
-  --model-mode     模型策略：smart 或 user
-  --model-rules    模型策略自然语言规则
   --group 编号      操作的群
   --text 文本       chat 单次私聊（先运行 serve）
   --member 名称     remove / stop 的成员
@@ -60,8 +57,6 @@ async function main() {
     workspace: values.workspace,
     lead: { name: '主 Agent', host: values.lead },
     members: parseMembers(values.members),
-    modelMode: values['model-mode'],
-    modelRules: values['model-rules'],
   });
   if (!['start', 'serve'].includes(command)) {
     let request;
@@ -119,7 +114,7 @@ async function main() {
   };
   const panelAuth = process.env.AGENT_TEAM_DEV_NO_AUTH !== '1';
   const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts, confirm, panelAuth });
-  console.log(`Agent Team 0.1.0\n只读面板：${server.url}\n数据目录：${directory}${panelAuth ? '' : '\n开发模式：本机面板鉴权已关闭'}`);
+  console.log(`Agent Team 0.1.0\n面板：${server.url}\n数据目录：${directory}${panelAuth ? '' : '\n开发模式：本机面板鉴权已关闭'}`);
   server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
   let shuttingDown;
   const shutdown = () => shuttingDown ??= (async () => { readline?.close(); await server.close(); })();

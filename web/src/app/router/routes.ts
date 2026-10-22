@@ -6,8 +6,18 @@ export const routes: RouteRecordRaw[] = [
     redirect: '/groups',
   },
   {
+    path: '/agent',
+    name: 'panel-agent',
+    component: () => import('@/pages/GroupWorkspacePage.vue'),
+  },
+  {
     path: '/groups/:groupId?',
     name: 'group',
+    component: () => import('@/pages/GroupWorkspacePage.vue'),
+  },
+  {
+    path: '/settings',
+    name: 'settings',
     component: () => import('@/pages/GroupWorkspacePage.vue'),
   },
   {

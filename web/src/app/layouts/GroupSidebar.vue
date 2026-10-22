@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import AgentTeamLogo from './AgentTeamLogo.vue';
 import TeamRow from './TeamRow.vue';
 import TeamMenu from './TeamMenu.vue';
 import { useTeamOrganization } from '@/stores/team-organization';
 import {
+  Bot,
   Folder,
   FolderPlus,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  House,
   Settings2,
 } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
 import { cn } from '@/lib/utils';
@@ -21,10 +25,15 @@ import { cn } from '@/lib/utils';
 const props = defineProps<{
   groups: Group[];
   currentGroupId?: string;
+  homeActive: boolean;
+  agentActive: boolean;
+  agentUnreadCount: number;
+  settingsActive: boolean;
 }>();
 
 const emit = defineEmits<{
   select: [id: string];
+  openAgent: [];
   openSettings: [];
 }>();
 
@@ -38,6 +47,19 @@ const folderName = ref('');
 const dropTarget = ref<string>();
 const insertion = ref<{ id: string; kind: 'team' | 'folder'; after: boolean }>();
 const dragging = ref<'team' | 'folder'>();
+const agentUnreadLabel = computed(() => (
+  props.agentUnreadCount > 99
+    ? '99+'
+    : String(props.agentUnreadCount)
+));
+watch(
+  () => props.currentGroupId,
+  id => {
+    selected.value = id ? [id] : [];
+    anchor.value = id;
+  },
+  { immediate: true },
+);
 function clearDrag() { dropTarget.value = undefined; insertion.value = undefined; dragging.value = undefined; }
 function showTeamInsertion(id: string, event: DragEvent) {
   dropTarget.value = undefined;
@@ -82,6 +104,12 @@ function selectTeam(id: string, event: MouseEvent) {
     const start = ids.indexOf(anchor.value ?? id), end = ids.indexOf(id);
     selected.value = Array.from(new Set([...selected.value, ...ids.slice(Math.min(start, end), Math.max(start, end) + 1)]));
     if (!anchor.value) anchor.value = id;
+    return;
+  }
+  if (id === props.currentGroupId) {
+    selected.value = [];
+    anchor.value = undefined;
+    emit('select', '');
     return;
   }
   selected.value = [id]; anchor.value = id;
@@ -144,8 +172,11 @@ function createFolder() {
       ui.sidebarCollapsed && 'group-sidebar-collapsed',
     )"
   >
-    <div class="flex min-w-0 items-center gap-3 px-2">
-      <span class="grid size-9 shrink-0 place-items-center rounded-xl border border-[var(--primary-border)] bg-[var(--primary-muted)] text-lg text-[var(--primary)]">◈</span>
+    <div
+      class="flex min-w-0 items-center gap-3 px-2"
+      :class="{ 'justify-center px-0': ui.sidebarCollapsed }"
+    >
+      <AgentTeamLogo :collapsed="ui.sidebarCollapsed" />
       <div v-if="!ui.sidebarCollapsed" class="min-w-0">
         <p class="truncate text-sm font-semibold tracking-tight">Agent Team</p>
         <p class="truncate text-[10px] tracking-[0.14em] text-dim">LOCAL OBSERVATORY</p>
@@ -161,7 +192,7 @@ function createFolder() {
       <input v-model="folderName" class="field-select w-full" aria-label="文件夹名称" placeholder="文件夹名称" maxlength="60" @keydown.esc="creating = false" />
       <div class="flex gap-2"><Button size="sm" type="submit">创建</Button><Button size="sm" variant="ghost" @click="creating = false">取消</Button></div>
     </form>
-    <nav class="team-navigation mt-2 min-h-0 flex-1 overflow-y-auto" aria-label="团队列表" @dragover.prevent @drop="drop($event)" @dragend="clearDrag" @dragleave="leaveNavigation">
+    <nav v-if="!ui.sidebarCollapsed" class="team-navigation mt-2 min-h-0 flex-1 overflow-y-auto" aria-label="团队列表" @dragover.prevent @drop="drop($event)" @dragend="clearDrag" @dragleave="leaveNavigation">
       <p v-if="pinned.length && !ui.sidebarCollapsed" class="team-section-label">置顶</p>
       <TeamRow v-for="group in pinned" :key="group.id" :group="group" :active="group.id === currentGroupId" :selected="selected.includes(group.id)" :collapsed="ui.sidebarCollapsed" @select="selectTeam(group.id, $event)" @drag="startDrag(group.id, $event)" @reorder="reorderTeam(group.id, $event)" @over="showTeamInsertion(group.id, $event)" @leave="leaveInsertion" :class="insertionClass(group.id, 'team')" />
       <section v-for="folder in org.folders" :key="folder.id" class="team-folder" :class="[{ 'team-drop-target': dropTarget === folder.id }, insertionClass(folder.id, 'folder')]" @dragover.prevent.stop="overFolder(folder.id, $event)" @dragleave.self="dropTarget = undefined" @drop.stop="dropFolder(folder.id, $event)">
@@ -197,27 +228,70 @@ function createFolder() {
       </div>
     </div>
 
-    <Button
-      variant="ghost"
-      size="sm"
-      class="mt-3 justify-start px-2 text-muted"
-      :title="ui.sidebarCollapsed ? '设置' : '打开设置'"
-      @click="emit('openSettings')"
-    >
-      <Settings2 :size="15" />
-      <span v-if="!ui.sidebarCollapsed">设置</span>
-    </Button>
+    <div class="sidebar-actions">
+      <Button
+        variant="ghost"
+        size="sm"
+        :class="cn('home-nav-button w-full justify-start px-2', homeActive && 'home-nav-button-active')"
+        :aria-current="homeActive ? 'page' : undefined"
+        title="主页"
+        @click="emit('select', '')"
+      >
+        <House :size="15" data-icon="inline-start" />
+        <span v-if="!ui.sidebarCollapsed">主页</span>
+      </Button>
 
-    <Button
-      variant="ghost"
-      size="sm"
-      class="mt-3 justify-start px-2 text-dim"
-      :title="ui.sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-      @click="ui.toggleSidebar()"
-    >
-      <ChevronsRight v-if="ui.sidebarCollapsed" :size="15" />
-      <ChevronsLeft v-else :size="15" />
-      <span v-if="!ui.sidebarCollapsed">收起</span>
-    </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        :class="cn(
+          'home-nav-button relative w-full justify-start px-2',
+          agentActive && 'home-nav-button-active',
+        )"
+        :aria-current="agentActive ? 'page' : undefined"
+        :aria-label="agentUnreadCount
+          ? `Panel Agent，${agentUnreadCount} 条新消息`
+          : 'Panel Agent'"
+        :title="agentUnreadCount
+          ? `Panel Agent（${agentUnreadCount} 条新消息）`
+          : 'Panel Agent'"
+        @click="emit('openAgent')"
+      >
+        <Bot :size="15" data-icon="inline-start" />
+        <span v-if="!ui.sidebarCollapsed">Panel Agent</span>
+        <Badge
+          v-if="agentUnreadCount"
+          variant="accent"
+          class="sidebar-unread-count"
+          aria-hidden="true"
+        >
+          {{ agentUnreadLabel }}
+        </Badge>
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        :class="cn('home-nav-button w-full justify-start px-2', settingsActive && 'home-nav-button-active')"
+        :aria-current="settingsActive ? 'page' : undefined"
+        :title="ui.sidebarCollapsed ? '设置' : '打开设置'"
+        @click="emit('openSettings')"
+      >
+        <Settings2 :size="15" />
+        <span v-if="!ui.sidebarCollapsed">设置</span>
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        class="w-full justify-start px-2 text-dim"
+        :title="ui.sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+        @click="ui.toggleSidebar()"
+      >
+        <ChevronsRight v-if="ui.sidebarCollapsed" :size="15" />
+        <ChevronsLeft v-else :size="15" />
+        <span v-if="!ui.sidebarCollapsed">收起</span>
+      </Button>
+    </div>
   </aside>
 </template>

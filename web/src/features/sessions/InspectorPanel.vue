@@ -26,6 +26,7 @@ import type { InspectorTab } from './types';
 const props = defineProps<{
   endpoint?: SessionEndpoint;
   members: Member[];
+  actors?: Array<{ id: string; name: string }>;
   turns: TurnView[];
   historyRows: HistoryRow[];
   modelState?: ModelState | null;
@@ -50,7 +51,10 @@ const tabs: Array<{ value: InspectorTab; label: string; icon: typeof Activity }>
 
 const memberName = computed(() => {
   const id = props.endpoint?.member_id;
-  return props.members.find(member => member.id === id)?.name ?? id ?? '宿主会话';
+  return props.members.find(member => member.id === id)?.name
+    ?? props.actors?.find(actor => actor.id === id)?.name
+    ?? id
+    ?? '宿主会话';
 });
 
 function prettyEvent(value: string) {

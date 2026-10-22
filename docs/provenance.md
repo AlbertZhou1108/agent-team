@@ -4,7 +4,7 @@
 
 ## 读取接口
 
-沿用本机面板启动链接建立的 Cookie。查询接口只读；`POST /api/model-policy` 是唯一设置写入口，只接受当前团队的 `{group,mode,rules}`。
+沿用本机面板启动链接建立的 Cookie。查询接口只读；团队观测页不提供通用写 RPC。全局模型策略使用 `POST /api/model-policy`。Panel Agent 使用命名的身份、私聊、准备确认、接管和交还接口，每个接口独立校验参数、团队作用域、控制者 revision 和同源请求。
 
 - `GET /api/snapshot`：返回群、成员、群会话、活动运行和团队阶段摘要。
 - `GET /api/collaboration?group=<群编号>&after=<记录序号>`：返回有效契约、工作项、证据引用、待用户决定、收尾状态、未处理消息、待核实运行和分页流转记录。

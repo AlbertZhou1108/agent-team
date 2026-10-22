@@ -1,12 +1,14 @@
 import type {
   CollaborationState,
+  Group,
   HistoryRow,
   MessageTrace,
   ModelCatalogResponse,
+  ModelPolicy,
   MessageRow,
   ModelsPage,
+  PanelAgentState,
   Snapshot,
-  TeamModelPolicy,
   TurnTrace,
 } from './raw-types';
 
@@ -61,8 +63,50 @@ export const api = {
   modelCatalog(refresh = false, signal?: AbortSignal) {
     return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined }), signal);
   },
-  updateModelPolicy(group: string, mode: TeamModelPolicy['mode'], rules: string) {
-    return mutate<TeamModelPolicy>('/api/model-policy', { group, mode, rules });
+  updateModelPolicy(mode: ModelPolicy['mode'], rules: string) {
+    return mutate<ModelPolicy>('/api/model-policy', { mode, rules });
+  },
+  panelAgent(signal?: AbortSignal) {
+    return request<PanelAgentState>('/api/panel-agent', signal);
+  },
+  createPanelAgent(body: {
+    name: string;
+    host: string;
+    model_provider?: string | null;
+    model: string;
+    reasoning_effort?: string | null;
+  }) {
+    return mutate<PanelAgentState>('/api/panel-agent', body);
+  },
+  updatePanelAgent(body: {
+    name?: string;
+    host?: string;
+    model_provider?: string | null;
+    model?: string;
+    reasoning_effort?: string | null;
+  }) {
+    return mutate<PanelAgentState>('/api/panel-agent/update', body);
+  },
+  panelMessage(text: string, activeTeamId?: string | null) {
+    return mutate<{ reply: unknown; result: string }>('/api/panel-agent/messages', { text, activeTeamId: activeTeamId ?? null });
+  },
+  stopPanel() {
+    return mutate<{ stopped: string[] }>('/api/panel-agent/stop', {});
+  },
+  resolvePanelRuntime(turnId: string, reason: string) {
+    return mutate<{ turnId: string; state: string }>('/api/panel-agent/resolve-runtime', { turnId, reason });
+  },
+  approvePreparation(id: string, revision: number, hash: string) {
+    return mutate<Group>('/api/preparations/' + encodeURIComponent(id) + '/approve', { revision, hash });
+  },
+  takeoverTeam(groupId: string, revision: number) {
+    return mutate('/api/teams/' + encodeURIComponent(groupId) + '/takeover', { revision });
+  },
+  handbackTeam(groupId: string, revision: number) {
+    return mutate('/api/teams/' + encodeURIComponent(groupId) + '/handback', { revision });
+  },
+  decidePanelAction(id: string, approved: boolean) {
+    return mutate('/api/panel-actions/' + encodeURIComponent(id) + '/decide', { approved });
   },
   messages(group: string, after = 0, signal?: AbortSignal) {
     return request<MessageRow[]>(query('/api/messages', { group, after }), signal);

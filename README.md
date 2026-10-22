@@ -14,7 +14,7 @@ npm install
 npm start -- --lead codex --members 配色=dsh,质感=claude --workspace /你的项目目录
 ```
 
-这条命令启动本地群总线、输出只读面板链接，并进入“建群准备”对话。先告诉主 Agent 任务目标，主 Agent整理目标、范围、授权边界、确认事项、交付方式和可检查的完成条件。输入 `/contract` 查看当前草案；核对无误后输入 `/approve` 并明确确认。确认绑定具体草案版本和内容摘要，之后群、契约与初始成员原子建立，成员才开始自述能力并加入协作。
+这条命令启动本地群总线、输出面板链接，并进入“建群准备”对话。先告诉主 Agent 任务目标，主 Agent整理目标、范围、授权边界、确认事项、交付方式和可检查的完成条件。输入 `/contract` 查看当前草案；核对无误后输入 `/approve` 并明确确认。确认绑定具体草案版本和内容摘要，之后群、契约与初始成员原子建立，成员才开始自述能力并加入协作。
 
 命令中的成员列表就是你的明确选择，不会偷偷替换失败的宿主。可将 `--lead` 改为 `claude` 或 `dsh`；成员也可使用相同宿主的多个独立实例。
 
@@ -99,7 +99,18 @@ npm start -- chat --group 群编号 --data work/local
 npm start -- chat --group 群编号 --text '读取群记录并汇总' --data work/local
 ```
 
-群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，必须先打开启动时提供的带入口 key 链接。除当前团队的模型策略设置外，面板没有聊天、确认、角色管理或工作流写入口。
+群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，必须先打开启动时提供的带入口 key 链接。团队观测页仍只读；独立 Panel Agent 页面提供私人会话、团队准备确认和主 Agent 接管入口，写能力由命名 API 和同一来源校验限制。
+
+### Panel Agent
+
+面板根路径 `/agent` 提供独立 Panel Agent。没有 Agent 时显示惰性创建入口；创建后使用一条全局私人会话，并自动观察当前数据目录中的全部团队。
+
+Panel Agent 与团队只有两种关系：
+
+- `observer`：读取团队共享信息，不能写入团队状态；
+- `main`：接管团队 coordination，原主 Agent 暂停并保留历史，可再次交还。
+
+团队创建仍使用现有 preparation、契约 revision/hash、角色模型计划和用户确认。Panel Agent 不进入普通成员列表；它是团队主 Agent 时与普通角色仍是不同身份。完整设计见[Panel Agent 设计](./docs/panel-agent-design.md)和[实施计划](./docs/panel-agent-implementation-plan.md)。
 
 ## 宿主配置与新适配器
 
@@ -138,13 +149,13 @@ Codex 每回合明确 `readOnly`/`workspaceWrite` 沙箱策略，并裁剪原生
 npm start -- models --data work/local
 ```
 
-只读面板接口为 `GET /api/model-catalog`，结果缓存 30 秒；`?refresh=1` 强制重新探测。返回结构按宿主隔离失败，包含模型选择名称、展示名称、可用思考强度和默认值。Claude 的 CC Switch 或代理映射不参与目录命名，框架直接使用 Claude Code 暴露的名称；实际回合使用的模型仍由 `framework.model` 单独记录。
+模型目录接口为 `GET /api/model-catalog`，结果缓存 30 秒；`?refresh=1` 强制重新探测。返回结构按宿主隔离失败，包含模型选择名称、展示名称、可用思考强度和默认值。Claude 的 CC Switch 或代理映射不参与目录命名，框架直接使用 Claude Code 暴露的名称；实际回合使用的模型仍由 `framework.model` 单独记录。
 
-团队模型策略保存为 `mode` 和自然语言 `rules`。`mode=smart` 使用智能策略，`rules` 明确性能优先或成本优先及角色规则；`mode=user` 同样用自然语言描述用户规则。启动时可用 `--model-mode` 和 `--model-rules` 设置，未提供时使用平衡的用户配置规则。
+全局模型策略保存为单例记录中的 `mode` 和自然语言 `rules`。`mode=smart` 使用智能策略，`rules` 明确性能优先或成本优先及角色规则；`mode=user` 同样用自然语言描述用户规则。策略在创建新团队和已有团队新增角色时读取；全局修改会影响之后的所有角色创建，但不改写已有角色。preparation 中保存策略快照仅用于审计。
 
-首次建群时，准备会话的主 Agent通过 `model_catalog` 和 `team_plan_update` 为普通角色提出模型计划；框架校验目录、provider 和思考强度。若契约已提出但角色计划缺失，框架会让同一宿主的主 Agent执行一次严格 JSON 规划并自动纠正一次校验错误。主 Agent自身继承准备会话最后一轮成功运行的模型名称和核实强度。
+首次建群时，准备会话的主 Agent通过 `model_catalog` 和 `team_plan_update` 为普通角色提出模型计划；框架校验目录、provider 和思考强度。若契约已提出但角色计划缺失，框架会让同一宿主的主 Agent执行一次严格 JSON 规划并自动纠正一次校验错误。已有团队新增角色时，框架读取当前全局策略并执行同样校验后写入新角色。主 Agent自身继承准备会话最后一轮成功运行的模型名称和核实强度。
 
-每个角色分别保存 `model_provider`、`model` 和 `reasoning_effort`。普通角色按团队规则解析，主 Agent继承会话模型；不保存模式、规则匹配或选择理由。模型不存在或强度不受支持时，建群被拒绝，不静默回退。
+每个角色分别保存 `model_provider`、`model` 和 `reasoning_effort`。普通角色按当前全局策略解析，主 Agent继承会话模型；不保存模式、规则匹配或选择理由。模型不存在或强度不受支持时，角色创建被拒绝，不静默回退。
 
 新宿主可通过 `{"module":"/绝对路径/adapter.mjs"}` 导出 `createHost(options)` 接入，无需修改群路由核心。接口见 [适配器说明](docs/adapters.md)。
 
@@ -162,7 +173,7 @@ npm start -- models --data work/local
 
 ## 面板与当前限制
 
-面板展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。侧栏设置菜单可以切换主题并保存当前团队的模型策略；策略只影响之后创建的角色。面板没有聊天、确认、重试或角色管理写入口，也不会展示用户私聊。
+团队观测页展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。侧栏设置菜单进入独立设置页，可切换主题并保存全局模型策略；策略用于新团队初始角色和已有团队新增角色，不改写已有角色。独立 Panel Agent 页面提供用户私人会话、团队准备确认和主 Agent 接管；团队上下文、草稿与提交状态独立于页面生命周期，切换页面后可继续后台回合并恢复 loading。coordination Panel Agent 可通过 `panel_update_publish` 发布自然语言团队更新；更新会持久化，并在 coordination 回合结束后自动交给私人会话，私人忙碌时排队。团队观测页本身保持只读，也不展示用户私聊。
 
 事件视图来自实际观察到的宿主事件流。尤其 DSH headless 对部分字符串有自身截断，它**不等同于宿主原生完整历史查看器**。宿主历史仍以各宿主为准。
 
@@ -181,7 +192,7 @@ npm run test:web    # 前端适配器测试
 npm run dev         # Node API :62048 + Vite :5173
 ```
 
-开发脚本会设置 `AGENT_TEAM_DEV_NO_AUTH=1`，因此可以直接打开 `http://127.0.0.1:5173/`，不需要在每次重启后重新设置 Cookie。该开关只影响开发启动脚本；直接启动 `src/cli.mjs`、执行 `npm start` 或运行生产构建时仍要求启动链接鉴权。开发模式仍保留 Host、跨站、请求方法和 `127.0.0.1` 绑定检查；唯一允许的 POST 是团队模型策略保存。
+开发脚本会设置 `AGENT_TEAM_DEV_NO_AUTH=1`，因此可以直接打开 `http://127.0.0.1:5173/`，不需要在每次重启后重新设置 Cookie。该开关只影响开发启动脚本；直接启动 `src/cli.mjs`、执行 `npm start` 或运行生产构建时仍要求启动链接鉴权。开发模式仍保留 Host、跨站、请求方法和 `127.0.0.1` 绑定检查；唯一允许的通用设置 POST 是全局模型策略保存。
 
 `npm start` 会先运行生产构建。若直接用其他进程启动 `src/cli.mjs`，请先执行 `npm run build`。Vue Router 使用 History 模式；Node 会先完成鉴权和 API 路由，再对非 API、非静态资源的页面路径回退到 `web/dist/index.html`。
 

@@ -33,6 +33,16 @@ export function useSnapshotQuery() {
   });
 }
 
+export function usePanelAgentQuery() {
+  return useQuery({
+    queryKey: ['panel-agent'],
+    queryFn: ({ signal }) => api.panelAgent(signal),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+}
+
 export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   const query = useInfiniteQuery({
     queryKey: computed(() => ['messages', toValue(groupId)] as const),

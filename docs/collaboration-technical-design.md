@@ -14,7 +14,8 @@ flowchart TD
     C --> S[(SQLite)]
     B --> H[Host Adapter]
     H --> B
-    P[只读面板] --> S
+    P[团队观测页] --> S
+    P --> A[Panel Agent]
 ```
 
 | 模块 | 职责 |
@@ -25,7 +26,7 @@ flowchart TD
 | `src/tools.mjs` | 各角色和上下文可见的框架工具及参数校验 |
 | `src/hosts/*` | 把策略映射为宿主参数，报告模型目录、会话、接受、事件、模型和结束事实 |
 | `src/server.mjs` | Unix socket RPC、可信控制入口、查询 API、受限设置写入和静态面板 |
-| `web/` | Vue 观测面板、主题与团队模型策略设置 |
+| `web/` | Vue 观测面板、主题与全局模型策略设置 |
 
 框架不提供统一文件编辑器、工作流 DSL、通用网络沙箱或分布式协调层。
 
@@ -36,7 +37,7 @@ flowchart TD
 | 表 | 内容 |
 | --- | --- |
 | `preparations` | 建群准备、契约草案、revision、hash、准备会话模型选择、普通角色模型计划与最终群 |
-| `team_model_policy` | 团队级 `{mode,rules}` 模型策略 |
+| `global_model_policy` | 单例 `{mode,rules}` 模型策略，用于新团队初始角色和已有团队新增角色 |
 | `contract_versions` | 群、版本、契约正文、hash、用户确认来源 |
 | `team_state` | 整体 revision、目标版本、有效契约版本、当前目标执行阶段、目标结果和最终交付 |
 | `work_items` | 目标版本、工作项 revision、状态和已校验正文 |
@@ -104,6 +105,42 @@ flowchart TD
   "command": "{\"id\":\"...\",\"itemRevision\":2,\"state\":\"in_progress\",\"note\":\"...\"}",
   "revision": 7,
   "operationId": "op-20261021-001"
+}
+```
+
+Panel Agent 的 `command` 也接受结构化 JSON 对象。取消工作项必须提供嵌套依据，不能使用 `reason`、`basis` 或 `coveredBy` 等扁平字段：
+
+```json
+{
+  "command": {
+    "id": "...",
+    "itemRevision": 3,
+    "state": "cancelled",
+    "cancellation": {
+      "kind": "irrelevant",
+      "reason": "该工作项与团队目标无关"
+    }
+  },
+  "revision": 7,
+  "operationId": "op-20261021-002"
+}
+```
+
+正常收尾使用 `outcome=completed`、最终交付、理由和契约覆盖：
+
+```json
+{
+  "command": {
+    "outcome": "completed",
+    "final": "最终交付",
+    "note": "完成条件已核对",
+    "coverage": {
+      "c1": ["accepted-work-item-id"]
+    },
+    "dispositions": []
+  },
+  "revision": 8,
+  "operationId": "op-20261021-003"
 }
 ```
 
@@ -220,7 +257,7 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 
 ## 9. HTTP 查询、设置与面板
 
-服务只绑定 `127.0.0.1`，校验 Host、同源、请求方法和启动 Cookie。除 `POST /api/model-policy` 保存当前团队模型策略外，API 只接受 GET：
+服务只绑定 `127.0.0.1`，校验 Host、同源、请求方法和启动 Cookie。除 `POST /api/model-policy` 保存全局模型策略外，API 只接受 GET：
 
 - `/api/snapshot`
 - `/api/collaboration`

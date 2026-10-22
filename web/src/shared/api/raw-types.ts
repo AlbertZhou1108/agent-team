@@ -87,8 +87,7 @@ export interface ModelCatalogResponse {
   }>;
 }
 
-export interface TeamModelPolicy {
-  group_id: string;
+export interface ModelPolicy {
   mode: 'smart' | 'user';
   rules: string;
   created: string;
@@ -113,14 +112,116 @@ export interface SessionEndpoint {
   modelState: ModelState;
 }
 
+export interface PanelAgent {
+  id: string;
+  name: string;
+  host: string;
+  model_provider: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+  created: string;
+  updated: string;
+}
+
+export interface PanelTeamView extends Group {
+  relation: 'observer' | 'main';
+  controller: {
+    kind: 'member' | 'panel_agent';
+    id: string;
+    name: string;
+    assignment?: {
+      revision: number;
+      state: 'active' | 'suspended';
+      original_lead_id: string | null;
+    } | null;
+  };
+}
+
+export interface PanelMessage {
+  seq: number;
+  id: string;
+  panel_agent_id: string;
+  context: 'private' | 'coordination';
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  active_team_id: string | null;
+  created: string;
+}
+
+export interface PanelPreparation {
+  id: string;
+  spec: {
+    name: string;
+    workspace: string;
+    panelAgentId: string;
+    members: Array<{ name: string; host: string }>;
+    modelMode?: 'smart' | 'user';
+    modelRules?: string;
+  };
+  contract: {
+    goal: string;
+    scope: string;
+    boundary: string;
+    confirmation: string;
+    delivery: string;
+    policy: string;
+    allowShell: boolean;
+    criteria: Array<{ id: string; text: string }>;
+  } | null;
+  revision: number;
+  hash: string | null;
+  group_id: string | null;
+  created: string;
+  rolePlan: { roles: Array<{ name: string; model_provider: string | null; model: string; reasoning_effort: string }> } | null;
+}
+
+export interface PanelAgentState {
+  agent: PanelAgent | null;
+  sessions: Array<{
+    id: string;
+    context: 'private' | 'coordination';
+    group_id: string | null;
+    session: string | null;
+    updated: string;
+  }>;
+  teams: PanelTeamView[];
+  conversation: PanelMessage[];
+  running: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
+  preparations: PanelPreparation[];
+  actions: Array<{
+    id: string;
+    panel_agent_id: string;
+    group_id: string;
+    action: 'takeover' | 'handback';
+    base_revision: number;
+    state: 'pending' | 'confirmed' | 'dismissed' | 'failed';
+    detail: string | null;
+    created: string;
+    updated: string;
+  }>;
+  unknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
+}
+
 export interface Snapshot {
   groups: Group[];
   members: Member[];
+  panelAgent: PanelAgent | null;
+  panelTeams: PanelTeamView[];
+  actors: Array<{
+    id: string;
+    name: string;
+    host?: string;
+    model_provider?: string | null;
+    model?: string | null;
+    reasoning_effort?: string | null;
+  }>;
   endpoints: SessionEndpoint[];
   sessionBindings: SessionBinding[];
-  modelPolicies: TeamModelPolicy[];
+  modelPolicy: ModelPolicy;
   modelPolicyDefaults: ModelPolicyDefaults;
   runningEndpoints: string[];
+  panelRunning: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
+  panelUnknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
 }
 
 export interface SessionBinding {
@@ -171,9 +272,11 @@ export interface ModelsPage extends ModelState {
 }
 
 export interface MessageSource {
-  kind: 'group' | 'private' | 'system' | 'unknown';
+  kind: 'group' | 'panel' | 'private' | 'system' | 'unknown';
   turnId?: string;
-  endpointId?: string;
+  endpointId?: string | null;
+  panelAgentId?: string;
+  groupId?: string;
   eventSeq?: number;
   callId?: string;
   nativeCallId?: string | null;

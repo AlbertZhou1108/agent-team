@@ -29,6 +29,8 @@
     "@vueuse/core": "^15.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
     "pinia": "^4.1.0",
     "reka-ui": "^2.11.0",
     "tailwind-merge": "^3.7.0",

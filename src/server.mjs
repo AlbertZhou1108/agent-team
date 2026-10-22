@@ -15,6 +15,7 @@ export function socketFor(directory) {
   return Buffer.byteLength(candidate) < 100 ? candidate : `/tmp/agent-team-${process.getuid?.() ?? 'local'}-${createHash('sha256').update(resolve(directory)).digest('hex').slice(0, 20)}.sock`;
 }
 export async function loadHosts({ directory, socketPath, configFile }) {
+  socketPath ??= socketFor(directory);
   const factories = new Map([['codex', createCodexHost], ['claude', createClaudeHost], ['dsh', createDshHost]]);
   const specs = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : { codex: { adapter: 'codex' }, claude: { adapter: 'claude' }, dsh: { adapter: 'dsh' } };
   if (!specs || typeof specs !== 'object' || Array.isArray(specs)) throw new Error('宿主配置需要 hosts 对象');
@@ -88,7 +89,17 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
         if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
         const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
-        if (request.method !== 'GET' && !isPolicyMutation) return fail(403, 'Read-only local panel');
+        const isPanelMutation = request.method === 'POST' && (
+          url.pathname === '/api/panel-agent'
+          || url.pathname === '/api/panel-agent/update'
+          || url.pathname === '/api/panel-agent/messages'
+          || url.pathname === '/api/panel-agent/stop'
+          || url.pathname === '/api/panel-agent/resolve-runtime'
+          || /^\/api\/panel-actions\/[^/]+\/decide$/.test(url.pathname)
+          || /^\/api\/preparations\/[^/]+\/approve$/.test(url.pathname)
+          || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
+        );
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation) return fail(403, 'Panel endpoint is not writable');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -102,9 +113,39 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           if (isPolicyMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
-            value = bus.updateModelPolicy(body.group, { mode: body.mode, rules: body.rules });
+            value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });
+          } else if (isPanelMutation) {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (url.pathname === '/api/panel-agent') value = await bus.createPanelAgent(body);
+            else if (url.pathname === '/api/panel-agent/update') value = await bus.updatePanelAgent(body);
+            else if (url.pathname === '/api/panel-agent/messages') value = await bus.panelPrivateTurn(body.text, body.activeTeamId ?? null);
+            else if (url.pathname === '/api/panel-agent/stop') value = await bus.stopPanel();
+            else if (url.pathname === '/api/panel-agent/resolve-runtime') value = bus.resolvePanelRuntime(body.turnId, body.reason);
+            else {
+              const preparationMatch = url.pathname.match(/^\/api\/preparations\/([^/]+)\/approve$/);
+              const teamMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/(takeover|handback)$/);
+              const actionMatch = url.pathname.match(/^\/api\/panel-actions\/([^/]+)\/decide$/);
+              if (preparationMatch) {
+                value = bus.confirmPreparation(
+                  decodeURIComponent(preparationMatch[1]),
+                  body.revision,
+                  body.hash,
+                );
+              } else if (teamMatch) {
+                const groupId = decodeURIComponent(teamMatch[1]);
+                value = teamMatch[2] === 'takeover'
+                  ? bus.takeoverTeam(groupId, body.revision)
+                  : bus.handbackTeam(groupId, body.revision);
+              } else if (actionMatch) {
+                value = bus.decidePanelControllerAction(decodeURIComponent(actionMatch[1]), body.approved === true);
+              } else return fail(404, 'Not found');
+            }
           } else if (url.pathname === '/api/snapshot') value = bus.snapshot();
-          else if (url.pathname === '/api/model-policy') value = bus.modelPolicy(url.searchParams.get('group'));
+          else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState();
+          else if (url.pathname === '/api/panel-agent/conversation') value = bus.panelConversation(cursor(url));
+          else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
+          else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
           else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
           else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
           else if (url.pathname === '/api/messages') {
@@ -121,8 +162,11 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             if (!value) return fail(404, '不存在可观测的群会话');
           } else if (url.pathname === '/api/history') {
             const endpoint = bus.store.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", url.searchParams.get('endpoint'));
-            if (!endpoint) return fail(404, '不存在可观测的群会话');
-            value = bus.store.all('SELECT * FROM history WHERE endpoint_id=? AND seq>? ORDER BY seq LIMIT 200', endpoint.id, cursor(url));
+            const panelSession = endpoint ? null : bus.store.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", url.searchParams.get('endpoint'));
+            if (!endpoint && !panelSession) return fail(404, '不存在可观测的群会话');
+            value = endpoint
+              ? bus.store.all('SELECT * FROM history WHERE endpoint_id=? AND seq>? ORDER BY seq LIMIT 200', endpoint.id, cursor(url))
+              : bus.store.all('SELECT * FROM panel_history WHERE session_id=? AND seq>? ORDER BY seq LIMIT 200', panelSession.id, cursor(url));
           } else return fail(404, 'Not found');
           response.writeHead(200, { 'Content-Type': 'application/json' }); return response.end(JSON.stringify(value));
         }

@@ -15,8 +15,11 @@ const buttonVariants = cva(
       },
       size: {
         default: 'h-9 px-4 py-2',
+        xs: 'h-7 rounded-md px-2 text-xs',
         sm: 'h-8 rounded-md px-3 text-xs',
         icon: 'size-9 p-0',
+        'icon-sm': 'size-8 p-0',
+        'icon-xs': 'size-6 p-0',
       },
     },
     defaultVariants: {
@@ -26,7 +29,7 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonVariants = VariantProps<typeof buttonVariants>;
+export type ButtonVariants = VariantProps<typeof buttonVariants>;
 const props = withDefaults(defineProps<{
   variant?: ButtonVariants['variant'];
   size?: ButtonVariants['size'];

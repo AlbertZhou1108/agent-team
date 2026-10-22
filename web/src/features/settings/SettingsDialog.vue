@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
+  ArrowLeft,
   Monitor,
   Moon,
   Settings2,
@@ -9,9 +10,8 @@ import {
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type {
-  Group,
+  ModelPolicy,
   ModelPolicyDefaults,
-  TeamModelPolicy,
 } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -23,18 +23,18 @@ import {
 
 const props = defineProps<{
   open: boolean;
-  group?: Group;
-  policy?: TeamModelPolicy;
+  embedded?: boolean;
+  policy?: ModelPolicy;
   defaults?: ModelPolicyDefaults;
 }>();
 
 const emit = defineEmits<{
   close: [];
-  saved: [policy: TeamModelPolicy];
+  saved: [policy: ModelPolicy];
 }>();
 
 const preferences = usePreferencesStore();
-const mode = ref<TeamModelPolicy['mode']>('user');
+const mode = ref<ModelPolicy['mode']>('user');
 const rules = ref('');
 const saving = ref(false);
 const error = ref('');
@@ -62,7 +62,7 @@ const hasPolicyChanges = computed(() => (
   || rules.value.trim() !== originalRules.value.trim()
 ));
 const canSave = computed(() => Boolean(
-  props.group && rules.value.trim() && hasPolicyChanges.value && !saving.value,
+  rules.value.trim() && hasPolicyChanges.value && !saving.value,
 ));
 const activeColorTheme = computed(() => (
   colorThemes.find(item => item.value === preferences.colorTheme) ?? colorThemes[0]
@@ -91,7 +91,7 @@ function reset() {
   error.value = '';
 }
 
-function selectMode(next: TeamModelPolicy['mode']) {
+function selectMode(next: ModelPolicy['mode']) {
   if (mode.value === next) return;
   mode.value = next;
   rules.value = next === 'smart'
@@ -120,11 +120,11 @@ function useRule(value?: string) {
 }
 
 async function save() {
-  if (!props.group || !canSave.value) return;
+  if (!canSave.value) return;
   saving.value = true;
   error.value = '';
   try {
-    const policy = await api.updateModelPolicy(props.group.id, mode.value, rules.value);
+    const policy = await api.updateModelPolicy(mode.value, rules.value);
     emit('saved', policy);
     emit('close');
   } catch (cause) {
@@ -135,13 +135,13 @@ async function save() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && props.open) emit('close');
+  if (event.key === 'Escape' && props.open && !props.embedded) emit('close');
 }
 
 watch(
-  () => [props.open, props.policy?.mode, props.policy?.rules, props.defaults],
+  () => [props.open, props.embedded, props.policy?.mode, props.policy?.rules, props.defaults],
   () => {
-    if (props.open) reset();
+    if (props.open || props.embedded) reset();
   },
   { immediate: true },
 );
@@ -151,20 +151,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="embedded">
     <div
-      v-if="open"
-      class="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm"
-      role="presentation"
-      @click.self="emit('close')"
+      v-if="open || embedded"
+      :class="embedded
+        ? 'settings-page'
+        : 'fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm'"
+      :role="embedded ? undefined : 'presentation'"
+      @click.self="!embedded && emit('close')"
     >
       <section
-        role="dialog"
-        aria-modal="true"
+        :role="embedded ? undefined : 'dialog'"
+        :aria-modal="embedded ? undefined : 'true'"
         aria-labelledby="settings-title"
-        class="panel flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden shadow-2xl"
+        :class="embedded
+          ? 'settings-page-panel panel'
+          : 'panel flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden shadow-2xl'"
       >
         <header class="flex shrink-0 items-center gap-3 border-b border-[var(--border)] px-5 py-4">
+          <Button
+            v-if="embedded"
+            variant="ghost"
+            size="icon"
+            title="返回"
+            aria-label="返回"
+            @click="emit('close')"
+          >
+            <ArrowLeft :size="16" />
+          </Button>
           <span class="grid size-9 place-items-center rounded-xl border border-[var(--primary-border)] bg-[var(--primary-muted)] text-[var(--primary)]">
             <Settings2 :size="17" />
           </span>
@@ -172,7 +186,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             <p class="eyebrow">SETTINGS</p>
             <h2 id="settings-title" class="mt-0.5 text-base font-semibold">设置</h2>
           </div>
-          <Button variant="ghost" size="icon" title="关闭设置" @click="emit('close')">
+          <Button
+            v-if="!embedded"
+            variant="ghost"
+            size="icon"
+            title="关闭设置"
+            aria-label="关闭设置"
+            @click="emit('close')"
+          >
             <X :size="16" />
           </Button>
         </header>
@@ -241,7 +262,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
               <div class="min-w-0">
                 <h3 class="text-sm font-semibold">模型策略</h3>
                 <p class="mt-1 text-xs leading-5 text-muted">
-                  仅影响当前团队之后新建的角色；已有角色模型不会被改写。
+                  全局策略在创建新团队和已有团队新增角色时读取；已有角色模型不会被改写。
                 </p>
               </div>
               <Button v-if="hasPolicyChanges" size="sm" class="shrink-0" :disabled="!canSave" @click="save">
@@ -249,78 +270,68 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
               </Button>
             </div>
 
-            <p v-if="!group" class="rounded-lg border border-dashed border-[var(--border)] p-4 text-xs text-muted">
-              请先选择一个团队。
-            </p>
+            <ToggleGroup
+              type="single"
+              :model-value="mode"
+              :spacing="2"
+              class="grid w-full grid-cols-2 gap-2"
+              @update:model-value="selectPolicyMode"
+            >
+              <ToggleGroupItem
+                value="smart"
+                variant="outline"
+                :data-selected="mode === 'smart'"
+                class="h-auto min-w-0 justify-start rounded-xl px-3 py-2.5"
+              >
+                <span class="flex-1 text-left font-medium">智能策略</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="user"
+                variant="outline"
+                :data-selected="mode === 'user'"
+                class="h-auto min-w-0 justify-start rounded-xl px-3 py-2.5"
+              >
+                <span class="flex-1 text-left font-medium">用户配置</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
 
-            <template v-else>
-              <div class="flex items-center gap-2 rounded-lg bg-[var(--surface-raised)] px-3 py-2">
-                <span class="text-[10px] text-muted">当前团队</span>
-                <span class="min-w-0 truncate text-xs font-medium">{{ group.name }}</span>
-              </div>
+            <div v-if="mode === 'smart'" class="space-y-2">
               <ToggleGroup
                 type="single"
-                :model-value="mode"
+                :model-value="activeSmartPreset ?? ''"
                 :spacing="2"
-                class="grid w-full grid-cols-2 gap-2"
-                @update:model-value="selectPolicyMode"
+                class="flex w-full flex-wrap gap-2"
+                @update:model-value="value => useRule(smartPresets.find(item => item.value === value)?.rules)"
               >
                 <ToggleGroupItem
-                  value="smart"
+                  v-for="preset in smartPresets"
+                  :key="preset.value"
+                  :value="preset.value"
+                  :data-selected="activeSmartPreset === preset.value"
                   variant="outline"
-                  :data-selected="mode === 'smart'"
-                  class="h-auto min-w-0 justify-start rounded-xl px-3 py-2.5"
+                  class="w-auto h-auto rounded-lg px-2.5 py-1.5 text-[11px]"
                 >
-                  <span class="flex-1 text-left font-medium">智能策略</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="user"
-                  variant="outline"
-                  :data-selected="mode === 'user'"
-                  class="h-auto min-w-0 justify-start rounded-xl px-3 py-2.5"
-                >
-                  <span class="flex-1 text-left font-medium">用户配置</span>
+                  {{ preset.label }}
                 </ToggleGroupItem>
               </ToggleGroup>
+              <p v-if="!activeSmartPreset" class="px-1 text-[10px] text-muted">
+                当前为自定义智能规则
+              </p>
+            </div>
 
-              <div v-if="mode === 'smart'" class="space-y-2">
-                <ToggleGroup
-                  type="single"
-                  :model-value="activeSmartPreset ?? ''"
-                  :spacing="2"
-                  class="flex w-full flex-wrap gap-2"
-                  @update:model-value="value => useRule(smartPresets.find(item => item.value === value)?.rules)"
-                >
-                  <ToggleGroupItem
-                    v-for="preset in smartPresets"
-                    :key="preset.value"
-                    :value="preset.value"
-                    :data-selected="activeSmartPreset === preset.value"
-                    variant="outline"
-                    class="w-auto h-auto rounded-lg px-2.5 py-1.5 text-[11px]"
-                  >
-                    {{ preset.label }}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-                <p v-if="!activeSmartPreset" class="px-1 text-[10px] text-muted">
-                  当前为自定义智能规则
-                </p>
-              </div>
-
-              <details class="rounded-xl border border-[var(--border)] bg-[var(--surface-raised)]">
-                <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-3 text-xs">
-                  <span class="flex-1 font-medium">自然语言规则</span>
-                  <span class="font-mono text-[10px] text-dim">{{ rules.trim().length }} 字</span>
-                  <span class="text-[10px] text-muted">展开编辑</span>
-                </summary>
-                <textarea
-                  v-model="rules"
-                  class="block h-64 max-h-[42vh] w-full resize-none overflow-y-scroll overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] p-3 text-xs leading-6 text-[var(--foreground)] outline-none focus:ring-1 focus:ring-inset focus:ring-[var(--ring)]"
-                  spellcheck="false"
-                  @wheel.stop
-                />
-              </details>
-            </template>
+            <details class="rounded-xl border border-[var(--border)] bg-[var(--surface-raised)]">
+              <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-3 text-xs">
+                <span class="flex-1 font-medium">自然语言规则</span>
+                <span class="font-mono text-[10px] text-dim">{{ rules.trim().length }} 字</span>
+                <span class="text-[10px] text-muted">展开编辑</span>
+              </summary>
+              <textarea
+                v-model="rules"
+                class="block h-64 max-h-[42vh] w-full resize-none overflow-y-scroll overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] p-3 text-xs leading-6 text-[var(--foreground)] outline-none focus:ring-1 focus:ring-inset focus:ring-[var(--ring)]"
+                spellcheck="false"
+                @wheel.stop
+              />
+            </details>
           </section>
 
           <p v-if="error" class="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 p-3 text-xs text-[var(--danger)]" role="alert">

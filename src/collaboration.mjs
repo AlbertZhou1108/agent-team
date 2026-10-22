@@ -45,6 +45,7 @@ export class Collaboration {
     this.policyValidator = () => ({ supported: true });
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS preparations(id TEXT PRIMARY KEY,spec TEXT NOT NULL,contract TEXT,revision INTEGER NOT NULL DEFAULT 0,hash TEXT,session TEXT,key TEXT NOT NULL,group_id TEXT,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS global_model_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS team_model_policy(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS contract_versions(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,version INTEGER NOT NULL,body TEXT NOT NULL,hash TEXT NOT NULL,approval TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(group_id,version));
       CREATE TABLE IF NOT EXISTS team_state(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,revision INTEGER NOT NULL DEFAULT 1,goal_version INTEGER NOT NULL DEFAULT 1,contract_version INTEGER NOT NULL DEFAULT 1,phase TEXT NOT NULL DEFAULT 'active',outcome TEXT,final TEXT,finish_reason TEXT);
@@ -76,8 +77,15 @@ export class Collaboration {
     ensureColumn('preparations', 'role_plan', 'TEXT');
     ensureColumn('members', 'joined_goal_version', 'INTEGER NOT NULL DEFAULT 1');
     ensureColumn('members', 'removed_goal_version', 'INTEGER');
-    for (const group of store.all('SELECT id FROM groups')) {
-      store.run('INSERT OR IGNORE INTO team_model_policy VALUES(?,?,?,?,?)', group.id, 'user', DEFAULT_USER_MODEL_RULES, now(), now());
+    if (!store.get('SELECT 1 FROM global_model_policy WHERE singleton=1')) {
+      const legacy = store.get('SELECT mode,rules,created,updated FROM team_model_policy ORDER BY updated DESC LIMIT 1');
+      store.run(
+        'INSERT INTO global_model_policy VALUES(1,?,?,?,?)',
+        legacy?.mode ?? 'user',
+        legacy?.rules ?? DEFAULT_USER_MODEL_RULES,
+        legacy?.created ?? now(),
+        legacy?.updated ?? now(),
+      );
     }
     for (const member of store.all('SELECT id,group_id,name FROM members ORDER BY rowid')) {
       const key = roleNameKey(member.name);
@@ -147,14 +155,6 @@ export class Collaboration {
       const group = create(p.spec);
       this.store.run('INSERT INTO contract_versions VALUES(?,?,?,?,?,?)', group.id, 1, json(p.contract), hash, json({ preparationId: id, revision, source: 'local-user' }), now());
       this.store.run('INSERT INTO team_state(group_id) VALUES(?)', group.id);
-      this.store.run(
-        'INSERT OR IGNORE INTO team_model_policy VALUES(?,?,?,?,?)',
-        group.id,
-        p.spec.modelMode ?? 'user',
-        p.spec.modelRules ?? DEFAULT_USER_MODEL_RULES,
-        now(),
-        now(),
-      );
       this.store.run('UPDATE preparations SET group_id=? WHERE id=?', group.id, id);
       return group;
     });
@@ -323,19 +323,24 @@ export class Collaboration {
       seen.add(m.id);
     }
     if (!Array.isArray(body.evidence) || !Array.isArray(body.reviews)) throw new Error('证据和审查须为数组');
-    const message = mid => {
+    const message = (mid, label = '引用消息') => {
       const m = this.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', mid, groupId);
-      if (!m || m.kind !== 'send') throw new Error('引用消息不属于本群正式汇报');
+      if (!m || m.kind !== 'send') throw new Error(`${label}不是当前团队的正式消息`);
       const context = this.store.get('SELECT contract_version FROM message_context WHERE message_id=?', mid);
       if (context?.contract_version !== this.contract(groupId).version) throw new Error('消息不属于当前目标契约版本');
       return m;
     };
     for (const mid of body.evidence) {
-      const m = message(mid);
+      if (typeof mid !== 'string' || !mid.trim()) throw new Error('成果证据必须是当前团队的正式消息ID');
+      const m = message(mid, '成果证据');
       if (!body.participants.some(p => p.memberId === m.sender && p.role !== 'reviewer')) throw new Error('贡献证据必须来自执行者或协作者');
     }
     for (const review of body.reviews) {
-      const m = message(review.messageId);
+      if (!review || typeof review !== 'object' || Array.isArray(review) || typeof review.messageId !== 'string' || !review.messageId.trim()) {
+        throw new Error('审查引用必须包含 messageId 和 artifact');
+      }
+      text(review.artifact, '审查成果版本');
+      const m = message(review.messageId, '审查引用');
       if (!body.participants.some(p => p.memberId === m.sender && p.role === 'reviewer')) throw new Error('审查意见必须来自独立审查者');
       if (!body.artifact || review.artifact !== body.artifact) throw new Error('审查与成果版本不一致');
     }
@@ -405,6 +410,9 @@ export class Collaboration {
     if (!Array.isArray(dispositions)) throw new Error('dispositions必须是数组');
     const supplied = new Set();
     for (const d of dispositions) {
+      if (!d || typeof d !== 'object' || Array.isArray(d) || typeof d.messageId !== 'string' || !d.messageId.trim()) {
+        throw new Error('dispositions每项必须包含 messageId 和 reason');
+      }
       const m = this.store.get('SELECT id FROM messages WHERE id=? AND group_id=? AND kind=\'send\'', d?.messageId, groupId);
       if (!m) throw new Error('收尾消息不存在');
       if (supplied.has(m.id)) throw new Error(`消息${m.id}重复给出处理理由`);
@@ -424,7 +432,14 @@ export class Collaboration {
   pending(groupId) {
     return this.store.all(`SELECT m.id,m.seq,m.sender,m.recipient,m.text FROM messages m WHERE m.group_id=? AND m.kind='send'
       AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
-      AND (NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) OR EXISTS(SELECT 1 FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=m.id AND o.accepted IS NULL)) ORDER BY m.seq`, groupId);
+      AND (
+        NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
+        OR EXISTS(SELECT 1 FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=m.id AND o.accepted IS NULL)
+      )
+      AND (
+        NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id)
+        OR EXISTS(SELECT 1 FROM panel_attached p JOIN panel_outbox o ON o.id=p.outbox_id WHERE p.message_id=m.id AND o.accepted IS NULL)
+      ) ORDER BY m.seq`, groupId);
   }
   reconcile(groupId, running) {
     const s = this.state(groupId);

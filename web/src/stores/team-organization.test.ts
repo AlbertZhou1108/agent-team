@@ -37,6 +37,30 @@ describe('team organization', () => {
     expect(store.teams.a.folder).toBeUndefined();
     expect(store.teams.b.folder).toBe(folder);
   });
+  it('keeps home pinning independent from sidebar pinning', () => {
+    const store = useTeamOrganization();
+
+    store.togglePin('sidebar-only');
+    store.toggleHomePin('home-only');
+
+    expect(store.teams['sidebar-only']?.pinned).toBe(true);
+    expect(store.homePinned).toEqual(['home-only']);
+
+    store.toggleHomePin('home-only');
+    expect(store.teams['sidebar-only']?.pinned).toBe(true);
+    expect(store.homePinned).toEqual([]);
+  });
+  it('reorders home cards without moving pinned teams or changing sidebar metadata', () => {
+    const store = useTeamOrganization();
+    store.toggleHomePin('b');
+    store.reorderHomeTeams(['a'], 'b', false, ['a', 'b', 'c']);
+    store.reorderHomeTeams(['c', 'b'], 'a', true, ['a', 'b', 'c']);
+
+    expect(store.homeOrder).toEqual(['a', 'c', 'b']);
+    expect(store.homePinned).toEqual(['b']);
+    expect(store.order).toEqual([]);
+    expect(store.teams).toEqual({});
+  });
 });
 
 it('reorders folders and teams while preserving selected block order and membership', () => {

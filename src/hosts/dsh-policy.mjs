@@ -6,7 +6,8 @@ export function apply(ctx, config) {
     agent.session.append('approval/policy', { policy: 'never' });
     const files = config.mode === 'communication' ? [] : ['read', 'read_image', 'glob', 'grep', ...(config.mode === 'workspace-write' ? ['write', 'edit'] : []), ...(config.allowShell ? ['bash'] : [])];
     const available = [...config.tools, ...files].filter(name => agent.ctx.tools.get(name) !== undefined);
-    if (!config.tools.every(name => available.includes(name))) throw new Error('团队沟通工具尚未加载，拒绝启动任务');
+    const missing = config.tools.filter(name => !available.includes(name));
+    if (missing.length) throw new Error(`团队沟通工具尚未加载，拒绝启动任务：${missing.join(', ')}`);
     agent.ctx.tools.restrict({ allow: available });
   });
 }

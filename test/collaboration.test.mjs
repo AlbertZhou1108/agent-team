@@ -67,6 +67,8 @@ test('work items preserve multi-member responsibility, independent reviews, revi
   item = first.item;
   const evidence = report(members[1], '成果v1');
   assert.throws(() => update(item, { state: 'pending_decision', artifact: 'v1', evidence: [evidence.id] }), /审查尚未/);
+  assert.throws(() => update(item, { evidence: ['not-a-message'], artifact: 'v1' }), /证据.*消息/);
+  assert.throws(() => update(item, { reviews: ['not-a-message'], artifact: 'v1' }), /审查引用.*messageId.*artifact/);
   assert.throws(() => update(item, { reviews: [{ messageId: evidence.id, artifact: 'v1' }], artifact: 'v1' }), /独立审查/);
   const review = report(members[2], 'v1通过，意见保留在原消息');
   assert.throws(() => update(item, { reviews: [{ messageId: review.id, artifact: 'v0' }], artifact: 'v1' }), /版本不一致/);

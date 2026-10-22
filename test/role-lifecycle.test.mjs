@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
+import { modelCatalog } from '../src/hosts/catalog.mjs';
 import { confirmedGroup } from './helpers.mjs';
 
 async function until(predicate) {
@@ -16,10 +17,27 @@ async function until(predicate) {
 
 test('roles are permanent identities: names stay reserved and new roles get new sessions', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-role-lifecycle-'));
+  const catalog = modelCatalog({
+    host: 'fake',
+    source: 'test',
+    defaultModel: 'role-model',
+    models: [
+      { id: 'role-model', reasoningEfforts: [{ id: 'low' }], defaultReasoningEffort: 'low', isDefault: true },
+      { id: 'added-model', reasoningEfforts: [{ id: 'high' }], defaultReasoningEffort: 'high' },
+    ],
+  });
   const bus = new Bus({
     directory,
     hosts: new Map([['fake', {
+      async listModels() { return catalog; },
       async run(context) {
+        if (context.endpoint.context === 'member-plan') {
+          return JSON.stringify({
+            model_provider: null,
+            model: 'added-model',
+            reasoning_effort: 'high',
+          });
+        }
         if (context.endpoint.context === 'profile') await context.onTool('profile_set', { text: 'role' });
         context.onSession(context.endpoint.session ?? `${context.endpoint.id}-session`);
         context.onAccepted();
@@ -67,6 +85,8 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   const replacement = await bus.addMember(group.id, { name: 'Worker Two', host: 'fake' });
   assert.notEqual(replacement.id, worker.id);
   assert.equal(replacement.joined_goal_version, 1);
+  assert.equal(replacement.model, 'added-model');
+  assert.equal(replacement.reasoning_effort, 'high');
   await until(() => bus.running.size === 0);
   const replacementEndpoint = bus.store.endpoint(replacement.id, `pair:${group.lead}`, group.lead);
   await bus.runEndpoint(replacementEndpoint, 'establish replacement role session');

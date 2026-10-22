@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 defineProps<{
   members: Member[];
   runningMemberIds: Set<string>;
+  pausedMemberIds?: Set<string>;
 }>();
 </script>
 
@@ -20,7 +21,10 @@ defineProps<{
             <h3 class="truncate text-sm font-medium">{{ member.name }}</h3>
             <Crown v-if="member.role === 'lead'" :size="12" class="shrink-0 text-[var(--warning)]" />
           </div>
-          <Badge v-if="runningMemberIds.has(member.id)" variant="accent">
+          <Badge v-if="pausedMemberIds?.has(member.id)" variant="warning">
+            原主 Agent · 暂停
+          </Badge>
+          <Badge v-else-if="runningMemberIds.has(member.id)" variant="accent">
             <Radio :size="10" class="animate-pulse" />
             运行中
           </Badge>

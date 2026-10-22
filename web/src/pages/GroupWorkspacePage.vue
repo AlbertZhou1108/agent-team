@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   computed,
+  onBeforeUnmount,
+  onMounted,
   ref,
   watch,
   watchEffect,
@@ -19,6 +21,8 @@ import {
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
+import TeamHome from '@/features/groups/TeamHome.vue';
+import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import MessageFeed from '@/features/messages/MessageFeed.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
@@ -30,22 +34,30 @@ import {
   useHistoryQuery,
   useMessagesQuery,
   useModelsQuery,
+  usePanelAgentQuery,
   useSnapshotQuery,
 } from '@/features/queries';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
+import {
+  countUnreadPanelMessages,
+  usePanelAgentStore,
+} from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
 const connection = useConnectionStore();
+const panelAgentState = usePanelAgentStore();
 const snapshotQuery = useSnapshotQuery();
+const panelAgentQuery = usePanelAgentQuery();
 
 const snapshot = computed(() => snapshotQuery.data.value);
 const groups = computed(() => snapshot.value?.groups ?? []);
 const members = computed(() => snapshot.value?.members ?? []);
+const actors = computed(() => snapshot.value?.actors ?? []);
 const endpoints = computed(() => snapshot.value?.endpoints ?? []);
 const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
 const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
@@ -56,7 +68,80 @@ function routeString(value: unknown) {
 }
 
 const groupId = computed(() => routeString(route.params.groupId));
+const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
+const isSettingsRoute = computed(() => route.name === 'settings');
 const group = computed(() => groups.value.find(item => item.id === groupId.value));
+const pageVisible = ref(
+  typeof document !== 'undefined'
+  && document.visibilityState === 'visible'
+  && document.hasFocus(),
+);
+const panelMessages = computed(
+  () => panelAgentQuery.data.value?.conversation ?? [],
+);
+const latestPanelSeq = computed(
+  () => panelMessages.value.at(-1)?.seq ?? 0,
+);
+const agentUnreadCount = computed(() => (
+  isPanelAgentRoute.value && pageVisible.value
+    ? 0
+    : countUnreadPanelMessages(
+        panelMessages.value,
+        panelAgentState.lastReadSeq,
+      )
+));
+
+function updatePageVisibility() {
+  pageVisible.value = (
+    document.visibilityState === 'visible'
+    && document.hasFocus()
+  );
+}
+
+watch(
+  [latestPanelSeq, isPanelAgentRoute, pageVisible],
+  ([seq, onAgent, visible]) => {
+    if (!seq) return;
+    if (panelAgentState.lastReadSeq == null || (onAgent && visible)) {
+      panelAgentState.markPanelRead(seq);
+    }
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  window.addEventListener('focus', updatePageVisibility);
+  window.addEventListener('blur', updatePageVisibility);
+  document.addEventListener('visibilitychange', updatePageVisibility);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', updatePageVisibility);
+  window.removeEventListener('blur', updatePageVisibility);
+  document.removeEventListener('visibilitychange', updatePageVisibility);
+});
+
+const currentControllerId = computed(() => (
+  snapshot.value?.panelTeams.find(team => team.id === groupId.value)?.controller.id
+  ?? group.value?.lead
+  ?? undefined
+));
+const currentController = computed(() => (
+  snapshot.value?.panelTeams.find(team => team.id === groupId.value)?.controller
+  ?? (() => {
+    const lead = members.value.find(member => member.id === group.value?.lead);
+    return lead ? { id: lead.id, name: lead.name, kind: 'member' as const } : null;
+  })()
+));
+const sidebarGroupId = computed(() => (
+  isPanelAgentRoute.value ? routeString(route.query.team) || undefined : group.value?.id
+));
+const pausedMemberIds = computed(() => new Set(
+  currentController.value?.kind === 'panel_agent'
+    ? [snapshot.value?.panelTeams.find(team => team.id === groupId.value)?.controller.assignment?.original_lead_id]
+      .filter((id): id is string => Boolean(id))
+    : [],
+));
 const currentMembers = computed(() => members.value.filter(member => member.group_id === groupId.value && !member.removed));
 const currentEndpoints = computed(() => endpoints.value.filter(endpoint => endpoint.group_id === groupId.value && endpoint.context !== 'profile'));
 const currentSessionBindings = computed(() => {
@@ -68,7 +153,7 @@ const currentRunningEndpoints = computed(() => {
   return runningEndpoints.value.filter(id => ids.has(id));
 });
 const currentModelPolicy = computed(() => (
-  snapshot.value?.modelPolicies.find(policy => policy.group_id === groupId.value)
+  snapshot.value?.modelPolicy
 ));
 
 const selectedSessionId = computed(() => routeString(route.query.session));
@@ -109,12 +194,15 @@ const messageViews = computed(() => {
   const rows = endpoint && !endpoint.peer
     ? messagesQuery.rows.value.filter(row => row.sender === endpoint.member_id || row.recipient === endpoint.member_id)
     : messagesQuery.rows.value;
-  return toMessageViews(rows, members.value);
+  return toMessageViews(rows, members.value, actors.value, currentControllerId.value);
 });
 const endpointHosts = computed(() => Object.fromEntries(
   currentEndpoints.value.map(endpoint => {
     const member = members.value.find(item => item.id === endpoint.member_id);
-    return [endpoint.id, member?.host ?? 'unknown'];
+    const panelHost = endpoint.member_id === snapshot.value?.panelAgent?.id
+      ? snapshot.value?.panelAgent?.host
+      : undefined;
+    return [endpoint.id, member?.host ?? panelHost ?? 'unknown'];
   }),
 ) as Record<string, 'codex' | 'claude' | 'dsh' | 'unknown'>);
 
@@ -156,11 +244,9 @@ watchEffect(() => {
 watch(
   [groups, groupId],
   ([items, id]) => {
-    if (!items.length || (id && items.some(item => item.id === id))) return;
+    if (!id || (items.length && items.some(item => item.id === id))) return;
     router.replace({
       name: 'group',
-      params: { groupId: items[0].id },
-      query: route.query,
     });
   },
   { immediate: true },
@@ -188,12 +274,42 @@ function replaceQuery(changes: Record<string, string | undefined>) {
 
 function selectGroup(id: string) {
   ui.closeInspector();
+  if (!id) {
+    router.push({ name: 'group' });
+    return;
+  }
   router.push({ name: 'group', params: { groupId: id } });
+}
+
+function openPanelAgent() {
+  if (isPanelAgentRoute.value) return;
+  ui.closeInspector();
+  router.push({ name: 'panel-agent' });
+}
+
+function openSettingsPage() {
+  router.push({
+    name: 'settings',
+    query: { returnTo: route.fullPath },
+  });
+}
+
+function closeSettingsPage() {
+  const returnTo = routeString(route.query.returnTo);
+  if (returnTo.startsWith('/') && !returnTo.startsWith('//')) router.push(returnTo);
+  else router.push({ name: 'group' });
 }
 
 function selectSession(id: string) {
   ui.openInspector();
   replaceQuery({ session: id || undefined, pair: undefined, tab: 'trace', panel: 'sessions' });
+}
+
+function openPanelAgentForTeam() {
+  router.push({
+    name: 'panel-agent',
+    query: { team: groupId.value },
+  });
 }
 
 watch([currentEndpoints, selectedSessionId], () => {
@@ -208,7 +324,7 @@ function closeContextPanel() {
 
 async function modelPolicySaved() {
   await snapshotQuery.refetch();
-  toast.success('模型策略已保存', { description: '仅影响之后创建的角色' });
+  toast.success('全局模型策略已保存', { description: '将用于新团队初始角色和已有团队新增角色' });
 }
 
 function setTab(tab: InspectorTab) {
@@ -274,9 +390,14 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
   >
     <GroupSidebar
       :groups="groups"
-      :current-group-id="group?.id"
+      :current-group-id="sidebarGroupId"
+      :home-active="!isPanelAgentRoute && !isSettingsRoute && !group"
+      :agent-active="isPanelAgentRoute"
+      :agent-unread-count="agentUnreadCount"
+      :settings-active="isSettingsRoute"
       @select="selectGroup"
-      @open-settings="ui.openSettings()"
+      @open-agent="openPanelAgent"
+      @open-settings="openSettingsPage"
     />
 
     <div v-if="!ui.sidebarCollapsed" class="sidebar-resize-handle left-resize-handle"
@@ -286,22 +407,45 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       @pointercancel="endResize" @lostpointercapture="endResize" @keydown="keyboardResize($event, 'left')"
     />
     <main class="min-w-0 p-3 sm:p-4">
-      <div class="workspace-shell" :class="{ 'context-is-collapsed': ui.contextCollapsed }">
+      <SettingsDialog
+        v-if="isSettingsRoute"
+        :open="true"
+        embedded
+        :policy="currentModelPolicy"
+        :defaults="modelPolicyDefaults"
+        @close="closeSettingsPage"
+        @saved="modelPolicySaved"
+      />
+      <TeamHome
+        v-else-if="!group && !isPanelAgentRoute"
+        :groups="groups"
+        :members="members"
+        :endpoints="endpoints"
+        :running-endpoints="runningEndpoints"
+        :loading="snapshotQuery.isPending.value"
+        :error="snapshotQuery.error.value?.message"
+        @select="selectGroup"
+        @retry="snapshotQuery.refetch()"
+      />
+      <PanelAgentPanel v-else-if="!group" />
+      <div v-else class="workspace-shell" :class="{ 'context-is-collapsed': ui.contextCollapsed }">
         <section class="chat-window panel">
           <header class="chat-header">
-            <span class="chat-avatar">◈</span>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <h1 class="truncate text-base font-semibold">
                   {{ group?.name ?? '选择或创建一个群' }}
                 </h1>
+                <Badge v-if="currentController">
+                  {{ currentController.kind === 'panel_agent' ? 'Panel Agent 主控' : `${currentController.name} · 主 Agent` }}
+                </Badge>
                 <Badge>{{ currentMembers.length }} 名成员</Badge>
                 <Badge v-if="currentRunningEndpoints.length" variant="accent">
                   {{ currentRunningEndpoints.length }} 个运行中
                 </Badge>
               </div>
               <p class="mt-1 truncate font-mono text-[10px] text-dim">
-                {{ group?.workspace ?? '用户与主 Agent 在 CLI 聊天，面板只读展示群内记录。' }}
+                {{ group?.workspace ?? '团队观测页只读展示共享记录；私人交互由 Panel Agent 提供。' }}
               </p>
             </div>
             <Button
@@ -312,6 +456,15 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
             >
               <PanelRightOpen :size="14" />
               群信息
+            </Button>
+            <Button
+              v-if="currentController?.kind === 'panel_agent'"
+              variant="outline"
+              size="sm"
+              @click="openPanelAgentForTeam"
+            >
+              <Bot :size="14" />
+              Panel Agent
             </Button>
 
           </header>
@@ -403,12 +556,14 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               v-else-if="contextPanel === 'members'"
               :members="currentMembers"
               :running-member-ids="runningMemberIds"
+              :paused-member-ids="pausedMemberIds"
             />
             <SessionList
               v-else-if="contextPanel === 'sessions'"
               :endpoints="currentEndpoints"
               :session-bindings="currentSessionBindings"
               :members="members"
+              :actors="actors"
               :selected-id="selectedSessionId"
               :running-endpoints="runningEndpoints"
               @select="selectSession"
@@ -418,6 +573,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               class="inspector-embedded"
               :endpoint="selectedEndpoint"
               :members="members"
+              :actors="actors"
               :turns="turns"
               :history-rows="historyQuery.rows.value"
               :model-state="selectedModelState"
@@ -447,13 +603,5 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         </aside>
       </div>
     </main>
-    <SettingsDialog
-      :open="ui.settingsOpen"
-      :group="group"
-      :policy="currentModelPolicy"
-      :defaults="modelPolicyDefaults"
-      @close="ui.closeSettings()"
-      @saved="modelPolicySaved"
-    />
   </div>
 </template>

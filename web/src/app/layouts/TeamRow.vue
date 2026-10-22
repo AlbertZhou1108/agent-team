@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Pin } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
 import { useTeamOrganization } from '@/stores/team-organization';
 import TeamMenu from './TeamMenu.vue';
@@ -9,7 +8,15 @@ const org = useTeamOrganization();
 </script>
 <template>
   <div class="team-row" :class="{ 'team-row-selected': selected }" draggable="true" @dragstart="emit('drag', $event)" @dragover.prevent.stop="emit('over', $event)" @dragleave="emit('leave', $event)" @drop="emit('reorder', $event)">
-    <button type="button" draggable="true" :title="group.name" :class="['group-nav-item', active && 'group-nav-item-active']" @click="emit('select', $event)">
+    <button
+      type="button"
+      draggable="true"
+      :title="active ? '取消选中团队' : group.name"
+      :class="['group-nav-item', active && 'group-nav-item-active']"
+      :aria-current="active ? 'page' : undefined"
+      :aria-pressed="active"
+      @click="emit('select', $event)"
+    >
       <span class="team-avatar grid size-7 shrink-0 place-items-center rounded-lg border border-border bg-muted font-mono text-[10px]"
         :class="{ 'team-avatar-tagged': org.teams[group.id]?.color }"
         :style="org.teams[group.id]?.color ? { '--tag-color': org.teams[group.id]?.color } : undefined">{{ group.name.slice(0, 1) }}</span>
@@ -17,7 +24,6 @@ const org = useTeamOrganization();
         <span class="block truncate text-left text-xs font-medium">{{ group.name }}</span>
         <span class="mt-0.5 block truncate text-left font-mono text-[9px] text-dim">{{ group.id }}</span>
       </span>
-      <Pin v-if="!collapsed && org.teams[group.id]?.pinned" :size="11" class="shrink-0 text-dim" />
     </button>
     <TeamMenu v-if="!collapsed" :id="group.id" :name="group.name" />
   </div>
