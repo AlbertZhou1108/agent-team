@@ -126,27 +126,82 @@ export class TeamGoalLifecycle {
     }
   }
 
-  backfillLegacyGoals() {
+  backfillLegacyGoals(teamId = null) {
     const table = name => this.store.get(
       "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
       name,
     );
     if (!table('team_state') || !table('contract_versions')) return;
-    const rows = this.store.all('SELECT * FROM team_state ORDER BY group_id');
+    const rows = teamId
+      ? this.store.all('SELECT * FROM team_state WHERE group_id=?', teamId)
+      : this.store.all('SELECT * FROM team_state ORDER BY group_id');
     for (const state of rows) {
-      if (this.store.get('SELECT 1 FROM goals WHERE group_id=?', state.group_id)) continue;
-      const contract = this.store.get(
-        'SELECT * FROM contract_versions WHERE group_id=? AND version=?',
-        state.group_id,
-        state.contract_version,
-      );
-      if (!contract) continue;
       let goalState;
       if (state.phase === 'active') goalState = 'active';
       else if (state.phase === 'closing') goalState = 'finalizing';
       else if (state.phase === 'closed') {
         goalState = state.outcome === 'completed' ? 'completed' : 'terminated';
       } else continue;
+      const stale = this.store.all(
+        `SELECT * FROM goals
+         WHERE group_id=? AND number<>? AND state IN ('active','finalizing')`,
+        state.group_id,
+        state.goal_version,
+      );
+      for (const goal of stale) {
+        const completed = this.store.get(
+          'SELECT 1 FROM user_outputs WHERE group_id=? AND (goal_id=? OR goal_version=?) LIMIT 1',
+          state.group_id,
+          goal.id,
+          goal.number,
+        );
+        this.store.run(
+          `UPDATE goals
+           SET state=?,queue_position=NULL,revision=revision+1,outcome=?,ended=?
+           WHERE id=?`,
+          completed ? 'completed' : 'terminated',
+          completed ? 'completed' : 'incomplete',
+          now(),
+          goal.id,
+        );
+        this.event(state.group_id, goal.id, null, 'goal.legacy_synchronized', {
+          state: completed ? 'completed' : 'terminated',
+        });
+      }
+      const existing = this.store.get(
+        'SELECT 1 FROM goals WHERE group_id=? AND number=?',
+        state.group_id,
+        state.goal_version,
+      );
+      if (existing) {
+        this.store.run(
+          `UPDATE goals
+           SET state=?,
+               cutoff_seq=CASE WHEN ?='finalizing'
+                 THEN COALESCE(cutoff_seq,(SELECT COALESCE(MAX(seq),0) FROM messages WHERE group_id=?))
+                 ELSE NULL END,
+               outcome=?,final=?,finish_reason=?,
+               ended=CASE WHEN ? IN ('completed','terminated','cancelled') THEN COALESCE(ended,?) ELSE NULL END
+           WHERE group_id=? AND number=?`,
+          goalState,
+          goalState,
+          state.group_id,
+          state.outcome ?? null,
+          state.final ?? null,
+          state.finish_reason ?? null,
+          goalState,
+          now(),
+          state.group_id,
+          state.goal_version,
+        );
+        continue;
+      }
+      const contract = this.store.get(
+        'SELECT * FROM contract_versions WHERE group_id=? AND version=?',
+        state.group_id,
+        state.contract_version,
+      );
+      if (!contract) continue;
       const id = `legacy-${digest({ groupId: state.group_id, number: state.goal_version }).slice(0, 32)}`;
       const body = {
         contract: parse(contract.body),
@@ -238,6 +293,12 @@ export class TeamGoalLifecycle {
       )
       WHERE goal_id IS NULL
     `);
+  }
+
+  syncLegacyTeam(teamId) {
+    this.store.group(teamId);
+    this.backfillLegacyGoals(teamId);
+    return this.read(teamId);
   }
 
   read(teamId) {

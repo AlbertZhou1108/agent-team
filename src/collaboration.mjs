@@ -232,13 +232,35 @@ export class Collaboration {
   }
   record(groupId, itemId, type, body) {
     const goalVersion = this.state(groupId)?.goal_version ?? 1;
-    this.store.run('INSERT INTO work_records(group_id,goal_version,work_item_id,type,body,created) VALUES(?,?,?,?,?,?)', groupId, goalVersion, itemId, type, json(body), now());
+    this.store.run(
+      'INSERT INTO work_records(group_id,goal_version,work_item_id,type,body,created,goal_id) VALUES(?,?,?,?,?,?,?)',
+      groupId,
+      goalVersion,
+      itemId,
+      type,
+      json(body),
+      now(),
+      this.currentGoalId(groupId),
+    );
   }
   messageContext(groupId, itemId) {
     const s = this.requireCommunication(groupId);
     if (itemId && this.communicationOnly(groupId)) throw new Error('目标已经结束，后续沟通不能关联旧工作项');
     if (itemId && this.item(itemId, groupId).goalVersion !== s.goal_version) throw new Error('工作项不属于当前目标');
-    return { workItemId: itemId ?? null, contractVersion: s.contract_version };
+    return { workItemId: itemId ?? null, contractVersion: s.contract_version, goalId: this.currentGoalId(groupId) };
+  }
+  currentGoalId(groupId) {
+    const state = this.state(groupId);
+    if (!state || !['active', 'closing'].includes(state.phase)) return null;
+    return this.goalIdForVersion(groupId, state.goal_version);
+  }
+  goalIdForVersion(groupId, goalVersion) {
+    if (!this.store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='goals'")) return null;
+    return this.store.get(
+      'SELECT id FROM goals WHERE group_id=? AND number=?',
+      groupId,
+      goalVersion,
+    )?.id ?? null;
   }
   policy(endpoint, inputs = []) {
     const contract = this.contract(endpoint.group_id);
@@ -363,7 +385,16 @@ export class Collaboration {
       body.cancellation = c.cancellation;
     } else if (previous?.cancellation) body.cancellation = previous.cancellation;
     const next = (previous?.revision ?? 0) + 1;
-    if (creating) this.store.run('INSERT INTO work_items(id,group_id,goal_version,revision,state,body) VALUES(?,?,?,?,?,?)', id, groupId, goalState.goal_version, next, state, json(body));
+    if (creating) this.store.run(
+      'INSERT INTO work_items(id,group_id,goal_version,revision,state,body,goal_id) VALUES(?,?,?,?,?,?,?)',
+      id,
+      groupId,
+      goalState.goal_version,
+      next,
+      state,
+      json(body),
+      this.currentGoalId(groupId),
+    );
     else this.store.run('UPDATE work_items SET revision=?,state=?,body=? WHERE id=?', next, state, json(body), id);
     this.record(groupId, id, 'work_item', { actor: 'lead', from: previous?.state ?? null, state, note: c.note ?? '', itemRevision: next, body });
     return { item: this.item(id, groupId) };
@@ -446,7 +477,15 @@ export class Collaboration {
     if (!s || s.phase !== 'closing' || running || this.unknown(groupId).length || this.pending(groupId).length) return false;
     this.store.transaction(() => {
       this.store.run("UPDATE team_state SET phase='closed',revision=revision+1 WHERE group_id=?", groupId);
-      this.store.run('INSERT INTO user_outputs(id,group_id,goal_version,body,created) VALUES(?,?,?,?,?)', randomUUID(), groupId, s.goal_version, s.final ?? s.finish_reason, now());
+      this.store.run(
+        'INSERT INTO user_outputs(id,group_id,goal_version,body,created,goal_id) VALUES(?,?,?,?,?,?)',
+        randomUUID(),
+        groupId,
+        s.goal_version,
+        s.final ?? s.finish_reason,
+        now(),
+        this.goalIdForVersion(groupId, s.goal_version),
+      );
       this.record(groupId, null, 'closed', { outcome: s.outcome });
     });
     return true;

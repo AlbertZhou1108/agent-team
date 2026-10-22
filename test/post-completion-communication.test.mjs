@@ -76,7 +76,12 @@ async function completeGoal(bus, group, members, apply) {
     note: 'start result',
   }).item;
   const report = bus.store.append(group.id, members[1].id, group.lead, 'send', 'accepted result v1');
-  bus.store.run('INSERT INTO message_context VALUES(?,?,?)', report.id, item.id, bus.collaboration.state(group.id).contract_version);
+  bus.store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+    report.id,
+    item.id,
+    bus.collaboration.state(group.id).contract_version,
+  );
   item = apply({
     id: item.id,
     itemRevision: item.revision,

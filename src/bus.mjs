@@ -6,6 +6,7 @@ import { Store } from './store.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { panelCommandObject, panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { Collaboration, roleNameKey } from './collaboration.mjs';
+import { TeamGoalLifecycle } from './team-goal-lifecycle.mjs';
 import {
   DEFAULT_USER_MODEL_RULES,
   SMART_COST_RULES,
@@ -18,6 +19,7 @@ export class Bus extends EventEmitter {
     super();
     this.store = new Store(directory);
     this.collaboration = new Collaboration(this.store);
+    this.lifecycle = new TeamGoalLifecycle(this.store);
     this.hosts = hosts;
     this.collaboration.policyValidator = (member, policy) => {
       const host = this.hosts.get(member.host);
@@ -449,7 +451,13 @@ export class Bus extends EventEmitter {
         const itemId = args.workItemId ?? (inherited.length === 1 ? inherited[0].work_item_id : null);
         const context = this.collaboration.messageContext(group.id, itemId);
         const value = this.store.append(group.id, panelAgent.id, target.id, name === 'team_send' ? 'send' : 'note', args.text);
-        this.store.run('INSERT INTO message_context VALUES(?,?,?)', value.id, context.workItemId, context.contractVersion);
+        this.store.run(
+          'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+          value.id,
+          context.workItemId,
+          context.contractVersion,
+          context.goalId,
+        );
         this.store.run('INSERT INTO panel_message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId, null, origin.callId, origin.nativeCallId);
         return value;
       });
@@ -461,12 +469,14 @@ export class Bus extends EventEmitter {
       const command = panelCommandObject(args.command);
       if (name === 'team_finish') command.action = 'finish';
       else if (command.action) throw new Error('工作项工具不能调用其他动作');
-      return this.collaboration.apply(
+      const result = this.collaboration.apply(
         { id: panelAgent.id, role: 'lead', context: 'coordination', group_id: group.id },
         command,
         args.revision,
         args.operationId,
       );
+      if (name === 'team_finish') this.lifecycle.syncLegacyTeam(group.id);
+      return result;
     }
     if (name === 'contract_change_request') {
       return this.collaboration.request(group.id, 'contract', { contract: JSON.parse(args.contract), reason: args.reason });
@@ -1302,7 +1312,14 @@ export class Bus extends EventEmitter {
         ? members.map(m => ({ ...m, role: 'member' }))
         : [{ ...lead, role: 'lead' }, ...members.map(m => ({ ...m, role: 'member' }))];
       const id = randomUUID();
-      this.store.run('INSERT INTO groups VALUES(?,?,?,?,?)', id, name, workspace, null, new Date().toISOString());
+      this.store.run(
+        'INSERT INTO groups(id,name,workspace,lead,created) VALUES(?,?,?,?,?)',
+        id,
+        name,
+        workspace,
+        null,
+        new Date().toISOString(),
+      );
       for (const person of people) {
         const memberId = randomUUID();
         const roleSelection = person.role === 'lead'
@@ -1353,6 +1370,7 @@ export class Bus extends EventEmitter {
       if (panelAgent) continuationQueued = this.enqueuePanelContinuation(preparation, group);
       return group;
     });
+    this.lifecycle.syncLegacyTeam(group.id);
     for (const member of this.members(group.id)) if (!member.profile && ![...this.running.values()].some(r => r.endpoint.member_id === member.id)) this.introduce(member);
     if (continuationQueued) queueMicrotask(() => this.pumpPanelUpdates());
     return group;
@@ -1474,11 +1492,16 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       if (name === 'team_finish') command.action = 'finish';
       else if (command.action) throw new Error('工作项工具不能调用其他动作');
       const result = this.collaboration.apply({ ...member, context: endpoint.context }, command, args.revision, args.operationId);
+      if (name === 'team_finish') this.lifecycle.syncLegacyTeam(groupId);
       return result;
     }
     if (name === 'contract_change_request') return this.collaboration.request(groupId, 'contract', { contract: JSON.parse(args.contract), reason: args.reason });
     if (name === 'next_goal_request') return this.collaboration.request(groupId, 'next_goal', { contract: JSON.parse(args.contract), reason: args.reason });
-    if (name === 'finish_withdraw') { this.collaboration.reopen(groupId, args.reason); return { phase: 'active' }; }
+    if (name === 'finish_withdraw') {
+      this.collaboration.reopen(groupId, args.reason);
+      this.lifecycle.syncLegacyTeam(groupId);
+      return { phase: 'active' };
+    }
     if (name === 'members') return this.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
     if (name === 'read') {
       const rows = this.store.all(`SELECT * FROM messages WHERE group_id=? AND seq>? ${args.sender ? 'AND sender=?' : ''} ORDER BY seq LIMIT ?`, groupId, args.after ?? 0, ...(args.sender ? [this.resolveMember(groupId, args.sender).id] : []), args.limit ?? 50);
@@ -1494,7 +1517,13 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
         const itemId = args.workItemId ?? (inherited.length === 1 ? inherited[0].work_item_id : null);
         const context = this.collaboration.messageContext(groupId, itemId);
         const message = this.store.append(groupId, member.id, target.id, name, args.text);
-        this.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, context.workItemId, context.contractVersion);
+        this.store.run(
+          'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+          message.id,
+          context.workItemId,
+          context.contractVersion,
+          context.goalId,
+        );
         if (origin) this.store.run('INSERT INTO message_origins VALUES(?,?,?,?,?)', message.id, origin.turnId, origin.eventSeq, origin.callId, origin.nativeCallId);
         return message;
       });
@@ -1660,7 +1689,17 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const previousPolicy = this.store.get('SELECT signature FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', endpoint.id, sessionKey)
       ?? (!binding && fallbackSession ? this.store.get('SELECT signature FROM endpoint_policy WHERE endpoint_id=?', endpoint.id) : null);
     const turnId = this.store.createTurn(effectiveEndpoint, inputs);
-    this.store.run('INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,contract_version,created) VALUES(?,?,?,?,?,?,?)', turnId, group.id, endpoint.id, 'running', JSON.stringify(policy), policy.contractVersion, new Date().toISOString());
+    this.store.run(
+      'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,contract_version,created,goal_id) VALUES(?,?,?,?,?,?,?,?)',
+      turnId,
+      group.id,
+      endpoint.id,
+      'running',
+      JSON.stringify(policy),
+      policy.contractVersion,
+      new Date().toISOString(),
+      this.collaboration.currentGoalId(group.id),
+    );
     const live = { endpoint: effectiveEndpoint, abort, turnId, done: null };
     this.running.set(endpoint.id, live);
     this.store.history(endpoint.id, { type: 'input', text }, turnId);
@@ -1726,13 +1765,21 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
   retry(groupId) { this.collaboration.requireCommunication(groupId); this.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.pump(); return { retryRequested: true }; }
   reconcile(groupId) {
     if (this.collaboration.reconcile(groupId, [...this.running.values()].some(r => r.endpoint.group_id === groupId))) {
+      this.lifecycle.syncLegacyTeam(groupId);
       this.emit('finished', { groupId });
     }
   }
-  async terminate(groupId, reason) { this.collaboration.terminate(groupId, reason); await this.stopWhere(e => e.group_id === groupId); this.reconcile(groupId); return this.collaboration.read(groupId); }
+  async terminate(groupId, reason) {
+    this.collaboration.terminate(groupId, reason);
+    this.lifecycle.syncLegacyTeam(groupId);
+    await this.stopWhere(e => e.group_id === groupId);
+    this.reconcile(groupId);
+    return this.collaboration.read(groupId);
+  }
   async decideRequest(groupId, id, approved, version) {
     const decision = this.collaboration.decideRequest(groupId, id, approved, version, [...this.running.values()].some(r => r.endpoint.group_id === groupId));
     if (decision.approved && decision.kind === 'member_add') await this.addMember(groupId, decision);
+    if (decision.approved && decision.kind === 'next_goal') this.lifecycle.syncLegacyTeam(groupId);
     if (decision.approved) this.directive(groupId, `用户已批准请求${id}，请读取当前契约和执行状态后继续。`);
     return decision;
   }
@@ -1740,7 +1787,13 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     this.collaboration.requireCommunication(groupId);
     const controller = this.teamController(groupId);
     const message = this.store.append(groupId, 'user', controller.id, 'send', text);
-    this.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, null, this.collaboration.state(groupId).contract_version);
+    this.store.run(
+      'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+      message.id,
+      null,
+      this.collaboration.state(groupId).contract_version,
+      this.collaboration.currentGoalId(groupId),
+    );
     queueMicrotask(() => this.pump()); return { messageId: message.id };
   }
   resetSession(endpointId, reason, sessionKey = null) {

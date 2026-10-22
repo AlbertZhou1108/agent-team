@@ -245,7 +245,11 @@ export async function handleRpc(bus, request) {
   if (request.op === 'decide') return bus.decideRequest(request.group, request.id, request.approved === true, request.version);
   if (request.op === 'directive') return bus.directive(request.group, request.text);
   if (request.op === 'terminate') return bus.terminate(request.group, request.reason);
-  if (request.op === 'reopen') { bus.collaboration.reopen(request.group, request.reason); return bus.collaboration.read(request.group); }
+  if (request.op === 'reopen') {
+    bus.collaboration.reopen(request.group, request.reason);
+    bus.lifecycle.syncLegacyTeam(request.group);
+    return bus.collaboration.read(request.group);
+  }
   if (request.op === 'resolve_runtime') { bus.collaboration.resolveRuntime(request.group, request.turn, request.reason); bus.reconcile(request.group); return bus.collaboration.read(request.group); }
   if (request.op === 'reset_session') return bus.resetSession(request.endpoint, request.reason);
   if (request.op === 'chat') {

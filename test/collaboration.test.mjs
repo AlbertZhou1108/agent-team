@@ -30,7 +30,12 @@ async function fixture(t, run) {
   const update = (item, change) => apply({ id: item.id, itemRevision: bus.collaboration.item(item.id, group.id).revision, note: '依据证据推进', ...change }).item;
   const report = (member, text) => {
     const message = bus.store.append(group.id, member.id, group.lead, 'send', text);
-    bus.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, null, bus.collaboration.state(group.id).contract_version);
+    bus.store.run(
+      'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+      message.id,
+      null,
+      bus.collaboration.state(group.id).contract_version,
+    );
     return message;
   };
   return { bus, group, directory, spec, members, actor, apply, create, update, report, calls };
@@ -141,7 +146,20 @@ test('main coordination serializes and batches reports from distinct members in 
 test('unknown runtime prevents replay and user termination preserves incomplete work', async t => {
   const { bus, group, create } = await fixture(t);
   const item = create();
-  bus.store.run('INSERT INTO runtime_attempts VALUES(?,?,?,?,?,?,?,?,?)', 'interrupted', group.id, 'old-endpoint', 'unknown', '{}', 1, '无法核实', new Date().toISOString(), null);
+  bus.store.run(
+    `INSERT INTO runtime_attempts(
+      turn_id,group_id,endpoint_id,state,policy,contract_version,detail,created,ended
+    ) VALUES(?,?,?,?,?,?,?,?,?)`,
+    'interrupted',
+    group.id,
+    'old-endpoint',
+    'unknown',
+    '{}',
+    1,
+    '无法核实',
+    new Date().toISOString(),
+    null,
+  );
   assert.throws(() => bus.directive(group.id, '继续'), /待核实/);
   bus.collaboration.terminate(group.id, '无法取得必要证据');
   assert.equal(bus.collaboration.reconcile(group.id, false), false);

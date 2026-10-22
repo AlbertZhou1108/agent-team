@@ -60,7 +60,12 @@ test('policy follows task and role while contract remains the ceiling', async t 
 
   const contextual = recipient => {
     const message = bus.store.append(group.id, lead.id, recipient.id, 'send', 'policy input');
-    bus.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, item.id, 1);
+    bus.store.run(
+      'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+      message.id,
+      item.id,
+      1,
+    );
     return message;
   };
   const executorPolicy = bus.collaboration.policy(
@@ -157,7 +162,12 @@ test('host session key persists communication and project sessions independently
   const project = item('workspace-write');
   const run = item => {
     const message = bus.store.append(group.id, lead.id, worker.id, 'send', item.title);
-    bus.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, item.id, 1);
+    bus.store.run(
+      'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+      message.id,
+      item.id,
+      1,
+    );
     return bus.runEndpoint(bus.store.endpoint(worker.id, `pair:${lead.id}`, lead.id), item.title, () => {}, [message]);
   };
 

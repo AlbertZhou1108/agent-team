@@ -333,7 +333,12 @@ test('coordination publishes natural-language updates that are automatically del
   bus.takeoverTeam(group.id, 0);
   const worker = bus.members(group.id).find(member => member.name === 'worker');
   const message = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'worker completed the assigned task');
-  bus.store.run('INSERT INTO message_context VALUES(?,?,?)', message.id, null, 1);
+  bus.store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+    message.id,
+    null,
+    1,
+  );
   bus.pump();
   await until(() => bus.store.get('SELECT id FROM panel_updates WHERE group_id=?', group.id));
   const update = bus.store.get('SELECT * FROM panel_updates WHERE group_id=?', group.id);
@@ -632,7 +637,12 @@ test('Panel main receives member reports and can write only in the bound team co
   const worker = bus.members(group.id)[0];
 
   const report = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'work report');
-  bus.store.run('INSERT INTO message_context VALUES(?,?,?)', report.id, null, bus.collaboration.state(group.id).contract_version);
+  bus.store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
+    report.id,
+    null,
+    bus.collaboration.state(group.id).contract_version,
+  );
   bus.pump();
   await until(() => calls.some(call => call.context === 'panel-coordination'));
   await until(() => !bus.running.size);
