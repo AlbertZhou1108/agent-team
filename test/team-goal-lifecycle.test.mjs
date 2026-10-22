@@ -638,3 +638,113 @@ test('finalizing snapshots a cutoff and only unconsumed Goal Inbox messages befo
   assert.equal(withdrawn.current.cutoffSeq, null);
   assert.equal(withdrawn.current.unconsumedInboxCount, null);
 });
+
+test('lifecycle commands are idempotent and reject reused operation ids or stale revisions', t => {
+  const { lifecycle } = fixture(t);
+  const actor = { kind: 'main_agent', id: 'lead' };
+  const command = {
+    type: 'draft.create',
+    contract: testContract,
+    requirements: { requiredMemberIds: [] },
+  };
+  const created = lifecycle.apply('team', actor, command, 1, 'stable-operation');
+  assert.deepEqual(
+    lifecycle.apply('team', actor, command, 1, 'stable-operation'),
+    created,
+  );
+  assert.throws(() => lifecycle.apply(
+    'team',
+    actor,
+    { ...command, contract: { ...testContract, goal: 'different' } },
+    created.revision,
+    'stable-operation',
+  ), /不同命令/);
+  assert.throws(() => lifecycle.apply(
+    'team',
+    actor,
+    { ...command, contract: { ...testContract, goal: 'new operation' } },
+    1,
+    'new-operation',
+  ), /版本冲突/);
+});
+
+test('Goal Drafts, Queue order, archives, and Current Goal survive lifecycle restart', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-goal-restart-'));
+  let store = new Store(directory);
+  store.run('INSERT INTO groups VALUES(?,?,?,?,?)', 'team', 'Restart', directory, 'lead', '2026-10-23T00:00:00.000Z');
+  store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', 'lead', 'team', 'Lead', 'fake', 'lead');
+  store.run(
+    'INSERT INTO team_lead_controllers VALUES(?,?,?,?,?,?,?)',
+    'team',
+    'member',
+    'lead',
+    'active',
+    null,
+    1,
+    '2026-10-23T00:00:00.000Z',
+  );
+  new Collaboration(store);
+  let lifecycle = new TeamGoalLifecycle(store);
+  const created = lifecycle.apply(
+    'team',
+    { kind: 'main_agent', id: 'lead' },
+    {
+      type: 'draft.create',
+      contract: testContract,
+      requirements: { requiredMemberIds: [] },
+    },
+    1,
+    'restart-create',
+  );
+  const confirmed = lifecycle.apply(
+    'team',
+    { kind: 'user', id: 'local-user' },
+    {
+      type: 'draft.confirm',
+      draftId: created.draft.id,
+      draftRevision: created.draft.revision,
+      hash: created.draft.hash,
+    },
+    created.revision,
+    'restart-confirm',
+  );
+  const draft = lifecycle.apply(
+    'team',
+    { kind: 'main_agent', id: 'lead' },
+    {
+      type: 'draft.create',
+      contract: { ...testContract, goal: 'after restart' },
+      requirements: { requiredMemberIds: [] },
+    },
+    confirmed.revision,
+    'restart-draft',
+  );
+
+  store.close();
+  store = new Store(directory);
+  t.after(() => {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  lifecycle = new TeamGoalLifecycle(store);
+  const restored = lifecycle.read('team');
+  assert.equal(restored.current.id, confirmed.goal.id);
+  assert.equal(restored.current.state, 'active');
+  assert.deepEqual(restored.drafts.map(item => item.id), [draft.draft.id]);
+  assert.equal(restored.team.revision, draft.revision);
+
+  const queued = lifecycle.apply(
+    'team',
+    { kind: 'user', id: 'local-user' },
+    {
+      type: 'draft.confirm',
+      draftId: draft.draft.id,
+      draftRevision: draft.draft.revision,
+      hash: draft.draft.hash,
+    },
+    restored.team.revision,
+    'restart-confirm-next',
+  );
+  assert.equal(queued.goal.state, 'queued');
+  assert.equal(lifecycle.read('team').queue.length, 1);
+});

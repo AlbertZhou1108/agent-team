@@ -387,7 +387,7 @@ Main Agent 可读写可观察状态，并可提出 Draft。用户决定权保持
 | --- | --- | --- |
 | 0 | 独立提交当前已完成的 Panel Agent continuation 修改 | 工作树基线明确，完整测试通过 |
 | 1 | 新表、Team/Goal 状态机、迁移 fixture | 已完成：核心状态、队列、归档、cutoff 和旧状态迁移测试通过；尚未接入 Bus/UI |
-| 2 | Goal Draft、Queue 和调度器 | 队列、跳过、幂等和重启恢复通过 |
+| 2 | Goal Draft、Queue 和调度器 | 已完成：队列、跳过、幂等、归档冻结和重启恢复测试通过；尚未接入 Bus/UI |
 | 3 | `goal_id` 消息上下文、消费和 cutoff | 收尾门禁测试通过 |
 | 4 | Bus、RPC、HTTP 和 Agent 工具接入 | 无旧 phase 读写，API 鉴权通过 |
 | 5 | 前端 Draft、Queue、Archived Team 和状态拆分 | 前端测试、类型检查和浏览器验收通过 |
