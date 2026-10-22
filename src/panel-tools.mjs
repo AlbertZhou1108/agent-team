@@ -112,6 +112,7 @@ const observerDefinitions = [
     groupId,
     after: { type: 'integer', minimum: 0 },
   }, ['groupId']],
+  ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
   ['team_message_trace', '读取一条团队消息的真实来源和输入回合。', {
     groupId,
     messageId: string,
@@ -159,6 +160,23 @@ const mainDefinitions = [
     groupId,
     after: { type: 'integer', minimum: 0 },
   }, ['groupId']],
+  ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
+  ['goal_draft_create', '创建Goal Draft，等待用户确认。contract为完整契约JSON，requiredMemberIds为逗号分隔的成员ID。', {
+    groupId,
+    contract: string,
+    requiredMemberIds: string,
+    revision: { type: 'integer', minimum: 1 },
+    operationId: string,
+  }, ['groupId', 'contract', 'revision', 'operationId']],
+  ['goal_draft_update', '修改尚未确认的Goal Draft并生成新的revision/hash。', {
+    groupId,
+    draftId: string,
+    draftRevision: { type: 'integer', minimum: 1 },
+    contract: string,
+    requiredMemberIds: string,
+    revision: { type: 'integer', minimum: 1 },
+    operationId: string,
+  }, ['groupId', 'draftId', 'draftRevision', 'contract', 'revision', 'operationId']],
   ['team_send', '以当前团队主 Agent 身份向成员发送正式任务、汇报或审查消息。', {
     groupId,
     to: string,

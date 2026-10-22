@@ -15,6 +15,7 @@ const options = {
   hosts: { type: 'string' }, socket: { type: 'string' }, endpoint: { type: 'string' }, help: { type: 'boolean', short: 'h' },
   preparation: { type: 'string' }, contract: { type: 'string' }, revision: { type: 'string' }, hash: { type: 'string' },
   request: { type: 'string' }, version: { type: 'string' }, reason: { type: 'string' }, turn: { type: 'string' },
+  command: { type: 'string' }, 'operation-id': { type: 'string' },
 };
 export function parseMembers(text = '') {
   return text ? text.split(',').filter(Boolean).map(item => {
@@ -39,6 +40,7 @@ async function main() {
   preparation-chat --preparation 编号 --text 文本  继续建群准备对话
   approve --preparation 编号 --revision 版本 --hash 摘要  展示契约并确认
   state / requests / decide / direct / terminate / reopen / resolve-runtime  团队状态与用户决定
+  goals / goal-command  读取Team Goal状态或执行受控生命周期命令
   --data 目录       本地数据（默认 work/local）
   --port 端口       面板端口，默认随机
   --hosts 文件      CLI 宿主别名及适配器配置
@@ -82,6 +84,14 @@ async function main() {
     else if (command === 'chat') return interactive(socketPath, values.group);
     else if (command === 'members') request = { op: 'members', group: values.group };
     else if (command === 'state' || command === 'requests') request = { op: 'collaboration', group: values.group };
+    else if (command === 'goals') request = { op: 'team_goals', group: values.group };
+    else if (command === 'goal-command') request = {
+      op: 'goal_command',
+      group: values.group,
+      command: JSON.parse(values.command),
+      revision: Number(values.revision),
+      operationId: values['operation-id'],
+    };
     else if (command === 'direct') request = { op: 'directive', group: values.group, text: values.text };
     else if (command === 'decide') {
       const state = await rpc(socketPath, { op: 'collaboration', group: values.group });

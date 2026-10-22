@@ -89,6 +89,11 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
         if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
         const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
+        const goalMutation = request.method === 'POST' && (
+          /^\/api\/teams\/[^/]+\/goal-drafts\/[^/]+\/(?:confirm|delete)$/.test(url.pathname)
+          || /^\/api\/teams\/[^/]+\/goals\/[^/]+\/(?:cancel|withdraw-finish|terminate)$/.test(url.pathname)
+          || /^\/api\/teams\/[^/]+\/(?:archive|restore|goal-queue\/reorder)$/.test(url.pathname)
+        );
         const isPanelMutation = request.method === 'POST' && (
           url.pathname === '/api/panel-agent'
           || url.pathname === '/api/panel-agent/update'
@@ -99,7 +104,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           || /^\/api\/preparations\/[^/]+\/approve$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
         );
-        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation) return fail(403, 'Panel endpoint is not writable');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -114,6 +119,9 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });
+          } else if (goalMutation) {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            value = handleGoalMutation(bus, url.pathname, await readJsonBody(request));
           } else if (isPanelMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
@@ -147,6 +155,9 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
           else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
+          else if (/^\/api\/teams\/[^/]+\/goals$/.test(url.pathname)) {
+            value = bus.teamGoals(decodeURIComponent(url.pathname.split('/')[3]));
+          }
           else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);
@@ -191,6 +202,58 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
 }
 
 function cursor(url) { const value = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(value) || value < 0) throw new Error('游标无效'); return value; }
+
+function handleGoalMutation(bus, pathname, body) {
+  const draft = pathname.match(/^\/api\/teams\/([^/]+)\/goal-drafts\/([^/]+)\/(confirm|delete)$/);
+  if (draft) {
+    const teamId = decodeURIComponent(draft[1]);
+    const draftId = decodeURIComponent(draft[2]);
+    const type = draft[3] === 'confirm' ? 'draft.confirm' : 'draft.delete';
+    return bus.applyTeamGoalCommand(
+      teamId,
+      {
+        type,
+        draftId,
+        draftRevision: body.draftRevision,
+        ...(type === 'draft.confirm' ? { hash: body.hash } : {}),
+      },
+      body.revision,
+      body.operationId,
+    );
+  }
+  const goal = pathname.match(/^\/api\/teams\/([^/]+)\/goals\/([^/]+)\/(cancel|withdraw-finish|terminate)$/);
+  if (goal) {
+    const type = goal[3] === 'cancel'
+      ? 'queue.cancel'
+      : goal[3] === 'withdraw-finish'
+        ? 'goal.finish-withdraw'
+        : 'goal.terminate';
+    return bus.applyTeamGoalCommand(
+      decodeURIComponent(goal[1]),
+      { type, goalId: decodeURIComponent(goal[2]), reason: body.reason },
+      body.revision,
+      body.operationId,
+    );
+  }
+  const team = pathname.match(/^\/api\/teams\/([^/]+)\/(archive|restore|goal-queue\/reorder)$/);
+  if (team) {
+    const type = team[2] === 'archive'
+      ? 'team.archive'
+      : team[2] === 'restore'
+        ? 'team.restore'
+        : 'queue.reorder';
+    return bus.applyTeamGoalCommand(
+      decodeURIComponent(team[1]),
+      type === 'queue.reorder'
+        ? { type, orderedGoalIds: body.orderedGoalIds }
+        : { type },
+      body.revision,
+      body.operationId,
+    );
+  }
+  throw new Error('未知Goal操作');
+}
+
 function readJsonBody(request, limit = 65536) {
   return new Promise((resolve, reject) => {
     let size = 0, data = '';
@@ -242,6 +305,15 @@ export async function handleRpc(bus, request) {
   if (request.op === 'preparation_chat') return bus.preparationTurn(request.id, request.text);
   if (request.op === 'approve_preparation') return bus.confirmPreparation(request.id, request.revision, request.hash);
   if (request.op === 'collaboration') return bus.collaboration.read(request.group, request.after ?? 0);
+  if (request.op === 'team_goals') return bus.teamGoals(request.group);
+  if (request.op === 'goal_command') {
+    return bus.applyTeamGoalCommand(
+      request.group,
+      request.command,
+      request.revision,
+      request.operationId,
+    );
+  }
   if (request.op === 'decide') return bus.decideRequest(request.group, request.id, request.approved === true, request.version);
   if (request.op === 'directive') return bus.directive(request.group, request.text);
   if (request.op === 'terminate') return bus.terminate(request.group, request.reason);

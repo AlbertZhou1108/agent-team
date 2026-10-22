@@ -407,6 +407,7 @@ export class Bus extends EventEmitter {
     if (name === 'team_snapshot') return this.panelTeamSnapshot(group.id);
     if (name === 'team_members') return this.members(group.id);
     if (name === 'team_collaboration_read') return this.collaboration.read(group.id, args.after ?? 0);
+    if (name === 'goal_draft_read') return this.teamGoals(group.id);
     if (name === 'team_read') {
       const senderId = args.sender === panelAgent.id || args.sender === panelAgent.name
         ? panelAgent.id
@@ -440,6 +441,25 @@ export class Bus extends EventEmitter {
     const coordination = this.store.panelSession(panelAgent.id, 'coordination', group.id);
     if (coordination.id !== session.id && this.running.has(coordination.id)) {
       throw new Error('该团队的 Panel Agent coordination 正在运行，请等待后再写入');
+    }
+    if (name === 'goal_draft_create' || name === 'goal_draft_update') {
+      const requiredMemberIds = typeof args.requiredMemberIds === 'string'
+        ? args.requiredMemberIds.split(',').map(value => value.trim()).filter(Boolean)
+        : [];
+      return this.lifecycle.apply(
+        group.id,
+        { kind: 'main_agent', id: panelAgent.id },
+        {
+          type: name === 'goal_draft_create' ? 'draft.create' : 'draft.update',
+          contract: JSON.parse(args.contract),
+          requirements: { requiredMemberIds },
+          ...(name === 'goal_draft_update'
+            ? { draftId: args.draftId, draftRevision: args.draftRevision }
+            : {}),
+        },
+        args.revision,
+        args.operationId,
+      );
     }
     if (name === 'team_send' || name === 'team_note') {
       this.collaboration.requireCommunication(group.id);
@@ -1027,6 +1047,18 @@ export class Bus extends EventEmitter {
   modelPolicy() {
     return this.store.get('SELECT mode,rules,created,updated FROM global_model_policy WHERE singleton=1');
   }
+  teamGoals(teamId) {
+    return this.lifecycle.read(teamId);
+  }
+  applyTeamGoalCommand(teamId, command, expectedRevision, operationId) {
+    return this.lifecycle.apply(
+      teamId,
+      { kind: 'user', id: 'local-user' },
+      command,
+      expectedRevision,
+      operationId,
+    );
+  }
   updateModelPolicy(value) {
     const policy = normalizeModelPolicy(value);
     this.store.run(
@@ -1487,6 +1519,27 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const groupId = member.group_id;
     if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
     if (name === 'collaboration_read') return this.collaboration.read(groupId, args.after ?? 0);
+    if (name === 'goal_draft_read') return this.teamGoals(groupId);
+    if (name === 'goal_draft_create' || name === 'goal_draft_update') {
+      const requiredMemberIds = typeof args.requiredMemberIds === 'string'
+        ? args.requiredMemberIds.split(',').map(value => value.trim()).filter(Boolean)
+        : [];
+      const command = {
+        type: name === 'goal_draft_create' ? 'draft.create' : 'draft.update',
+        contract: JSON.parse(args.contract),
+        requirements: { requiredMemberIds },
+        ...(name === 'goal_draft_update'
+          ? { draftId: args.draftId, draftRevision: args.draftRevision }
+          : {}),
+      };
+      return this.lifecycle.apply(
+        groupId,
+        { kind: 'main_agent', id: member.id },
+        command,
+        args.revision,
+        args.operationId,
+      );
+    }
     if (name === 'work_item_update' || name === 'team_finish') {
       const command = JSON.parse(args.command);
       if (name === 'team_finish') command.action = 'finish';

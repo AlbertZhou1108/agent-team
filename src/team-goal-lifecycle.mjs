@@ -773,11 +773,8 @@ export class TeamGoalLifecycle {
     if ((team.state ?? 'open') !== 'open') {
       blockers.push({ code: 'team_archived', detail: 'Team已归档' });
     }
-    const controller = this.store.get(
-      'SELECT controller_id,state FROM team_lead_controllers WHERE group_id=?',
-      teamId,
-    );
-    if (!controller || controller.state !== 'active') {
+    const mainAgentId = this.mainAgentId(teamId);
+    if (!mainAgentId) {
       blockers.push({ code: 'main_controller_unavailable', detail: 'Main Agent不可用' });
     }
     let workspaceAccessible = false;
@@ -814,13 +811,18 @@ export class TeamGoalLifecycle {
 
   requireMain(teamId, actor) {
     if (actor?.kind !== 'main_agent') throw new Error('仅当前Main Agent可以创建或修改Goal Draft');
+    if (this.mainAgentId(teamId) !== actor.id) {
+      throw new Error('当前Main Agent不匹配');
+    }
+  }
+
+  mainAgentId(teamId) {
     const controller = this.store.get(
       'SELECT controller_id,state FROM team_lead_controllers WHERE group_id=?',
       teamId,
     );
-    if (!controller || controller.state !== 'active' || controller.controller_id !== actor.id) {
-      throw new Error('当前Main Agent不匹配');
-    }
+    if (controller) return controller.state === 'active' ? controller.controller_id : null;
+    return this.store.group(teamId).lead ?? null;
   }
 
   requireUser(actor) {
@@ -874,12 +876,8 @@ export class TeamGoalLifecycle {
   }
 
   unconsumedInboxCount(goal) {
-    const controller = this.store.get(
-      'SELECT controller_id FROM team_lead_controllers WHERE group_id=? AND state=?',
-      goal.group_id,
-      'active',
-    );
-    if (!controller || goal.cutoff_seq == null) return 0;
+    const mainAgentId = this.mainAgentId(goal.group_id);
+    if (!mainAgentId || goal.cutoff_seq == null) return 0;
     return this.store.get(
       `SELECT COUNT(*) AS value
        FROM messages m
@@ -902,7 +900,7 @@ export class TeamGoalLifecycle {
            WHERE i.message_id=m.id AND t.state='completed'
          )`,
       goal.id,
-      controller.controller_id,
+      mainAgentId,
       goal.cutoff_seq,
     ).value;
   }

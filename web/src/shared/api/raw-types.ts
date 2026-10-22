@@ -246,6 +246,64 @@ export interface CollaborationState {
   outputs?: Array<{ id: string; goalVersion: number; body: string; created: string }>;
 }
 
+export type GoalState = 'queued' | 'active' | 'finalizing' | 'completed' | 'terminated' | 'cancelled';
+
+export interface GoalEligibility {
+  eligible: boolean;
+  blockers: Array<{ code: string; detail: string }>;
+}
+
+export interface GoalBody {
+  contract: NonNullable<PanelPreparation['contract']>;
+  requirements: { requiredMemberIds: string[] };
+}
+
+export interface GoalView {
+  id: string;
+  number: number;
+  state: GoalState;
+  queuePosition: number | null;
+  revision: number;
+  cutoffSeq: number | null;
+  unconsumedInboxCount: number | null;
+  outcome: string | null;
+  final: string | null;
+  finishReason: string | null;
+  originDraftId: string | null;
+  contract: GoalBody | null;
+  contractHash: string | null;
+  created: string;
+  started: string | null;
+  ended: string | null;
+  waitingForCurrent?: boolean;
+  eligibility?: GoalEligibility;
+}
+
+export interface GoalDraftView {
+  id: string;
+  revision: number;
+  body: GoalBody;
+  hash: string;
+  state: 'draft' | 'confirmed' | 'deleted';
+  goalId: string | null;
+  created: string;
+  updated: string;
+}
+
+export interface TeamGoalsState {
+  team: {
+    id: string;
+    name: string;
+    workspace: string;
+    state: 'open' | 'archived';
+    revision: number;
+  };
+  current: GoalView | null;
+  drafts: GoalDraftView[];
+  queue: GoalView[];
+  history: GoalView[];
+}
+
 export interface MessageRow {
   seq: number;
   id: string;
