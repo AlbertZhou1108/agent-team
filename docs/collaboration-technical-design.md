@@ -26,7 +26,7 @@ flowchart TD
 | `src/tools.mjs` | 各角色和上下文可见的框架工具及参数校验 |
 | `src/hosts/*` | 把策略映射为宿主参数，报告模型目录、会话、接受、事件、模型和结束事实 |
 | `src/server.mjs` | Unix socket RPC、可信控制入口、查询 API、受限设置写入和静态面板 |
-| `web/` | Vue 观测面板、主题与全局模型策略设置 |
+| `web/` | Vue 团队观测与指令面板、Panel Agent、主题和设置 |
 
 框架不提供统一文件编辑器、工作流 DSL、通用网络沙箱或分布式协调层。
 
@@ -55,7 +55,7 @@ flowchart TD
 | `endpoint_session_bindings` | endpoint 与 Adapter 提供会话域之间的物理 session/thread 绑定 |
 | `endpoint_session_policies` | 每个会话域最近一次实际应用的能力签名 |
 
-契约版本和变更记录追加保存。当前状态更新与操作幂等结果在同一事务提交。旧数据库采用增量迁移；旧群若没有确认契约，只保留历史浏览，不自动获得新流程授权。
+契约版本和变更记录追加保存，当前状态更新与操作幂等结果在同一事务提交。数据库结构采用增量演进；没有当前 Goal 契约的团队只保留历史浏览，不自动获得新流程授权。
 
 ## 3. 建群与契约确认
 
@@ -257,7 +257,7 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 
 ## 9. HTTP 查询、设置与面板
 
-服务只绑定 `127.0.0.1`，校验 Host、同源、请求方法和启动 Cookie。除 `POST /api/model-policy` 保存全局模型策略外，API 只接受 GET：
+服务只绑定 `127.0.0.1`，无需密钥或 Cookie。请求校验 Host、`Sec-Fetch-Site`、方法与 JSON Content-Type；携带 Origin 时必须与当前面板同源。查询接口使用 GET：
 
 - `/api/snapshot`
 - `/api/collaboration`
@@ -267,10 +267,16 @@ Adapter 可实现 `sessionKey({ policy })` 声明物理会话域；未声明时�
 - `/api/model-catalog`
 - `/api/message-trace`
 - `/api/turn`
+- `/api/teams/:id/goals`
+- `/api/teams/:id/directives`
+- `/api/panel-agent` 及 Panel Agent 子路径
+- `/api/telemetry/overview` 与团队遥测查询
 
-Vue 面板包括群导航、消息时间线、成员、协作状态、宿主会话、模型变化和轨迹视图。协作页读取服务端持久事实，不从聊天正文推断完成。
+命名写接口包括团队指令、Goal 生命周期、模型策略、目录选择、Panel Agent 身份/私聊/接管以及对应确认操作。不开放通用 RPC。
 
-开发脚本可通过 `AGENT_TEAM_DEV_NO_AUTH=1` 关闭启动 Cookie，但仍保留 Host、同源、请求方法和本机绑定检查。生产启动始终要求入口链接。
+团队页通过 `/api/teams/:id/events` 接收回复和成员消息 SSE，Panel Agent 页通过 `/api/panel-agent/events` 接收私人回复 SSE。前端在草稿完成后携带持久消息 ID 与正式查询结果去重。
+
+Vue 面板包括群导航、团队消息与指令、成员、Goal 生命周期、协作状态、宿主会话、模型变化、轨迹和遥测视图。协作页读取持久事实，不从聊天正文推断完成。
 
 `/api/model-catalog` 按宿主汇总当前可选模型。目录由 Adapter 的零业务调用 `listModels()` 提供：Codex 使用 app-server 目录，Claude 解析 `/model` 与 `/effort`，DSH 使用 Cordis `modelCatalog`。结果短时缓存，`refresh=1` 强制刷新；单个宿主失败不影响其他宿主。模型目录是发现结果，不是团队授权或实际运行证明。
 

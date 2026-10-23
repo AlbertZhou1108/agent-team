@@ -1,6 +1,6 @@
 # 宿主遥测查询 API 契约（v1）
 
-状态：W1 双方已确认，待主 Agent 冻结。本文件是 `src/` 查询实现与 `web/` 只读展示共同消费的接口形状与身份口径；不改变 [宿主用量与会话统计设计](host-telemetry-design.md) 已定义的指标采集与聚合语义。API 响应形状与字段命名以本契约为准，采集/聚合语义以设计文档为准；设计文档统一指标表已使用 `inputTokensTotal`，宿主原始字段名（Codex `inputTokens`、DSH `inputTokens`、Claude `input_tokens`）仅在适配器内部映射，不作为 API 字段。若语义仍有冲突，以设计文档语义为准并回退本契约修订。
+状态：当前接口契约。本文件是 `src/` 查询实现与 `web/` 只读展示共同消费的接口形状与身份口径；不改变 [宿主用量与会话统计设计](host-telemetry-design.md) 已定义的指标采集与聚合语义。API 响应形状与字段命名以本契约为准，采集/聚合语义以设计文档为准；设计文档统一指标表已使用 `inputTokensTotal`，宿主原始字段名（Codex `inputTokens`、DSH `inputTokens`、Claude `input_tokens`）仅在适配器内部映射，不作为 API 字段。若语义仍有冲突，以设计文档语义为准并回退本契约修订。
 
 ## 1. 总则
 
@@ -548,7 +548,7 @@ interface CapabilityResponse {
     "lastRequestInputRatio": { "value": 0.058688, "quality": "derived", "completeness": "complete", "scope": "request", "aggregation": "ratio", "source": "query.aggregate", "observedAt": "2026-10-23T07:00:03.000Z", "formula": "lastRequestInputTokens / contextWindowTokens" },
     "sampledAt": "2026-10-23T07:00:03.000Z",
     "sampleTurnId": "turn-42",
-    "model": { "provider": "openai", "model": "gpt-6-astra", "source": "codex.model", "observedAt": "2026-10-23T07:00:01.000Z" }
+    "model": { "provider": "example-provider", "model": "example-model", "source": "codex.model", "observedAt": "2026-10-23T07:00:01.000Z" }
   },
   "completeness": "complete",
   "anomalies": [],
@@ -667,9 +667,9 @@ interface CapabilityResponse {
 
 ## 10. 版本与变更
 
-- `schemaVersion: 1` 冻结后，字段改名、语义变化、必填字段删除或新增业务联动都视为破坏性变更，必须重新走双方确认与主 Agent 冻结。
+- `schemaVersion: 1` 下，字段改名、语义变化、必填字段删除或新增业务联动都视为破坏性变更，必须建立新契约版本并重新验证实现与界面。
 - 新增可选字段或新的 `source` 字符串不是破坏性变更；UI 必须能原样显示未知 `source`。
-- 本契约文件与实现的关键文件 sha256 在交付汇报中给出；审查以同一版本指纹为准。
+- 契约或实现变化时同时更新版本指纹；审查和发布以同一版本指纹为准。
 
 ## 11. 证据与相关文档
 

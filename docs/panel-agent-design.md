@@ -1,11 +1,9 @@
 # Panel Agent 设计
 
-日期：2026-10-24（初版 2026-10-22）
+日期：2026-10-24
 状态：私人会话原生化已实现；三档权限完成真实宿主验证与产品级冒烟（2026-10-24）
 
 本文定义 Panel Agent 的产品语义、生命周期、权限边界和兼容策略。逻辑验证原型见 [`web/prototypes/panel-agent-lifecycle-logic.html`](../web/prototypes/panel-agent-lifecycle-logic.html)。
-
-2026-10-24 更新：Panel Agent 是团队之上的用户侧角色，私人会话获得**用户级三档执行权限**（`read-only` / `workspace-write` / `full-access`）和可调整的私人工作区；团队契约仍然只约束团队。宿主等价映射与真实验证见[三档权限验证记录](./panel-agent-access-verification-20261024.md)。
 
 ## 1. 核心模型
 
@@ -24,7 +22,7 @@ flowchart LR
 约束：
 
 - 每个数据目录最多一个 Panel Agent。
-- Panel Agent 惰性创建；没有创建时，现有 CLI 和只读面板不受影响。
+- Panel Agent 惰性创建；没有创建时，团队观测与用户指令、CLI 和 Panel Agent 页面按各自入口独立工作。
 - Panel Agent 使用统一模型配置，模型变化作用于其所有上下文。
 - 私人对话只有一条，跨团队连续存在。
 - 私人会话拥有独立的**用户级执行权限**与**私人工作区**，与团队契约分开；团队契约只约束团队成员。
@@ -290,7 +288,7 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 
 ## 8. 面板 API
 
-现有团队观测页保持只读。Panel Agent 通过独立受限命令完成私聊、准备确认和控制者切换：
+团队页是“团队观测与指令”面板：用户可以读取共享事实并向当前 Main Agent 发送幂等指令。Panel Agent 通过独立的命名接口完成私聊、准备确认和控制者切换：
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
@@ -301,10 +299,13 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 | `POST` | `/api/panel-agent/messages` | 发送 Panel Agent 私人消息 |
 | `POST` | `/api/panel-agent/stop` | 停止当前 Panel Agent 回合 |
 | `GET` | `/api/panel-agent/teams` | 读取观察和主控关系 |
+| `GET` | `/api/panel-agent/events` | 订阅 Panel Agent 私人回复 SSE |
 | `POST` | `/api/preparations/:id/approve` | 使用可信确认授权批准具体版本 |
 | `POST` | `/api/teams/:id/takeover` | 请求 Panel Agent 接管 |
 | `POST` | `/api/teams/:id/handback` | 请求交还原主 Agent |
 | `POST` | `/api/panel-actions/:id/decide` | 用户确认或取消 Panel Agent 发起的接管/交还请求 |
+| `POST` | `/api/teams/:id/directives` | 用户向当前 Main Agent 发送团队指令 |
+| `GET` | `/api/teams/:id/events` | 订阅团队回复和成员消息 SSE |
 
 Panel Agent 创建的请求体包含 `name`、`host`、`model_provider`、`model`、`reasoning_effort`、`workspace`、`access`。校验：
 
@@ -319,30 +320,25 @@ Panel Agent 创建的请求体包含 `name`、`host`、`model_provider`、`model
 - 只接受同源请求；
 - 校验 Host、`Sec-Fetch-Site`、HTTP 方法和 JSON Content-Type；
 - 限制请求体大小；
-- 使用当前面板会话鉴权；
-- 对确认动作发放一次性、短期、绑定具体操作内容的授权；
+- 直接打开本机链接，无需密钥或 Cookie；
+- 对确认动作重新校验绑定的请求、revision、hash 与用户选择；
 - 在事务中校验团队控制 revision，拒绝并发覆盖。
 
-## 9. 持久化建议
+## 9. 持久化
 
-新增表或等价结构：
+当前主要表：
 
 | 数据 | 关键字段 |
 | --- | --- |
-| `panel_agents` | id、name、host、model、effort、workspace、access、status、created |
+| `panel_agents` | id、name、host、model、effort、workspace、access、created、updated |
 | `panel_sessions` | panel_agent_id、context、session、created、updated |
-| `panel_conversations` | conversation、role、text、active_team_id、created |
-| `panel_turns` | turn_id、conversation、active_team_id、runtime_state |
+| `panel_messages` | private/coordination、role、text、active_team_id、created |
+| `panel_turns` | session_id、context、active_team_id、state、created、ended |
+| `panel_history` | Panel 会话的真实宿主事件与模型观测 |
+| `panel_updates` | coordination 到私人会话的持久更新 |
 | `panel_team_bindings` | panel_agent_id、group_id、relation、created、updated |
 | `team_lead_controllers` | group_id、controller_kind、controller_id、state、revision |
-| `confirmation_grants` | action、payload_hash、expires、consumed |
-| `controller_transitions` | group_id、from、to、reason、created |
-
-迁移与默认值：
-
-- 既有 `panel_agents` 行迁移为 `access='read-only'`、`workspace=NULL`；迁移时清空一次私人会话的宿主绑定（保留私人聊天记录）。
-- `workspace=NULL` 时私人回合 cwd 回退到数据目录，面板提示用户设置私人工作区；`workspace-write` 与 `full-access` 要求先设置有效工作区。
-- 迁移不改写 coordination 会话、团队事实、成员或历史归属。
+| `panel_action_requests` | 等待用户确认的接管或交还请求 |
 
 必须保持：
 
@@ -352,18 +348,18 @@ Panel Agent 创建的请求体包含 `name`、`host`、`model_provider`、`model
 - 团队消息和来源名称可以解析成员或 Panel Agent actor。
 - 控制器切换使用独立 revision 和幂等 operation ID。
 
-## 10. 兼容策略
+## 10. 入口关系
 
 - 现有 CLI 创建团队、契约变更、私聊和协调流程保持可用。
-- 未创建 Panel Agent 时，现有只读面板保持现状。
+- 未创建 Panel Agent 时，团队观测与指令入口仍然可用。
 - Panel Agent 创建后，已有团队自动解析为 `observer`。
 - 后续新建团队自动写入观察绑定。
 - 原主 Agent 身份、私有历史、coordination 历史、模型和会话全部保留。
 - Panel Agent 接管不会修改原主 Agent 的历史归属。
 - 现有团队仍可通过原生会话 Agent 使用。
 - 两种入口共享团队事实，但私人会话互不可见。
-- 旧 Panel Agent 迁移后为 `read-only`，私人工作区为空时回退数据目录并提示设置；首次私人回合可能重建宿主 session，聊天记录不丢失。
-- 旧 Panel Agent 的 coordination 行为保持不变。
+- 私人工作区为空时显示设置提示；`workspace-write` 和 `full-access` 必须先配置工作区。
+- Panel Agent 的 coordination 始终使用 Team 工作区和 `communication` 策略。
 
 ## 11. 可信确认
 
@@ -392,7 +388,7 @@ Panel Agent 创建的请求体包含 `name`、`host`、`model_provider`、`model
 
 ## 13. 已知限制
 
-- 文件/命令可达后，Panel Agent 在 OS 用户权限内可以读取框架数据目录与其他宿主的 session 文件；旧设计“不能查看原主 Agent 私人会话”在文件系统层不再可强制。
+- 文件/命令可达时，Panel Agent 在 OS 用户权限内可以读取框架数据目录与其他宿主的 session 文件；私人会话隔离不等于 OS 用户隔离。
 - `read-only` 不是整机只读：宿主自身 state/temp 或宿主沙箱允许的路径仍可能有写入；已验证的是工作区、普通工作区外目录和 `/tmp` 被拒绝。
 - `full-access` 只表示关闭文件沙箱：Codex 的 `dangerFullAccess` 同时开启网络；Claude/DSH 是否可联网取决于宿主与命令。不承诺网络边界。
 - Claude 的 Write/Edit 不受 Bash 沙箱约束，`workspace-write` 必须用权限路径规则收窄；缺失路径规则会退化为可写工作区外。

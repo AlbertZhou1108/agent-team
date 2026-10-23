@@ -1,6 +1,6 @@
 # 成员 ↔ 主 Agent 用量视图设计
 
-状态：**定稿（W1，2026-10-23；待主 Agent 与观测界面确认后冻结）**。现行契约仍为 `docs/host-telemetry-api-contract.md` 的 a54a62（683 行）；本文不修改该契约。下一次增量接口形状见 `docs/host-telemetry-manager-conversation-contract.md`（base=a54a62）。
+状态：当前实现。基础接口契约为 `docs/host-telemetry-api-contract.md`（sha256 `a54a62…`，683 行）；本文的增量接口形状见 `docs/host-telemetry-manager-conversation-contract.md`，对应 Bus 查询、HTTP 路由和 Team 面板视图均已接入。
 
 ## 1. 背景与问题
 
@@ -212,23 +212,12 @@ interface ManagerConversationBatch extends Batch {
 13. 只读校验（GET only，无副作用）；
 14. 回归：成员 ↔ 成员双方会话、协调会话、成员概览数值不变，不新增必需字段。
 
-## 8. 实施拆分与预估
-
-| 阶段 | 内容 | 预估 |
-| --- | --- | --- |
-| 契约/设计评审 | 本文定稿、批次增量字段、口径与验收确认、契约版本/hash | 0.5 天 |
-| 后端 | 读取 outgoing 触达、involvement 计算、新查询、路由、错误语义、核心测试 | 1–1.5 天 |
-| 前端 | 类型/API/query、成员端新视图、共享/独占徽标、不可加提示、前端测试 | 0.8–1 天 |
-| 验证/审查 | 真实数据核对、回归、独立审查、接受 | 0.5–1 天 |
-
-合计约 **3–4 人天**；按上一轮团队流程需要独立审查与契约版本确认。
-
-## 9. 已定稿决策与风险
+## 8. 决策与风险
 
 - **合并投递**：坚持“整批只计一次、共享批次不做独占小计、跨成员不可加”；`merge.merged` 与 output 触达互不影响批次数量。
 - **主 Agent 变更**：本期以请求时的当前 `teamController` 为准。若 handback（主 Agent 变为成员），返回 400 并指引成员 ↔ 成员视图；历史 Panel Agent 批次不进入本路径，是否需要“按执行者历史”视图留待下一期。
 - **输出触达的边界**：只统计 `panel_message_origins` 中收件人为本群当前未移除成员的输出；发给用户、系统或已移除成员的输出仍可出现在 `outgoingMessages` 元数据中（如可解析），但不进入 `involvedMemberIds`，也不改变独占/共享判定。
 - **是否回填现有接口**：本期不回填；`outgoingMessages`/`involvement` 只在新增端点返回，既有 conversation/coordination/members 响应形状与数值不变。
-- **契约冻结**：a54a62 不可静默修改；本增量以新文档冻结，需要新目标/新契约版本与独立审查。
+- **契约边界**：基础契约的既有字段、必填项、归属、去重和响应数值不能被增量端点静默修改；新增语义必须记录在新契约中。
 - **分页与统计分离**：`nextCursor`/`cursor` 只翻 `batches[]`；两侧 totals、`summary`、coverage 覆盖整个 from/to 范围，不随页变化。
 - **只读与隐私**：只有 GET；`outgoingMessages` 仅消息 id、收件人 id/名称/类型、消息类型、时间，不返回正文、凭据或完整环境。

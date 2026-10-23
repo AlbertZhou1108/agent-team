@@ -1,14 +1,14 @@
 # 成员 ↔ 主 Agent 用量查询 API 增量契约（v2 增量）
 
-状态：**W1 定稿（2026-10-23；待主 Agent 与观测界面确认后冻结）**。
+状态：当前接口契约。
 
 ## 0. 基线与变更范围
 
 - 本文件是增量契约，**base = `docs/host-telemetry-api-contract.md` sha256 `a54a62ebf64b4b01f96c49127cb9656cf3adb9d574957af62400f9d0d7a7d618`（683 行）**。
 - 本文件只**新增**一个只读端点与相关类型；不修改、不覆盖、不静默改变 a54a62 的既有字段、必填项、归属、去重、语义或响应数值。
 - 既有 `GET /api/telemetry/conversation`、`/coordination`、`/members`、`/capabilities` 的响应形状与数值保持不变；本文件新增的 `outgoingMessages`、`involvement` **不回填**到既有端点。
-- 设计依据：`docs/host-telemetry-manager-conversation-design.md`（W1 定稿，见其 sha256）。
-- 本期只读观测；不引入预算、费用、限流、自动压缩、停止、阈值或工作流控制；不提交、不部署。
+- 设计依据：`docs/host-telemetry-manager-conversation-design.md`。
+- 本接口只提供只读观测，不引入预算、费用、限流、自动压缩、停止、阈值或工作流控制。
 
 ## 1. 端点
 
@@ -430,9 +430,9 @@ GET /api/telemetry/manager-conversation?group=g-1&member=m-a&limit=1
 ## 9. 版本与证据
 
 - 增量契约版本：v2 增量（新端点）；base = a54a62（683 行）。
-- 本文件与设计文档的 sha256 由 W1 汇报给出；主 Agent 冻结后作为 W2/W3 的共同依据。
+- 实现以本文件与对应设计文档的当前版本为准；任何字段或语义修改都需要新契约版本。
 - 相关文档：
   - `docs/host-telemetry-api-contract.md`（a54a62，683 行，未改）
   - `docs/host-telemetry-design.md`（08e971cc…，未改）
-  - `docs/host-telemetry-manager-conversation-design.md`（W1 定稿）
+  - `docs/host-telemetry-manager-conversation-design.md`
   - `docs/host-telemetry-manager-conversation-contract.md`（本文件）

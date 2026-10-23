@@ -1,10 +1,10 @@
 # 团队会话输入与主 Agent 指令
 
-团队面板逐步提供受控操作入口。团队会话输入发送到当前主 Agent 的 coordination，与 Panel Agent 私人会话隔离；不广播给所有成员，也不冒充成员。输入“批准”等文字不触发契约审批。closed 目标仍可交流，新执行任务依旧需要确认新目标；closing、归档和待核实运行沿用现有通信限制。
+团队面板提供受控指令入口。团队会话输入发送到当前 Main Agent 的 coordination，与 Panel Agent 私人会话隔离；不广播给所有成员，也不冒充成员。输入“批准”等文字不触发契约审批。closed 目标仍可交流，新执行任务依旧需要确认新目标；closing、归档和待核实运行沿用现有通信限制。
 
 ## 组件与草稿
 
-`MessageComposer.vue` 从原 Panel Agent 输入区提取，复用既有 InputGroup、默认按钮、输入高度与键盘行为。模型选择、设置及停止运行通过插槽留给 Panel Agent 页面。Enter 发送，Shift+Enter 换行；中文输入法确认不发送。发送中和禁用时均拦截键盘/表单重复提交。
+`MessageComposer.vue` 复用既有 InputGroup、默认按钮、输入高度与键盘行为。模型选择、设置及停止运行通过插槽留给 Panel Agent 页面。Enter 发送，Shift+Enter 换行；中文输入法确认不发送。发送中和禁用时均拦截键盘/表单重复提交。
 
 团队输入草稿按团队独立保存在本机 localStorage，与 Panel Agent 私聊草稿独立；发送中的状态保存在 Pinia，页面切换不取消请求。网络结果不明确时保留请求编号、原文本和原接收者，刷新后重试不会重复创建消息。正文编辑后创建新编号。成功响应只清除该次发送文本，不清除发送期间新输入的草稿。切换团队不会把草稿或完成回调应用到另一团队。
 
@@ -41,8 +41,10 @@ Agent 对任意成员调用 `send` / `note` / `team_send` / `team_note` 时，�
 ## 验证
 
 - `test/team-directives.test.mjs`：真实HTTP无Cookie访问/同源、参数与伪造身份拒绝、持久幂等与重启、忙碌排队、失败不重复派发、Panel主控路由与私聊隔离、closed通信和closing/归档拒绝。
+- `test/panel-streaming.test.mjs`：Panel SSE、团队 SSE、连接快照和完成事件。
+- `test/team-directives.test.mjs` 的流式用例：`send`、`note`、Panel `team_note`、并行同名调用、JSON 转义和工具失败清理。
 - `web/src/stores/team-directives.test.ts`：团队隔离、网络失败/刷新复用编号、双重提交防护、保护发送期间新草稿。
+- `web/src/features/messages/adapters.test.ts`：草稿、完成态和正式消息 ID 去重。
 - `MessageComposer.test.ts`：共享的实际发送处理函数，覆盖IME、换行与发送/禁用状态。
-- 隔离fake宿主浏览器验收：表单发送、共享会话用户消息、已排队到已投递状态及底部布局；未使用真实模型或向用户团队派发消息。
 
-最终回复回归覆盖消息关联、无额外 Agent 回合、历史输出恢复、重启去重、Panel Agent 私聊隔离以及空输出与失败回合。
+回归同时覆盖消息关联、无额外 Agent 回合、最终输出恢复、重启去重、Panel Agent 私聊隔离、空输出与失败回合。真实 DSH 回合验证了回复文本和工具参数增量都进入团队 SSE。
