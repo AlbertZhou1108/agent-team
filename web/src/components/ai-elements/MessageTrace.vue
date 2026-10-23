@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
-import { Clock3, LoaderCircle } from '@lucide/vue';
+import { Clock3 } from '@lucide/vue';
+import PanelState from '@/components/panel/PanelState.vue';
+import { Button } from '@/components/ui/button';
 import { api } from '@/shared/api/client';
 import { buildTurns } from '@/features/traces/reducer';
 import TraceTimeline from './TraceTimeline.vue';
@@ -13,10 +15,12 @@ const props = defineProps<{
   hosts: Record<string, string>;
 }>();
 
+const expanded = ref(false);
 const traceQuery = useQuery({
   queryKey: computed(() => ['message-trace', props.messageId] as const),
   queryFn: ({ signal }) => api.messageTrace(props.messageId, signal),
-  staleTime: 10_000,
+  enabled: expanded,
+  staleTime: 60_000,
   retry: 0,
 });
 
@@ -29,7 +33,7 @@ const turnId = computed(() =>
 const turnQuery = useQuery({
   queryKey: computed(() => ['turn', turnId.value] as const),
   queryFn: ({ signal }) => api.turn(turnId.value!, 0, signal),
-  enabled: computed(() => Boolean(turnId.value)),
+  enabled: computed(() => expanded.value && Boolean(turnId.value)),
   staleTime: 10_000,
   retry: 0,
 });
@@ -62,23 +66,18 @@ const stepCount = computed(() =>
 </script>
 
 <template>
-  <div v-if="turnId" class="inline-trace text-xs text-muted-foreground">
-    <div v-if="turnQuery.isPending.value" class="inline-trace-loading">
-      <LoaderCircle class="animate-spin" />
-      正在读取执行轨迹
-    </div>
-    <details v-else-if="turns.length">
-      <summary>
-        <Clock3 class="size-3.5" />
-        <span>执行轨迹</span>
-        <span v-if="duration" class="text-muted-foreground"
-          >用时 {{ duration }}</span
-        >
-        <span class="text-muted-foreground">· {{ stepCount }} 步</span>
-      </summary>
-      <div class="inline-trace-content">
+  <details class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
+    <summary><Clock3 class="size-3.5" />执行轨迹</summary>
+    <template v-if="expanded">
+      <PanelState v-if="traceQuery.isPending.value || (turnId && turnQuery.isPending.value)" loading title="正在读取执行轨迹" />
+      <PanelState v-else-if="traceQuery.isError.value || turnQuery.isError.value" title="轨迹加载失败">
+        <Button variant="outline" size="sm" @click="traceQuery.refetch(); turnId && turnQuery.refetch()">重试</Button>
+      </PanelState>
+      <div v-else-if="turns.length" class="inline-trace-content">
+        <p>用时 {{ duration }} · {{ stepCount }} 步</p>
         <TraceTimeline :turns="turns" />
       </div>
-    </details>
-  </div>
+      <p v-else>暂无执行轨迹</p>
+    </template>
+  </details>
 </template>

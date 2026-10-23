@@ -184,8 +184,8 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             } catch (error) {
               return failJson(error.status ?? 500, error);
             }
-          } else if (url.pathname === '/api/snapshot') value = bus.snapshot();
-          else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState();
+          } else if (url.pathname === '/api/snapshot') value = bus.snapshot(url.searchParams.get('scoped') === '1' ? url.searchParams.get('group') || '' : undefined);
+          else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState(url.searchParams.get('summary') === '1');
           else if (url.pathname === '/api/panel-agent/conversation') value = bus.panelConversation(cursor(url));
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
@@ -196,7 +196,27 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);
-            value = bus.store.all('SELECT * FROM messages WHERE group_id=? AND seq>? ORDER BY seq LIMIT 200', group, cursor(url));
+            if (url.searchParams.get('latest') === '1') {
+              const endpointId = url.searchParams.get('endpoint');
+              const endpoint = endpointId ? (bus.store.get('SELECT * FROM endpoints WHERE id=? AND group_id=?', endpointId, group) ?? bus.store.get("SELECT id,panel_agent_id AS member_id,NULL AS peer FROM panel_sessions WHERE id=? AND group_id=? AND context='coordination'", endpointId, group)) : null;
+              const params = [group];
+              let where = 'group_id=?';
+              if (endpointId && !endpoint) return fail(404, '不存在的团队会话');
+              if (endpoint?.peer) {
+                where += ' AND ((sender=? AND recipient=?) OR (sender=? AND recipient=?))';
+                params.push(endpoint.member_id, endpoint.peer, endpoint.peer, endpoint.member_id);
+              } else if (endpoint) {
+                where += ' AND (sender=? OR recipient=?)';
+                params.push(endpoint.member_id, endpoint.member_id);
+              }
+              const before = Number(url.searchParams.get('before'));
+              if (before > 0) { where += ' AND seq<?'; params.push(before); }
+              const after = Number(url.searchParams.get('after'));
+              if (after > 0) {
+                where += ' AND seq>?'; params.push(after);
+                value = bus.store.all(`SELECT * FROM messages WHERE ${where} ORDER BY seq LIMIT 200`, ...params);
+              } else value = bus.store.all(`SELECT * FROM messages WHERE ${where} ORDER BY seq DESC LIMIT 50`, ...params).reverse();
+            } else value = bus.store.all('SELECT * FROM messages WHERE group_id=? AND seq>? ORDER BY seq LIMIT 200', group, cursor(url));
           } else if (url.pathname === '/api/message-trace') {
             value = bus.store.messageTrace(url.searchParams.get('message'));
             if (!value) return fail(404, 'Not found');

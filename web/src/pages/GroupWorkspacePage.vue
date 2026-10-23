@@ -12,6 +12,7 @@ import {
 } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
+import { useMediaQuery } from '@vueuse/core';
 import {
   Activity,
   ChevronsLeft,
@@ -61,8 +62,8 @@ const router = useRouter();
 const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
-const snapshotQuery = useSnapshotQuery();
-const panelAgentQuery = usePanelAgentQuery();
+const snapshotQuery = useSnapshotQuery(() => routeString(route.params.groupId) || undefined);
+const panelAgentQuery = usePanelAgentQuery(() => route.name === 'panel-agent');
 
 const snapshot = computed(() => snapshotQuery.data.value);
 const allGroups = computed(() => snapshot.value?.groups ?? []);
@@ -277,11 +278,14 @@ const contextTabs: Array<{
   { value: 'details', label: '详情', icon: Activity },
 ];
 
-const messagesQuery = useMessagesQuery(() => groupId.value || undefined);
+const wideScreen = useMediaQuery('(min-width: 1280px)');
+const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
+const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
+const messagesQuery = useMessagesQuery(() => groupId.value || undefined, () => selectedSessionId.value || undefined);
 const historyQuery = useHistoryQuery(
-  () => selectedSessionId.value || undefined,
+  () => detailsVisible.value && ['trace', 'events'].includes(activeTab.value) ? selectedSessionId.value || undefined : undefined,
 );
-const modelsQuery = useModelsQuery(() => selectedSessionId.value || undefined);
+const modelsQuery = useModelsQuery(() => detailsVisible.value && activeTab.value === 'models' ? selectedSessionId.value || undefined : undefined);
 
 const messageViews = computed(() => {
   const endpoint = selectedEndpoint.value;
@@ -317,12 +321,12 @@ const endpointHosts = computed(
 );
 
 const turns = computed(() =>
-  buildTurns(historyQuery.rows.value, {
+  detailsVisible.value && activeTab.value === 'trace' ? buildTurns(historyQuery.rows.value, {
     hosts: endpointHosts.value,
     running: selectedSessionId.value
       ? runningEndpoints.value.includes(selectedSessionId.value)
       : false,
-  }),
+  }) : [],
 );
 
 const runningMemberIds = computed(
@@ -370,7 +374,7 @@ watchEffect(() => {
 watch(
   [groups, groupId],
   ([items, id]) => {
-    if (!id || (items.length && items.some((item) => item.id === id))) return;
+    if (!snapshot.value || snapshotQuery.isPending.value || !id || items.some((item) => item.id === id)) return;
     router.replace({
       name: 'group',
     });
@@ -379,7 +383,7 @@ watch(
 );
 
 watch([currentEndpoints, selectedSessionId], ([items, id]) => {
-  if (!id || items.some((endpoint) => endpoint.id === id)) return;
+  if (!snapshot.value || snapshotQuery.isPending.value || !id || items.some((endpoint) => endpoint.id === id)) return;
   const query = { ...route.query };
   delete query.session;
   delete query.tab;
@@ -855,7 +859,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               /></Button>
             </div>
             <TabsContent
-              v-show="!ui.contextCollapsed"
+              v-if="contextVisible"
               :value="contextPanel"
               class="context-scroll"
             >
@@ -904,7 +908,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :observations="modelsQuery.observations.value"
                 :tab="activeTab"
                 :loading="
-                  Boolean(selectedSessionId && historyQuery.isPending.value)
+                  Boolean(selectedSessionId && (activeTab === 'models' ? modelsQuery.isPending.value : historyQuery.isPending.value))
                 "
                 :has-next-page="inspectorHasNextPage"
                 :fetching-next-page="inspectorFetchingNextPage"

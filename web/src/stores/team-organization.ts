@@ -4,6 +4,7 @@ type Folder = { id: string; name: string; color?: string; collapsed?: boolean };
 type TeamMeta = { folder?: string; color?: string; pinned?: boolean };
 const key = 'agent-team:organization';
 function load(): {
+  sections: { pinned: boolean; ungrouped: boolean };
   folders: Folder[];
   teams: Record<string, TeamMeta>;
   order: string[];
@@ -13,17 +14,19 @@ function load(): {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
     return {
+      sections: { pinned: saved.sections?.pinned === true, ungrouped: saved.sections?.ungrouped === true },
       folders: Array.isArray(saved.folders) ? saved.folders : [],
       teams: saved.teams ?? {},
       order: saved.order ?? [],
       homePinned: Array.isArray(saved.homePinned) ? saved.homePinned : [],
       homeOrder: Array.isArray(saved.homeOrder) ? saved.homeOrder : [],
     };
-  } catch { return { folders: [], teams: {}, order: [], homePinned: [], homeOrder: [] }; }
+  } catch { return { sections: { pinned: false, ungrouped: false }, folders: [], teams: {}, order: [], homePinned: [], homeOrder: [] }; }
 }
 export const useTeamOrganization = defineStore('team-organization', {
   state: load,
   actions: {
+    toggleSection(section: 'pinned' | 'ungrouped') { this.sections[section] = !this.sections[section]; this.persist(); },
     persist() { localStorage.setItem(key, JSON.stringify(this.$state)); },
     createFolder(name: string) {
       if (!name.trim()) return;

@@ -3,7 +3,7 @@ import PanelState from '@/components/panel/PanelState.vue';
 import RecordPanel from '@/components/panel/RecordPanel.vue';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Activity, ArrowLeftRight, Braces, Database, Gauge, LoaderCircle, ChevronRight } from '@lucide/vue';
 import type {
   Member,
@@ -38,6 +38,12 @@ const props = defineProps<{
   fetchingNextPage?: boolean;
   controller?: { kind: 'member' | 'panel_agent'; id: string; name: string } | null;
 }>();
+
+const expandedRecords = ref(new Set<string>());
+function toggleRecord(key: string, event: Event) {
+  if ((event.target as HTMLDetailsElement).open) expandedRecords.value.add(key);
+  else expandedRecords.value.delete(key);
+}
 
 const emit = defineEmits<{
   'update:tab': [value: InspectorTab];
@@ -164,7 +170,7 @@ function prettyEvent(value: string) {
             <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
             <RecordPanel v-else-if="tab === 'events'" title="原始事件" :count="historyRows.length" description="宿主实际输出的事件流，可能包含宿主自身的截断。">
               <PanelState v-if="!historyRows.length" :icon="Braces" title="暂无原始事件" description="会话产生事件后会显示在这里。" />
-              <details v-for="row in historyRows" :key="row.seq" class="group" data-record-row>
+              <details v-for="row in historyRows" :key="row.seq" @toggle="toggleRecord('event:' + row.seq, $event)" class="group" data-record-row>
                 <summary
                   class="flex cursor-pointer items-center gap-2 py-2 text-xs"
                 >
@@ -178,7 +184,7 @@ function prettyEvent(value: string) {
                   }}</time>
                   <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
                 </summary>
-                <CodeBlock :code="prettyEvent(row.event)" max-height="16rem" />
+                <CodeBlock v-if="expandedRecords.has('event:' + row.seq)" :code="prettyEvent(row.event)" max-height="16rem" />
               </details>
             </RecordPanel>
             <div v-else-if="tab === 'models'" class="flex flex-col gap-6">
@@ -220,6 +226,7 @@ function prettyEvent(value: string) {
                 <details
                   v-for="observation in observations"
                   :key="observation.seq"
+                  @toggle="toggleRecord('model:' + observation.seq, $event)"
                   data-record-row
                   class="group"
                 >
@@ -240,6 +247,7 @@ function prettyEvent(value: string) {
                     <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
                   </summary>
                   <CodeBlock
+                    v-if="expandedRecords.has('model:' + observation.seq)"
                     :code="JSON.stringify(observation, null, 2)"
                     max-height="12rem"
                   />

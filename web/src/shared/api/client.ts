@@ -68,8 +68,8 @@ export const api = {
   teamGoals(teamId: string, signal?: AbortSignal) {
     return request<TeamGoalsState>('/api/teams/' + encodeURIComponent(teamId) + '/goals', signal);
   },
-  snapshot(signal?: AbortSignal) {
-    return request<Snapshot>('/api/snapshot', signal);
+  snapshot(signal?: AbortSignal, group?: string) {
+    return request<Snapshot>(query('/api/snapshot', { group, scoped: 1 }), signal);
   },
   modelCatalog(refresh = false, signal?: AbortSignal) {
     return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined }), signal);
@@ -77,8 +77,8 @@ export const api = {
   updateModelPolicy(mode: ModelPolicy['mode'], rules: string) {
     return mutate<ModelPolicy>('/api/model-policy', { mode, rules });
   },
-  panelAgent(signal?: AbortSignal) {
-    return request<PanelAgentState>('/api/panel-agent', signal);
+  panelAgent(signal?: AbortSignal, summary = false) {
+    return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined }), signal);
   },
   createPanelAgent(body: {
     name: string;
@@ -191,8 +191,8 @@ export const api = {
   restoreTeamGoals(teamId: string, body: { revision: number; operationId: string }) {
     return mutate<TeamGoalsState>(`/api/teams/${encodeURIComponent(teamId)}/restore`, body);
   },
-  messages(group: string, after = 0, signal?: AbortSignal) {
-    return request<MessageRow[]>(query('/api/messages', { group, after }), signal);
+  messages(group: string, before: number | undefined, signal?: AbortSignal, endpoint?: string, after?: number) {
+    return request<MessageRow[]>(query('/api/messages', { group, before, endpoint, after, latest: 1 }), signal);
   },
   history(endpoint: string, after = 0, signal?: AbortSignal) {
     return request<HistoryRow[]>(query('/api/history', { endpoint, after }), signal);

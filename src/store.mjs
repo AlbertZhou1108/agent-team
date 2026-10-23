@@ -57,6 +57,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
       CREATE TABLE IF NOT EXISTS panel_action_requests(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,action TEXT NOT NULL CHECK(action IN ('takeover','handback')),base_revision INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','confirmed','dismissed','failed')),detail TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
+      CREATE INDEX IF NOT EXISTS messages_group ON messages(group_id,seq);
       CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
       CREATE INDEX IF NOT EXISTS panel_messages_agent ON panel_messages(panel_agent_id,seq);
       CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
@@ -335,10 +336,17 @@ export class Store {
   }
   endpointModelSummary(id) {
     const panelSession = this.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", id);
-    const all = modelObservations(panelSession
-      ? this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE session_id=? ORDER BY seq', id)
-      : this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id));
-    return deriveCurrentModel(all);
+    const table = panelSession ? 'panel_history' : 'history';
+    const column = panelSession ? 'session_id' : 'endpoint_id';
+    const revision = this.get(`SELECT MAX(seq) AS seq,COUNT(*) AS count FROM ${table} WHERE ${column}=?`, id);
+    this.modelSummaryCache ??= new Map();
+    const cached = this.modelSummaryCache.get(id);
+    if (cached?.seq === revision.seq && cached?.count === revision.count) return cached.value;
+    const value = deriveCurrentModel(modelObservations(this.all(
+      `SELECT seq,turn_id,created,event FROM ${table} WHERE ${column}=? ORDER BY seq`, id,
+    )));
+    this.modelSummaryCache.set(id, { ...revision, value });
+    return value;
   }
   turnTrace(id, after = 0) {
     const turn = this.publicTurn(id);

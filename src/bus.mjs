@@ -144,11 +144,11 @@ export class Bus extends EventEmitter {
       controller: this.teamController(group.id),
     }));
   }
-  panelAgentState() {
+  panelAgentState(summary = false) {
     const agent = this.panelAgent();
     if (!agent) return { agent: null, sessions: [], teams: [], conversation: [] };
     this.ensurePanelBindings();
-    const preparations = this.store.all(
+    const preparations = summary ? [] : this.store.all(
       'SELECT id,spec,contract,revision,hash,group_id,created,model_provider,model,reasoning_effort,role_plan FROM preparations ORDER BY created',
     ).flatMap(row => {
       let spec;
@@ -167,7 +167,7 @@ export class Bus extends EventEmitter {
       teams: this.panelTeamViews(),
       conversation: this.store.all(
         `SELECT * FROM (
-          SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 200
+          SELECT ${summary ? 'seq,id,role,created' : '*'} FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 200
         ) ORDER BY seq`,
         agent.id,
       ),
@@ -176,7 +176,7 @@ export class Bus extends EventEmitter {
         .map(item => ({ endpoint: item.endpoint.id, groupId: item.activeTeamId ?? item.endpoint.group_id ?? null, turnId: item.turnId })),
       preparations,
       unknown: this.panelUnknown(),
-      actions: this.store.all(
+      actions: summary ? [] : this.store.all(
         'SELECT * FROM panel_action_requests WHERE panel_agent_id=? ORDER BY created DESC LIMIT 100',
         agent.id,
       ),
@@ -2026,18 +2026,22 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     try { controllers.push(this.teamController(groupId)); } catch { /* A group without a controller still has host capability declarations. */ }
     return this.telemetry.capabilities(groupId, controllers);
   }
-  snapshot() {
+  snapshot(groupId) {
     this.ensurePanelBindings();
     const panelAgent = this.panelAgent();
     const endpoints = [
       ...this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE context!='private'")
+        .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
         .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) })),
       ...(panelAgent
         ? this.store.all("SELECT id,group_id,panel_agent_id AS member_id,'panel-coordination' AS context,NULL AS peer,session FROM panel_sessions WHERE panel_agent_id=? AND context='coordination'", panelAgent.id)
-          .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) }))
+          .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
+        .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) }))
         : []),
     ];
-    const sessionBindings = this.store.all('SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings ORDER BY endpoint_id,session_key');
+    const visibleEndpoints = groupId === undefined ? endpoints : endpoints.filter(e => e.group_id === groupId);
+    const endpointIds = new Set(visibleEndpoints.map(e => e.id));
+    const sessionBindings = this.store.all('SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings ORDER BY endpoint_id,session_key').filter(b => groupId === undefined || endpointIds.has(b.endpoint_id));
     return {
       groups: this.store.all('SELECT * FROM groups ORDER BY created'),
       members: this.store.all('SELECT * FROM members ORDER BY rowid'),
@@ -2063,7 +2067,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
           reasoning_effort: panelAgent.reasoning_effort,
         }] : []),
       ],
-      endpoints,
+      endpoints: visibleEndpoints,
       sessionBindings,
       modelPolicy: this.modelPolicy(),
       modelPolicyDefaults: {

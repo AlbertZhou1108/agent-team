@@ -2,6 +2,7 @@ import { computed, type MaybeRefOrGetter, toValue } from 'vue';
 import {
   useInfiniteQuery,
   useQuery,
+  useQueryClient,
 } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
 import type {
@@ -41,46 +42,61 @@ export function useTeamGoalsQuery(teamId: MaybeRefOrGetter<string | undefined>) 
   });
 }
 
-export function useSnapshotQuery() {
+export function useSnapshotQuery(groupId: MaybeRefOrGetter<string | undefined> = undefined) {
   return useQuery({
-    queryKey: ['snapshot'],
-    queryFn: ({ signal }) => api.snapshot(signal),
+    queryKey: computed(() => ['snapshot', toValue(groupId)]),
+    queryFn: ({ signal }) => api.snapshot(signal, toValue(groupId)),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
     retry: 1,
   });
 }
 
-export function usePanelAgentQuery() {
+export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
-    queryKey: ['panel-agent'],
-    queryFn: ({ signal }) => api.panelAgent(signal),
+    queryKey: computed(() => ['panel-agent', toValue(full)]),
+    queryFn: ({ signal }) => api.panelAgent(signal, !toValue(full)),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
     retry: 1,
   });
 }
 
-export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>) {
-  const query = useInfiniteQuery({
-    queryKey: computed(() => ['messages', toValue(groupId)] as const),
-    initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => api.messages(toValue(groupId)!, pageParam, signal),
-    getNextPageParam: (lastPage: MessageRow[]) => (
-      lastPage.length === 200 ? lastPage.at(-1)?.seq : undefined
-    ),
+export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, endpoint: MaybeRefOrGetter<string | undefined> = undefined) {
+  const client = useQueryClient();
+  const key = computed(() => ['messages', toValue(groupId), toValue(endpoint)] as const);
+  const head = useQuery({
+    queryKey: key,
+    queryFn: async ({ signal, queryKey }) => {
+      const previous = client.getQueryData<MessageRow[]>(queryKey) ?? [];
+      const rows = [...previous];
+      let after = previous.at(-1)?.seq;
+      // Drain new records independently of the frozen history pages.
+      while (true) {
+        const batch = await api.messages(queryKey[1]!, undefined, signal, queryKey[2], after);
+        rows.push(...batch);
+        if (after === undefined || batch.length < 200) break;
+        after = batch.at(-1)!.seq;
+      }
+      return [...new Map(rows.map(row => [row.seq, row])).values()].sort((a, b) => a.seq - b.seq);
+    },
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });
-
-  const rows = computed(() => {
-    const pages = query.data.value?.pages.flat() ?? [];
-    return [...new Map(pages.map(row => [row.seq, row])).values()]
-      .sort((a, b) => a.seq - b.seq);
+  const history = useInfiniteQuery({
+    queryKey: computed(() => ['message-history', toValue(groupId), toValue(endpoint)] as const),
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam, signal, queryKey }) => api.messages(queryKey[1]!, pageParam ?? head.data.value?.[0]?.seq, signal, queryKey[2]),
+    getNextPageParam: (last: MessageRow[]) => last.length === 50 ? last[0]?.seq : undefined,
+    enabled: false,
+    staleTime: Infinity,
   });
-
-  return { ...query, rows };
+  const rows = computed(() => [...new Map([
+    ...(history.data.value?.pages.flat() ?? []), ...(head.data.value ?? []),
+  ].map(row => [row.seq, row])).values()].sort((a, b) => a.seq - b.seq));
+  const hasNextPage = computed(() => history.data.value ? history.hasNextPage.value : (head.data.value?.length ?? 0) >= 50);
+  return { ...head, rows, hasNextPage, fetchNextPage: history.fetchNextPage, isFetchingNextPage: history.isFetchingNextPage };
 }
 
 export function useHistoryQuery(

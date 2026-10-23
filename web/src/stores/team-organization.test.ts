@@ -77,3 +77,14 @@ it('reorders folders and teams while preserving selected block order and members
   expect(store.teams.one.folder).toBeUndefined();
   expect(store.order).toEqual(['target', 'one', 'two', 'last']);
 });
+
+ it('persists independent pinned and ungrouped section collapse states', () => {
+   const store = useTeamOrganization();
+   expect(store.sections).toEqual({ pinned: false, ungrouped: false });
+   store.toggleSection('pinned');
+   setActivePinia(createPinia());
+   const restored = useTeamOrganization();
+   expect(restored.sections).toEqual({ pinned: true, ungrouped: false });
+   restored.toggleSection('ungrouped');
+   expect(restored.sections).toEqual({ pinned: true, ungrouped: true });
+ });

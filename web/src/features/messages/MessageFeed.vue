@@ -70,6 +70,12 @@ const messageIds = computed(() => filtered.value.map((message) => message.id));
         >
       </div>
     </template>
+    <div v-if="hasNextPage" class="flex justify-center py-2">
+      <Button variant="outline" size="sm" :disabled="fetchingNextPage" @click="emit('loadMore')">
+        <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
+        {{ fetchingNextPage ? '正在加载' : '加载更早消息' }}
+      </Button>
+    </div>
     <div v-for="group in messageGroups" :key="group.id" class="chat-message">
       <details
         v-if="group.notifications && group.messages.length > 1"
@@ -107,18 +113,6 @@ const messageIds = computed(() => filtered.value.map((message) => message.id));
     </div>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
     <PanelState v-else-if="!filtered.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
-    <template #footer>
-      <Button
-        v-if="hasNextPage"
-        variant="outline"
-        size="sm"
-        class="mb-2 mt-2 w-full"
-        :disabled="fetchingNextPage"
-        @click="emit('loadMore')"
-      >
-        <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
-        {{ fetchingNextPage ? '正在加载' : '加载更多消息' }}
-      </Button>
-    </template>
+
   </ConversationPanel>
 </template>

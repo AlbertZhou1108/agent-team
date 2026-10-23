@@ -45,12 +45,21 @@ function scrollToBottom(behavior: ScrollBehavior = 'auto') {
 }
 
 watch(
-  () => props.ids.map((id) => String(id)).join('\u0000'),
-  async () => {
-    // Capture intent before Vue appends content and changes scroll geometry.
+  () => props.ids.map(String),
+  async (ids, previous) => {
+    const element = stream.value;
+    if (!element) return;
+    const prepend = previous.length > 0 && ids.indexOf(previous[0]!) > 0;
+    const top = element.scrollTop;
+    const height = element.scrollHeight;
     const follow = atBottom.value;
+    // History insertion must take precedence over following the live tail.
+    if (prepend) atBottom.value = false;
     await nextTick();
-    if (follow) scrollToBottom();
+    if (prepend) {
+      element.scrollTop = top + element.scrollHeight - height;
+      updatePosition();
+    } else if (follow) scrollToBottom();
     else updatePosition();
   },
   { flush: 'pre' },
@@ -87,7 +96,7 @@ defineExpose({ scrollToBottom });
       role="log"
       aria-relevant="additions"
       :aria-label="ariaLabel"
-      :class="cn('min-h-0', streamClass)"
+      :class="cn('min-h-0 [overflow-anchor:none]', streamClass)"
       @scroll="updatePosition"
     >
       <div ref="content" :class="contentClass">

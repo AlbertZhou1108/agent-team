@@ -147,11 +147,11 @@ const folderTeams = (id: string) =>
   );
 const visibleIds = computed(() =>
   [
-    ...pinned.value,
+    ...(org.sections.pinned ? [] : pinned.value),
     ...org.folders.flatMap((folder) =>
       folder.collapsed ? [] : folderTeams(folder.id),
     ),
-    ...rootTeams.value,
+    ...(org.sections.ungrouped ? [] : rootTeams.value),
   ].map((group) => group.id),
 );
 function selectTeam(id: string, event: MouseEvent) {
@@ -374,12 +374,11 @@ function createFolder() {
       @dragend="clearDrag"
       @dragleave="leaveNavigation"
     >
-      <p
-        v-if="pinned.length && !ui.sidebarCollapsed"
-        class="team-section-label"
-      >
+      <SidebarEntry v-if="pinned.length" title="置顶" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="org.toggleSection('pinned')">
         置顶
-      </p>
+        <template #indicator><component :is="org.sections.pinned ? ChevronRight : ChevronDown" /></template>
+      </SidebarEntry>
+      <template v-if="!org.sections.pinned">
       <TeamRow
         v-for="group in pinned"
         :key="group.id"
@@ -395,6 +394,7 @@ function createFolder() {
         @archive="emit('archive', group.id)"
         :class="insertionClass(group.id, 'team')"
       />
+      </template>
       <section
         v-for="folder in org.folders"
         :key="folder.id"
@@ -455,12 +455,11 @@ function createFolder() {
         @drop.stop="drop($event)"
         :class="{ 'team-drop-target': dropTarget === 'root' }"
       >
-        <div
-          v-if="org.folders.length"
-          class="team-root-separator"
-          role="separator"
-          aria-label="文件夹与团队分隔"
-        />
+        <SidebarEntry title="未分组团队" :expanded="!org.sections.ungrouped" :active="org.sections.ungrouped && rootTeams.some(g => g.id === currentGroupId)" @activate="org.toggleSection('ungrouped')">
+          未分组团队
+          <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
+        </SidebarEntry>
+        <template v-if="!org.sections.ungrouped">
         <TeamRow
           v-for="group in rootTeams"
           :key="group.id"
@@ -476,6 +475,7 @@ function createFolder() {
           @archive="emit('archive', group.id)"
           :class="insertionClass(group.id, 'team')"
         />
+        </template>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"

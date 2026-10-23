@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query';
 import App from './App.vue';
+import { installTabCache } from './shared/api/tab-cache';
 import { router } from './app/router';
 import { applyColorMode, usePreferencesStore } from './stores/preferences';
 import '@fontsource-variable/noto-sans-sc';
@@ -30,12 +31,15 @@ try {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
+        gcTime: Infinity,
         staleTime: 1000,
         retry: 1,
         refetchOnWindowFocus: false,
       },
     },
   });
+
+  try { installTabCache(queryClient, window.sessionStorage, window); } catch { /* Keep in-memory caching when storage is unavailable. */ }
 
   const app = createApp(App);
   app.config.errorHandler = (error) => showFatal(error);
