@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
+import { Telemetry, telemetryObservation } from './telemetry.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { panelCommandObject, panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { Collaboration, roleNameKey } from './collaboration.mjs';
@@ -18,6 +19,9 @@ export class Bus extends EventEmitter {
   constructor({ directory, hosts, confirm = async () => false }) {
     super();
     this.store = new Store(directory);
+    this.telemetry = new Telemetry(this.store, {
+      capabilityFor: host => this.hosts.get(host)?.telemetryCapabilities ?? null,
+    });
     this.collaboration = new Collaboration(this.store);
     this.lifecycle = new TeamGoalLifecycle(this.store);
     this.hosts = hosts;
@@ -740,6 +744,7 @@ export class Bus extends EventEmitter {
       turnId,
       done: null,
     };
+    const telemetryStarted = performance.now();
     this.running.set(session.id, live);
     this.store.panelHistory(session.id, { type: 'input', text: prompt }, turnId);
     this.store.panelHistory(session.id, {
@@ -795,6 +800,25 @@ export class Bus extends EventEmitter {
         }
         this.store.panelHistory(session.id, { type: 'framework.policy', ...observation }, turnId);
       },
+      onTelemetry: observation => {
+        try {
+          this.telemetry.record({
+            groupId: session.group_id,
+            executorKind: 'panel_agent',
+            executorId: panelAgent.id,
+            endpointId: session.id,
+            sessionKey: 'default',
+            turnId,
+            turnKind: 'panel',
+            host: panelAgent.host,
+            hostSessionId: session.session ?? null,
+            context: session.context,
+            observation,
+          });
+        } catch {
+          // Telemetry is observational and must never turn a host turn into a failure.
+        }
+      },
       onEvent: event => {
         if (!this.closing) this.store.panelHistory(session.id, event, turnId);
       },
@@ -825,6 +849,28 @@ export class Bus extends EventEmitter {
       }, turnId);
       throw error;
     } finally {
+      try {
+        this.telemetry.record({
+          groupId: session.group_id,
+          executorKind: 'panel_agent',
+          executorId: panelAgent.id,
+          endpointId: session.id,
+          sessionKey: 'default',
+          turnId,
+          turnKind: 'panel',
+          host: panelAgent.host,
+          hostSessionId: session.session ?? null,
+          context: session.context,
+          observation: telemetryObservation({
+            source: 'framework.measured',
+            scope: 'turn',
+            aggregation: 'delta',
+            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
+            quality: { executionWallMs: 'measured' },
+            completeness: { executionWallMs: 'complete' },
+          }),
+        });
+      } catch { /* telemetry must not affect the host outcome */ }
       this.running.delete(session.id);
       if (session.context === 'coordination' && session.group_id) {
         this.reconcile(session.group_id);
@@ -1785,6 +1831,7 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       this.collaboration.currentGoalId(group.id),
     );
     const live = { endpoint: effectiveEndpoint, abort, turnId, done: null };
+    const telemetryStarted = performance.now();
     this.running.set(endpoint.id, live);
     this.store.history(endpoint.id, { type: 'input', text }, turnId);
     this.store.history(endpoint.id, {
@@ -1821,6 +1868,25 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
         }
         this.store.history(endpoint.id, { type: 'framework.policy', ...observation }, turnId);
       },
+      onTelemetry: observation => {
+        try {
+          this.telemetry.record({
+            groupId: group.id,
+            executorKind: 'member',
+            executorId: endpoint.member_id,
+            endpointId: endpoint.id,
+            sessionKey,
+            turnId,
+            turnKind: 'member',
+            host: member.host,
+            hostSessionId: effectiveEndpoint.session ?? null,
+            context: endpoint.context,
+            observation,
+          });
+        } catch {
+          // Telemetry is observational and must never turn a host turn into a failure.
+        }
+      },
       onEvent: event => { if (!this.closing) this.store.history(endpoint.id, event, turnId); },
     }));
     live.done = promise;
@@ -1833,7 +1899,31 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       this.store.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', error.message, new Date().toISOString(), turnId);
       this.store.history(endpoint.id, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message }, turnId); throw error;
     }
-    finally { this.running.delete(endpoint.id); this.reconcile(group.id); setImmediate(() => this.pump()); }
+    finally {
+      try {
+        this.telemetry.record({
+          groupId: group.id,
+          executorKind: 'member',
+          executorId: endpoint.member_id,
+          endpointId: endpoint.id,
+          sessionKey,
+          turnId,
+          turnKind: 'member',
+          host: member.host,
+          hostSessionId: effectiveEndpoint.session ?? null,
+          context: endpoint.context,
+          observation: telemetryObservation({
+            source: 'framework.measured',
+            scope: 'turn',
+            aggregation: 'delta',
+            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
+            quality: { executionWallMs: 'measured' },
+            completeness: { executionWallMs: 'complete' },
+          }),
+        });
+      } catch { /* telemetry must not affect the host outcome */ }
+      this.running.delete(endpoint.id); this.reconcile(group.id); setImmediate(() => this.pump());
+    }
   }
   async privateTurn(groupId, text) {
     this.store.group(groupId);
@@ -1896,6 +1986,13 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     if (!e || this.running.has(e.id) || this.collaboration.unknown(e.group_id).some(r => r.endpoint_id === e.id)) throw new Error('会话不存在、运行中或停止状态未核实');
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要明确重建会话的原因');
     this.store.history(e.id, { type: 'framework.session_rotated', previousSession: e.session, reason });
+    const rotationKeys = sessionKey
+      ? [sessionKey]
+      : [...new Set([
+          ...this.store.all('SELECT session_key FROM endpoint_session_bindings WHERE endpoint_id=?', e.id).map(row => row.session_key),
+          'default',
+        ])];
+    for (const key of rotationKeys) this.telemetry.rotateSession(e.id, key);
     if (sessionKey) {
       this.store.run('DELETE FROM endpoint_session_bindings WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
       this.store.run('DELETE FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
@@ -1907,6 +2004,27 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const remaining = this.store.get('SELECT session FROM endpoint_session_bindings WHERE endpoint_id=? ORDER BY updated DESC LIMIT 1', e.id);
     this.store.run('UPDATE endpoints SET session=? WHERE id=?', remaining?.session ?? null, e.id);
     return { endpointId: e.id, previousSession: e.session, sessionKey, historyRetained: true };
+  }
+  telemetryConversation(groupId, memberId, peerId, options = {}) {
+    return this.telemetry.conversation(groupId, memberId, peerId, options);
+  }
+  telemetryManagerConversation(groupId, memberId, options = {}) {
+    if (!this.store.get('SELECT 1 FROM groups WHERE id=?', groupId)) {
+      throw Object.assign(new Error('群不存在'), { status: 404 });
+    }
+    return this.telemetry.managerConversation(groupId, this.teamController(groupId), memberId, options);
+  }
+  telemetryCoordination(groupId, options = {}) {
+    const controller = this.teamController(groupId);
+    return this.telemetry.coordination(groupId, controller, options);
+  }
+  telemetryMembers(groupId, options = {}) {
+    return this.telemetry.members(groupId, options);
+  }
+  telemetryCapabilities(groupId) {
+    const controllers = [];
+    try { controllers.push(this.teamController(groupId)); } catch { /* A group without a controller still has host capability declarations. */ }
+    return this.telemetry.capabilities(groupId, controllers);
   }
   snapshot() {
     this.ensurePanelBindings();

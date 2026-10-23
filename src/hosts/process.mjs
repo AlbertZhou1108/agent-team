@@ -39,6 +39,7 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
     overlay.push(
       { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('./dsh-policy.mjs', import.meta.url)), config: execution }] },
       { insert: [{ id: 'agent-team-model-observer', name: fileURLToPath(new URL('./dsh-model-observer.mjs', import.meta.url)) }] },
+      { insert: [{ id: 'agent-team-telemetry-observer', name: fileURLToPath(new URL('./dsh-telemetry-observer.mjs', import.meta.url)) }] },
     );
   }
   writeFileSync(dsh, JSON.stringify(overlay), { mode: 0o600 });

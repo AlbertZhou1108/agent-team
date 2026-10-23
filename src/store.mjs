@@ -78,6 +78,43 @@ export class Store {
         CREATE TABLE IF NOT EXISTS message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);`);
       if (!this.all('PRAGMA table_info(history)').some(column => column.name === 'turn_id')) this.db.exec('ALTER TABLE history ADD COLUMN turn_id TEXT REFERENCES turns(id) ON DELETE CASCADE');
       this.db.exec('CREATE INDEX IF NOT EXISTS history_turn ON history(turn_id,seq); CREATE INDEX IF NOT EXISTS inputs_message ON turn_inputs(message_id);');
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS telemetry_observations(
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          executor_kind TEXT NOT NULL,
+          executor_id TEXT NOT NULL,
+          endpoint_id TEXT NOT NULL,
+          session_key TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          turn_kind TEXT NOT NULL,
+          host TEXT NOT NULL,
+          host_session_namespace TEXT NOT NULL,
+          host_session_id TEXT,
+          instance_id TEXT NOT NULL,
+          instance_generation INTEGER NOT NULL DEFAULT 0,
+          native_turn_id TEXT NOT NULL DEFAULT '',
+          step_id TEXT NOT NULL DEFAULT '',
+          request_id TEXT NOT NULL DEFAULT '',
+          attempt_id TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          aggregation TEXT NOT NULL,
+          observed_at TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL,
+          UNIQUE(executor_kind,executor_id,endpoint_id,session_key,turn_id,instance_id,source,scope,aggregation,native_turn_id,step_id,request_id,attempt_id)
+        );
+        CREATE INDEX IF NOT EXISTS telemetry_observations_group ON telemetry_observations(group_id,observed_at);
+        CREATE TABLE IF NOT EXISTS telemetry_session_generations(
+          endpoint_id TEXT NOT NULL,
+          session_key TEXT NOT NULL,
+          generation INTEGER NOT NULL DEFAULT 0,
+          updated TEXT NOT NULL,
+          PRIMARY KEY(endpoint_id,session_key)
+        );
+      `);
     });
     const ensureColumn = (table, name, definition) => {
       if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {

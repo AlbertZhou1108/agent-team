@@ -83,6 +83,10 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
     socketOwned = true; chmodSync(socketPath, 0o600);
     panel = http.createServer(async (request, response) => {
       const fail = (status, text) => { response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); response.end(text); };
+      const failJson = (status, error) => {
+        response.writeHead(status, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      };
       try {
         const actualPort = panel.address().port;
         if (request.headers.host !== `127.0.0.1:${actualPort}` && request.headers.host !== `localhost:${actualPort}`) return fail(403, 'Invalid host');
@@ -148,6 +152,37 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
               } else if (actionMatch) {
                 value = bus.decidePanelControllerAction(decodeURIComponent(actionMatch[1]), body.approved === true);
               } else return fail(404, 'Not found');
+            }
+          } else if (url.pathname.startsWith('/api/telemetry/')) {
+            try {
+              const group = url.searchParams.get('group');
+              if (!group || !group.trim()) throw Object.assign(new Error('缺少 group 参数'), { status: 400 });
+              const options = {
+                from: url.searchParams.get('from') || null,
+                to: url.searchParams.get('to') || null,
+                cursor: url.searchParams.get('cursor'),
+                limit: url.searchParams.get('limit') ?? 20,
+              };
+              if (url.pathname === '/api/telemetry/conversation') {
+                const member = url.searchParams.get('member');
+                const peer = url.searchParams.get('peer');
+                if (!member || !peer) throw Object.assign(new Error('缺少 member 或 peer 参数'), { status: 400 });
+                value = bus.telemetryConversation(group, member, peer, options);
+              } else if (url.pathname === '/api/telemetry/manager-conversation') {
+                const member = url.searchParams.get('member');
+                if (!member || !member.trim()) throw Object.assign(new Error('缺少 member 参数'), { status: 400 });
+                value = bus.telemetryManagerConversation(group, member, options);
+              } else if (url.pathname === '/api/telemetry/coordination') {
+                value = bus.telemetryCoordination(group, options);
+              } else if (url.pathname === '/api/telemetry/members') {
+                value = bus.telemetryMembers(group, options);
+              } else if (url.pathname === '/api/telemetry/capabilities') {
+                value = bus.telemetryCapabilities(group);
+              } else {
+                return failJson(404, new Error('Not found'));
+              }
+            } catch (error) {
+              return failJson(error.status ?? 500, error);
             }
           } else if (url.pathname === '/api/snapshot') value = bus.snapshot();
           else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState();

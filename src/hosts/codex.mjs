@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, policyObservation } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
+import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   let child, init, nextId = 0, stderr = '', serverNames = [];
   const pending = new Map(), active = new Map(), ended = new Map(), waits = new Map();
+  const usageBaselines = new Map(), turnBaselines = new Map(), emittedTurns = new Set();
   const send = value => child.stdin.write(JSON.stringify(value) + '\n');
   const fail = error => {
     error.runtimeUnknown = true;
@@ -31,6 +33,91 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
     }
     const context = active.get(row.params?.threadId);
     context?.onEvent(row);
+    if (context?.onTelemetry) {
+      if (row.method === 'thread/tokenUsage/updated') {
+        const usage = row.params?.tokenUsage;
+        const nativeTurnId = row.params?.turnId;
+        const threadId = row.params?.threadId;
+        const total = usage?.total;
+        if (context.currentNativeTurnId && nativeTurnId && String(nativeTurnId) !== String(context.currentNativeTurnId)) {
+          context.onTelemetry?.(telemetryObservation({
+            source: 'codex.thread_token_usage', scope: 'turn', aggregation: 'delta', nativeTurnId,
+            requestId: 'restored-old-turn',
+            anomalies: [{ code: 'overlapping_sources', fields: ['inputTokensTotal', 'outputTokens', 'totalTokens'], detail: '恢复会话收到旧回合累计通知；已路由到原回合且未覆盖其既有回合用量', observedAt: new Date().toISOString(), raw: { nativeTurnId, currentNativeTurnId: context.currentNativeTurnId } }],
+            attempt: { id: String(nativeTurnId), state: 'unknown' },
+          }));
+        } else if (total) {
+          const prior = usageBaselines.get(threadId);
+          const turnKey = `${threadId}:${nativeTurnId}`;
+          if (prior !== undefined) {
+            if (!turnBaselines.has(turnKey)) turnBaselines.set(turnKey, prior);
+            const baseline = turnBaselines.get(turnKey);
+            if (baseline !== null) {
+              const delta = {
+                inputTokensTotal: total.inputTokens - baseline.inputTokens,
+                cacheReadTokens: total.cachedInputTokens - baseline.cachedInputTokens,
+                cacheWriteTokens: total.cacheWriteInputTokens - baseline.cacheWriteInputTokens,
+                outputTokens: total.outputTokens - baseline.outputTokens,
+                totalTokens: total.totalTokens - baseline.totalTokens,
+              };
+              const negative = Object.values(delta).some(value => Number.isFinite(value) && value < 0);
+              if (negative) {
+                context.onTelemetry?.(telemetryObservation({
+                  source: 'codex.thread_token_usage', scope: 'turn', aggregation: 'delta', nativeTurnId,
+                  anomalies: [{ code: 'count_regression', fields: Object.keys(delta), detail: 'Codex 累计计数回退，未生成回合用量', observedAt: new Date().toISOString(), raw: { baseline, total } }],
+                  attempt: { id: String(nativeTurnId ?? threadId), state: 'unknown' },
+                }));
+              } else if (!emittedTurns.has(turnKey) || Object.values(delta).some(value => value !== 0)) {
+                context.onTelemetry?.(telemetryObservation({
+                  source: 'codex.thread_token_usage', scope: 'turn', aggregation: 'delta', nativeTurnId,
+                  usage: {
+                    ...delta,
+                    uncachedInputTokens: delta.inputTokensTotal - delta.cacheReadTokens - delta.cacheWriteTokens,
+                  },
+                  quality: { uncachedInputTokens: 'derived' },
+                  formula: { uncachedInputTokens: 'inputTokensTotal - cacheReadTokens - cacheWriteTokens' },
+                  completeness: {
+                    inputTokensTotal: 'complete', uncachedInputTokens: 'complete', cacheReadTokens: 'complete',
+                    cacheWriteTokens: 'complete', outputTokens: 'complete', totalTokens: 'complete',
+                  },
+                  attempt: { id: String(nativeTurnId ?? threadId), state: 'succeeded' },
+                }));
+                emittedTurns.add(turnKey);
+              }
+            }
+            usageBaselines.set(threadId, {
+              inputTokens: total.inputTokens,
+              cachedInputTokens: total.cachedInputTokens,
+              cacheWriteInputTokens: total.cacheWriteInputTokens,
+              outputTokens: total.outputTokens,
+              totalTokens: total.totalTokens,
+            });
+          }
+        }
+        if (usage && (usage.last || usage.modelContextWindow)) {
+          context.onTelemetry?.(telemetryObservation({
+            source: 'codex.token_usage', scope: 'request', aggregation: 'snapshot', nativeTurnId,
+            context: {
+              lastRequestInputTokens: usage.last?.inputTokens,
+              contextWindowTokens: usage.modelContextWindow,
+              model: context.telemetryModel ?? null,
+            },
+            completeness: { lastRequestInputTokens: 'complete', contextWindowTokens: 'complete' },
+          }));
+        }
+      }
+      if (row.method === 'turn/completed') {
+        const turn = row.params?.turn;
+        if (turn) {
+          context.onTelemetry?.(telemetryObservation({
+            source: 'codex.turn_completed', scope: 'turn', aggregation: 'delta', nativeTurnId: turn.id,
+            timing: { hostTurnWallMs: turn.durationMs },
+            completeness: { hostTurnWallMs: Number.isFinite(turn.durationMs) ? 'complete' : 'unknown' },
+            attempt: { id: String(turn.id), state: turn.status === 'completed' ? 'succeeded' : 'failed' },
+          }));
+        }
+      }
+    }
     if ('id' in row && row.method) {
       if (row.method !== 'item/tool/call' || !context) return send({ id: row.id, error: { code: -32601, message: 'Unowned or unsupported request' } });
       const name = row.params.tool;
@@ -104,6 +191,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         ? { supported: true }
         : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要契约允许沙箱命令' };
     },
+    telemetryCapabilities: telemetryCapabilitiesFor('codex'),
     async run(context) {
       await ready();
       const { endpoint, prompt, instructions, onSession, onAccepted, signal } = context;
@@ -137,7 +225,8 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         });
       }
       onSession(thread);
-      const live = { ...context, text: '' };
+      const live = { ...context, text: '', telemetryModel: result.model ? { provider: result.modelProvider ?? null, model: result.model, source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start', observedAt: new Date().toISOString() } : null };
+      if (!usageBaselines.has(thread)) usageBaselines.set(thread, endpoint.session ? null : { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, totalTokens: 0 });
       active.set(thread, live);
       let turn;
       const interrupt = () => { if (turn) request('turn/interrupt', { threadId: thread, turnId: turn.id }, 10000).catch(() => {}); };
@@ -148,6 +237,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
           ? { type: 'workspaceWrite', writableRoots: [context.workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
           : { type: 'readOnly', networkAccess: false } })).turn;
         context.onNativeTurn(turn.id);
+        live.currentNativeTurnId = turn.id;
         onAccepted();
         if (signal.aborted) interrupt();
         if (live.violation) throw live.violation;

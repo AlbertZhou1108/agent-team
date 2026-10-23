@@ -1,5 +1,7 @@
 # CLI 宿主适配器接口
 
+宿主用量、缓存、上下文与耗时的待实现采集契约见[宿主用量与会话统计设计](host-telemetry-design.md)。该设计定义统一指标准入、物理 session 归属、合并投递统计与累计去重；不代表当前接口已实现 `onTelemetry`。
+
 宿主注册位于 server.mjs 的装配层；Bus 不判断宿主品牌。用户配置的 module 导出：
 
 ```js

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
 import { executionPolicy, claudeBuiltins, policyObservation } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
+import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -153,6 +154,7 @@ export function createClaudeHost({
         models: modelIds.map(id => ({ id, label: id, isDefault: id === parsed.current })),
       });
     },
+    telemetryCapabilities: telemetryCapabilitiesFor('claude'),
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
       const selectedModel = context.modelSelection?.model ?? model;
@@ -174,6 +176,9 @@ export function createClaudeHost({
       let result, sessionId = endpoint.session;
       let assistantModel = null;
       let selectionModel = selectedModel ?? null;
+      let lastAssistantUsage = null;
+      let resultEmitted = false;
+      const seenAssistant = new Set();
       if (selectedModel || selectedEffort) context.onModel({ phase: 'requested', model: selectedModel ?? null, reasoningEffort: selectedEffort ?? null, source: context.modelSelection ? 'member.selection' : 'adapter.config' });
       await runJsonProcess(command, args, { ...context, onRow(row) {
         if (row.session_id && row.session_id !== sessionId) { sessionId = row.session_id; onSession(sessionId); }
@@ -186,7 +191,105 @@ export function createClaudeHost({
           assistantModel = row.message.model;
           context.onModel({ phase: 'assistant', model: assistantModel, provider: 'claude', source: 'claude.assistant.message' });
         }
-        if (row.type === 'result') result = row;
+        if (row.type === 'assistant' && row.message?.usage) {
+          const usage = row.message.usage;
+          const messageId = row.message.id ?? row.uuid ?? row.message.uuid ?? `${row.message.model ?? 'unknown'}:${usage.input_tokens ?? '?'}:${usage.cache_read_input_tokens ?? '?'}:${usage.cache_creation_input_tokens ?? '?'}`;
+          lastAssistantUsage = usage;
+          if (!seenAssistant.has(messageId)) {
+            seenAssistant.add(messageId);
+            const inputBuckets = [usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens];
+            const inputComplete = inputBuckets.every(value => Number.isFinite(value));
+            const inputTotal = inputBuckets.some(value => Number.isFinite(value))
+              ? inputBuckets.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0)
+              : undefined;
+            context.onTelemetry?.(telemetryObservation({
+              source: 'claude.assistant_message_usage', scope: 'request', aggregation: 'snapshot', requestId: messageId,
+              usage: {
+                ...(inputTotal !== undefined ? { inputTokensTotal: inputTotal } : {}),
+                ...(Number.isFinite(usage.input_tokens) ? { uncachedInputTokens: usage.input_tokens } : {}),
+                ...(Number.isFinite(usage.cache_read_input_tokens) ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
+                ...(Number.isFinite(usage.cache_creation_input_tokens) ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+                ...(Number.isFinite(usage.output_tokens) ? { outputTokens: usage.output_tokens } : {}),
+              },
+              quality: { inputTokensTotal: 'derived', uncachedInputTokens: 'host_reported', lastRequestInputTokens: 'derived' },
+              formula: {
+                inputTokensTotal: 'input_tokens + cache_read_input_tokens + cache_creation_input_tokens',
+                lastRequestInputTokens: 'input_tokens + cache_read_input_tokens + cache_creation_input_tokens',
+              },
+              completeness: {
+                inputTokensTotal: inputComplete ? 'complete' : inputTotal !== undefined ? 'partial' : 'unknown',
+                uncachedInputTokens: Number.isFinite(usage.input_tokens) ? 'complete' : 'unknown',
+                cacheReadTokens: Number.isFinite(usage.cache_read_input_tokens) ? 'complete' : 'unknown',
+                cacheWriteTokens: Number.isFinite(usage.cache_creation_input_tokens) ? 'complete' : 'unknown',
+                outputTokens: Number.isFinite(usage.output_tokens) && usage.output_tokens > 0 ? 'complete' : 'partial',
+              },
+              context: inputTotal !== undefined ? { lastRequestInputTokens: inputTotal } : {},
+              contextSource: { lastRequestInputTokens: 'claude.assistant_message_usage' },
+            }));
+          }
+        }
+        if (row.type === 'result') {
+          result = row;
+          if (!resultEmitted) {
+            resultEmitted = true;
+            const usage = row.usage ?? {};
+            const inputBuckets = [usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens];
+            const inputComplete = inputBuckets.every(value => Number.isFinite(value));
+            const inputTotal = inputBuckets.some(value => Number.isFinite(value))
+              ? inputBuckets.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0)
+              : undefined;
+            const outputTokens = Number.isFinite(usage.output_tokens) ? usage.output_tokens : undefined;
+            const modelUsages = row.modelUsage ?? {};
+            const modelKey = Object.keys(modelUsages).length === 1 ? Object.keys(modelUsages)[0] : (assistantModel && modelUsages[assistantModel] ? assistantModel : Object.keys(modelUsages)[0]);
+            const modelInfo = modelKey ? modelUsages[modelKey] : null;
+            context.onTelemetry?.(telemetryObservation({
+              source: 'claude.result_usage', scope: 'turn', aggregation: 'delta', requestId: row.uuid ?? null,
+              usage: {
+                ...(inputTotal !== undefined ? { inputTokensTotal: inputTotal } : {}),
+                ...(Number.isFinite(usage.input_tokens) ? { uncachedInputTokens: usage.input_tokens } : {}),
+                ...(Number.isFinite(usage.cache_read_input_tokens) ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
+                ...(Number.isFinite(usage.cache_creation_input_tokens) ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+                ...(outputTokens !== undefined ? { outputTokens } : {}),
+                ...(inputTotal !== undefined && outputTokens !== undefined ? { totalTokens: inputTotal + outputTokens } : {}),
+              },
+              quality: {
+                totalTokens: 'derived',
+                inputTokensTotal: 'derived',
+                uncachedInputTokens: 'host_reported',
+                cacheReadTokens: 'host_reported',
+                cacheWriteTokens: 'host_reported',
+                outputTokens: 'host_reported',
+                lastRequestInputTokens: 'derived',
+              },
+              formula: {
+                totalTokens: 'inputTokensTotal + outputTokens',
+                inputTokensTotal: 'input_tokens + cache_read_input_tokens + cache_creation_input_tokens',
+                lastRequestInputTokens: 'input_tokens + cache_read_input_tokens + cache_creation_input_tokens',
+              },
+              completeness: {
+                inputTokensTotal: inputComplete ? 'complete' : inputTotal !== undefined ? 'partial' : 'unknown',
+                uncachedInputTokens: Number.isFinite(usage.input_tokens) ? 'complete' : 'unknown',
+                cacheReadTokens: Number.isFinite(usage.cache_read_input_tokens) ? 'complete' : 'unknown',
+                cacheWriteTokens: Number.isFinite(usage.cache_creation_input_tokens) ? 'complete' : 'unknown',
+                outputTokens: outputTokens !== undefined ? 'complete' : 'unknown',
+                totalTokens: inputTotal !== undefined && outputTokens !== undefined ? (inputComplete ? 'complete' : 'partial') : 'unknown',
+                hostTurnWallMs: Number.isFinite(row.duration_ms) ? 'complete' : 'unknown',
+              },
+              timing: { hostTurnWallMs: Number.isFinite(row.duration_ms) ? row.duration_ms : undefined },
+              context: modelInfo ? {
+                lastRequestInputTokens: inputTotal,
+                contextWindowTokens: modelInfo.contextWindow,
+                model: modelKey ? { provider: 'claude', model: modelKey, source: 'claude.result.modelUsage', observedAt: new Date().toISOString() } : null,
+              } : undefined,
+              contextSource: modelInfo ? {
+                lastRequestInputTokens: 'claude.result_usage',
+                contextWindowTokens: 'claude.model_usage',
+              } : {},
+              anomalies: row.is_error ? [{ code: 'anomaly', fields: ['outputTokens'], detail: 'Claude 运行报告 is_error；保留已报告部分用量', observedAt: new Date().toISOString(), raw: { is_error: row.is_error } }] : [],
+              attempt: { id: String(row.uuid ?? sessionId ?? 'claude-run'), state: row.is_error ? 'failed' : 'succeeded' },
+            }));
+          }
+        }
       } });
       if (!result || result.is_error) throw new Error(result?.result || 'Claude 未返回可确认的结果');
       if (result.modelUsage && Object.keys(result.modelUsage).length) {
@@ -224,6 +327,7 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         defaultModel: models.some(item => item.key === result.defaultModel) ? result.defaultModel : null,
       });
     },
+    telemetryCapabilities: telemetryCapabilitiesFor('dsh'),
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
       const policy = executionPolicy(context);
@@ -238,7 +342,89 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       args.push(`${instructions}\n\n当前输入：\n${prompt}`);
       context.onPolicy?.(policyObservation('dsh', policy, { sessionPolicy: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', agentScopedToolRestriction: true, approval: 'never' }));
       let text, end;
+      const turnStarts = new Map();
+      const emittedTurnTiming = new Set();
       await runJsonProcess(command, args, { ...context, onRow(row) {
+        if (row.type === 'framework.telemetry.event') {
+          const turnRef = row.turn != null ? String(row.turn) : '';
+          if (row.event === 'turn/start' && Number.isFinite(row.at)) turnStarts.set(turnRef, row.at);
+          if (row.event === 'assistant/message' && row.usage) {
+            const usage = row.usage;
+            const inputBuckets = [usage.inputTokens, usage.cacheReadTokens, usage.cacheWriteTokens];
+            const inputComplete = inputBuckets.every(value => Number.isFinite(value));
+            const inputTotal = inputBuckets.some(value => Number.isFinite(value))
+              ? inputBuckets.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0)
+              : undefined;
+            const outputTokens = Number.isFinite(usage.outputTokens) ? usage.outputTokens : undefined;
+            const hostTotal = Number.isFinite(usage.totalTokens) ? usage.totalTokens : undefined;
+            const totalTokens = hostTotal ?? (inputTotal !== undefined && outputTokens !== undefined ? inputTotal + outputTokens : undefined);
+            const requestId = `${turnRef}:${row.step ?? ''}:${row.at ?? ''}`;
+            context.onTelemetry?.(telemetryObservation({
+              source: 'dsh.assistant_message_usage', scope: 'step', aggregation: 'delta',
+              nativeTurnId: turnRef || null, stepId: row.step != null ? String(row.step) : null, requestId,
+              usage: {
+                ...(inputTotal !== undefined ? { inputTokensTotal: inputTotal } : {}),
+                ...(Number.isFinite(usage.inputTokens) ? { uncachedInputTokens: usage.inputTokens } : {}),
+                ...(Number.isFinite(usage.cacheReadTokens) ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+                ...(Number.isFinite(usage.cacheWriteTokens) ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
+                ...(outputTokens !== undefined ? { outputTokens } : {}),
+                ...(totalTokens !== undefined ? { totalTokens } : {}),
+              },
+              quality: {
+                inputTokensTotal: 'derived',
+                totalTokens: hostTotal !== undefined ? 'host_reported' : totalTokens !== undefined ? 'derived' : 'unknown',
+              },
+              formula: {
+                inputTokensTotal: 'usage.inputTokens + cacheReadTokens + cacheWriteTokens',
+                ...(hostTotal === undefined && totalTokens !== undefined ? { totalTokens: 'inputTokensTotal + outputTokens' } : {}),
+              },
+              completeness: {
+                inputTokensTotal: inputComplete ? 'complete' : inputTotal !== undefined ? 'partial' : 'unknown',
+                uncachedInputTokens: Number.isFinite(usage.inputTokens) ? 'complete' : 'unknown',
+                cacheReadTokens: Number.isFinite(usage.cacheReadTokens) ? 'complete' : 'unknown',
+                cacheWriteTokens: Number.isFinite(usage.cacheWriteTokens) ? 'complete' : 'unknown',
+                outputTokens: outputTokens !== undefined ? 'complete' : 'unknown',
+                totalTokens: totalTokens !== undefined ? (hostTotal !== undefined || inputComplete && outputTokens !== undefined ? 'complete' : 'partial') : 'unknown',
+              },
+              attempt: { id: `dsh:${turnRef}`, state: 'succeeded' },
+            }));
+          }
+          if (row.event === 'turn/end' && !emittedTurnTiming.has(turnRef)) {
+            emittedTurnTiming.add(turnRef);
+            const started = turnStarts.get(turnRef);
+            const wallMs = Number.isFinite(started) && Number.isFinite(row.at) ? row.at - started : null;
+            context.onTelemetry?.(telemetryObservation({
+              source: 'dsh.turn_time', scope: 'turn', aggregation: 'delta', nativeTurnId: turnRef || null,
+              timing: { hostTurnWallMs: wallMs },
+              completeness: { hostTurnWallMs: wallMs === null ? 'unknown' : 'complete' },
+              anomalies: row.reason && row.reason !== 'completed'
+                ? [{ code: 'anomaly', fields: ['hostTurnWallMs'], detail: `DSH 回合结束原因：${row.reason}`, observedAt: new Date().toISOString(), raw: { reason: row.reason } }]
+                : [],
+              attempt: { id: `dsh:${turnRef}`, state: row.reason === 'completed' ? 'succeeded' : 'failed' },
+            }));
+          }
+          return;
+        }
+        if (row.type === 'framework.telemetry.projection') {
+          if (row.key === 'contextPressure' && row.value && (row.value.pressureTokens != null || row.value.contextWindow != null)) {
+            context.onTelemetry?.(telemetryObservation({
+              source: 'dsh.context_pressure', scope: 'request', aggregation: 'snapshot',
+              context: {
+                lastRequestInputTokens: row.value.pressureTokens,
+                contextWindowTokens: row.value.contextWindow,
+              },
+              completeness: {
+                lastRequestInputTokens: row.value.pressureTokens != null ? 'complete' : 'unknown',
+                contextWindowTokens: row.value.contextWindow != null ? 'complete' : 'unknown',
+              },
+              contextSource: {
+                lastRequestInputTokens: 'dsh.context_pressure',
+                contextWindowTokens: 'dsh.context_pressure',
+              },
+            }));
+          }
+          return;
+        }
         if (row.type === 'framework.model.selection') {
           if (row.model) {
             context.onModel?.({
