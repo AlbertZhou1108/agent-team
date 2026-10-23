@@ -16,6 +16,7 @@ import type {
 import { api } from '@/shared/api/client';
 import { usePanelAgentQuery } from '@/features/queries';
 import { usePanelAgentStore } from '@/stores/panel-agent';
+import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
 import PanelAgentSidebar from './PanelAgentSidebar.vue';
@@ -35,6 +36,30 @@ const saving = ref(false);
 const modelSaving = ref(false);
 const stopping = ref(false);
 const actionError = ref('');
+
+type ConfirmRequest = {
+  title: string;
+  description: string;
+  confirmText: string;
+  destructive?: boolean;
+  run: () => Promise<void>;
+};
+const confirmRequest = ref<ConfirmRequest | null>(null);
+
+function askConfirm(request: ConfirmRequest) {
+  confirmRequest.value = request;
+}
+
+function cancelConfirm() {
+  confirmRequest.value = null;
+}
+
+async function runConfirm() {
+  const request = confirmRequest.value;
+  if (!request) return;
+  confirmRequest.value = null;
+  await request.run();
+}
 const draft = computed({
   get: () => panelState.draft,
   set: (value) => panelState.setDraft(value),
@@ -247,90 +272,107 @@ async function stopTurn() {
   }
 }
 
-async function approvePreparation(preparation: PanelPreparation) {
-  if (!preparation.hash) return;
-  const confirmed = window.confirm(
-    `批准团队“${preparation.spec.name}”的契约 revision ${preparation.revision}？\n批准后将创建团队。`,
-  );
-  if (!confirmed) return;
-  actionError.value = '';
-  try {
-    const group = await api.approvePreparation(
-      preparation.id,
-      preparation.revision,
-      preparation.hash,
-    );
-    await panelQuery.refetch();
-    activeTeamId.value = group.id;
-    toast.success(`团队已创建并切换到 ${group.name}`);
-  } catch (error) {
-    actionError.value = error instanceof Error ? error.message : String(error);
-  }
+function approvePreparation(preparation: PanelPreparation) {
+  const hash = preparation.hash;
+  if (!hash) return;
+  askConfirm({
+    title: `批准团队“${preparation.spec.name}”？`,
+    description: `批准契约 revision ${preparation.revision} 后将创建团队。`,
+    confirmText: '批准并创建团队',
+    run: async () => {
+      actionError.value = '';
+      try {
+        const group = await api.approvePreparation(
+          preparation.id,
+          preparation.revision,
+          hash,
+        );
+        await panelQuery.refetch();
+        activeTeamId.value = group.id;
+        toast.success(`团队已创建并切换到 ${group.name}`);
+      } catch (error) {
+        actionError.value = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
 }
 
-async function takeover(team: PanelTeamView) {
-  const confirmed = window.confirm(
-    `让 Panel Agent 接管“${team.name}”？\n原主 Agent 将暂停，Panel Agent 获得团队主控权。`,
-  );
-  if (!confirmed) return;
-  actionError.value = '';
-  try {
-    await api.takeoverTeam(team.id, team.controller.assignment?.revision ?? 0);
-    await panelQuery.refetch();
-    activeTeamId.value = team.id;
-    toast.success(`Panel Agent 已接管 ${team.name}`);
-  } catch (error) {
-    actionError.value = error instanceof Error ? error.message : String(error);
-  }
+function takeover(team: PanelTeamView) {
+  askConfirm({
+    title: `让 Panel Agent 接管“${team.name}”？`,
+    description: '原主 Agent 将暂停，Panel Agent 获得团队主控权。',
+    confirmText: '接管',
+    run: async () => {
+      actionError.value = '';
+      try {
+        await api.takeoverTeam(team.id, team.controller.assignment?.revision ?? 0);
+        await panelQuery.refetch();
+        activeTeamId.value = team.id;
+        toast.success(`Panel Agent 已接管 ${team.name}`);
+      } catch (error) {
+        actionError.value = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
 }
 
-async function handback(team: PanelTeamView) {
-  const confirmed = window.confirm(
-    `将“${team.name}”交还原主 Agent？\nPanel Agent 将回到观察状态。`,
-  );
-  if (!confirmed) return;
-  actionError.value = '';
-  try {
-    await api.handbackTeam(team.id, team.controller.assignment?.revision ?? 0);
-    await panelQuery.refetch();
-    toast.success(`已交还 ${team.name}`);
-  } catch (error) {
-    actionError.value = error instanceof Error ? error.message : String(error);
-  }
+function handback(team: PanelTeamView) {
+  askConfirm({
+    title: `将“${team.name}”交还原主 Agent？`,
+    description: 'Panel Agent 将回到观察状态。',
+    confirmText: '交还',
+    run: async () => {
+      actionError.value = '';
+      try {
+        await api.handbackTeam(team.id, team.controller.assignment?.revision ?? 0);
+        await panelQuery.refetch();
+        toast.success(`已交还 ${team.name}`);
+      } catch (error) {
+        actionError.value = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
 }
 
-async function resolveRuntime(turnId: string) {
-  const confirmed = window.confirm(
-    '请先确认对应宿主进程已经实际停止。\n确认后，这个待核实运行将标记为已停止，团队可以继续调度。',
-  );
-  if (!confirmed) return;
-  actionError.value = '';
-  try {
-    await api.resolvePanelRuntime(turnId, '用户在面板中确认宿主进程已停止');
-    await panelQuery.refetch();
-    toast.success('运行状态已核实');
-  } catch (error) {
-    actionError.value = error instanceof Error ? error.message : String(error);
-  }
+function resolveRuntime(turnId: string) {
+  askConfirm({
+    title: '确认宿主进程已经实际停止？',
+    description:
+      '确认后，这个待核实运行将标记为已停止，团队可以继续调度。请先确认对应宿主进程已经实际停止。',
+    confirmText: '确认已停止',
+    run: async () => {
+      actionError.value = '';
+      try {
+        await api.resolvePanelRuntime(turnId, '用户在面板中确认宿主进程已停止');
+        await panelQuery.refetch();
+        toast.success('运行状态已核实');
+      } catch (error) {
+        actionError.value = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
 }
 
-async function decideAction(id: string, approved: boolean) {
+function decideAction(id: string, approved: boolean) {
   const action = pendingActions.value.find((item) => item.id === id);
   if (!action) return;
   const team = panel.value?.teams.find((item) => item.id === action.group_id);
   const label = action.action === 'takeover' ? '接管' : '交还';
-  const confirmed = window.confirm(
-    `${approved ? '确认' : '取消'}${label}“${team?.name ?? action.group_id}”？`,
-  );
-  if (!confirmed) return;
-  actionError.value = '';
-  try {
-    await api.decidePanelAction(id, approved);
-    await panelQuery.refetch();
-    toast.success(approved ? `${label}操作已完成` : '操作请求已取消');
-  } catch (error) {
-    actionError.value = error instanceof Error ? error.message : String(error);
-  }
+  askConfirm({
+    title: `${approved ? '确认' : '取消'}${label}“${team?.name ?? action.group_id}”？`,
+    description: approved ? '确认后将执行该操作。' : '取消后该操作请求将被拒绝。',
+    confirmText: approved ? '确认' : '确认取消',
+    run: async () => {
+      actionError.value = '';
+      try {
+        await api.decidePanelAction(id, approved);
+        await panelQuery.refetch();
+        toast.success(approved ? `${label}操作已完成` : '操作请求已取消');
+      } catch (error) {
+        actionError.value = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
 }
 
 function openTeam(teamId: string) {
@@ -478,6 +520,16 @@ watch(
           @resolve-runtime="resolveRuntime"
         />
       </div>
+
+      <ConfirmDialog
+        :open="confirmRequest !== null"
+        :title="confirmRequest?.title ?? ''"
+        :description="confirmRequest?.description ?? ''"
+        :confirm-text="confirmRequest?.confirmText ?? '确认'"
+        :destructive="confirmRequest?.destructive ?? false"
+        @confirm="runConfirm"
+        @cancel="cancelConfirm"
+      />
     </section>
   </TooltipProvider>
 </template>

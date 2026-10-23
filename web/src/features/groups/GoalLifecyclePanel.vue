@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/empty';
 import { Separator } from '@/components/ui/separator';
 import PanelState from '@/components/panel/PanelState.vue';
+import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
+import PromptDialog from '@/components/panel/PromptDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { api } from '@/shared/api/client';
 import type { GoalState, GoalView } from '@/shared/api/raw-types';
@@ -48,6 +50,55 @@ const queueOpen = ref(false);
 const draftsOpen = ref(false);
 const historyOpen = ref(false);
 const historyCardOpen = reactive<Record<string, boolean>>({});
+
+type ConfirmRequest = {
+  title: string;
+  description?: string;
+  confirmText?: string;
+  destructive?: boolean;
+  run: () => Promise<void> | void;
+};
+const confirmRequest = ref<ConfirmRequest | null>(null);
+
+type PromptRequest = {
+  title: string;
+  description?: string;
+  placeholder?: string;
+  confirmText?: string;
+  destructive?: boolean;
+  run: (value: string) => Promise<void> | void;
+};
+const promptRequest = ref<PromptRequest | null>(null);
+
+function askConfirm(request: ConfirmRequest) {
+  confirmRequest.value = request;
+}
+
+async function runConfirm() {
+  const request = confirmRequest.value;
+  if (!request) return;
+  confirmRequest.value = null;
+  await request.run();
+}
+
+function cancelConfirm() {
+  confirmRequest.value = null;
+}
+
+function askPrompt(request: PromptRequest) {
+  promptRequest.value = request;
+}
+
+async function runPrompt(value: string) {
+  const request = promptRequest.value;
+  if (!request) return;
+  promptRequest.value = null;
+  await request.run(value);
+}
+
+function cancelPrompt() {
+  promptRequest.value = null;
+}
 
 watch(
   () => data.value?.queue,
@@ -132,76 +183,110 @@ async function run(action: () => Promise<unknown>, message: string) {
 }
 
 function confirmDraft(draftId: string, draftRevision: number, hash: string) {
-  if (!data.value || !window.confirm('确认这个目标草稿并加入队列？')) return;
-  void run(
-    () =>
-      api.confirmGoalDraft(props.teamId, draftId, {
-        revision: data.value!.team.revision,
-        operationId: nextOperationId(),
-        draftRevision,
-        hash,
-      }),
-    '目标草稿已确认',
-  );
+  if (!data.value) return;
+  const revision = data.value.team.revision;
+  askConfirm({
+    title: '确认这个目标草稿并加入队列？',
+    description: `草稿版本 ${draftRevision}；确认后按团队当前 revision ${revision} 加入目标队列。`,
+    confirmText: '确认并排队',
+    run: () =>
+      run(
+        () =>
+          api.confirmGoalDraft(props.teamId, draftId, {
+            revision,
+            operationId: nextOperationId(),
+            draftRevision,
+            hash,
+          }),
+        '目标草稿已确认',
+      ),
+  });
 }
 
 function deleteDraft(draftId: string, draftRevision: number) {
-  if (!data.value || !window.confirm('删除这个目标草稿？')) return;
-  void run(
-    () =>
-      api.deleteGoalDraft(props.teamId, draftId, {
-        revision: data.value!.team.revision,
-        operationId: nextOperationId(),
-        draftRevision,
-      }),
-    '目标草稿已删除',
-  );
+  if (!data.value) return;
+  const revision = data.value.team.revision;
+  askConfirm({
+    title: '删除这个目标草稿？',
+    description: '删除后需要主 Agent 重新创建草稿。',
+    confirmText: '删除',
+    destructive: true,
+    run: () =>
+      run(
+        () =>
+          api.deleteGoalDraft(props.teamId, draftId, {
+            revision,
+            operationId: nextOperationId(),
+            draftRevision,
+          }),
+        '目标草稿已删除',
+      ),
+  });
 }
 
 function cancelGoal(goalId: string) {
   if (!data.value) return;
-  const reason = window.prompt('取消这个排队目标的原因');
-  if (!reason?.trim()) return;
-  void run(
-    () =>
-      api.cancelQueuedGoal(props.teamId, goalId, {
-        revision: data.value!.team.revision,
-        operationId: nextOperationId(),
-        reason: reason.trim(),
-      }),
-    '排队目标已取消',
-  );
+  const revision = data.value.team.revision;
+  askPrompt({
+    title: '取消这个排队目标？',
+    description: '请填写取消原因，原因会记录到团队历史。',
+    placeholder: '取消原因',
+    confirmText: '取消目标',
+    destructive: true,
+    run: (reason) =>
+      run(
+        () =>
+          api.cancelQueuedGoal(props.teamId, goalId, {
+            revision,
+            operationId: nextOperationId(),
+            reason,
+          }),
+        '排队目标已取消',
+      ),
+  });
 }
 
 function withdrawFinish(goalId: string) {
   if (!data.value) return;
-  const reason = window.prompt('撤回收尾的原因');
-  if (!reason?.trim()) return;
-  void run(
-    () =>
-      api.withdrawGoalFinish(props.teamId, goalId, {
-        revision: data.value!.team.revision,
-        operationId: nextOperationId(),
-        reason: reason.trim(),
-      }),
-    '已撤回目标收尾',
-  );
+  const revision = data.value.team.revision;
+  askPrompt({
+    title: '撤回收尾请求？',
+    description: '撤回后团队恢复执行，请填写撤回原因。',
+    placeholder: '撤回原因',
+    confirmText: '撤回收尾',
+    run: (reason) =>
+      run(
+        () =>
+          api.withdrawGoalFinish(props.teamId, goalId, {
+            revision,
+            operationId: nextOperationId(),
+            reason,
+          }),
+        '已撤回目标收尾',
+      ),
+  });
 }
 
 function terminateCurrent(goalId: string) {
-  if (!data.value || !window.confirm('终止当前目标？该操作不会删除团队历史。'))
-    return;
-  const reason = window.prompt('终止原因');
-  if (!reason?.trim()) return;
-  void run(
-    () =>
-      api.terminateGoal(props.teamId, goalId, {
-        revision: data.value!.team.revision,
-        operationId: nextOperationId(),
-        reason: reason.trim(),
-      }),
-    '当前目标已终止',
-  );
+  if (!data.value) return;
+  const revision = data.value.team.revision;
+  askPrompt({
+    title: '终止当前目标？',
+    description: '该操作不会删除团队历史；请填写终止原因。',
+    placeholder: '终止原因',
+    confirmText: '终止目标',
+    destructive: true,
+    run: (reason) =>
+      run(
+        () =>
+          api.terminateGoal(props.teamId, goalId, {
+            revision,
+            operationId: nextOperationId(),
+            reason,
+          }),
+        '当前目标已终止',
+      ),
+  });
 }
 
 function startDrag(goalId: string, event: DragEvent) {
@@ -686,5 +771,25 @@ function dropGoal(targetId: string) {
         </CollapsibleContent>
       </Collapsible>
     </template>
+
+    <ConfirmDialog
+      :open="confirmRequest !== null"
+      :title="confirmRequest?.title ?? ''"
+      :description="confirmRequest?.description ?? ''"
+      :confirm-text="confirmRequest?.confirmText ?? '确认'"
+      :destructive="confirmRequest?.destructive ?? false"
+      @confirm="runConfirm"
+      @cancel="cancelConfirm"
+    />
+    <PromptDialog
+      :open="promptRequest !== null"
+      :title="promptRequest?.title ?? ''"
+      :description="promptRequest?.description ?? ''"
+      :placeholder="promptRequest?.placeholder ?? ''"
+      :confirm-text="promptRequest?.confirmText ?? '确认'"
+      :destructive="promptRequest?.destructive ?? false"
+      @confirm="runPrompt"
+      @cancel="cancelPrompt"
+    />
   </div>
 </template>
