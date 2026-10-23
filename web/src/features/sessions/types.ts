@@ -1,1 +1,1 @@
-export type InspectorTab = 'trace' | 'events' | 'models';
+export type InspectorTab = 'trace' | 'events' | 'models' | 'usage';

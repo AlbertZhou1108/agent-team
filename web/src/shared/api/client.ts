@@ -1,5 +1,10 @@
 import type {
   CollaborationState,
+  TelemetryCapabilityResponse,
+  TelemetryConversationResponse,
+  TelemetryCoordinationResponse,
+  TelemetryMembersResponse,
+  TelemetryManagerConversationResponse,
   GoalDraftView,
   GoalView,
   Group,
@@ -200,5 +205,79 @@ export const api = {
   },
   turn(turn: string, after = 0, signal?: AbortSignal) {
     return request<TurnTrace>(query('/api/turn', { turn, after }), signal);
+  },
+  telemetryConversation(
+    group: string,
+    member: string,
+    peer: string,
+    options: { cursor?: string; limit?: number; from?: string; to?: string } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<TelemetryConversationResponse>(
+      query('/api/telemetry/conversation', {
+        group,
+        member,
+        peer,
+        cursor: options.cursor,
+        limit: options.limit,
+        from: options.from,
+        to: options.to,
+      }),
+      signal,
+    );
+  },
+  telemetryManagerConversation(
+    group: string,
+    member: string,
+    options: { cursor?: string; limit?: number; from?: string; to?: string } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<TelemetryManagerConversationResponse>(
+      query('/api/telemetry/manager-conversation', {
+        group,
+        member,
+        cursor: options.cursor,
+        limit: options.limit,
+        from: options.from,
+        to: options.to,
+      }),
+      signal,
+    );
+  },
+  telemetryCoordination(
+    group: string,
+    options: { cursor?: string; limit?: number; from?: string; to?: string } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<TelemetryCoordinationResponse>(
+      query('/api/telemetry/coordination', {
+        group,
+        cursor: options.cursor,
+        limit: options.limit,
+        from: options.from,
+        to: options.to,
+      }),
+      signal,
+    );
+  },
+  telemetryMembers(
+    group: string,
+    options: { from?: string; to?: string } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<TelemetryMembersResponse>(
+      query('/api/telemetry/members', {
+        group,
+        from: options.from,
+        to: options.to,
+      }),
+      signal,
+    );
+  },
+  telemetryCapabilities(group: string, signal?: AbortSignal) {
+    return request<TelemetryCapabilityResponse>(
+      query('/api/telemetry/capabilities', { group }),
+      signal,
+    );
   },
 };

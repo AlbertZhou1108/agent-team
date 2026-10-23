@@ -479,6 +479,10 @@ button {
   place-items: center;
 }
 
+.workspace-shell.manager-view-open {
+  --context-width: min(680px, 48vw);
+}
+
 .workspace-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--context-width, 360px);

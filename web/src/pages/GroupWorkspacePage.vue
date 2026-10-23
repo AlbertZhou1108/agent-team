@@ -28,7 +28,9 @@ import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import GoalLifecyclePanel from '@/features/groups/GoalLifecyclePanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
+import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
+import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import MessageFeed from '@/features/messages/MessageFeed.vue';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
@@ -70,6 +72,11 @@ const endpoints = computed(() => snapshot.value?.endpoints ?? []);
 const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
 const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
 const modelPolicyDefaults = computed(() => snapshot.value?.modelPolicyDefaults);
+const archiveConfirm = ref<{
+  id: string;
+  name: string;
+  revision: number;
+} | null>(null);
 
 function routeString(value: unknown) {
   return Array.isArray(value)
@@ -221,7 +228,9 @@ const conversationTitle = computed(() => {
 });
 const activeTab = computed<InspectorTab>(() => {
   const value = routeString(route.query.tab);
-  return value === 'events' || value === 'models' ? value : 'trace';
+  return value === 'events' || value === 'models' || value === 'usage'
+    ? value
+    : 'trace';
 });
 type ContextPanel =
   | 'goals'
@@ -241,6 +250,21 @@ const contextPanel = computed<ContextPanel>(() => {
     return value;
   return selectedSessionId.value ? 'details' : 'goals';
 });
+
+const selectedEndpointIsManagerPair = computed(() => {
+  const endpoint = selectedEndpoint.value;
+  const controller = currentController.value;
+  return Boolean(
+    endpoint &&
+      controller?.kind === 'panel_agent' &&
+      (endpoint.context === 'pair' ||
+        endpoint.context?.startsWith('pair:')) &&
+      endpoint.peer === controller.id,
+  );
+});
+const managerConversationActive = computed(
+  () => selectedEndpointIsManagerPair.value && activeTab.value === 'usage',
+);
 const contextTabs: Array<{
   value: ContextPanel;
   label: string;
@@ -315,20 +339,26 @@ const selectedModelState = computed(
 );
 
 const inspectorHasNextPage = computed(() =>
-  activeTab.value === 'models'
-    ? modelsQuery.hasNextPage.value
-    : historyQuery.hasNextPage.value,
+  activeTab.value === 'usage'
+    ? false
+    : activeTab.value === 'models'
+      ? modelsQuery.hasNextPage.value
+      : historyQuery.hasNextPage.value,
 );
 const inspectorFetchingNextPage = computed(() =>
-  activeTab.value === 'models'
-    ? modelsQuery.isFetchingNextPage.value
-    : historyQuery.isFetchingNextPage.value,
+  activeTab.value === 'usage'
+    ? false
+    : activeTab.value === 'models'
+      ? modelsQuery.isFetchingNextPage.value
+      : historyQuery.isFetchingNextPage.value,
 );
 
 const inspectorError = computed(() =>
-  activeTab.value === 'models'
-    ? modelsQuery.error.value
-    : historyQuery.error.value,
+  activeTab.value === 'usage'
+    ? undefined
+    : activeTab.value === 'models'
+      ? modelsQuery.error.value
+      : historyQuery.error.value,
 );
 
 watchEffect(() => {
@@ -449,23 +479,30 @@ async function restoreArchivedTeam(team: Group) {
   }
 }
 
-async function archiveTeam(teamId: string) {
+function archiveTeam(teamId: string) {
   const team = allGroups.value.find((item) => item.id === teamId);
-  if (
-    !team ||
-    !window.confirm(`归档“${team.name}”？归档后团队不再接收消息或启动任务。`)
-  )
-    return;
+  if (!team) return;
+  archiveConfirm.value = {
+    id: team.id,
+    name: team.name,
+    revision: team.revision ?? 1,
+  };
+}
+
+async function runArchiveTeam() {
+  const request = archiveConfirm.value;
+  if (!request) return;
+  archiveConfirm.value = null;
   try {
-    await api.archiveTeamGoals(team.id, {
-      revision: team.revision ?? 1,
+    await api.archiveTeamGoals(request.id, {
+      revision: request.revision,
       operationId:
         globalThis.crypto?.randomUUID?.() ??
         `archive-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     });
     await snapshotQuery.refetch();
-    if (groupId.value === team.id) router.push({ name: 'group' });
-    toast.success(`已归档 ${team.name}`);
+    if (groupId.value === request.id) router.push({ name: 'group' });
+    toast.success(`已归档 ${request.name}`);
   } catch (error) {
     toast.error('归档团队失败', { description: String(error) });
   }
@@ -621,7 +658,10 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       <div
         v-else
         class="workspace-shell"
-        :class="{ 'context-is-collapsed': ui.contextCollapsed }"
+        :class="{
+          'context-is-collapsed': ui.contextCollapsed,
+          'manager-view-open': managerConversationActive,
+        }"
       >
         <ConversationFrame class="chat-window">
             <header class="chat-header">
@@ -828,12 +868,17 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :group-id="groupId"
                 :members="members"
               />
-              <MemberStrip
+              <div
                 v-else-if="contextPanel === 'members'"
-                :members="currentMembers"
-                :running-member-ids="runningMemberIds"
-                :paused-member-ids="pausedMemberIds"
-              />
+                class="flex flex-col gap-5"
+              >
+                <MemberStrip
+                  :members="currentMembers"
+                  :running-member-ids="runningMemberIds"
+                  :paused-member-ids="pausedMemberIds"
+                />
+                <TelemetryMembersView :group-id="groupId" />
+              </div>
               <SessionList
                 v-else-if="contextPanel === 'sessions'"
                 :endpoints="currentEndpoints"
@@ -847,8 +892,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               <InspectorPanel
                 v-else
                 class="inspector-embedded"
+                :group-id="groupId"
+                :endpoints="currentEndpoints"
                 :endpoint="selectedEndpoint"
                 :members="members"
+                :controller="currentController"
                 :actors="actors"
                 :turns="turns"
                 :history-rows="historyQuery.rows.value"
@@ -883,5 +931,14 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         </Card>
       </div>
     </main>
+    <ConfirmDialog
+      :open="archiveConfirm !== null"
+      :title="`归档“${archiveConfirm?.name ?? ''}”？`"
+      description="归档后团队不再接收消息或启动任务。"
+      confirm-text="归档"
+      destructive
+      @confirm="runArchiveTeam"
+      @cancel="archiveConfirm = null"
+    />
   </div>
 </template>

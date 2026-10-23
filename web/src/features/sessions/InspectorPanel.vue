@@ -4,7 +4,7 @@ import RecordPanel from '@/components/panel/RecordPanel.vue';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { computed } from 'vue';
-import { Activity, ArrowLeftRight, Braces, Database, LoaderCircle, ChevronRight } from '@lucide/vue';
+import { Activity, ArrowLeftRight, Braces, Database, Gauge, LoaderCircle, ChevronRight } from '@lucide/vue';
 import type {
   Member,
   ModelObservation,
@@ -18,8 +18,13 @@ import CodeBlock from '@/components/ai-elements/CodeBlock.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { InspectorTab } from './types';
+import TelemetryConversationView from '@/features/telemetry/TelemetryConversationView.vue';
+import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinationView.vue';
+import TelemetryManagerConversationView from '@/features/telemetry/TelemetryManagerConversationView.vue';
 
 const props = defineProps<{
+  groupId: string;
+  endpoints: SessionEndpoint[];
   endpoint?: SessionEndpoint;
   members: Member[];
   actors?: Array<{ id: string; name: string; host?: string }>;
@@ -31,6 +36,7 @@ const props = defineProps<{
   loading?: boolean;
   hasNextPage?: boolean;
   fetchingNextPage?: boolean;
+  controller?: { kind: 'member' | 'panel_agent'; id: string; name: string } | null;
 }>();
 
 const emit = defineEmits<{
@@ -48,6 +54,7 @@ const tabs: Array<{
   { value: 'trace', label: '执行轨迹', icon: Activity },
   { value: 'events', label: '原始事件', icon: Braces },
   { value: 'models', label: '模型', icon: Database },
+  { value: 'usage', label: '用量', icon: Gauge },
 ];
 
 const memberName = computed(() => {
@@ -67,8 +74,30 @@ const endpointHost = computed(
     props.actors?.find((actor) => actor.id === props.endpoint?.member_id)?.host,
 );
 
+const endpointIsPair = computed(() => {
+  const context = props.endpoint?.context ?? '';
+  return context === 'pair' || context.startsWith('pair:');
+});
+
+const endpointIsManagerPair = computed(() => {
+  const endpoint = props.endpoint;
+  if (!endpoint || !endpointIsPair.value) return false;
+  if (props.controller?.kind !== 'panel_agent') return false;
+  return endpoint.peer === props.controller.id;
+});
+
+const endpointIsCoordination = computed(() => {
+  const context = props.endpoint?.context ?? '';
+  return context === 'coordination' || context === 'panel-coordination';
+});
+
 function selectTab(value: string | number) {
-  if (value === 'trace' || value === 'events' || value === 'models')
+  if (
+    value === 'trace' ||
+    value === 'events' ||
+    value === 'models' ||
+    value === 'usage'
+  )
     emit('update:tab', value);
 }
 
@@ -130,7 +159,7 @@ function prettyEvent(value: string) {
           ></TabsList
         >
         <TabsContent :value="tab" class="pt-3">
-          <PanelState v-if="loading" loading title="正在读取事件" description="等待宿主会话的观测数据。" />
+          <PanelState v-if="loading && tab !== 'usage'" loading title="正在读取事件" description="等待宿主会话的观测数据。" />
           <template v-else>
             <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
             <RecordPanel v-else-if="tab === 'events'" title="原始事件" :count="historyRows.length" description="宿主实际输出的事件流，可能包含宿主自身的截断。">
@@ -152,7 +181,7 @@ function prettyEvent(value: string) {
                 <CodeBlock :code="prettyEvent(row.event)" max-height="16rem" />
               </details>
             </RecordPanel>
-            <div v-else class="flex flex-col gap-6">
+            <div v-else-if="tab === 'models'" class="flex flex-col gap-6">
               <section class="flex flex-col gap-4">
                 <h3 class="text-sm font-medium">当前观测</h3>
                 <dl class="flex flex-col gap-4 text-sm">
@@ -216,6 +245,31 @@ function prettyEvent(value: string) {
                   />
                 </details>
               </RecordPanel>
+            </div>
+            <div v-else-if="tab === 'usage'" class="flex flex-col gap-4">
+              <TelemetryManagerConversationView
+                v-if="endpointIsManagerPair && endpoint"
+                :group-id="groupId"
+                :member-id="endpoint.member_id"
+                :members="members"
+              />
+              <TelemetryConversationView
+                v-else-if="endpointIsPair"
+                :group-id="groupId"
+                :members="members"
+                :endpoints="endpoints"
+                :selected-endpoint-id="endpoint?.id"
+              />
+              <TelemetryCoordinationView
+                v-else-if="endpointIsCoordination"
+                :group-id="groupId"
+              />
+              <PanelState
+                v-else
+                :icon="Gauge"
+                title="该会话没有遥测视图"
+                description="用量视图仅覆盖双人会话与主 Agent 协调会话。"
+              />
             </div>
             <Button
               v-if="hasNextPage"

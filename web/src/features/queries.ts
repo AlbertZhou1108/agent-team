@@ -4,7 +4,15 @@ import {
   useQuery,
 } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
-import type { HistoryRow, MessageRow } from '@/shared/api/raw-types';
+import type {
+  HistoryRow,
+  MessageRow,
+  TelemetryBatch,
+  TelemetryConversationResponse,
+  TelemetryCoordinationResponse,
+  TelemetryManagerBatch,
+  TelemetryManagerConversationResponse,
+} from '@/shared/api/raw-types';
 
 const refreshInterval = 2000;
 
@@ -123,4 +131,172 @@ export function useModelsQuery(
   const state = computed(() => query.data.value?.pages.at(-1) ?? null);
 
   return { ...query, observations, state };
+}
+
+export function useConversationTelemetryQuery(
+  groupId: MaybeRefOrGetter<string | undefined>,
+  memberId: MaybeRefOrGetter<string | undefined>,
+  peerId: MaybeRefOrGetter<string | undefined>,
+) {
+  const query = useInfiniteQuery({
+    queryKey: computed(
+      () =>
+        [
+          'telemetry-conversation',
+          toValue(groupId),
+          toValue(memberId),
+          toValue(peerId),
+        ] as const,
+    ),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      api.telemetryConversation(
+        toValue(groupId)!,
+        toValue(memberId)!,
+        toValue(peerId)!,
+        { cursor: pageParam },
+        signal,
+      ),
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    enabled: computed(
+      () =>
+        Boolean(toValue(groupId)) &&
+        Boolean(toValue(memberId)) &&
+        Boolean(toValue(peerId)),
+    ),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+  const firstPage = computed<TelemetryConversationResponse | undefined>(
+    () => query.data.value?.pages[0],
+  );
+  const batches = computed<TelemetryBatch[]>(() =>
+    [
+      ...new Map(
+        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
+          batch => [batch.batchId, batch],
+        ),
+      ).values(),
+    ],
+  );
+  return { ...query, firstPage, batches };
+}
+
+export function useCoordinationTelemetryQuery(
+  groupId: MaybeRefOrGetter<string | undefined>,
+) {
+  const query = useInfiniteQuery({
+    queryKey: computed(
+      () => ['telemetry-coordination', toValue(groupId)] as const,
+    ),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      api.telemetryCoordination(
+        toValue(groupId)!,
+        { cursor: pageParam },
+        signal,
+      ),
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+  const firstPage = computed<TelemetryCoordinationResponse | undefined>(
+    () => query.data.value?.pages[0],
+  );
+  const batches = computed<TelemetryBatch[]>(() =>
+    [
+      ...new Map(
+        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
+          batch => [batch.batchId, batch],
+        ),
+      ).values(),
+    ],
+  );
+  return { ...query, firstPage, batches };
+}
+
+export function useManagerConversationTelemetryQuery(
+  groupId: MaybeRefOrGetter<string | undefined>,
+  memberId: MaybeRefOrGetter<string | undefined>,
+  options: {
+    from?: MaybeRefOrGetter<string | undefined>;
+    to?: MaybeRefOrGetter<string | undefined>;
+    limit?: MaybeRefOrGetter<number | undefined>;
+  } = {},
+) {
+  const query = useInfiniteQuery({
+    queryKey: computed(
+      () =>
+        [
+          'telemetry-manager-conversation',
+          toValue(groupId),
+          toValue(memberId),
+          toValue(options.from),
+          toValue(options.to),
+          toValue(options.limit),
+        ] as const,
+    ),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      api.telemetryManagerConversation(
+        toValue(groupId)!,
+        toValue(memberId)!,
+        {
+          cursor: pageParam,
+          from: toValue(options.from),
+          to: toValue(options.to),
+          limit: toValue(options.limit),
+        },
+        signal,
+      ),
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    enabled: computed(
+      () => Boolean(toValue(groupId)) && Boolean(toValue(memberId)),
+    ),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+  const firstPage = computed<TelemetryManagerConversationResponse | undefined>(
+    () => query.data.value?.pages[0],
+  );
+  const batches = computed<TelemetryManagerBatch[]>(() =>
+    [
+      ...new Map(
+        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
+          batch => [batch.batchId, batch],
+        ),
+      ).values(),
+    ],
+  );
+  return { ...query, firstPage, batches };
+}
+
+export function useMembersTelemetryQuery(
+  groupId: MaybeRefOrGetter<string | undefined>,
+) {
+  return useQuery({
+    queryKey: computed(
+      () => ['telemetry-members', toValue(groupId)] as const,
+    ),
+    queryFn: ({ signal }) => api.telemetryMembers(toValue(groupId)!, {}, signal),
+    enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useTelemetryCapabilitiesQuery(
+  groupId: MaybeRefOrGetter<string | undefined>,
+) {
+  return useQuery({
+    queryKey: computed(
+      () => ['telemetry-capabilities', toValue(groupId)] as const,
+    ),
+    queryFn: ({ signal }) =>
+      api.telemetryCapabilities(toValue(groupId)!, signal),
+    enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
 }
