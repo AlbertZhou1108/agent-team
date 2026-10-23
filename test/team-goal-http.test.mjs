@@ -29,7 +29,7 @@ test('goal lifecycle HTTP endpoints confirm queue and archive actions as the tru
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-goal-http-'));
   const server = await startServer({
     directory,
-    panelAuth: false,
+
     hosts: new Map([['fake', {
       async run(context) {
         if (context.endpoint.context === 'profile') {

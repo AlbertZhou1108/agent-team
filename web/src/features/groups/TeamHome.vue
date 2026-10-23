@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TelemetryOverview from '@/features/telemetry/TelemetryOverview.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -222,24 +223,7 @@ onBeforeUnmount(() => {
         </Button>
       </header>
 
-      <dl class="grid grid-cols-3 gap-6 py-4">
-        <div class="flex flex-col gap-1">
-          <dt class="text-sm text-muted-foreground">团队</dt>
-          <dd class="text-3xl font-semibold tabular-nums">
-            {{ groups.length }}
-          </dd>
-        </div>
-        <div class="flex flex-col gap-1">
-          <dt class="text-sm text-muted-foreground">成员</dt>
-          <dd class="text-3xl font-semibold tabular-nums">{{ memberCount }}</dd>
-        </div>
-        <div class="flex flex-col gap-1">
-          <dt class="text-sm text-muted-foreground">运行中</dt>
-          <dd class="text-3xl font-semibold tabular-nums">
-            {{ runningCount }}
-          </dd>
-        </div>
-      </dl>
+      <TelemetryOverview @select="emit('select', $event)" />
       <Separator />
 
       <Alert v-if="error" variant="destructive"

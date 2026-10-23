@@ -1,10 +1,12 @@
 import net from 'node:net';
 import http from 'node:http';
-import { randomBytes, createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
+import { telemetryOverview } from './telemetry-overview.mjs';
+import { chooseDirectory } from './directory-picker.mjs';
 import { toolsFor } from './tools.mjs';
 import { rpc } from './rpc.mjs';
 import { createCodexHost } from './hosts/codex.mjs';
@@ -30,7 +32,7 @@ export async function loadHosts({ directory, socketPath, configFile }) {
   return hosts;
 }
 
-export async function startServer({ directory, port = 0, hosts, configFile, confirm, panelAuth = true }) {
+export async function startServer({ directory, port = 0, hosts, configFile, confirm }) {
   directory = resolve(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
@@ -49,9 +51,11 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
   }
   writeFileSync(lock, JSON.stringify({ pid: process.pid })); closeSync(lock);
   let bus, ipc, panel, socketOwned = false;
-  const key = randomBytes(32).toString('hex');
+  const panelEventStreams = new Set();
   const close = async () => {
     if (bus && !bus.closing) await bus.close();
+    for (const response of panelEventStreams) response.end();
+    panelEventStreams.clear();
     await Promise.all([ipc, panel].filter(Boolean).map(server => new Promise(resolve => { if (server.listening) server.close(resolve); else resolve(); })));
     if (socketOwned) { try { unlinkSync(socketPath); } catch { /* net.Server may have removed it. */ } }
     try { if (JSON.parse(readFileSync(lockPath, 'utf8')).pid === process.pid) unlinkSync(lockPath); } catch { /* Already cleaned up. */ }
@@ -94,6 +98,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
         const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
         const isDirectiveMutation = request.method === 'POST' && Boolean(directiveMatch);
+        const isDirectoryMutation = request.method === 'POST' && url.pathname === '/api/local/directory-picker';
         const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
         const goalMutation = request.method === 'POST' && (
           /^\/api\/teams\/[^/]+\/goal-drafts\/[^/]+\/(?:confirm|delete)$/.test(url.pathname)
@@ -110,21 +115,87 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           || /^\/api\/preparations\/[^/]+\/approve$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
         );
-        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation && !isDirectiveMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
         response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
-        if (panelAuth && url.pathname === '/' && url.searchParams.get('key') === key) {
-          response.writeHead(303, { Location: '/', 'Set-Cookie': `agent_team=${key}; HttpOnly; SameSite=Strict; Path=/` }); return response.end();
+        if (request.method === 'GET' && url.pathname === '/api/panel-agent/events') {
+          panelEventStreams.add(response);
+          response.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          });
+          response.write(': connected\n\n');
+          const send = event => {
+            if (!response.writableEnded) {
+              response.write(`event: panel-stream\ndata: ${JSON.stringify(event)}\n\n`);
+            }
+          };
+          const active = bus.panelStreaming();
+          if (active.length) send({ type: 'snapshot', streams: active });
+          bus.on('panel-stream', send);
+          const heartbeat = setInterval(() => {
+            if (!response.writableEnded) response.write(': heartbeat\n\n');
+          }, 15000);
+          heartbeat.unref();
+          const cleanup = () => {
+            clearInterval(heartbeat);
+            bus.off('panel-stream', send);
+            panelEventStreams.delete(response);
+          };
+          request.once('close', cleanup);
+          response.once('close', cleanup);
+          return;
         }
-        if (panelAuth && !(request.headers.cookie ?? '').split(';').some(part => part.trim() === `agent_team=${key}`)) return fail(401, '请打开启动时输出的面板链接');
+        const teamEventsMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/events$/);
+        if (request.method === 'GET' && teamEventsMatch) {
+          const groupId = decodeURIComponent(teamEventsMatch[1]);
+          bus.store.group(groupId);
+          panelEventStreams.add(response);
+          response.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          });
+          response.write(': connected\n\n');
+          const send = event => {
+            if (response.writableEnded) return;
+            if (event.type === 'snapshot') {
+              response.write(`event: team-stream\ndata: ${JSON.stringify(event)}\n\n`);
+              return;
+            }
+            if (event.stream?.groupId !== groupId) return;
+            response.write(`event: team-stream\ndata: ${JSON.stringify(event)}\n\n`);
+          };
+          const active = bus.teamStreaming(groupId);
+          if (active.length) send({ type: 'snapshot', streams: active });
+          bus.on('team-stream', send);
+          const heartbeat = setInterval(() => {
+            if (!response.writableEnded) response.write(': heartbeat\n\n');
+          }, 15000);
+          heartbeat.unref();
+          const cleanup = () => {
+            clearInterval(heartbeat);
+            bus.off('team-stream', send);
+            panelEventStreams.delete(response);
+          };
+          request.once('close', cleanup);
+          response.once('close', cleanup);
+          return;
+        }
         if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
           let value;
-          if (directiveMatch) {
+          if (isDirectoryMutation) {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '文件夹选择不接受路径或脚本参数');
+            value = await chooseDirectory();
+          } else if (directiveMatch) {
             const groupId = decodeURIComponent(directiveMatch[1]);
             if (isDirectiveMutation) {
-              if (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
               if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
               value = bus.teamDirectives.submit(groupId, await readJsonBody(request));
             } else value = bus.teamDirectives.list(groupId);
@@ -162,6 +233,8 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
                 value = bus.decidePanelControllerAction(decodeURIComponent(actionMatch[1]), body.approved === true);
               } else return fail(404, 'Not found');
             }
+          } else if (url.pathname === '/api/telemetry/overview') {
+            value = telemetryOverview(bus, { from: url.searchParams.get('from') || undefined, to: url.searchParams.get('to') || undefined, bucket: url.searchParams.get('bucket') || 'day' });
           } else if (url.pathname.startsWith('/api/telemetry/')) {
             try {
               const group = url.searchParams.get('group');
@@ -258,8 +331,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
     return {
       bus,
       socketPath,
-      url: panelAuth ? `http://127.0.0.1:${panel.address().port}/?key=${key}` : `http://127.0.0.1:${panel.address().port}/`,
-      panelAuth,
+      url: `http://127.0.0.1:${panel.address().port}/`,
       close,
     };
   } catch (error) { await close(); throw error; }

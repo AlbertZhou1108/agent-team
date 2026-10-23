@@ -21,7 +21,12 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace';
-import type { PanelAgent, PanelMessage } from '@/shared/api/raw-types';
+import type {
+  PanelAgent,
+  PanelMessage,
+  PanelStream,
+} from '@/shared/api/raw-types';
+import { panelAccessOption, panelWorkspaceBasename } from './access';
 import PanelAgentComposer from './PanelAgentComposer.vue';
 import PanelAgentMessage from './PanelAgentMessage.vue';
 import { filterPanelMessagesForContext } from './message-context';
@@ -30,6 +35,7 @@ import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 const props = defineProps<{
   agent: PanelAgent;
   messages: PanelMessage[];
+  streaming?: PanelStream | null;
   teams: PanelTeam[];
   sending: boolean;
   contextRunning: boolean;
@@ -56,10 +62,39 @@ const activeTeam = computed(() =>
 const visibleMessages = computed(() =>
   filterPanelMessagesForContext(props.messages, activeTeamId.value),
 );
+const streamingMessage = computed<PanelMessage | null>(() => {
+  const stream = props.streaming;
+  if (
+    !stream ||
+    !stream.text ||
+    stream.activeTeamId !== (activeTeamId.value || null)
+  )
+    return null;
+  return {
+    seq: -1,
+    id: `stream:${stream.turnId}`,
+    panel_agent_id: stream.agentId,
+    context: 'private',
+    role: 'assistant',
+    text: stream.text,
+    active_team_id: stream.activeTeamId,
+    created: stream.created,
+  };
+});
 const visibleMessageIds = computed(() => [
   ...visibleMessages.value.map((message) => message.id),
-  ...(props.contextRunning ? ['panel-agent-running'] : []),
+  ...(streamingMessage.value ? [streamingMessage.value.id] : []),
+  ...(props.contextRunning && !streamingMessage.value
+    ? ['panel-agent-running']
+    : []),
 ]);
+const currentAccess = computed(() => panelAccessOption(props.agent.access));
+const workspaceName = computed(() =>
+  panelWorkspaceBasename(props.agent.workspace),
+);
+const legacyAgent = computed(
+  () => currentAccess.value.value === 'read-only' && !props.agent.workspace,
+);
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
   '有哪些团队正在等待我的确认？',
@@ -89,9 +124,34 @@ const suggestions = [
             <Badge v-if="agent.reasoning_effort">{{
               agent.reasoning_effort
             }}</Badge>
+            <Badge
+              :variant="currentAccess.badgeVariant"
+              :title="currentAccess.description"
+              >{{ currentAccess.label }}</Badge
+            >
+            <Badge
+              v-if="agent.workspace"
+              variant="outline"
+              class="max-w-56"
+              :title="agent.workspace"
+            >
+              <span class="truncate">{{ workspaceName }}</span>
+            </Badge>
+            <span v-else class="text-xs text-muted-foreground"
+              >未设置工作区</span
+            >
           </div>
           <p class="mt-1 text-muted-foreground">
             全局私人会话 · {{ activeTeam?.name ?? '未附加团队上下文' }}
+          </p>
+          <p
+            v-if="legacyAgent"
+            class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+          >
+            <span>尚未设置私人工作区，私人回合将使用数据目录。</span>
+            <Button variant="link" size="xs" @click="emit('edit')"
+              >设置私人工作区</Button
+            >
           </p>
         </div>
         <Button
@@ -144,7 +204,19 @@ const suggestions = [
       <PanelAgentMessage :message="message" :teams="teams" />
     </div>
 
-    <div v-if="contextRunning" data-message-id="panel-agent-running">
+    <div
+      v-if="streamingMessage"
+      :key="streamingMessage.id"
+      :data-message-id="streamingMessage.id"
+      aria-live="polite"
+    >
+      <PanelAgentMessage :message="streamingMessage" :teams="teams" />
+    </div>
+
+    <div
+      v-else-if="contextRunning"
+      data-message-id="panel-agent-running"
+    >
       <Trace>
         <TraceLine status="running">
           <TraceIcon>

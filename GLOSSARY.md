@@ -89,8 +89,12 @@ The transition of a Team's Main Agent while its Current Goal remains unchanged; 
 _Avoid_: Goal 转移
 
 **Panel Agent**:
-The single user-facing coordination Agent for a data directory, with a private conversation; it may serve as the Main Agent of zero or more Teams.
+The single user-facing coordination Agent for a data directory, with a private conversation; it may serve as the Main Agent of zero or more Teams. Its private conversation has a user-set workspace and a user-level file-effect access level, independent of Team contracts.
 _Avoid_: 团队成员
+
+**Panel Access**:
+The user-level file-effect policy of the Panel Agent's private conversation: `read-only`, `workspace-write`, or `full-access`. It constrains project file writes and commands for that conversation only, never Team execution or Team write authorization.
+_Avoid_: 团队契约、成员权限
 
 **Archived Team**:
 A Team that retains its history, Goal Drafts, and Goal Queue but accepts no new messages and starts no Goals; it can be restored and cannot be archived while a Current Goal exists.

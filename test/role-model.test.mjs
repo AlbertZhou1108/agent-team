@@ -205,7 +205,7 @@ test('panel model-policy settings only expose the authenticated policy mutation'
   const directory = mkdtempSync(join(tmpdir(), 'agent-model-policy-ui-'));
   const server = await startServer({
     directory,
-    panelAuth: false,
+
     hosts: new Map([['fake', {
       async run(context) { context.onAccepted(); return ''; },
     }]]),

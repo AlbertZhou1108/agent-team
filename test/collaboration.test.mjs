@@ -113,6 +113,39 @@ test('cancellation cannot erase responsibility and finish waits for messages and
   assert.throws(() => bus.collaboration.terminate(group.id, '改写'), /已结束/);
 });
 
+test('finish rejects Goal Inbox messages that are not consumed and not part of the current turn', async t => {
+  const { bus, group, members, actor, create, update, report } = await fixture(t);
+  let item = create();
+  item = update(item, { state: 'in_progress' });
+  const m = report(members[1], 'goal inbox report');
+  const goalId = bus.collaboration.currentGoalId(group.id);
+  assert.ok(goalId);
+  bus.store.run('UPDATE message_context SET goal_id=? WHERE message_id=?', goalId, m.id);
+  item = update(item, { state: 'pending_decision', artifact: 'v1', evidence: [m.id] });
+  item = update(item, { state: 'accepted' });
+  const command = {
+    action: 'finish',
+    outcome: 'completed',
+    final: '正式交付',
+    note: '满足契约',
+    coverage: { c1: [item.id] },
+    dispositions: [{ messageId: m.id, reason: '已作为贡献证据采纳' }],
+  };
+  let op = 0;
+  const finish = turnMessageIds => bus.collaboration.apply(
+    actor,
+    command,
+    bus.collaboration.state(group.id).revision,
+    `finish-goal-${++op}`,
+    { turnMessageIds },
+  );
+  assert.throws(() => finish(), /未消费的Goal Inbox消息.*\d+:/);
+  assert.throws(() => finish([]), /未消费的Goal Inbox消息/);
+  assert.equal(bus.collaboration.state(group.id).phase, 'active');
+  assert.equal(finish([m.id]).phase, 'closing');
+  assert.throws(() => bus.collaboration.requireCommunication(group.id), /closing/);
+});
+
 test('contract proposals require explicit versioned user decision; scope cannot escalate by work item', async t => {
   const { bus, group, create } = await fixture(t);
   assert.throws(() => create({ policy: 'workspace-write' }), /超出契约/);

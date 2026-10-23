@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import AgentTeamLogo from './AgentTeamLogo.vue';
 import TeamRow from './TeamRow.vue';
 import SidebarEntry from './SidebarEntry.vue';
+import { Separator } from '@/components/ui/separator';
 import TeamMenu from './TeamMenu.vue';
 import { useTeamOrganization } from '@/stores/team-organization';
 import {
@@ -151,7 +152,7 @@ const visibleIds = computed(() =>
     ...org.folders.flatMap((folder) =>
       folder.collapsed ? [] : folderTeams(folder.id),
     ),
-    ...(org.sections.ungrouped ? [] : rootTeams.value),
+    ...rootTeams.value,
   ].map((group) => group.id),
 );
 function selectTeam(id: string, event: MouseEvent) {
@@ -414,7 +415,7 @@ function createFolder() {
         >
           <SidebarEntry :title="folder.name" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
             {{ folder.name }}
-            <template #icon><Folder :style="folder.color ? { color: folder.color } : undefined" /></template>
+            <template #icon><Folder /></template>
             <template #indicator><component :is="folder.collapsed ? ChevronRight : ChevronDown" /></template>
             <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder /></template>
           </SidebarEntry>
@@ -455,11 +456,7 @@ function createFolder() {
         @drop.stop="drop($event)"
         :class="{ 'team-drop-target': dropTarget === 'root' }"
       >
-        <SidebarEntry title="未分组团队" :expanded="!org.sections.ungrouped" :active="org.sections.ungrouped && rootTeams.some(g => g.id === currentGroupId)" @activate="org.toggleSection('ungrouped')">
-          未分组团队
-          <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
-        </SidebarEntry>
-        <template v-if="!org.sections.ungrouped">
+        <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
         <TeamRow
           v-for="group in rootTeams"
           :key="group.id"
@@ -475,7 +472,6 @@ function createFolder() {
           @archive="emit('archive', group.id)"
           :class="insertionClass(group.id, 'team')"
         />
-        </template>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"

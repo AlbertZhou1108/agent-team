@@ -13,7 +13,7 @@
 - `POST /api/teams/:id/directives`：只接收 `text`、`operationId`、`controllerId`。文本 trim 后1–48000字符；编号1–128个字母/数字/下划线/连字符。
 - `GET /api/teams/:id/directives`：返回最近50条界面指令的投递回执，不返回任何用户私聊。
 
-接口保留面板Cookie、Host与跨站请求检查，POST额外检查Origin及JSON Content-Type。Vite开发代理只将来自前端同源的Origin映射为后端Origin；跨源Origin原样转发并拒绝。不是通用RPC接口。
+面板无需密钥或Cookie；接口保留Host与跨站请求检查，POST统一检查提供的Origin及JSON Content-Type。Vite开发代理只将来自前端同源的Origin映射为后端Origin；跨源Origin原样转发并拒绝。不是通用RPC接口。
 
 `team_directive_requests`按团队与operationId唯一，引用现有messages。新指令在事务中校验当前controllerId，再复用 `Bus.directive()`；主控变化时拒绝旧页面发送，不静默改投另一身份。同编号同文本/接收者返回原消息；不同内容拒绝，重启后仍有效。已记录消息的重试查询原回执，不重新派发，也不批量重试失败outbox。
 
@@ -30,11 +30,17 @@
 
 界面指令对应的 coordination 回合成功结束后，框架将非空最终文本写入团队消息，发送者为该指令的主 Agent，接收者为用户，`reply_to` 关联原指令，并保留回合来源。已关联回复或同回合已有相同文本时不重复插入；给其他成员发送不同内容不替代用户回复。回复直接展示，不再触发 Agent 调度，也不影响目标是否完成。
 
+普通成员主 Agent 和 Panel Agent 主控都会在用户指令回合发布 `team-stream`。团队页通过 `/api/teams/:id/events` 接收 `start` / `delta` / `complete`，在当前消息流末尾显示临时回复草稿；完整回复落库后重取消息并删除草稿。
+
+Agent 对任意成员调用 `send` / `note` / `team_send` / `team_note` 时，消息正文同样来自宿主公开的工具参数增量，并作为独立草稿发布到对应团队的 `team-stream`。留言保留 `note` 语义；工具失败时立即发布 `error` 并删除草稿，不会留下永久“正在生成”状态。内部回合中的其他工具调用和隐藏推理不进入团队消息流。
+
+`complete` 事件携带持久消息的 `messageId` 与 `messageSeq`。前端先以该 ID 展示完成态，再与消息查询结果按 ID 去重；即使增量完成后查询缓存尚未追上，消息也不会短暂消失。
+
 仅处理 `team_directive_requests` 记录的输入，不回流私人会话或普通成员消息。失败、取消和空输出不伪造回复。重启会从已完成回合的持久最终输出中幂等补回缺失回复，无需重新调用模型；成员主 Agent 与 Panel Agent coordination 均适用。
 
 ## 验证
 
-- `test/team-directives.test.mjs`：真实HTTP鉴权/同源、参数与伪造身份拒绝、持久幂等与重启、忙碌排队、失败不重复派发、Panel主控路由与私聊隔离、closed通信和closing/归档拒绝。
+- `test/team-directives.test.mjs`：真实HTTP无Cookie访问/同源、参数与伪造身份拒绝、持久幂等与重启、忙碌排队、失败不重复派发、Panel主控路由与私聊隔离、closed通信和closing/归档拒绝。
 - `web/src/stores/team-directives.test.ts`：团队隔离、网络失败/刷新复用编号、双重提交防护、保护发送期间新草稿。
 - `MessageComposer.test.ts`：共享的实际发送处理函数，覆盖IME、换行与发送/禁用状态。
 - 隔离fake宿主浏览器验收：表单发送、共享会话用户消息、已排队到已投递状态及底部布局；未使用真实模型或向用户团队派发消息。

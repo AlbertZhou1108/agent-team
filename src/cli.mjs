@@ -122,9 +122,8 @@ async function main() {
     try { return /^y(es)?$/i.test((await readline.question(`${text} [y/N] `)).trim()); }
     finally { confirming = false; }
   };
-  const panelAuth = process.env.AGENT_TEAM_DEV_NO_AUTH !== '1';
-  const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts, confirm, panelAuth });
-  console.log(`Agent Team 0.1.0\n面板：${server.url}\n数据目录：${directory}${panelAuth ? '' : '\n开发模式：本机面板鉴权已关闭'}`);
+  const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts, confirm });
+  console.log(`Agent Team 0.1.0\n面板：${server.url}\n数据目录：${directory}`);
   server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
   let shuttingDown;
   const shutdown = () => shuttingDown ??= (async () => { readline?.close(); await server.close(); })();

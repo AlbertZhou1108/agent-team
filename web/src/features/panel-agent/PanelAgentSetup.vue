@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import { computed } from 'vue';
-import { Bot, Eye, LoaderCircle, Radio, ShieldCheck, Users } from '@lucide/vue';
+import { computed, ref } from 'vue';
+import { api } from '@/shared/api/client';
+import { Bot, Eye, FolderOpen, LoaderCircle, Radio, ShieldCheck, Users } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field';
@@ -19,6 +21,7 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+
 import type { PanelAgent } from '@/shared/api/raw-types';
 import PanelAgentModelSelector from './PanelAgentModelSelector.vue';
 import type { AvailableHost, PanelAgentForm } from './types';
@@ -38,6 +41,24 @@ const emit = defineEmits<{
   retry: [];
 }>();
 
+const pickingDirectory = ref(false);
+const directoryError = ref('');
+async function pickDirectory() {
+  pickingDirectory.value = true;
+  directoryError.value = '';
+  try {
+    const result = await api.chooseDirectory();
+    if (result.path) form.value.workspace = result.path;
+  } catch (error) { directoryError.value = error instanceof Error ? error.message : String(error); }
+  finally { pickingDirectory.value = false; }
+}
+
+const workspaceRequired = computed(() => form.value.access !== 'read-only');
+const workspaceMissing = computed(
+  () => workspaceRequired.value && !form.value.workspace.trim(),
+);
+
+
 const canSave = computed(
   () =>
     Boolean(
@@ -46,6 +67,7 @@ const canSave = computed(
         form.value.model &&
         form.value.reasoning_effort,
     ) &&
+    !workspaceMissing.value &&
     !props.catalogLoading &&
     !props.saving,
 );
@@ -124,6 +146,27 @@ const principles = [
               <FieldDescription>
                 团队创建和主控回合都使用这一套模型配置。
               </FieldDescription>
+            </Field>
+
+            <Field :data-invalid="workspaceMissing || undefined">
+              <FieldLabel for="panel-agent-workspace">私人工作区</FieldLabel>
+              <div class="flex min-w-0 items-center gap-2">
+                <Input id="panel-agent-workspace" :model-value="form.workspace" readonly
+                  class="min-w-0 flex-1" placeholder="尚未选择文件夹" :title="form.workspace"
+                  :aria-invalid="workspaceMissing || undefined" />
+                <Button type="button" variant="outline" :disabled="saving || catalogLoading || pickingDirectory" @click="pickDirectory">
+                  <LoaderCircle v-if="pickingDirectory" class="animate-spin" />
+                  <FolderOpen v-else />{{ pickingDirectory ? '选择中…' : '选择文件夹' }}
+                </Button>
+                <Button v-if="form.workspace" type="button" variant="ghost" :disabled="saving || pickingDirectory" @click="form.workspace = ''">清除</Button>
+              </div>
+              <FieldError v-if="directoryError">{{ directoryError }}</FieldError>
+              <FieldDescription>
+                Panel Agent 私人会话的命令工作目录，与团队项目目录独立。留空时使用应用数据目录；选择工作区写入或完全权限时必须填写。
+              </FieldDescription>
+              <FieldError v-if="workspaceMissing">
+                选择“工作区写入”或“完全权限”时，请选择私人工作区文件夹。
+              </FieldError>
             </Field>
 
             <p v-if="actionError" class="error-banner" role="alert">

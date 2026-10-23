@@ -57,7 +57,7 @@ import {
 } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
 import { api } from '@/shared/api/client';
-import type { Group } from '@/shared/api/raw-types';
+import type { Group, TeamStream } from '@/shared/api/raw-types';
 
 const route = useRoute();
 const router = useRouter();
@@ -285,6 +285,124 @@ const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value 
 const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
 const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
 const messagesQuery = useMessagesQuery(() => groupId.value || undefined, () => selectedSessionId.value || undefined);
+const teamStreaming = ref<Record<string, TeamStream>>({});
+let teamStreamSource: EventSource | null = null;
+
+function acceptTeamStream(payload: {
+  type: 'snapshot' | 'start' | 'delta' | 'complete' | 'cancelled' | 'error';
+  stream?: TeamStream;
+  streams?: TeamStream[];
+  delta?: string;
+  replace?: boolean;
+}) {
+  if (payload.type === 'snapshot') {
+    teamStreaming.value = Object.fromEntries(
+      (payload.streams ?? [])
+        .filter(stream => stream.groupId === groupId.value)
+        .map(stream => [stream.id, stream]),
+    );
+    return;
+  }
+  const stream = payload.stream;
+  if (!stream || stream.groupId !== groupId.value) return;
+  if (payload.type === 'delta' && typeof payload.delta === 'string') {
+    const current = teamStreaming.value[stream.id];
+    teamStreaming.value = {
+      ...teamStreaming.value,
+      [stream.id]: {
+        ...stream,
+        text: payload.replace
+          ? payload.delta
+          : (current?.text ?? '') + payload.delta,
+      },
+    };
+    return;
+  }
+  if (payload.type === 'complete') {
+    const completed = {
+      ...stream,
+      phase: 'complete' as const,
+    };
+    teamStreaming.value = {
+      ...teamStreaming.value,
+      [stream.id]: completed,
+    };
+    void messagesQuery.refetch()
+      .then(() => {
+        if (
+          !completed.messageId
+          || messagesQuery.rows.value.some(
+            message => message.id === completed.messageId,
+          )
+        ) {
+          const next = { ...teamStreaming.value };
+          delete next[stream.id];
+          teamStreaming.value = next;
+        }
+      })
+      .catch(() => {
+        // Keep the completed view visible until a later refetch reaches the
+        // durable message, rather than dropping it before it is rendered.
+      });
+    return;
+  }
+  if (payload.type === 'cancelled' || payload.type === 'error') {
+    const next = { ...teamStreaming.value };
+    delete next[stream.id];
+    teamStreaming.value = next;
+    void messagesQuery.refetch();
+    return;
+  }
+  teamStreaming.value = {
+    ...teamStreaming.value,
+    [stream.id]: stream,
+  };
+}
+
+watch(
+  groupId,
+  (id) => {
+    teamStreamSource?.close();
+    teamStreamSource = null;
+    teamStreaming.value = {};
+    if (!id) return;
+    teamStreamSource = new EventSource(
+      `/api/teams/${encodeURIComponent(id)}/events`,
+    );
+    teamStreamSource.addEventListener('team-stream', (event) => {
+      try {
+        acceptTeamStream(JSON.parse((event as MessageEvent<string>).data));
+      } catch {
+        // The next state poll or stream event remains authoritative.
+      }
+    });
+  },
+  { immediate: true },
+);
+
+watch(
+  () => messagesQuery.rows.value?.map(message => message.id).join('|'),
+  () => {
+    const persisted = new Set(
+      messagesQuery.rows.value?.map(message => message.id) ?? [],
+    );
+    const next = { ...teamStreaming.value };
+    let changed = false;
+    for (const [id, stream] of Object.entries(next)) {
+      if (stream.messageId && persisted.has(stream.messageId)) {
+        delete next[id];
+        changed = true;
+      }
+    }
+    if (changed) teamStreaming.value = next;
+  },
+);
+
+onBeforeUnmount(() => {
+  teamStreamSource?.close();
+  teamStreamSource = null;
+});
+const activeTeamStreaming = computed(() => Object.values(teamStreaming.value));
 const historyQuery = useHistoryQuery(
   () => detailsVisible.value && ['trace', 'events'].includes(activeTab.value) ? selectedSessionId.value || undefined : undefined,
 );
@@ -772,9 +890,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :key="`${groupId}:${selectedSessionId}`"
                 class="chat-feed"
                 :messages="messageViews"
+                :streaming="activeTeamStreaming"
                 :directives="directivesQuery.data.value ?? []"
                 :title="conversationTitle"
                 :selected-pair="selectedPair"
+                :controller-id="currentControllerId"
                 :hosts="endpointHosts"
                 :loading="messagesQuery.isPending.value"
                 :has-next-page="messagesQuery.hasNextPage.value"

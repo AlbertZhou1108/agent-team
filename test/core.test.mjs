@@ -138,15 +138,16 @@ test('restart recovers identical persisted input with stable message and note id
   await restarted.close();
 });
 
-test('HTTP panel requires its launch link, is read-only, rejects DNS rebinding, paginates records', async t => {
+test('HTTP panel needs no key or cookie, rejects DNS rebinding and paginates records', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-panel-test-'));
   const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]) });
   t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
   const base = new URL(server.url).origin;
-  assert.equal((await fetch(base)).status, 401);
-  const entry = await fetch(server.url, { redirect: 'manual' }); assert.equal(entry.status, 303);
-  const cookie = entry.headers.get('set-cookie').split(';')[0];
-  const headers = { cookie };
+  const entry = await fetch(server.url, { redirect: 'manual' });
+  assert.equal(entry.status, 200);
+  assert.equal(entry.headers.get('set-cookie'), null);
+  assert.equal(new URL(server.url).search, '');
+  const headers = {};
   assert.equal((await fetch(base + '/api/snapshot', { headers })).status, 200);
   assert.equal((await fetch(base + '/api/snapshot', { headers, method: 'POST' })).status, 403);
   const rebinding = await new Promise((resolve, reject) => { const request = http.get(base + '/api/snapshot', { headers: { ...headers, host: 'attacker.example' } }, response => { response.resume(); resolve(response.statusCode); }); request.on('error', reject); });
@@ -163,16 +164,17 @@ test('HTTP panel requires its launch link, is read-only, rejects DNS rebinding, 
   assert.equal(resolvePanelFile('/assets/../../package.json', 'text/html'), null);
 });
 
-test('development panel can opt out of the launch-link cookie without weakening local request checks', async t => {
+test('local panel rejects cross-site and cross-origin requests without cookie authentication', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-panel-no-auth-'));
   const server = await startServer({
     directory,
-    panelAuth: false,
+
     hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]),
   });
   t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
   const base = new URL(server.url).origin;
-  assert.equal(server.panelAuth, false);
+  assert.equal((await fetch(base + "/api/snapshot", { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
+  assert.equal((await fetch(base + "/api/model-policy", { method: "POST", headers: { Origin: "http://localhost:9999", "Content-Type": "application/json" }, body: "{}" })).status, 403);
   assert.equal(server.url, `${base}/`);
   assert.equal((await fetch(base + '/api/snapshot')).status, 200);
   assert.equal((await fetch(base + '/api/snapshot', { method: 'POST' })).status, 403);
@@ -325,8 +327,7 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   const publicId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='profile'").id;
   const publicEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', publicId).endpoint_id;
   const privateEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', privateId).endpoint_id;
-  const entry = await fetch(server.url, { redirect: 'manual' });
-  const headers = { cookie: entry.headers.get('set-cookie').split(';')[0] }, base = new URL(server.url).origin;
+  const headers = {}, base = new URL(server.url).origin;
   for (const id of [privateId, 'missing']) assert.equal((await fetch(`${base}/api/turn?turn=${id}`, { headers })).status, 404);
   const first = await (await fetch(`${base}/api/turn?turn=${publicId}`, { headers })).json();
   assert.equal(first.events.length, 200);
@@ -357,6 +358,7 @@ test('Claude adapter records requested, session, live model changes and verified
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const args = process.argv.slice(2);
+if (!args.includes('--include-partial-messages')) throw new Error('partial messages are required');
 const settings = JSON.parse(args[args.indexOf('--settings') + 1]);
 const effort = settings.env?.CLAUDE_CODE_EFFORT_LEVEL ?? null;
 const sessionId = ${JSON.stringify(sessionId)};
@@ -368,13 +370,18 @@ const transcript = [
 ];
 writeFileSync(join(project, sessionId + '.jsonl'), transcript.map(JSON.stringify).join('\\n') + '\\n');
 console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId, model: 'claude-alias' }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'do' } } }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ne' } } }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'tool-1', name: 'send', input: {} } } }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"to":"peer","text":"hel' } } }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'lo"}' } } }));
 for (const row of transcript) console.log(JSON.stringify({ type: 'assistant', session_id: sessionId, message: row.message }));
 console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: false, result: 'done', modelUsage: { 'claude-alias': { outputTokens: 1 } } }));
 `);
   chmodSync(fake, 0o700);
   process.env.AGENT_TEST_CLAUDE_CONFIG = configDirectory;
   t.after(() => { delete process.env.AGENT_TEST_CLAUDE_CONFIG; rmSync(directory, { recursive: true, force: true }); });
-  const observations = [], sessions = [];
+  const observations = [], sessions = [], deltas = [], toolDeltas = [];
   const host = createClaudeHost({
     directory, socketPath: join(directory, 'bus.sock'), command: fake, model: 'opus',
     reasoningEffort: 'low', configDirectory,
@@ -385,9 +392,16 @@ console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: fa
     signal: new AbortController().signal,
     onSession: value => sessions.push(value), onAccepted: () => {},
     onModel: value => observations.push(value), onEvent: () => {},
+    onTextDelta: text => deltas.push(text),
+    onToolCallDelta: delta => toolDeltas.push(delta),
     onNativeTurn: () => {}, onTool: async () => ({}),
   });
   assert.equal(result, 'done');
+  assert.deepEqual(deltas, ['do', 'ne']);
+  assert.deepEqual(
+    toolDeltas.map(delta => delta.argumentsDelta),
+    ['', '{"to":"peer","text":"hel', 'lo"}'],
+  );
   assert.deepEqual(sessions, [sessionId]);
   assert.deepEqual(observations, [
     { phase: 'requested', model: 'opus', reasoningEffort: 'low', source: 'adapter.config' },

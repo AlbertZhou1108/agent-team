@@ -334,7 +334,7 @@ test('manager-conversation keeps partial usage non-zero-filled and duplicate obs
 test('manager-conversation HTTP route is read-only JSON and preserves existing endpoints', async t => {
   const { bus, group, one, directory, addPanelTurn } = await fixture(t);
   const turnId = addPanelTurn({ startedAt: '2026-10-23T10:00:10.000Z', inputs: [{ sender: one.id }], outputs: [{ recipient: one.id }] });
-  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]), panelAuth: false });
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
   t.after(() => server.close());
   await new Promise(resolve => setTimeout(resolve, 100));
   const before = bus.telemetryMembers(group.id);

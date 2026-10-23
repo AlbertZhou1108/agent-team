@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
-import { executionPolicy, codexPolicyConfig, policyObservation } from './policies.mjs';
+import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
@@ -145,7 +145,26 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       if (waiter) { clearTimeout(waiter.timer); waits.delete(turnId); waiter.reject(error); }
       request('turn/interrupt', { threadId: row.params.threadId, turnId }, 10000).catch(() => {});
     }
+    if (
+      row.method === 'item/started'
+      && row.params.item?.type === 'dynamicToolCall'
+      && row.params.item.tool?.startsWith('agent_team_')
+      && context
+    ) {
+      context.onToolCallDelta?.({
+        callId: row.params.item.id,
+        name: row.params.item.tool.slice(11),
+        argumentsDelta: JSON.stringify(row.params.item.arguments ?? {}),
+        complete: true,
+      });
+    }
     if (row.method === 'item/completed' && row.params.item?.type === 'agentMessage' && context) context.text = row.params.item.text ?? '';
+    if (row.method === 'item/agentMessage/delta' && context && typeof row.params?.delta === 'string') {
+      context.onTextDelta?.(row.params.delta, {
+        itemId: row.params.itemId ?? null,
+        nativeTurnId: row.params.turnId ?? null,
+      });
+    }
     if (row.method === 'turn/completed') {
       const turn = row.params.turn;
       const waiter = waits.get(turn.id);
@@ -203,6 +222,9 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         ? { supported: true }
         : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要契约允许沙箱命令' };
     },
+    supportsPanelAccess() {
+      return { supported: true };
+    },
     telemetryCapabilities: telemetryCapabilitiesFor('codex'),
     async run(context) {
       await ready();
@@ -212,11 +234,12 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       if (signal.aborted) throw new Error('回合已中断');
       const policy = executionPolicy(context);
       if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要契约明确允许沙箱命令；请调整安排或由用户批准契约变更');
+      const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace);
       const config = { ...codexPolicyConfig(policy, serverNames), ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) };
       const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
       if (endpoint.session && !sameSessionConfiguration(context.previousPolicy?.signature, signature)) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
       const options = {
-        cwd: context.workspace, approvalPolicy: 'never', sandbox: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', developerInstructions: instructions,
+        cwd: context.workspace, approvalPolicy: 'never', sandbox, developerInstructions: instructions,
         ...(selectedModel ? { model: selectedModel } : {}),
         config,
       };
@@ -225,7 +248,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         ? await request('thread/resume', { threadId: endpoint.session, ...options })
         : await request('thread/start', { ...options, dynamicTools: context.tools.map(tool => ({ type: 'function', name: `agent_team_${tool.name}`, description: tool.description, inputSchema: tool.inputSchema })) });
       const thread = result.thread.id;
-      context.onPolicy?.({ ...policyObservation('codex', policy, { config, turnSandbox: policy.mode === 'workspace-write' ? 'workspaceWrite' : 'readOnly', tools: context.tools.map(t => t.name) }), signature });
+      context.onPolicy?.({ ...policyObservation('codex', policy, { config, turnSandbox: turnSandboxPolicy.type, tools: context.tools.map(t => t.name) }), signature });
       context.onModel({
         phase: 'session', model: result.model, provider: result.modelProvider, reasoningEffort: result.reasoningEffort,
         source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start',
@@ -245,9 +268,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       signal.addEventListener('abort', interrupt, { once: true });
       try {
         if (signal.aborted) throw new Error('回合已中断');
-        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: policy.mode === 'workspace-write'
-          ? { type: 'workspaceWrite', writableRoots: [context.workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
-          : { type: 'readOnly', networkAccess: false } })).turn;
+        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: turnSandboxPolicy })).turn;
         context.onNativeTurn(turn.id);
         live.currentNativeTurnId = turn.id;
         onAccepted();

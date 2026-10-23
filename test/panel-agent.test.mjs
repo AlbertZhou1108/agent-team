@@ -781,6 +781,165 @@ test('a Panel coordination turn that finishes the Goal triggers final reconcilia
   assert.equal(bus.store.all('SELECT * FROM user_outputs WHERE group_id=?', group.id).length, 1);
 });
 
+test('a Panel finish waits for Goal Inbox messages that arrive during the finishing turn', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-race-'));
+  const calls = [];
+  let bus;
+  let reportId;
+  let lateId;
+  let finishError;
+  const host = hostFixture(calls);
+  const baseRun = host.run.bind(host);
+  const finishCommand = itemId => ({
+    outcome: 'completed',
+    final: 'finish after consuming all Goal Inbox messages',
+    note: 'all Goal Inbox messages are consumed or part of the finishing turn',
+    coverage: { c1: [itemId] },
+    dispositions: [
+      { messageId: reportId, reason: 'accepted evidence' },
+      ...(lateId ? [{ messageId: lateId, reason: 'late report handled' }] : []),
+    ],
+  });
+  host.run = async context => {
+    const groupId = context.endpoint.group_id;
+    if (context.endpoint.context === 'panel-coordination' && context.prompt.includes('RACE_LATE')) {
+      context.onSession(context.endpoint.session ?? context.endpoint.id);
+      context.onAccepted();
+      const item = bus.store.get('SELECT id FROM work_items WHERE group_id=? AND state=?', groupId, 'accepted');
+      await context.onTool('team_finish', {
+        groupId,
+        command: finishCommand(item.id),
+        revision: bus.collaboration.state(groupId).revision,
+        operationId: 'panel-race-finish-2',
+      });
+      return 'finished';
+    }
+    if (context.endpoint.context === 'panel-coordination' && context.prompt.includes('RACE_TRIGGER')) {
+      context.onSession(context.endpoint.session ?? context.endpoint.id);
+      context.onAccepted();
+      const goalId = bus.lifecycle.read(groupId).current.id;
+      const worker = bus.members(groupId).find(member => member.name === 'worker');
+      const late = bus.store.append(groupId, worker.id, bus.panelAgent().id, 'send', 'RACE_LATE late report');
+      lateId = late.id;
+      bus.store.run(
+        'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+        late.id,
+        null,
+        bus.collaboration.state(groupId).contract_version,
+        goalId,
+      );
+      const item = bus.store.get('SELECT id FROM work_items WHERE group_id=? AND state=?', groupId, 'accepted');
+      try {
+        await context.onTool('team_finish', {
+          groupId,
+          command: finishCommand(item.id),
+          revision: bus.collaboration.state(groupId).revision,
+          operationId: 'panel-race-finish-1',
+        });
+      } catch (error) {
+        finishError = error;
+      }
+      return 'rejected';
+    }
+    return baseRun(context);
+  };
+  bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const group = confirmedGroup(bus, {
+    name: 'panel race',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [{ name: 'worker', host: 'fake' }],
+  });
+  await until(() => !bus.running.size);
+  const agent = await createAgent(bus);
+  bus.takeoverTeam(group.id, 0);
+  const worker = bus.members(group.id).find(member => member.name === 'worker');
+  const coordination = bus.store.panelSession(agent.agent.id, 'coordination', group.id);
+  const provenance = { activeTeamId: group.id };
+  const goalId = bus.lifecycle.read(group.id).current.id;
+  let item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      title: 'panel race work',
+      purpose: 'verify Goal Inbox consumption before finish',
+      standard: 'accepted evidence',
+      participants: [{ memberId: worker.id, role: 'executor' }],
+      policy: 'communication',
+      note: 'create work',
+    },
+    revision: bus.collaboration.state(group.id).revision,
+    operationId: 'panel-race-create',
+  }, provenance);
+  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'in_progress',
+      note: 'start work',
+    },
+    revision: item.revision,
+    operationId: 'panel-race-start',
+  }, provenance);
+  const report = bus.store.append(group.id, worker.id, agent.agent.id, 'send', 'RACE_TRIGGER accepted result');
+  reportId = report.id;
+  bus.store.run(
+    'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
+    report.id,
+    item.item.id,
+    bus.collaboration.state(group.id).contract_version,
+    goalId,
+  );
+  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'pending_decision',
+      artifact: 'accepted-v1',
+      evidence: [report.id],
+      note: 'accepted evidence attached',
+    },
+    revision: item.revision,
+    operationId: 'panel-race-decision',
+  }, provenance);
+  await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+    groupId: group.id,
+    command: {
+      id: item.item.id,
+      itemRevision: item.item.revision,
+      state: 'accepted',
+      note: 'accept result',
+    },
+    revision: item.revision,
+    operationId: 'panel-race-accept',
+  }, provenance);
+
+  await bus.runPanelTurn({
+    session: { ...coordination, group_id: group.id },
+    panelAgent: bus.panelAgent(),
+    prompt: 'RACE_TRIGGER',
+    activeTeamId: group.id,
+    inputs: [report],
+  });
+
+  assert.ok(finishError, 'finish should be rejected while an unconsumed Goal Inbox message exists');
+  assert.match(finishError.message, /未消费的Goal Inbox消息/);
+  assert.ok(finishError.message.includes(lateId));
+  assert.notEqual(bus.collaboration.state(group.id).phase, 'closing');
+
+  await until(() => bus.collaboration.state(group.id).phase === 'closed');
+  assert.equal(bus.lifecycle.read(group.id).current, null);
+  assert.equal(bus.lifecycle.read(group.id).history[0].state, 'completed');
+  assert.equal(bus.store.all('SELECT * FROM user_outputs WHERE group_id=?', group.id).length, 1);
+});
+
 test('lead takeover and handback are revisioned and require an idle team', async t => {
   const { bus, directory } = await fixture(t);
   const group = confirmedGroup(bus, {

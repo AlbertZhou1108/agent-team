@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 import { LoaderCircle } from '@lucide/vue';
@@ -10,6 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import type {
   ModelCatalogResponse,
   PanelAgent,
+  PanelStream,
   PanelPreparation,
   PanelTeamView,
 } from '@/shared/api/raw-types';
@@ -36,6 +37,8 @@ const saving = ref(false);
 const modelSaving = ref(false);
 const stopping = ref(false);
 const actionError = ref('');
+const streamedReply = ref<PanelStream | null>(null);
+let streamSource: EventSource | null = null;
 
 type ConfirmRequest = {
   title: string;
@@ -78,6 +81,66 @@ const privateRunningContext = computed(
       (item) => item.endpoint === privateSessionId.value,
     )?.groupId ?? null,
 );
+const privateStreaming = computed(
+  () =>
+    (streamedReply.value?.context === 'private'
+      ? streamedReply.value
+      : null) ??
+    panel.value?.streaming?.find((stream) => stream.context === 'private') ??
+    null,
+);
+
+function acceptPanelStream(payload: {
+  type: 'snapshot' | 'start' | 'delta' | 'complete' | 'cancelled' | 'error';
+  stream?: PanelStream;
+  streams?: PanelStream[];
+  delta?: string;
+}) {
+  if (payload.type === 'snapshot') {
+    streamedReply.value =
+      payload.streams?.find((stream) => stream.context === 'private') ?? null;
+    return;
+  }
+  if (payload.stream?.context !== 'private') return;
+  if (payload.type === 'delta' && typeof payload.delta === 'string') {
+    const previous =
+      streamedReply.value?.turnId === payload.stream.turnId
+        ? streamedReply.value.text
+        : '';
+    streamedReply.value = {
+      ...payload.stream,
+      text: previous + payload.delta,
+    };
+    return;
+  }
+  if (payload.type === 'complete') {
+    streamedReply.value = payload.stream;
+    void panelQuery.refetch().finally(() => {
+      streamedReply.value = null;
+    });
+  } else if (payload.type === 'cancelled' || payload.type === 'error') {
+    streamedReply.value = null;
+    void panelQuery.refetch();
+  } else {
+    streamedReply.value = payload.stream;
+  }
+}
+
+onMounted(() => {
+  streamSource = new EventSource('/api/panel-agent/events');
+  streamSource.addEventListener('panel-stream', (event) => {
+    try {
+      acceptPanelStream(JSON.parse((event as MessageEvent<string>).data));
+    } catch {
+      // A malformed event is ignored; the next delta or state poll is authoritative.
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  streamSource?.close();
+  streamSource = null;
+});
 const sending = computed(
   () =>
     panelState.submitting ||
@@ -107,6 +170,8 @@ const form = ref<PanelAgentForm>({
   model_provider: '',
   model: '',
   reasoning_effort: '',
+  workspace: '',
+  access: 'read-only',
 });
 
 const availableHosts = computed<AvailableHost[]>(
@@ -133,6 +198,8 @@ function formFromAgent(agent: PanelAgent): PanelAgentForm {
     model_provider: agent.model_provider ?? '',
     model: agent.model ?? '',
     reasoning_effort: agent.reasoning_effort ?? '',
+    workspace: agent.workspace ?? '',
+    access: agent.access ?? 'read-only',
   };
 }
 
@@ -192,6 +259,11 @@ async function saveAgent() {
     !form.value.reasoning_effort
   )
     return;
+  if (form.value.access !== 'read-only' && !form.value.workspace.trim()) {
+    actionError.value =
+      '选择“工作区写入”或“完全权限”时，必须填写私人工作区绝对路径。';
+    return;
+  }
   saving.value = true;
   const wasExisting = Boolean(panel.value?.agent);
   actionError.value = '';
@@ -202,6 +274,8 @@ async function saveAgent() {
       model_provider: form.value.model_provider || null,
       model: form.value.model,
       reasoning_effort: form.value.reasoning_effort,
+      workspace: form.value.workspace.trim() || null,
+      access: form.value.access,
     };
     if (panel.value?.agent) await api.updatePanelAgent(body);
     else await api.createPanelAgent(body);
@@ -224,7 +298,8 @@ async function updateAgentModel(next: PanelAgentForm) {
   if (
     next.host === agent.host &&
     next.model === agent.model &&
-    next.reasoning_effort === agent.reasoning_effort
+    next.reasoning_effort === agent.reasoning_effort &&
+    next.access === (agent.access ?? 'read-only')
   )
     return;
   modelSaving.value = true;
@@ -236,9 +311,11 @@ async function updateAgentModel(next: PanelAgentForm) {
       model_provider: next.model_provider || null,
       model: next.model,
       reasoning_effort: next.reasoning_effort || null,
+      workspace: agent.workspace,
+      access: next.access,
     });
     await panelQuery.refetch();
-    toast.success('Panel Agent 模型已更新');
+    toast.success('Panel Agent 配置已更新');
   } catch (error) {
     form.value = previous;
     actionError.value = error instanceof Error ? error.message : String(error);
@@ -252,7 +329,11 @@ async function sendMessage() {
   if (!text || sending.value || !panel.value?.agent) return;
   actionError.value = '';
   try {
-    await panelState.sendMessage(text, activeTeamId.value || null);
+    const pending = panelState.sendMessage(text, activeTeamId.value || null);
+    // The user message is persisted before the host starts. Refresh now so it
+    // appears alongside the first SSE delta instead of waiting for completion.
+    await panelQuery.refetch();
+    await pending;
     await panelQuery.refetch();
   } catch {
     /* The store keeps the error and restores the draft when needed. */
@@ -493,6 +574,7 @@ watch(
           v-model:form="form"
           :agent="panel.agent"
           :messages="panel.conversation"
+          :streaming="privateStreaming"
           :teams="panel.teams"
           :sending="sending"
           :context-running="contextRunning"

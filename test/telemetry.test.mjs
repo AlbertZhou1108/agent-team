@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
 import { createCodexHost } from '../src/hosts/codex.mjs';
 import { createDshHost } from '../src/hosts/cli-hosts.mjs';
+import { dshSessionEventFrame, observeTextStream } from '../src/hosts/dsh-telemetry-observer.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../src/telemetry.mjs';
 import { startServer } from '../src/server.mjs';
 import { confirmedGroup } from './helpers.mjs';
@@ -514,7 +515,7 @@ test('telemetry HTTP routes are read-only JSON and errors use JSON {error}', asy
   await until(() => bus.running.size === 0);
   await sendFrom(bus, one, two, 'http');
   await bus.close();
-  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]), panelAuth: false });
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
   t.after(() => server.close());
   const ok = await fetch(`${server.url}api/telemetry/conversation?group=${group.id}&member=${one.id}&peer=${two.id}`);
   assert.equal(ok.status, 200);
@@ -678,7 +679,7 @@ test('manager conversation HTTP route is read-only JSON with manager fields and 
     inputs: [one.id], outputs: [one.id],
   });
   await bus.close();
-  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]), panelAuth: false });
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
   t.after(() => server.close());
   const base = server.url;
   const ok = await fetch(`${base}api/telemetry/manager-conversation?group=${group.id}&member=${one.id}`);
@@ -722,6 +723,10 @@ createInterface({ input: process.stdin }).on('line', line => {
       const tokenUsage = { total: { totalTokens: 130, inputTokens: 100, cachedInputTokens: 20, cacheWriteInputTokens: 5, outputTokens: 5, reasoningOutputTokens: 0 }, last: { totalTokens: 130, inputTokens: 100, cachedInputTokens: 20, cacheWriteInputTokens: 5, outputTokens: 5, reasoningOutputTokens: 0 }, modelContextWindow: 1000 };
       send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage } });
       send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage } });
+      send({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'message-1', delta: '已' } });
+      send({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'message-1', delta: '完成' } });
+      send({ method: 'item/started', params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'tool-1', type: 'dynamicToolCall', tool: 'agent_team_send', arguments: { to: 'peer', text: 'tool message' } } } });
+      send({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'message-1', type: 'agentMessage', text: '已完成' } } });
       send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', durationMs: 700 } } });
     });
     return;
@@ -731,16 +736,25 @@ createInterface({ input: process.stdin }).on('line', line => {
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
   t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
-  const telemetry = [];
+  const telemetry = [], deltas = [], toolDeltas = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },
     turnId: 'framework-turn', workspace: directory, prompt: 'metrics', instructions: 'follow',
     tools: [], policy: { mode: 'communication', allowShell: false }, previousPolicy: null,
     signal: new AbortController().signal,
     onSession() {}, onAccepted() {}, onNativeTurn() {}, onModel() {}, onPolicy() {}, onEvent() {},
+    onTextDelta(text, metadata) { deltas.push({ text, metadata }); },
+    onToolCallDelta(delta) { toolDeltas.push(delta); },
     onTelemetry(observation) { telemetry.push(observation); },
   });
-  assert.equal(output, '');
+  assert.equal(output, '已完成');
+  assert.deepEqual(deltas.map(item => item.text), ['已', '完成']);
+  assert.equal(deltas[0].metadata.itemId, 'message-1');
+  assert.equal(toolDeltas[0].name, 'send');
+  assert.deepEqual(JSON.parse(toolDeltas[0].argumentsDelta), {
+    to: 'peer',
+    text: 'tool message',
+  });
   const usage = telemetry.find(observation => observation.source === 'codex.thread_token_usage');
   assert.equal(usage.usage.inputTokensTotal, 100);
   assert.equal(usage.usage.uncachedInputTokens, 75);
@@ -759,26 +773,31 @@ test('DSH adapter consumes telemetry events and projections from its observer pl
   writeFileSync(fake, `#!/usr/bin/env node
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 send({ type: 'session', sessionId: 'dsh-session-1' });
+send({ type: 'assistant_delta', text: 'o', turn: 1, step: 1 });
 send({ type: 'framework.telemetry.event', event: 'turn/start', at: 1000, turn: 1 });
 send({ type: 'framework.telemetry.projection', key: 'contextPressure', value: { pressureTokens: 700, contextWindow: 1000 } });
 send({ type: 'framework.telemetry.event', event: 'assistant/message', at: 1100, turn: 1, step: 1, usage: { inputTokens: 100, cacheReadTokens: 20, cacheWriteTokens: 0, outputTokens: 5, totalTokens: 125 } });
 send({ type: 'framework.telemetry.event', event: 'turn/end', at: 1300, turn: 1, reason: 'completed' });
+send({ type: 'assistant_delta', text: 'k', turn: 1, step: 1 });
 send({ type: 'final', text: 'ok' });
 send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
   t.after(async () => { await host.close?.(); rmSync(directory, { recursive: true, force: true }); });
-  const telemetry = [];
+  const telemetry = [], deltas = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },
     turnId: 'framework-turn', workspace: directory, prompt: 'metrics', instructions: 'follow',
     tools: [], policy: { mode: 'communication', allowShell: false }, previousPolicy: null,
     signal: new AbortController().signal,
     onSession() {}, onAccepted() {}, onNativeTurn() {}, onModel() {}, onPolicy() {}, onEvent() {},
+    onTextDelta(text, metadata) { deltas.push({ text, metadata }); },
     onTelemetry(observation) { telemetry.push(observation); },
   });
   assert.equal(output, 'ok');
+  assert.deepEqual(deltas.map(item => item.text), ['o', 'k']);
+  assert.equal(deltas[0].metadata.nativeTurnId, '1');
   const usage = telemetry.find(observation => observation.source === 'dsh.assistant_message_usage');
   assert.equal(usage.usage.inputTokensTotal, 120);
   assert.equal(usage.usage.uncachedInputTokens, 100);
@@ -792,4 +811,82 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
   assert.equal(telemetry.find(observation => observation.source === 'dsh.turn_time').timing.hostTurnWallMs, 300);
   assert.equal(host.telemetryCapabilities.metrics.hostTurnWallMs.capability, 'direct');
   assert.equal(host.telemetryCapabilities.metrics.inputTokensTotal.capability, 'derived');
+});
+
+test('DSH observer forwards raw text chunks and deduplicates committed text in the adapter', async t => {
+  assert.equal(dshSessionEventFrame({
+    type: 'assistant/live-chunk',
+    time: 100,
+    data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 3, text: 'stream' } },
+  }), null);
+  async function* chunks() {
+    yield { type: 'text-delta', index: 3, text: 'stream' };
+    yield { type: 'reasoning-delta', index: 4, text: 'private reasoning' };
+    yield {
+      type: 'tool-call-delta',
+      index: 5,
+      id: 'tool-1',
+      name: 'send',
+      argumentsDelta: '{"to":"peer","text":"hello"}',
+    };
+  }
+  const frames = [];
+  for await (const _chunk of observeTextStream(chunks(), frame => frames.push(frame), {
+    provider: 'deepseek-official',
+    model: 'deepseek-flash',
+  })) {
+    // Consume the wrapped iterator as the DSH loop would.
+  }
+  assert.deepEqual(frames, [
+    {
+      type: 'framework.text.delta',
+      index: 3,
+      text: 'stream',
+      provider: 'deepseek-official',
+      model: 'deepseek-flash',
+    },
+    {
+      type: 'framework.tool.delta',
+      callId: 'tool-1',
+      name: 'send',
+      index: 5,
+      argumentsDelta: '{"to":"peer","text":"hello"}',
+      provider: 'deepseek-official',
+      model: 'deepseek-flash',
+    },
+  ]);
+
+  const directory = mkdtempSync(join(tmpdir(), 'agent-dsh-live-stream-'));
+  const fake = join(directory, 'fake-dsh.mjs');
+  writeFileSync(fake, `#!/usr/bin/env node
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+send({ type: 'session', sessionId: 'dsh-session-live' });
+send({ type: 'framework.text.delta', turn: 1, step: 1, text: 'live ' });
+send({ type: 'framework.text.delta', turn: 1, step: 1, text: 'text' });
+send({ type: 'framework.tool.delta', callId: 'tool-live', name: 'send', index: 1, argumentsDelta: '{"to":"peer","text":"he' });
+send({ type: 'tool_call', callId: 'tool-live', tool: 'send', input: { to: 'peer', text: 'hello' } });
+send({ type: 'text', text: 'live text' });
+send({ type: 'final', text: 'live text' });
+send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
+`);
+  chmodSync(fake, 0o700);
+  const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const deltas = [], toolDeltas = [];
+  const output = await host.run({
+    endpoint: { id: 'endpoint', key: 'key', session: null },
+    turnId: 'framework-turn', workspace: directory, prompt: 'stream', instructions: 'follow',
+    tools: [], policy: { mode: 'communication', allowShell: false }, previousPolicy: null,
+    signal: new AbortController().signal,
+    onSession() {}, onAccepted() {}, onNativeTurn() {}, onModel() {}, onPolicy() {}, onEvent() {},
+    onTextDelta(text, metadata) { deltas.push({ text, metadata }); },
+    onToolCallDelta(delta) { toolDeltas.push(delta); },
+  });
+  assert.equal(output, 'live text');
+  assert.deepEqual(deltas.map(item => item.text), ['live ', 'text']);
+  assert.deepEqual(toolDeltas.map(item => item.argumentsDelta), [
+    '{"to":"peer","text":"he',
+    '{"to":"peer","text":"hello"}',
+  ]);
+  assert.equal(toolDeltas[1].complete, true);
 });

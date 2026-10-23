@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxMode } from './policies.mjs';
 
 export const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 
@@ -19,9 +20,9 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
       { id: 'tools', config: { mode: 'native' } },
       { id: 'session-persistence-jsonl', config: { root: resolve(directory, 'host-sessions', 'dsh') } },
       { id: 'storage-json', config: { root: resolve(directory, 'host-storage', 'dsh') } },
-      { id: 'sandbox-policy', config: { mode: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', workspaceRoot: execution.workspace } },
+      { id: 'sandbox-policy', config: { mode: sandboxMode(execution.mode), workspaceRoot: execution.workspace } },
       { id: 'approval', config: { policy: 'never' } },
-      { id: 'permission', config: { presets: { team: { sandbox: execution.mode === 'workspace-write' ? 'workspace-write' : 'read-only', approval: 'never' } }, defaultPreset: 'team' } },
+      { id: 'permission', config: { presets: { team: { sandbox: sandboxMode(execution.mode), approval: 'never' } }, defaultPreset: 'team' } },
     );
     if (execution.modelSelection?.model) {
       if (!execution.modelSelection.model_provider) throw new Error('DSH角色模型缺少model_provider');

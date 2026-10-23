@@ -114,6 +114,8 @@ export interface SessionEndpoint {
   modelState: ModelState;
 }
 
+export type PanelAccess = 'read-only' | 'workspace-write' | 'full-access';
+
 export interface PanelAgent {
   id: string;
   name: string;
@@ -121,6 +123,8 @@ export interface PanelAgent {
   model_provider: string | null;
   model: string | null;
   reasoning_effort: string | null;
+  workspace: string | null;
+  access: PanelAccess;
   created: string;
   updated: string;
 }
@@ -188,6 +192,7 @@ export interface PanelAgentState {
   }>;
   teams: PanelTeamView[];
   conversation: PanelMessage[];
+  streaming?: PanelStream[];
   running: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
   preparations: PanelPreparation[];
   actions: Array<{
@@ -351,6 +356,39 @@ export interface MessageTrace {
     session: string | null;
     created: string;
   }>;
+}
+
+export interface PanelStream {
+  agentId: string;
+  sessionId: string;
+  turnId: string;
+  context: 'private' | 'coordination';
+  activeTeamId: string | null;
+  text: string;
+  created: string;
+  updatedAt: string;
+}
+
+export interface TeamStream {
+  id: string;
+  groupId: string;
+  endpointId: string;
+  memberId: string;
+  memberName: string;
+  recipientName: string;
+  pairKey: string;
+  kind: 'reply' | 'message';
+  messageKind?: 'send' | 'note';
+  host: string;
+  context: string;
+  turnId: string;
+  toolCallId?: string;
+  messageId?: string;
+  messageSeq?: number;
+  phase?: 'streaming' | 'complete';
+  text: string;
+  created: string;
+  updatedAt: string;
 }
 
 export interface TurnTrace extends ModelState {

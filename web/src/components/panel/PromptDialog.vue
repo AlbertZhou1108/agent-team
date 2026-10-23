@@ -73,6 +73,7 @@ function submit() {
         v-model="value"
         :placeholder="placeholder"
         rows="3"
+        @keydown.enter.exact.prevent="submit"
         @keydown.ctrl.enter="submit"
         @keydown.meta.enter="submit"
       />

@@ -7,15 +7,18 @@ import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import { Badge } from '@/components/ui/badge';
-import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
+import type { TeamDirectiveReceipt, TeamStream } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
+import { toStreamMessageViews } from './adapters';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   messages: MessageView[];
+  streaming?: TeamStream[];
   directives?: TeamDirectiveReceipt[];
   title?: string;
   selectedPair: string;
+  controllerId?: string;
   hosts?: Record<string, string>;
   loading?: boolean;
   hasNextPage?: boolean;
@@ -30,6 +33,17 @@ const filtered = computed(() =>
   props.selectedPair
     ? props.messages.filter((message) => message.pairKey === props.selectedPair)
     : props.messages,
+);
+const streamingViews = computed(() =>
+  toStreamMessageViews(
+    props.messages,
+    props.streaming ?? [],
+    props.selectedPair,
+    props.controllerId,
+  ),
+);
+const streamingMessages = computed(() =>
+  streamingViews.value.map(item => item.message),
 );
 
 const messageGroups = computed(() => {
@@ -53,7 +67,10 @@ const messageGroups = computed(() => {
   return groups;
 });
 const receipts = computed(() => Object.fromEntries((props.directives ?? []).map(r => [r.messageId, r])));
-const messageIds = computed(() => filtered.value.map((message) => message.id));
+const messageIds = computed(() => [
+  ...filtered.value.map((message) => message.id),
+  ...streamingMessages.value.map((message) => message.id),
+]);
 </script>
 
 <template>
@@ -72,7 +89,7 @@ const messageIds = computed(() => filtered.value.map((message) => message.id));
           {{ title ?? '全部群消息' }}
         </h3>
         <span class="text-xs text-muted-foreground tabular-nums"
-          >{{ filtered.length }} 条消息</span
+          >{{ filtered.length + streamingMessages.length }} 条消息</span
         >
       </div>
     </template>
@@ -121,8 +138,21 @@ const messageIds = computed(() => filtered.value.map((message) => message.id));
         </p>
       </template>
     </div>
+    <div
+      v-for="{ message, pending } in streamingViews"
+      :key="message.id"
+      class="chat-message"
+      :data-message-id="message.id"
+      aria-live="polite"
+    >
+      <AgentMessage :message="message" />
+      <p v-if="pending" class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+        <LoaderCircle class="size-3.5 animate-spin" />
+        正在生成
+      </p>
+    </div>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
-    <PanelState v-else-if="!filtered.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
+    <PanelState v-else-if="!filtered.length && !streamingMessages.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
 
   </ConversationPanel>
 </template>

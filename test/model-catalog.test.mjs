@@ -99,7 +99,7 @@ test('model catalog is cached, refreshable, and exposed through the read-only AP
       });
     },
   };
-  const server = await startServer({ directory, hosts: new Map([['fake', host]]), panelAuth: false });
+  const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
   const first = await server.bus.modelCatalog();
   const second = await server.bus.modelCatalog();

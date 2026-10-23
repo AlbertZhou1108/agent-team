@@ -1,9 +1,11 @@
 # Panel Agent 设计
 
-日期：2026-10-22
-状态：本地实现与验证中
+日期：2026-10-24（初版 2026-10-22）
+状态：私人会话原生化已实现；三档权限完成真实宿主验证与产品级冒烟（2026-10-24）
 
 本文定义 Panel Agent 的产品语义、生命周期、权限边界和兼容策略。逻辑验证原型见 [`web/prototypes/panel-agent-lifecycle-logic.html`](../web/prototypes/panel-agent-lifecycle-logic.html)。
+
+2026-10-24 更新：Panel Agent 是团队之上的用户侧角色，私人会话获得**用户级三档执行权限**（`read-only` / `workspace-write` / `full-access`）和可调整的私人工作区；团队契约仍然只约束团队。宿主等价映射与真实验证见[三档权限验证记录](./panel-agent-access-verification-20261024.md)。
 
 ## 1. 核心模型
 
@@ -25,6 +27,7 @@ flowchart LR
 - Panel Agent 惰性创建；没有创建时，现有 CLI 和只读面板不受影响。
 - Panel Agent 使用统一模型配置，模型变化作用于其所有上下文。
 - 私人对话只有一条，跨团队连续存在。
+- 私人会话拥有独立的**用户级执行权限**与**私人工作区**，与团队契约分开；团队契约只约束团队成员。
 - Panel Agent 与团队是一对多关系。
 - 对每个团队只有 `observer` 和 `main` 两种关系。
 - Panel Agent 不能作为普通成员承担执行或审查工作。
@@ -36,6 +39,8 @@ flowchart LR
 | --- | --- |
 | Panel Agent | 数据目录内唯一的全局 Agent 身份 |
 | 全局私人会话 | 用户与 Panel Agent 的连续对话，不进入团队共享记录 |
+| 私人工作区 | Panel Agent 私人会话的宿主工作目录；由用户设置，与具体团队无关 |
+| 私人访问级别 | 用户级文件效果策略：`read-only`、`workspace-write`、`full-access`；不来自团队契约 |
 | 团队关系 | Panel Agent 对某个团队的 `observer` 或 `main` 绑定 |
 | 观察 | 可读取团队全部共享内容，但不能写入团队状态 |
 | 主 Agent | 当前拥有团队 coordination 写权限的控制者 |
@@ -56,9 +61,11 @@ flowchart LR
 首次打开面板 Agent 页面时：
 
 - 若没有 Panel Agent，显示空状态和创建入口。
-- 用户选择名称、宿主、模型和思考强度后才能创建。
+- 用户选择名称、宿主、模型、思考强度、私人工作区和私人访问级别后才能创建。
 - 创建前不调用业务模型。
-- 创建后持久保存身份、模型配置、私人会话和团队关系。
+- 创建后持久保存身份、模型配置、私人工作区、访问级别、私人会话和团队关系。
+- 私人访问级别默认 `read-only`；用户可以在空闲时调整。
+- 没有设置私人工作区时，私人会话的宿主 cwd 回退到数据目录，面板显示设置提示；`workspace-write` 与 `full-access` 要求先设置有效工作区。
 
 ### 3.2 团队创建
 
@@ -141,9 +148,13 @@ main
   "activeTeamId": "...",
   "relation": "observer",
   "turnId": "...",
-  "inputMessageId": "..."
+  "inputMessageId": "...",
+  "workspace": "私人回合使用的工作区",
+  "access": "read-only"
 }
 ```
+
+私人回合记录实际工作区与访问级别；coordination 回合不读取这两个字段。
 
 规则：
 
@@ -159,7 +170,39 @@ main
 
 观察所有团队表示“可查询所有团队”，不表示每轮加载所有团队详情。
 
+### 4.1 私人执行上下文
+
+私人会话与团队 coordination 是同一个 Panel Agent 的两个隔离上下文，但执行权限不同：
+
+- 私人会话 cwd 使用私人工作区；未设置工作区时回退到数据目录并提示用户设置。
+- 私人会话的回合策略来自私人访问级别，与团队契约无关；文件/命令工具按宿主适配器的等价映射暴露。
+- coordination 会话继续使用团队工作区，并固定为 `communication`：只协调，不读取或修改项目文件，不继承私人访问级别。
+- 私人会话中的文件写入和命令执行不构成团队成果、证据、审查或授权。团队任务仍然通过工作项、契约和 coordination 完成。
+- 修改 `workspace` 或访问级别后，只重建私人会话的宿主 session（清空 `panel_sessions.session` 与 `policy_signature`），私人聊天记录保留；coordination 会话不受影响。修改 host/model 重建全部 Panel 会话；仅修改名称不重建。
+
+宿主等价映射与限制见[三档权限验证记录](./panel-agent-access-verification-20261024.md)：Codex 使用 thread/turn sandbox，Claude 使用内置工具集合、权限路径规则与宿主沙箱，DSH 使用 sandbox-policy 与显式 session mode。
+
 ## 5. 权限边界
+
+### 5.1 私人会话（用户级）
+
+私人会话的能力由用户设置的访问级别决定，不受团队契约约束：
+
+| 能力 | read-only | workspace-write | full-access |
+| --- | --- | --- | --- |
+| 读取本机文件 | 是（宿主许可范围） | 是 | 是 |
+| 写私人工作区内文件 | 否 | 是 | 是 |
+| 写私人工作区外文件 | 否 | 否 | 是 |
+| 执行命令 | 是（文件沙箱内） | 是（文件沙箱内） | 是（无文件沙箱） |
+| 调用团队观察/准备/主控工具 | 按团队关系 | 按团队关系 | 按团队关系 |
+| 团队写入 | 由 `observer/main` 关系与 controller revision 决定，私人级别不扩大团队权限 | 同左 | 同左 |
+
+- 三档是文件效果策略，命令在三档中都保留；`full-access` 只表示关闭文件沙箱，不承诺网络或进程隔离。
+- 宿主不支持的目标档位在保存配置时拒绝。
+- 私人级别不会转为团队授权；团队执行仍由契约、工作项、角色和宿主策略约束。
+- 文件/命令可达后，OS 用户权限内的框架数据目录和其他宿主的 session 文件也可能被读取。这是能力升级的已知限制，不再承诺“Panel Agent 无法查看成员私人会话”。
+
+### 5.2 团队 coordination 与成员执行（团队级）
 
 | 能力 | observer | main | 原主 Agent |
 | --- | --- | --- | --- |
@@ -169,21 +212,37 @@ main
 | 请求契约变更和新目标 | 否 | 是 | 暂停时否，恢复后是 |
 | 请求团队收尾 | 否 | 是 | 暂停时否，恢复后是 |
 | 查看原主 Agent 私人会话 | 否 | 否 | 本人上下文可用 |
-| 读取项目文件或执行命令 | 否 | 否 | 按原团队规则 |
+| 读取项目文件或执行命令 | 否 | 否（coordination 仅沟通） | 按原团队规则 |
 
-Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍由契约允许的普通角色完成。
+Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍由契约允许的普通角色完成；私人会话的访问级别不改变这一点。
 
 ## 6. 模型与会话
 
 - Panel Agent 使用一份模型配置。
 - 全局私人会话和所有团队 coordination 使用同一模型配置。
+- 私人会话绑定 `(host, model, workspace, access)`；任一变化只重建私人会话的宿主 session，保留私人聊天记录。
+- 私人会话的每个回合使用配置的访问级别与工作区；coordination 会话固定使用团队工作区与 `communication`。
 - 每个团队拥有独立 coordination session。
 - 同一团队的 coordination 回合串行。
 - 不同团队的 coordination 可以并行。
 - 团队上下文切换不能复用其他团队的运行锁、消息游标或工作项 revision。
 - 接管后不继承原主 Agent 的模型或宿主会话。
 
+### 6.1 私人会话宿主映射
+
+真实宿主验证结论见[三档权限验证记录](./panel-agent-access-verification-20261024.md)。产品适配器必须生成下列等价映射：
+
+| 档位 | Codex | Claude | DSH |
+| --- | --- | --- | --- |
+| read-only | thread `read-only` + turn `readOnly` 沙箱，shell 开启 | `Read,Glob,Grep,Bash` + 沙箱 `denyWrite:[workspace]` | sandbox-policy / preset `read-only`，显式 session mode |
+| workspace-write | thread `workspace-write` + turn `workspaceWrite`，`writableRoots:[workspace]` | 全工具 + `allowedTools` 路径规则 `Edit(**),Write(**)` + 沙箱 | sandbox-policy / preset `workspace-write` |
+| full-access | thread `danger-full-access` + turn `dangerFullAccess` | 全工具 + 不启用宿主 sandbox | sandbox-policy / preset `danger-full-access` |
+
+共同要求：`approvalPolicy/approval=never`；cwd＝私人工作区；文件/命令工具在三档都保留；宿主不支持的档位在配置保存时拒绝。Claude 的 Write/Edit 不受 Bash 沙箱约束，`workspace-write` 必须使用路径规则，不能只依赖 sandbox。
+
 ## 7. 工具边界
+
+私人会话的工具 = Panel MCP 工具 + 宿主原生文件/命令工具（按访问级别）；coordination 会话的工具 = 仅 Panel MCP 工具。团队执行仍由成员角色、契约和工作项决定。
 
 观察工具：
 
@@ -235,8 +294,9 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `GET` | `/api/panel-agent` | 读取身份、模型配置和连接状态 |
+| `GET` | `/api/panel-agent` | 读取身份、模型配置、私人工作区、访问级别和连接状态 |
 | `POST` | `/api/panel-agent` | 惰性创建 Panel Agent |
+| `POST` | `/api/panel-agent/update` | 修改名称、宿主/模型、私人工作区或访问级别 |
 | `GET` | `/api/panel-agent/conversation` | 分页读取全局私人会话 |
 | `POST` | `/api/panel-agent/messages` | 发送 Panel Agent 私人消息 |
 | `POST` | `/api/panel-agent/stop` | 停止当前 Panel Agent 回合 |
@@ -245,6 +305,14 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 | `POST` | `/api/teams/:id/takeover` | 请求 Panel Agent 接管 |
 | `POST` | `/api/teams/:id/handback` | 请求交还原主 Agent |
 | `POST` | `/api/panel-actions/:id/decide` | 用户确认或取消 Panel Agent 发起的接管/交还请求 |
+
+Panel Agent 创建的请求体包含 `name`、`host`、`model_provider`、`model`、`reasoning_effort`、`workspace`、`access`。校验：
+
+- `access` 只能是 `read-only`、`workspace-write`、`full-access`；
+- `workspace` 必须存在、是目录，且不能等于或位于数据目录内；
+- `workspace-write` 与 `full-access` 必须有有效 `workspace`；
+- 宿主必须支持目标档位（通过适配器能力声明）；
+- Panel Agent 正在运行时不能修改配置。
 
 所有写接口必须：
 
@@ -261,7 +329,7 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 
 | 数据 | 关键字段 |
 | --- | --- |
-| `panel_agents` | id、name、host、model、effort、status、created |
+| `panel_agents` | id、name、host、model、effort、workspace、access、status、created |
 | `panel_sessions` | panel_agent_id、context、session、created、updated |
 | `panel_conversations` | conversation、role、text、active_team_id、created |
 | `panel_turns` | turn_id、conversation、active_team_id、runtime_state |
@@ -269,6 +337,12 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 | `team_lead_controllers` | group_id、controller_kind、controller_id、state、revision |
 | `confirmation_grants` | action、payload_hash、expires、consumed |
 | `controller_transitions` | group_id、from、to、reason、created |
+
+迁移与默认值：
+
+- 既有 `panel_agents` 行迁移为 `access='read-only'`、`workspace=NULL`；迁移时清空一次私人会话的宿主绑定（保留私人聊天记录）。
+- `workspace=NULL` 时私人回合 cwd 回退到数据目录，面板提示用户设置私人工作区；`workspace-write` 与 `full-access` 要求先设置有效工作区。
+- 迁移不改写 coordination 会话、团队事实、成员或历史归属。
 
 必须保持：
 
@@ -288,6 +362,8 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 - Panel Agent 接管不会修改原主 Agent 的历史归属。
 - 现有团队仍可通过原生会话 Agent 使用。
 - 两种入口共享团队事实，但私人会话互不可见。
+- 旧 Panel Agent 迁移后为 `read-only`，私人工作区为空时回退数据目录并提示设置；首次私人回合可能重建宿主 session，聊天记录不丢失。
+- 旧 Panel Agent 的 coordination 行为保持不变。
 
 ## 11. 可信确认
 
@@ -303,10 +379,22 @@ Panel Agent 即使担任主 Agent，也只负责团队协调。项目执行仍�
 
 ## 12. 非目标
 
-- Panel Agent 作为普通团队成员。
+- Panel Agent 作为普通团队成员，或承担团队工作项的执行、审查。
 - 多个 Panel Agent 共享一个数据目录。
 - 跨数据目录观察。
 - 自动把所有团队上下文注入模型。
 - 一个用户回合隐式操作多个团队。
 - 接管过程中让原主 Agent 继续写入。
-- Panel Agent 直接执行项目代码或命令。
+- Panel Agent 在 coordination 中读取或修改项目文件。
+- 私人访问级别自动转为团队授权，或私人文件写入成为团队证据。
+- 用三档文件策略承诺网络、进程或整机隔离。
+- 为私人会话与团队成员提供工作区文件锁。
+
+## 13. 已知限制
+
+- 文件/命令可达后，Panel Agent 在 OS 用户权限内可以读取框架数据目录与其他宿主的 session 文件；旧设计“不能查看原主 Agent 私人会话”在文件系统层不再可强制。
+- `read-only` 不是整机只读：宿主自身 state/temp 或宿主沙箱允许的路径仍可能有写入；已验证的是工作区、普通工作区外目录和 `/tmp` 被拒绝。
+- `full-access` 只表示关闭文件沙箱：Codex 的 `dangerFullAccess` 同时开启网络；Claude/DSH 是否可联网取决于宿主与命令。不承诺网络边界。
+- Claude 的 Write/Edit 不受 Bash 沙箱约束，`workspace-write` 必须用权限路径规则收窄；缺失路径规则会退化为可写工作区外。
+- DSH 恢复已有 session 不会采用新 patch 的默认 mode，必须显式设置；无效插件 config 可能只产生 warning。
+- 宿主升级、用户配置变化或 MCP/插件来源变化后必须重跑[三档权限验证](./panel-agent-access-verification-20261024.md)。

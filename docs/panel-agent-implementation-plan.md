@@ -1,7 +1,7 @@
 # Panel Agent 实施计划
 
 日期：2026-10-22
-状态：MVP 已实现并完成真实宿主验证
+状态：MVP 已实现并完成真实宿主验证；阶段 6（私人会话原生化）已实现（2026-10-24）
 
 依据：[Panel Agent 设计](./panel-agent-design.md)。
 
@@ -203,6 +203,9 @@
 只有以下条件全部满足，Panel Agent 功能才算完成：
 
 - 阶段 1 至阶段 5 的服务器不变量和 UI 均通过验证；
+- 阶段 6（私人会话原生化）的数据库迁移、API、三宿主映射、UI 与测试均通过验证；
+- Panel Agent 私人会话可按用户级三档权限运行，coordination 仍固定 `communication`；
+- 旧 Panel Agent 迁移为 `read-only` 后私人聊天与 coordination 行为保留；
 - 原有 CLI 创建和使用团队流程无回归；
 - 新旧团队数据均能在同一面板读取；
 - Panel Agent 可创建团队；
@@ -223,10 +226,58 @@
 - 真实 DSH `0.2.0-rc.2` 使用 `DeepSeek Flash / low` 完成 Panel Agent 私人对话。
 - 真实 DSH 完成 `teams_list` 工具调用。
 - 真实 DSH 普通成员完成 `profile_set`，生成了 376 字能力自述，没有出现工具加载错误。
+- 2026-10-24：Codex 0.158.0、Claude 2.1.215、DSH 0.2.0-rc.2 的 `read-only` / `workspace-write` / `full-access` 三档文件效果策略完成真实宿主验证；映射、限制与证据见[Panel Agent 三档权限验证记录](./panel-agent-access-verification-20261024.md)。
 
-## 13. 已知问题
+## 13. 阶段 6：Panel Agent 私人会话原生化（2026-10-24）
 
-### 13.1 批准 preparation 后 Panel Agent 自动继续
+依据：[Panel Agent 设计 §3.1/§4.1/§5.1/§6.1](./panel-agent-design.md) 与[三档权限验证记录](./panel-agent-access-verification-20261024.md)。
+
+### 13.1 交付
+
+- `panel_agents` 增加 `workspace`、`access`；迁移旧行为 `access='read-only'`、`workspace=NULL`。
+- 创建/更新 API 校验工作区存在、非数据目录、宿主支持目标档位；`workspace-write`/`full-access` 要求工作区。
+- 私人回合使用配置的 workspace + 访问级别；coordination 固定团队 workspace + `communication`。
+- 私人回合记录 workspace/access；私有能力不构成团队授权。
+- 私人会话在 `host`/`model`/`workspace`/`access` 变化时重建（保留聊天记录）；仅改名不重建。
+- Codex、Claude、DSH 适配器实现三档等价映射，并提供 `supportsPanelAccess` 能力声明。
+- 面板创建/编辑表单增加工作区与访问级别；运行页显示当前档位与工作区；旧 Agent 显示“请设置工作区”。
+- 测试：迁移、API 校验、回合装配、coordination 不变、会话重建、适配器配置装配（fake CLI）、真实宿主复跑脚本与证据。
+
+### 13.2 适配器实现要点
+
+- Codex：`danger-full-access` 映射 `dangerFullAccess`；read-only/workspace-write 保持现有 thread/turn sandbox，shell 始终开启。
+- Claude：`read-only` 使用 `Read,Glob,Grep,Bash` + `denyWrite:[workspace]`；`workspace-write` 必须给 Write/Edit 加路径规则；`full-access` 不启用 sandbox。
+- DSH：`danger-full-access` 同时传给 sandbox-policy 与 permission preset；插件每次调用显式设置 session mode；工具裁剪把 write/edit/bash 纳入非 communication 档。
+- 所有宿主 `approval=never`；不新增逐操作确认。
+
+### 13.3 验收
+
+- fake 宿主断言私人回合 `policy`/`workspace` 与 coordination 的差异，及档位变化只重建私人会话。
+- 适配器配置单元测试锁定三宿主映射，特别是 Claude 的路径规则（防止 Write/Edit 绕过沙箱）。
+- 真实宿主复跑 `work/panel-access-verify-20261024/` 探针，三档全部 PASS；宿主升级后重跑。
+- UI：创建/编辑校验、旧 Agent 提示、运行中禁止改配置、档位徽标。
+
+### 13.4 实现与验证结果（2026-10-24）
+
+实现：
+
+- `src/store.mjs`：`panel_agents` 增加 `workspace`、`access`；旧行迁移为 `read-only` 并重置私人会话绑定（保留聊天记录），coordination 绑定保留。
+- `src/bus.mjs`：创建/更新校验访问级别、工作区（存在/目录/不在数据目录内）与宿主能力；私人回合使用配置的 workspace + access，coordination 固定团队 workspace + `communication`；host/model 重建全部 Panel 会话，workspace/access 只重建私人会话，改名不重建；私人指令写入工作区与访问级别。
+- 适配器：Codex 映射三档 sandbox/sandboxPolicy；Claude 生成只读工具集合、workspace-write 路径规则与 full-access 无 sandbox；DSH 的 sandbox-policy/permission preset 支持 `danger-full-access`，插件显式设置 session mode 并把 write/edit/bash 纳入非沟通档；三宿主提供 `supportsPanelAccess`。
+- 前端：`PanelAgentSetup` 增加工作区与访问级别；`PanelAgentPanel` 保存/回填/校验并在改模型时保留配置；`PanelAgentChat` 显示档位徽标、工作区与旧 Agent 工作区提示。
+
+验证：
+
+- `test/panel-access.test.mjs`：7 个测试覆盖配置校验、宿主能力拒绝、私人/coordination 回合差异、会话重建范围、旧数据迁移、三宿主映射与 DSH 补丁/插件。
+- `npm run test:core`：129 通过；`npm run test:web`：56 通过；`npm run typecheck`、`npm run build` 通过。
+- 产品级真实宿主冒烟（`work/panel-access-verify-20261024/product-smoke.mjs`）：三宿主 `read-only` 私人回合均成功，记录到配置的工作区/访问级别与实际宿主策略。
+- 产品级 `workspace-write` 冒烟（`product-access-smoke.mjs`）：三宿主工作区内写入成功、工作区外写入被拒；Claude 的 `allowedTools` 已包含 `Edit(**),Write(**)`。
+- 冒烟发现并修复：`executionPolicy` 曾丢弃 `access`，导致 Claude 退化为 plain `Write` 工具并绕过沙箱；现已保留 access 并加回归断言。
+- 原始三档行为证据仍以[三档权限验证记录](./panel-agent-access-verification-20261024.md)为准；宿主升级后重跑。
+
+## 14. 已知问题
+
+### 14.1 批准 preparation 后 Panel Agent 自动继续
 
 状态：已修复。
 
@@ -242,3 +293,11 @@
 原因：批准接口原子创建团队后只完成绑定；前端随后设置 `activeTeamId`，但没有创建持久化的“团队已批准，请继续”事件，也没有唤醒绑定到新团队的 Panel Agent 回合。Panel Agent 在等待批准时已经结束原回合，因此不会自行恢复。
 
 修复：团队创建事务内写入 `kind=continuation` 的 `panel_updates` 事件，ID 由 preparation/revision/hash 确定；现有更新泵自动将它交给绑定新团队的私人回合。重复批准不会重复创建事件，私人会话忙碌或服务重启时事件保持待交付。
+
+## 15. Panel Agent 流式回复
+
+框架为 Panel Agent 回合建立内存草稿，接收宿主 `onTextDelta` 后累积文本并发布 SSE 事件。实时增量只发送新增片段；连接快照携带未完成草稿，重连不需要重新调用模型。最终返回值落库为正式助手消息后发送完成事件并删除草稿，面板重取状态后以正式消息替换临时消息。
+
+Codex 使用 `item/agentMessage/delta`；Claude 开启 `--include-partial-messages` 并读取 `content_block_delta/text_delta`；DSH 的 invocation-only observer 拦截 `llm/stream` 原始 chunk，只转发普通对话的 `text-delta` 并过滤辅助模型调用，随后用 committed `text` 补发未发送后缀。没有文本增量的宿主仍按原路径只返回最终结果。
+
+验证覆盖适配器增量、Bus 草稿累积、最终替换、SSE 连接与完成事件。真实 DSH 冒烟确认 live chunk 已进入 SSE；单次回复可能只形成一个较大的 chunk，这是宿主/供应商的交付粒度，客户端不会伪造更细的字符流。真实模型流式冒烟不纳入自动测试，避免每次回归产生模型费用。

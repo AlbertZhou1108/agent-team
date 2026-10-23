@@ -8,7 +8,7 @@ import { confirmedGroup } from './helpers.mjs';
 
 test('panel scopes messages before paging and preserves legacy cursors', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'panel-loading-'));
-  const server = await startServer({ directory, panelAuth: false, hosts: new Map([['fake', { async run() { return 'done'; } }]]) });
+  const server = await startServer({ directory,  hosts: new Map([['fake', { async run() { return 'done'; } }]]) });
   t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
   const group = confirmedGroup(server.bus, { name: 'paging', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'worker', host: 'fake' }] });
   const members = server.bus.members(group.id);

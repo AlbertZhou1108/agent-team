@@ -45,7 +45,7 @@ const colors = [
         ><Ellipsis /></Button
     ></DropdownMenuTrigger>
     <DropdownMenuContent class="team-menu" :side-offset="4" align="end">
-      <DropdownMenuGroup class="flex items-center justify-between gap-2 px-2 py-2" aria-label="颜色标签">
+      <DropdownMenuGroup v-if="!folder" class="flex items-center justify-between gap-2 px-2 py-2" aria-label="颜色标签">
         <DropdownMenuCheckboxItem
           v-for="color in colors"
           :key="color.value"
@@ -61,7 +61,7 @@ const colors = [
         ><template #indicator-icon><span /></template></DropdownMenuCheckboxItem>
       </DropdownMenuGroup>
       <DropdownMenuGroup>
-        <DropdownMenuSeparator class="team-menu-separator" />
+        <DropdownMenuSeparator v-if="!folder" class="team-menu-separator" />
         <DropdownMenuItem
           v-if="!folder"
           class="team-menu-item"

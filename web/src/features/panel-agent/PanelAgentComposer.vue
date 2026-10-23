@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { CircleStop, Settings2 } from '@lucide/vue';
+import { CircleStop, Settings2, ShieldCheck } from '@lucide/vue';
 import MessageComposer from '@/components/ai-elements/MessageComposer.vue';
+import { panelAccessOption, panelAccessOptions } from './access';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
+import type { PanelAccess } from './types';
 import { InputGroupButton } from '@/components/ui/input-group';
 import type { PanelAgent } from '@/shared/api/raw-types';
 import PanelAgentModelSelector from './PanelAgentModelSelector.vue';
@@ -28,6 +31,24 @@ const emit = defineEmits<{
     <template #controls>
       <PanelAgentModelSelector v-model:form="form" :hosts="hosts" size="sm"
         :disabled="sending || catalogLoading || modelSaving" @change="emit('updateModel', $event)" />
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <InputGroupButton size="sm" variant="ghost" :disabled="sending || modelSaving" aria-label="Panel Agent 访问级别">
+            <ShieldCheck />{{ panelAccessOption(agent.access).label }}
+          </InputGroupButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuRadioGroup :model-value="agent.access ?? 'read-only'" @update:model-value="emit('updateModel', { ...form, access: $event as PanelAccess })">
+            <DropdownMenuRadioItem v-for="option in panelAccessOptions" :key="option.value" :value="option.value"
+              class="pl-2 data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground"
+              :disabled="option.value !== 'read-only' && !agent.workspace" :title="option.description">
+              <template #indicator-icon><span /></template>
+              {{ option.label }}
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <p v-if="!agent.workspace" class="max-w-64 px-2 py-1 text-xs text-muted-foreground">设置私人工作区后可启用写入权限。</p>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <InputGroupButton size="icon-sm" variant="ghost" :disabled="sending || modelSaving"
         aria-label="Panel Agent 设置" title="Panel Agent 设置" @click="emit('edit')"><Settings2 /></InputGroupButton>
     </template>

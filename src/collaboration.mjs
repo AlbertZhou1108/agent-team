@@ -344,7 +344,7 @@ export class Collaboration {
     if (modes.indexOf(selected.mode) > modes.indexOf(contract.body.policy)) throw new Error('工作项权限超过当前契约，需要重新安排');
     return { ...selected, domain: policyDomain(selected.mode), contractVersion: contract.version, boundary: contract.body.boundary };
   }
-  apply(actor, command, revision, operationId) {
+  apply(actor, command, revision, operationId, context = {}) {
     if (actor.role !== 'lead' || actor.context !== 'coordination') throw new Error('仅主 Agent调度会话可管理工作状态');
     text(operationId, 'operationId');
     const groupId = actor.group_id;
@@ -354,7 +354,9 @@ export class Collaboration {
       if (prior) { if (prior.hash !== hash) throw new Error('同一operationId不能用于不同命令'); return parse(prior.result); }
       const s = this.requireActive(groupId);
       if (s.revision !== revision) throw new Error(`执行状态版本冲突，当前revision=${s.revision}，请重新读取`);
-      const result = command.action === 'finish' ? this.finish(groupId, command) : this.updateItem(groupId, command);
+      const result = command.action === 'finish'
+        ? this.finish(groupId, command, context.turnMessageIds ?? [])
+        : this.updateItem(groupId, command);
       this.store.run('UPDATE team_state SET revision=revision+1 WHERE group_id=?', groupId);
       const out = { ...result, revision: s.revision + 1 };
       this.store.run('INSERT INTO collaboration_operations VALUES(?,?,?,?)', groupId, operationId, hash, json(out));
@@ -475,7 +477,7 @@ export class Collaboration {
       return { ...parse(r.body), kind: r.kind, approved };
     });
   }
-  finish(groupId, c) {
+  finish(groupId, c, turnMessageIds = []) {
     if (c.outcome !== 'completed') throw new Error('未完成终止需要用户通过terminate明确决定');
     text(c.final, '最终交付'); text(c.note, '收尾理由');
     const items = this.currentItems(groupId);
@@ -483,6 +485,10 @@ export class Collaboration {
     for (const criterion of this.contract(groupId).body.criteria) {
       const ids = c.coverage?.[criterion.id];
       if (!Array.isArray(ids) || !ids.length || ids.some(id => !items.some(i => i.id === id && i.state === 'accepted'))) throw new Error(`完成条件${criterion.id}缺少已接受成果覆盖`);
+    }
+    const unconsumed = this.unconsumedGoalInbox(groupId, turnMessageIds);
+    if (unconsumed.length) {
+      throw new Error(`仍有未消费的Goal Inbox消息，请结束本回合等待其投递后再收尾：${unconsumed.map(m => `${m.seq}:${m.id}`).join(', ')}`);
     }
     const dispositions = c.dispositions ?? [];
     if (!Array.isArray(dispositions)) throw new Error('dispositions必须是数组');
@@ -506,6 +512,39 @@ export class Collaboration {
     this.store.run("UPDATE team_state SET phase='closing',outcome='completed',final=?,finish_reason=? WHERE group_id=?", c.final, c.note, groupId);
     this.record(groupId, null, 'finish_requested', { coverage: c.coverage, note: c.note });
     return { phase: 'closing' };
+  }
+  unconsumedGoalInbox(groupId, turnMessageIds = []) {
+    const s = this.state(groupId);
+    if (!s) return [];
+    const goalId = this.goalIdForVersion(groupId, s.goal_version);
+    if (!goalId) return [];
+    const group = this.store.group(groupId);
+    const controller = this.store.get('SELECT controller_id,state FROM team_lead_controllers WHERE group_id=?', groupId);
+    const mainAgentId = controller
+      ? (controller.state === 'active' ? controller.controller_id : null)
+      : group.lead ?? null;
+    if (!mainAgentId) return [];
+    const cutoff = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM messages WHERE group_id=?', groupId).seq;
+    const currentTurn = new Set(Array.isArray(turnMessageIds) ? turnMessageIds : []);
+    return this.store.all(
+      `SELECT m.id,m.seq FROM messages m
+       JOIN message_context c ON c.message_id=m.id
+       WHERE m.group_id=? AND m.kind='send' AND m.recipient=? AND c.goal_id=? AND m.seq<=?
+         AND NOT EXISTS(
+           SELECT 1 FROM turn_inputs i JOIN turns t ON t.id=i.turn_id
+           JOIN runtime_attempts r ON r.turn_id=t.id
+           WHERE i.message_id=m.id AND r.state='completed'
+         )
+         AND NOT EXISTS(
+           SELECT 1 FROM panel_turn_inputs i JOIN panel_turns t ON t.id=i.turn_id
+           WHERE i.message_id=m.id AND t.state='completed'
+         )
+       ORDER BY m.seq`,
+      groupId,
+      mainAgentId,
+      goalId,
+      cutoff,
+    ).filter(m => !currentTurn.has(m.id));
   }
   pending(groupId) {
     return this.store.all(`SELECT m.id,m.seq,m.sender,m.recipient,m.text FROM messages m WHERE m.group_id=? AND m.kind='send'

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
-import { executionPolicy, claudeBuiltins, policyObservation } from './policies.mjs';
+import { executionPolicy, claudeExecutionConfig, policyObservation, sandboxMode } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
@@ -155,33 +155,75 @@ export function createClaudeHost({
       });
     },
     telemetryCapabilities: telemetryCapabilitiesFor('claude'),
+    supportsPanelAccess({ access }) {
+      return ['read-only', 'workspace-write', 'full-access'].includes(access)
+        ? { supported: true }
+        : { supported: false, reason: '未知私人访问级别' };
+    },
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
       const selectedModel = context.modelSelection?.model ?? model;
       const selectedEffort = context.modelSelection?.reasoning_effort ?? reasoningEffort;
       const policy = executionPolicy(context);
       const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId);
-      const allowed = context.tools.map(tool => `mcp__agent_team__${tool.name}`);
-      const builtins = claudeBuiltins(policy);
-      allowed.push(...builtins);
+      const { builtins, allowed, sandbox } = claudeExecutionConfig(policy, context.tools, context.workspace);
       const settings = { disableAllHooks: true };
-      if (policy.allowShell) settings.sandbox = { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, ...(policy.mode === 'read-only' ? { filesystem: { denyWrite: [context.workspace] } } : {}) };
+      if (sandbox) settings.sandbox = sandbox;
       if (selectedEffort) settings.env = { CLAUDE_CODE_EFFORT_LEVEL: selectedEffort };
-      const args = ['-p', '--setting-sources', 'user', '--settings', JSON.stringify(settings), '--strict-mcp-config', '--mcp-config', files.claude, '--tools', builtins.join(','), '--allowedTools', allowed.join(','), '--permission-mode', 'dontAsk', '--output-format', 'stream-json', '--verbose', '--append-system-prompt', instructions];
+      const args = ['-p', '--setting-sources', 'user', '--settings', JSON.stringify(settings), '--strict-mcp-config', '--mcp-config', files.claude, '--tools', builtins.join(','), '--allowedTools', allowed.join(','), '--permission-mode', 'dontAsk', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--append-system-prompt', instructions];
       if (endpoint.session) args.push('--resume', endpoint.session);
       if (selectedModel) args.push('--model', selectedModel);
       if (selectedEffort) args.push('--effort', selectedEffort);
       args.push('--', prompt);
-      context.onPolicy?.(policyObservation('claude', policy, { builtins, allowed, mode: 'dontAsk', sandbox: settings.sandbox ?? null }));
+      context.onPolicy?.(policyObservation('claude', policy, { builtins, allowed, mode: 'dontAsk', sandbox: settings.sandbox ?? null, panelAccess: context.policy?.access ?? null }));
       let result, sessionId = endpoint.session;
       let assistantModel = null;
       let selectionModel = selectedModel ?? null;
       let lastAssistantUsage = null;
       let resultEmitted = false;
       const seenAssistant = new Set();
+      const toolBlocks = new Map();
       if (selectedModel || selectedEffort) context.onModel({ phase: 'requested', model: selectedModel ?? null, reasoningEffort: selectedEffort ?? null, source: context.modelSelection ? 'member.selection' : 'adapter.config' });
       await runJsonProcess(command, args, { ...context, onRow(row) {
         if (row.session_id && row.session_id !== sessionId) { sessionId = row.session_id; onSession(sessionId); }
+        if (row.type === 'stream_event'
+          && row.event?.type === 'content_block_delta'
+          && row.event?.delta?.type === 'text_delta'
+          && typeof row.event.delta.text === 'string') {
+          context.onTextDelta?.(row.event.delta.text, {
+            requestId: row.uuid ?? null,
+            blockIndex: row.event.index ?? null,
+          });
+        }
+        if (row.type === 'stream_event'
+          && row.event?.type === 'content_block_start'
+          && row.event?.content_block?.type === 'tool_use') {
+          const index = row.event.index;
+          const block = {
+            id: row.event.content_block.id,
+            name: row.event.content_block.name,
+          };
+          toolBlocks.set(index, block);
+          context.onToolCallDelta?.({
+            callId: block.id,
+            name: block.name,
+            index,
+            argumentsDelta: '',
+          });
+        }
+        if (row.type === 'stream_event'
+          && row.event?.type === 'content_block_delta'
+          && row.event?.delta?.type === 'input_json_delta') {
+          const block = toolBlocks.get(row.event.index);
+          if (block) {
+            context.onToolCallDelta?.({
+              callId: block.id,
+              name: block.name,
+              index: row.event.index,
+              argumentsDelta: row.event.delta.partial_json ?? '',
+            });
+          }
+        }
         if (row.type === 'system' && row.subtype === 'init' && row.model) {
           selectionModel = row.model;
           context.onModel({ phase: 'session', model: row.model, provider: 'claude', source: 'claude.system.init' });
@@ -328,11 +370,17 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       });
     },
     telemetryCapabilities: telemetryCapabilitiesFor('dsh'),
+    supportsPanelAccess({ access }) {
+      return ['read-only', 'workspace-write', 'full-access'].includes(access)
+        ? { supported: true }
+        : { supported: false, reason: '未知私人访问级别' };
+    },
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
       const policy = executionPolicy(context);
       const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId, {
         ...policy,
+        access: context.policy?.access ?? null,
         workspace: context.workspace,
         tools: context.tools.map(t => `mcp__agent_team__${t.name}`),
         modelSelection: context.modelSelection,
@@ -340,11 +388,45 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       const args = ['headless', '--patch', files.dsh, '--json'];
       if (endpoint.session) args.push('--session-id', endpoint.session);
       args.push(`${instructions}\n\n当前输入：\n${prompt}`);
-      context.onPolicy?.(policyObservation('dsh', policy, { sessionPolicy: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', agentScopedToolRestriction: true, approval: 'never' }));
-      let text, end;
+      context.onPolicy?.(policyObservation('dsh', policy, { sessionPolicy: sandboxMode(policy.mode), agentScopedToolRestriction: true, approval: 'never' }));
+      let text, end, streamedText = '';
       const turnStarts = new Map();
       const emittedTurnTiming = new Set();
       await runJsonProcess(command, args, { ...context, onRow(row) {
+        const delta = row.type === 'framework.text.delta'
+          ? row.text
+          : row.type === 'assistant_delta'
+          ? row.text ?? row.delta
+          : row.type === 'message_delta' && row.role === 'assistant'
+            ? row.text ?? row.delta
+            : null;
+        if (typeof delta === 'string' && delta) {
+          streamedText += delta;
+          context.onTextDelta?.(delta, {
+            nativeTurnId: row.turn == null ? null : String(row.turn),
+            step: row.step == null ? null : String(row.step),
+          });
+        }
+        if (row.type === 'framework.tool.delta') {
+          context.onToolCallDelta?.({
+            callId: row.callId,
+            name: row.name,
+            index: row.index,
+            argumentsDelta: row.argumentsDelta ?? '',
+          });
+        }
+        if (row.type === 'tool_call') {
+          const input = typeof row.input === 'string'
+            ? row.input
+            : JSON.stringify(row.input ?? {});
+          context.onToolCallDelta?.({
+            callId: row.callId,
+            name: row.tool,
+            index: row.index,
+            argumentsDelta: input,
+            complete: true,
+          });
+        }
         if (row.type === 'framework.telemetry.event') {
           const turnRef = row.turn != null ? String(row.turn) : '';
           if (row.event === 'turn/start' && Number.isFinite(row.at)) turnStarts.set(turnRef, row.at);
@@ -444,6 +526,16 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         }
         if (row.type === 'status' && row.phase === 'turn_start' && row.turn !== undefined) context.onNativeTurn(row.turn);
         if (row.type === 'session') onSession(row.sessionId);
+        if (row.type === 'text') {
+          if (typeof row.text === 'string' && row.text && !streamedText) {
+            streamedText = row.text;
+            context.onTextDelta?.(row.text, { committed: true });
+          } else if (typeof row.text === 'string' && row.text.startsWith(streamedText) && row.text.length > streamedText.length) {
+            const remainder = row.text.slice(streamedText.length);
+            streamedText = row.text;
+            context.onTextDelta?.(remainder, { committed: true });
+          }
+        }
         if (row.type === 'final') text = row.text;
         if (row.type === 'status' && row.phase === 'turn_end') end = row.reason?.kind;
         if (row.type === 'error') throw new Error(row.message ?? row.error ?? 'DSH 回合失败');

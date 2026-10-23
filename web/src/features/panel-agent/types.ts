@@ -1,7 +1,10 @@
 import type {
   HostModelCatalog,
+  PanelAccess,
   PanelAgentState,
 } from '@/shared/api/raw-types';
+
+export type { PanelAccess };
 
 export interface PanelAgentForm {
   name: string;
@@ -9,6 +12,8 @@ export interface PanelAgentForm {
   model_provider: string;
   model: string;
   reasoning_effort: string;
+  workspace: string;
+  access: PanelAccess;
 }
 
 export interface AvailableHost {

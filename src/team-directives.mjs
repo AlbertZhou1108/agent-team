@@ -35,6 +35,7 @@ export class TeamDirectives {
       return published;
     });
     for (const reply of replies) this.bus.emit('message', reply);
+    return replies;
   }
   recoverOutputs() {
     const s = this.bus.store;

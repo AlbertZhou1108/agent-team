@@ -99,18 +99,20 @@ npm start -- chat --group 群编号 --data work/local
 npm start -- chat --group 群编号 --text '读取群记录并汇总' --data work/local
 ```
 
-群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，必须先打开启动时提供的带入口 key 链接。团队观测页仍只读；独立 Panel Agent 页面提供私人会话、团队准备确认和主 Agent 接管入口，写能力由命名 API 和同一来源校验限制。
+群总线和 CLI 通过仅本用户可访问的 Unix socket 通信；面板只绑定 127.0.0.1，可直接打开普通链接，无需密钥或 Cookie。团队操作由专用 API、Host、跨站和同源校验及业务权限约束。
 
 ### Panel Agent
 
 面板根路径 `/agent` 提供独立 Panel Agent。没有 Agent 时显示惰性创建入口；创建后使用一条全局私人会话，并自动观察当前数据目录中的全部团队。
+
+Panel Agent 回合通过 SSE 在原会话位置显示宿主文本增量。事件只携带新增片段，重连时由完整草稿快照恢复；回合结束后以持久化最终消息替换草稿，最终结果仍是权威内容。
 
 Panel Agent 与团队只有两种关系：
 
 - `observer`：读取团队共享信息，不能写入团队状态；
 - `main`：接管团队 coordination，原主 Agent 暂停并保留历史，可再次交还。
 
-团队创建仍使用现有 preparation、契约 revision/hash、角色模型计划和用户确认。Panel Agent 不进入普通成员列表；它是团队主 Agent 时与普通角色仍是不同身份。完整设计见[Panel Agent 设计](./docs/panel-agent-design.md)和[实施计划](./docs/panel-agent-implementation-plan.md)。
+团队创建仍使用现有 preparation、契约 revision/hash、角色模型计划和用户确认。Panel Agent 不进入普通成员列表；它是团队主 Agent 时与普通角色仍是不同身份。私人会话是用户侧的原生 Agent 上下文：用户设置私人工作区与访问级别（只读 / 工作区写入 / 完全权限），宿主回合在该工作区按档位暴露文件与命令工具；coordination 仍只协调、不读写项目文件，私人权限不构成团队授权。旧 Panel Agent 迁移后为只读。宿主映射与限制见[三档权限验证记录](./docs/panel-agent-access-verification-20261024.md)。完整设计见[Panel Agent 设计](./docs/panel-agent-design.md)和[实施计划](./docs/panel-agent-implementation-plan.md)。
 
 ## 宿主配置与新适配器
 
@@ -173,7 +175,7 @@ npm start -- models --data work/local
 
 ## 面板与当前限制
 
-团队观测页展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。侧栏设置菜单进入独立设置页，可切换主题并保存全局模型策略；策略用于新团队初始角色和已有团队新增角色，不改写已有角色。独立 Panel Agent 页面提供用户私人会话、团队准备确认和主 Agent 接管；团队上下文、草稿与提交状态独立于页面生命周期，切换页面后可继续后台回合并恢复 loading。用户批准 Panel Agent 创建的团队后，同一事务会持久化幂等继续事件并自动恢复批准前计划。coordination Panel Agent 可通过 `panel_update_publish` 发布自然语言团队更新；更新会持久化，并在 coordination 回合结束后自动交给私人会话，私人忙碌时排队。团队会话支持通过公共输入组件向当前主 Agent 发送用户指令；主 Agent 忙碌时排队，使用持久请求编号避免网络重试重复派发，列表展示排队、投递或失败状态。团队草稿与 Panel Agent 私聊草稿独立。指令不是契约批准，已结束目标的新执行工作仍需确认新目标；归档团队不能发送。面板不展示用户私聊。
+团队观测页展示群、成员、自述、消息和群内宿主会话事件，按对话过滤并分页读取。会话页显示 `communication`、`project` 或宿主共享的 `default` 会话域。协作页展示有效契约、工作项状态、参与职责、权限与命令需求、成果版本、审查与接受、用户决定、目标结果、收尾状态、未处理消息和待核实运行。侧栏设置菜单进入独立设置页，可切换主题并保存全局模型策略；策略用于新团队初始角色和已有团队新增角色，不改写已有角色。独立 Panel Agent 页面提供用户私人会话、团队准备确认和主 Agent 接管；私人会话可配置工作区与只读/工作区写入/完全权限三档执行级别，coordination 保持仅沟通。团队上下文、草稿与提交状态独立于页面生命周期，切换页面后可继续后台回合并恢复 loading。用户批准 Panel Agent 创建的团队后，同一事务会持久化幂等继续事件并自动恢复批准前计划。coordination Panel Agent 可通过 `panel_update_publish` 发布自然语言团队更新；更新会持久化，并在 coordination 回合结束后自动交给私人会话，私人忙碌时排队。团队会话支持通过公共输入组件向当前主 Agent 发送用户指令；主 Agent 忙碌时排队，使用持久请求编号避免网络重试重复派发，列表展示排队、投递或失败状态。团队草稿与 Panel Agent 私聊草稿独立。指令不是契约批准，已结束目标的新执行工作仍需确认新目标；归档团队不能发送。面板不展示用户私聊。
 
 事件视图来自实际观察到的宿主事件流。尤其 DSH headless 对部分字符串有自身截断，它**不等同于宿主原生完整历史查看器**。宿主历史仍以各宿主为准。
 
@@ -196,7 +198,7 @@ npm run test:web    # 前端适配器测试
 npm run dev         # Node API :62048 + Vite :5173
 ```
 
-开发脚本会设置 `AGENT_TEAM_DEV_NO_AUTH=1`，因此可以直接打开 `http://127.0.0.1:5173/`，不需要在每次重启后重新设置 Cookie。该开关只影响开发启动脚本；直接启动 `src/cli.mjs`、执行 `npm start` 或运行生产构建时仍要求启动链接鉴权。开发模式仍保留 Host、跨站、请求方法和 `127.0.0.1` 绑定检查；唯一允许的通用设置 POST 是全局模型策略保存。
+开发和正式启动均无需面板密钥或 Cookie，可直接访问对应本机端口。开发前端地址为 `http://127.0.0.1:5173/`。所有模式保留 Host、跨站、请求方法及 `127.0.0.1` 绑定检查；写接口统一校验提供的 Origin。
 
 `npm start` 会先运行生产构建。若直接用其他进程启动 `src/cli.mjs`，请先执行 `npm run build`。Vue Router 使用 History 模式；Node 会先完成鉴权和 API 路由，再对非 API、非静态资源的页面路径回退到 `web/dist/index.html`。
 

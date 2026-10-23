@@ -1,4 +1,4 @@
-import type { Member, MessageRow } from '@/shared/api/raw-types';
+import type { Member, MessageRow, TeamStream } from '@/shared/api/raw-types';
 import type { MessageView } from '@/shared/models/view-types';
 
 type ActorName = { id: string; name: string };
@@ -38,4 +38,35 @@ export function toMessageViews(
 export function pairLabel(pair: string, members: Member[], actors: ActorName[] = []) {
   const [left, right] = pair.split(':');
   return `${memberName(members, left, actors)} ↔ ${memberName(members, right, actors)}`;
+}
+
+export function toStreamMessageViews(
+  messages: MessageView[],
+  streams: TeamStream[],
+  selectedPair: string,
+  controllerId?: string,
+) {
+  const persisted = new Set(messages.map(message => message.id));
+  return streams
+    .filter(stream => (
+      stream.text
+      && (!selectedPair || stream.pairKey === selectedPair)
+      && (!stream.messageId || !persisted.has(stream.messageId))
+    ))
+    .map(stream => ({
+      message: {
+        id: stream.phase === 'complete' && stream.messageId
+          ? stream.messageId
+          : `stream:${stream.id}`,
+        seq: stream.messageSeq ?? Number.MAX_SAFE_INTEGER,
+        pairKey: stream.pairKey,
+        senderName: stream.memberName,
+        recipientName: stream.recipientName,
+        senderIsLead: stream.memberId === controllerId,
+        kind: stream.messageKind ?? ('send' as const),
+        text: stream.text,
+        createdAt: stream.created,
+      } satisfies MessageView,
+      pending: stream.phase !== 'complete' || !stream.messageId,
+    }));
 }

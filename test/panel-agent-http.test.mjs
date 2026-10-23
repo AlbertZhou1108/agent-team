@@ -45,7 +45,7 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const directory = mkdtempSync(join(tmpdir(), 'agent-panel-http-'));
   const server = await startServer({
     directory,
-    panelAuth: false,
+
     hosts: new Map([['fake', fakeHost]]),
   });
   t.after(async () => {

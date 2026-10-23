@@ -41,7 +41,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
       CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_agents(id TEXT PRIMARY KEY,singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK(singleton=1),name TEXT NOT NULL,host TEXT NOT NULL,model_provider TEXT,model TEXT,reasoning_effort TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_agents(id TEXT PRIMARY KEY,singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK(singleton=1),name TEXT NOT NULL,host TEXT NOT NULL,model_provider TEXT,model TEXT,reasoning_effort TEXT,workspace TEXT,access TEXT NOT NULL DEFAULT 'read-only' CHECK(access IN ('read-only','workspace-write','full-access')),created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_sessions(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,session TEXT,policy_signature TEXT,key TEXT NOT NULL UNIQUE,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS panel_private_session ON panel_sessions(panel_agent_id) WHERE context='private';
       CREATE UNIQUE INDEX IF NOT EXISTS panel_coordination_session ON panel_sessions(panel_agent_id,group_id) WHERE context='coordination';
@@ -120,11 +120,20 @@ export class Store {
     const ensureColumn = (table, name, definition) => {
       if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+        return true;
       }
+      return false;
     };
     ensureColumn('panel_sessions', 'policy_signature', 'TEXT');
     ensureColumn('panel_messages', 'context', "TEXT NOT NULL DEFAULT 'private'");
     ensureColumn('panel_updates', 'kind', "TEXT NOT NULL DEFAULT 'update'");
+    ensureColumn('panel_agents', 'workspace', 'TEXT');
+    const panelAccessAdded = ensureColumn('panel_agents', 'access', "TEXT NOT NULL DEFAULT 'read-only'");
+    if (panelAccessAdded) {
+      // 旧 Panel Agent 迁移为只读访问级别；私人宿主会话按新策略重建，聊天记录保留。
+      this.db.prepare("UPDATE panel_sessions SET session=NULL,policy_signature=NULL,updated=? WHERE context='private'")
+        .run(new Date().toISOString());
+    }
   }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }

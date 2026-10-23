@@ -15,6 +15,7 @@ import type {
   ModelPolicy,
   MessageRow,
   ModelsPage,
+  PanelAccess,
   PanelAgentState,
   Snapshot,
   TeamGoalsState,
@@ -63,6 +64,7 @@ function query(path: string, values: Record<string, string | number | undefined>
 }
 
 export const api = {
+  chooseDirectory() { return mutate<{ path: string | null }>('/api/local/directory-picker', {}); },
   teamDirectives(groupId: string, signal?: AbortSignal) {
     return request<TeamDirectiveReceipt[]>(`/api/teams/${encodeURIComponent(groupId)}/directives`, signal);
   },
@@ -93,6 +95,8 @@ export const api = {
     model_provider?: string | null;
     model: string;
     reasoning_effort?: string | null;
+    workspace?: string | null;
+    access?: PanelAccess;
   }) {
     return mutate<PanelAgentState>('/api/panel-agent', body);
   },
@@ -102,6 +106,8 @@ export const api = {
     model_provider?: string | null;
     model?: string;
     reasoning_effort?: string | null;
+    workspace?: string | null;
+    access?: PanelAccess;
   }) {
     return mutate<PanelAgentState>('/api/panel-agent/update', body);
   },

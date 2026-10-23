@@ -416,7 +416,7 @@ export class TeamGoalLifecycle {
         this.requireMain(teamId, actor);
         result = this.requestGoalFinish(teamId, command);
       } else if (command?.type === 'goal.finish-withdraw') {
-        this.requireMain(teamId, actor);
+        this.requireMainOrUser(teamId, actor);
         result = this.withdrawGoalFinish(teamId, command);
       } else if (command?.type === 'team.archive') {
         this.requireUser(actor);
@@ -854,6 +854,11 @@ export class TeamGoalLifecycle {
     if (this.mainAgentId(teamId) !== actor.id) {
       throw new Error('当前Main Agent不匹配');
     }
+  }
+
+  requireMainOrUser(teamId, actor) {
+    if (actor?.kind === 'user') return;
+    this.requireMain(teamId, actor);
   }
 
   mainAgentId(teamId) {

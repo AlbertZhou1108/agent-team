@@ -24,7 +24,7 @@ export function createHost(options) {
 | --- | --- |
 | endpoint | 固定来源端点；id、group_id、member_id、context、peer、session、key。key 不可交给模型 |
 | turnId | 本次框架运行尝试编号；工具调用必须与活动回合一致 |
-| workspace | 本群共享工作目录 |
+| workspace | 团队成员回合为本群共享工作目录；Panel Agent 私人回合为私人工作区 |
 | instructions / prompt | 入群规则及本次输入；两者不可自动广播 |
 | tools | 该成员可使用的工具定义 |
 | policy / previousPolicy | 本回合有效执行策略，以及上次已应用的策略签名 |
@@ -51,9 +51,13 @@ Claude/DSH 使用框架生成的 MCP 启动配置。MCP 端点通过环境接收
 
 适配器必须报告宿主真实会话、回合结束和可核实的中断结果。内存中已无运行 Promise 不能证明进程停止；不确定状态应抛错并交由 Bus 标记为 `unknown`，不能伪造完成。
 
+文本输出使用可选 `onTextDelta(text, metadata)` 回调。它只表示宿主已经产生的可见文本增量，不能替代 `run()` 的最终返回值；Bus 以最终文本校准并持久化消息。Codex 映射 `item/agentMessage/delta`；Claude 在 `stream-json` 中启用 `--include-partial-messages` 并映射 `content_block_delta/text_delta`；DSH 通过 invocation-only observer 拦截 `llm/stream`，只转发普通对话的 `text-delta`，并过滤 `session-title` / `compaction`，最后对 committed `text` 只补发尚未转发的后缀。没有增量的适配器仍可正常完成回合。
+
 `sessionKey({policy})` 是可选能力，用于声明物理会话域。返回相同 key 表示同一宿主 session 可复用；不同 key 会持久绑定到不同 session/thread。Claude、DSH 默认复用 `default`，Codex 对 `communication` 与 `project` 返回不同 key。
 
 `supportsPolicy({member,policy})` 可在工作项写入前声明能力。返回 `{supported:false,reason}` 时，工作项事务回滚，不会出现先派发再静默降级。运行前还会再次校验，防止旧工作项或宿主配置变化绕过。
+
+`supportsPanelAccess({access})` 是可选能力，用于声明宿主是否支持 Panel Agent 私人会话的三档文件效果策略：`read-only`、`workspace-write`、`full-access`。Panel Agent 私人回合的 `policy` 带 `domain: 'project'`、`allowShell: true` 与 `access` 字段，`workspace` 是私人工作区；coordination 回合仍是 `communication`。三档的宿主等价映射与已验证限制见[Panel Agent 三档权限验证记录](panel-agent-access-verification-20261024.md)。
 
 `listModels()` 是可选的零业务调用目录发现接口。每次返回一个宿主目录：
 

@@ -638,6 +638,22 @@ test('finalizing snapshots a cutoff and only unconsumed Goal Inbox messages befo
   assert.equal(withdrawn.current.state, 'active');
   assert.equal(withdrawn.current.cutoffSeq, null);
   assert.equal(withdrawn.current.unconsumedInboxCount, null);
+
+  const finalizingAgain = lifecycle.apply(
+    'team',
+    { kind: 'main_agent', id: 'lead' },
+    { type: 'goal.finish-request', goalId: confirmed.goal.id },
+    withdrawn.revision,
+    'finish-request-again',
+  );
+  const userWithdrawn = lifecycle.apply(
+    'team',
+    { kind: 'user', id: 'local-user' },
+    { type: 'goal.finish-withdraw', goalId: confirmed.goal.id, reason: '用户撤回收尾' },
+    finalizingAgain.revision,
+    'finish-withdraw-user',
+  );
+  assert.equal(userWithdrawn.current.state, 'active');
 });
 
 test('legacy synchronization preserves the Finalization Cutoff after Goal completion', t => {
