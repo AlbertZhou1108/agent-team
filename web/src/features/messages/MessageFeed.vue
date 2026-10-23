@@ -6,10 +6,14 @@ import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
+import { Badge } from '@/components/ui/badge';
+import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
+import { directiveStatus } from './directive-status';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   messages: MessageView[];
+  directives?: TeamDirectiveReceipt[];
   title?: string;
   selectedPair: string;
   hosts?: Record<string, string>;
@@ -33,6 +37,7 @@ const messageGroups = computed(() => {
     id: string;
     notifications: boolean;
     messages: MessageView[];
+  directives?: TeamDirectiveReceipt[];
   }[] = [];
   for (const message of filtered.value) {
     const previous = groups.at(-1);
@@ -47,6 +52,7 @@ const messageGroups = computed(() => {
   }
   return groups;
 });
+const receipts = computed(() => Object.fromEntries((props.directives ?? []).map(r => [r.messageId, r])));
 const messageIds = computed(() => filtered.value.map((message) => message.id));
 </script>
 
@@ -109,6 +115,10 @@ const messageIds = computed(() => filtered.value.map((message) => message.id));
           :hosts="hosts ?? {}"
         />
         <AgentMessage :message="group.messages[0]!" />
+        <p v-if="receipts[group.id]" class="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <Badge variant="outline">{{ directiveStatus(receipts[group.id]!) }}</Badge>
+          <span v-if="receipts[group.id]!.error">{{ receipts[group.id]!.error }}</span>
+        </p>
       </template>
     </div>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />

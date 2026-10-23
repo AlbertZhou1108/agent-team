@@ -1,8 +1,20 @@
 import { spawn } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, policyObservation } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
+
+function sameSessionConfiguration(previous, signature) {
+  try {
+    // JSON object order is not a tool or policy change. Tool order is also immaterial.
+    const before = JSON.parse(previous);
+    const after = JSON.parse(signature);
+    return isDeepStrictEqual(before.config, after.config)
+      && Array.isArray(before.tools)
+      && isDeepStrictEqual([...before.tools].sort(), [...after.tools].sort());
+  } catch { return false; }
+}
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   let child, init, nextId = 0, stderr = '', serverNames = [];
@@ -202,7 +214,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要契约明确允许沙箱命令；请调整安排或由用户批准契约变更');
       const config = { ...codexPolicyConfig(policy, serverNames), ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) };
       const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
-      if (endpoint.session && context.previousPolicy?.signature !== signature) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
+      if (endpoint.session && !sameSessionConfiguration(context.previousPolicy?.signature, signature)) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
       const options = {
         cwd: context.workspace, approvalPolicy: 'never', sandbox: policy.mode === 'workspace-write' ? 'workspace-write' : 'read-only', developerInstructions: instructions,
         ...(selectedModel ? { model: selectedModel } : {}),

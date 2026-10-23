@@ -1,0 +1,793 @@
+[
+  {
+    "host": "dsh",
+    "variant": "full",
+    "output": "{\"accept\":false,\"evidence\":\"E_HIDDEN_52\"}",
+    "passed": true,
+    "reads": [],
+    "models": [
+      {
+        "phase": "session",
+        "model": "deepseek-flash",
+        "provider": "deepseek-official",
+        "reasoningEffort": "high",
+        "source": "dsh.agent_request"
+      }
+    ],
+    "telemetry": [
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:38.812Z",
+        "usage": {},
+        "context": {
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "unknown",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:39.827Z",
+        "usage": {},
+        "context": {
+          "lastRequestInputTokens": 1296,
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "complete",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.assistant_message_usage",
+        "scope": "step",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:39.828Z",
+        "usage": {
+          "inputTokensTotal": 1296,
+          "uncachedInputTokens": 1168,
+          "cacheReadTokens": 128,
+          "cacheWriteTokens": 0,
+          "outputTokens": 51,
+          "totalTokens": 1347
+        },
+        "context": {},
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "totalTokens": "host_reported"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "complete",
+          "totalTokens": "complete"
+        },
+        "formula": {
+          "inputTokensTotal": "usage.inputTokens + cacheReadTokens + cacheWriteTokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {},
+        "anomalies": [],
+        "attempt": {
+          "id": "dsh:1",
+          "state": "succeeded"
+        },
+        "nativeTurnId": "1",
+        "stepId": "1",
+        "requestId": "1:1:1792763439821"
+      },
+      {
+        "source": "dsh.turn_time",
+        "scope": "turn",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:39.830Z",
+        "usage": {},
+        "context": {},
+        "timing": {
+          "hostTurnWallMs": 1054
+        },
+        "quality": {},
+        "completeness": {
+          "hostTurnWallMs": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {},
+        "anomalies": [],
+        "attempt": {
+          "id": "dsh:1",
+          "state": "succeeded"
+        },
+        "nativeTurnId": "1",
+        "stepId": null,
+        "requestId": null
+      }
+    ],
+    "elapsedMs": 1867
+  },
+  {
+    "host": "dsh",
+    "variant": "selective",
+    "output": "{\"accept\":false,\"evidence\":\"E_HIDDEN_52\"}",
+    "passed": true,
+    "reads": [
+      "read"
+    ],
+    "models": [
+      {
+        "phase": "session",
+        "model": "deepseek-flash",
+        "provider": "deepseek-official",
+        "reasoningEffort": "high",
+        "source": "dsh.agent_request"
+      },
+      {
+        "phase": "session",
+        "model": "deepseek-flash",
+        "provider": "deepseek-official",
+        "reasoningEffort": "high",
+        "source": "dsh.agent_request"
+      }
+    ],
+    "telemetry": [
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:40.370Z",
+        "usage": {},
+        "context": {
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "unknown",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:41.432Z",
+        "usage": {},
+        "context": {
+          "lastRequestInputTokens": 847,
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "complete",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.assistant_message_usage",
+        "scope": "step",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:41.432Z",
+        "usage": {
+          "inputTokensTotal": 847,
+          "uncachedInputTokens": 591,
+          "cacheReadTokens": 256,
+          "cacheWriteTokens": 0,
+          "outputTokens": 35,
+          "totalTokens": 882
+        },
+        "context": {},
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "totalTokens": "host_reported"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "complete",
+          "totalTokens": "complete"
+        },
+        "formula": {
+          "inputTokensTotal": "usage.inputTokens + cacheReadTokens + cacheWriteTokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {},
+        "anomalies": [],
+        "attempt": {
+          "id": "dsh:1",
+          "state": "succeeded"
+        },
+        "nativeTurnId": "1",
+        "stepId": "1",
+        "requestId": "1:1:1792763441431"
+      },
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:41.448Z",
+        "usage": {},
+        "context": {
+          "lastRequestInputTokens": 847,
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "complete",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.context_pressure",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:42.302Z",
+        "usage": {},
+        "context": {
+          "lastRequestInputTokens": 1629,
+          "contextWindowTokens": 1000000
+        },
+        "timing": {},
+        "quality": {},
+        "completeness": {
+          "lastRequestInputTokens": "complete",
+          "contextWindowTokens": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "dsh.context_pressure",
+          "contextWindowTokens": "dsh.context_pressure"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": null
+      },
+      {
+        "source": "dsh.assistant_message_usage",
+        "scope": "step",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:42.302Z",
+        "usage": {
+          "inputTokensTotal": 1629,
+          "uncachedInputTokens": 861,
+          "cacheReadTokens": 768,
+          "cacheWriteTokens": 0,
+          "outputTokens": 52,
+          "totalTokens": 1681
+        },
+        "context": {},
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "totalTokens": "host_reported"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "complete",
+          "totalTokens": "complete"
+        },
+        "formula": {
+          "inputTokensTotal": "usage.inputTokens + cacheReadTokens + cacheWriteTokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {},
+        "anomalies": [],
+        "attempt": {
+          "id": "dsh:1",
+          "state": "succeeded"
+        },
+        "nativeTurnId": "1",
+        "stepId": "2",
+        "requestId": "1:2:1792763442301"
+      },
+      {
+        "source": "dsh.turn_time",
+        "scope": "turn",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:42.303Z",
+        "usage": {},
+        "context": {},
+        "timing": {
+          "hostTurnWallMs": 1962
+        },
+        "quality": {},
+        "completeness": {
+          "hostTurnWallMs": "complete"
+        },
+        "formula": {},
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {},
+        "anomalies": [],
+        "attempt": {
+          "id": "dsh:1",
+          "state": "succeeded"
+        },
+        "nativeTurnId": "1",
+        "stepId": null,
+        "requestId": null
+      }
+    ],
+    "elapsedMs": 2463
+  },
+  {
+    "host": "claude",
+    "variant": "full",
+    "output": "{\"accept\":false,\"evidence\":\"E_HIDDEN_52\"}",
+    "passed": true,
+    "reads": [],
+    "models": [
+      {
+        "phase": "requested",
+        "model": "claude-opus-5[1m]",
+        "reasoningEffort": null,
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "claude-opus-5[1m]",
+        "provider": "claude",
+        "source": "claude.system.init"
+      },
+      {
+        "phase": "assistant",
+        "model": "deepseek-v4-pro",
+        "provider": "claude",
+        "source": "claude.assistant.message"
+      },
+      {
+        "phase": "usage",
+        "models": [
+          "claude-opus-5[1m]"
+        ],
+        "provider": "claude",
+        "source": "claude.result.modelUsage"
+      },
+      {
+        "phase": "verified",
+        "model": "deepseek-v4-pro",
+        "reasoningEffort": "max",
+        "provider": "claude",
+        "source": "claude.project_transcript"
+      }
+    ],
+    "telemetry": [
+      {
+        "source": "claude.assistant_message_usage",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:45.420Z",
+        "usage": {
+          "inputTokensTotal": 2640,
+          "uncachedInputTokens": 2640,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        },
+        "context": {
+          "lastRequestInputTokens": 2640
+        },
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "partial"
+        },
+        "formula": {
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.assistant_message_usage"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "c77a360f-f9fb-4d3e-ad2a-099cb037ffe4"
+      },
+      {
+        "source": "claude.assistant_message_usage",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:47.600Z",
+        "usage": {
+          "inputTokensTotal": 2844,
+          "uncachedInputTokens": 284,
+          "cacheReadTokens": 2560,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        },
+        "context": {
+          "lastRequestInputTokens": 2844
+        },
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "partial"
+        },
+        "formula": {
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.assistant_message_usage"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "44ac1254-784e-477f-9844-80b97d6c9a6e"
+      },
+      {
+        "source": "claude.result_usage",
+        "scope": "turn",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:47.613Z",
+        "usage": {
+          "inputTokensTotal": 5484,
+          "uncachedInputTokens": 2924,
+          "cacheReadTokens": 2560,
+          "cacheWriteTokens": 0,
+          "outputTokens": 309,
+          "totalTokens": 5793
+        },
+        "context": {
+          "lastRequestInputTokens": 5484,
+          "contextWindowTokens": 1000000,
+          "model": {
+            "provider": "claude",
+            "model": "claude-opus-5[1m]",
+            "source": "claude.result.modelUsage",
+            "observedAt": "2026-10-23T13:50:47.613Z"
+          }
+        },
+        "timing": {
+          "hostTurnWallMs": 4464
+        },
+        "quality": {
+          "totalTokens": "derived",
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "cacheReadTokens": "host_reported",
+          "cacheWriteTokens": "host_reported",
+          "outputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "complete",
+          "totalTokens": "complete",
+          "hostTurnWallMs": "complete"
+        },
+        "formula": {
+          "totalTokens": "inputTokensTotal + outputTokens",
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.result_usage",
+          "contextWindowTokens": "claude.model_usage"
+        },
+        "anomalies": [],
+        "attempt": {
+          "id": "e518f401-aacf-4b27-839f-f70424168ae3",
+          "state": "succeeded"
+        },
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "e518f401-aacf-4b27-839f-f70424168ae3"
+      }
+    ],
+    "elapsedMs": 5345
+  },
+  {
+    "host": "claude",
+    "variant": "selective",
+    "output": "{\"accept\":false,\"evidence\":\"E_HIDDEN_52\"}",
+    "passed": true,
+    "reads": [
+      "read"
+    ],
+    "models": [
+      {
+        "phase": "requested",
+        "model": "claude-opus-5[1m]",
+        "reasoningEffort": null,
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "claude-opus-5[1m]",
+        "provider": "claude",
+        "source": "claude.system.init"
+      },
+      {
+        "phase": "assistant",
+        "model": "deepseek-v4-pro",
+        "provider": "claude",
+        "source": "claude.assistant.message"
+      },
+      {
+        "phase": "usage",
+        "models": [
+          "claude-opus-5[1m]"
+        ],
+        "provider": "claude",
+        "source": "claude.result.modelUsage"
+      },
+      {
+        "phase": "verified",
+        "model": "deepseek-v4-pro",
+        "reasoningEffort": "max",
+        "provider": "claude",
+        "source": "claude.project_transcript"
+      }
+    ],
+    "telemetry": [
+      {
+        "source": "claude.assistant_message_usage",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:49.694Z",
+        "usage": {
+          "inputTokensTotal": 1928,
+          "uncachedInputTokens": 1928,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        },
+        "context": {
+          "lastRequestInputTokens": 1928
+        },
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "partial"
+        },
+        "formula": {
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.assistant_message_usage"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "b3df38a9-6c69-47ce-87e6-9e3bbfa3a2d2"
+      },
+      {
+        "source": "claude.assistant_message_usage",
+        "scope": "request",
+        "aggregation": "snapshot",
+        "observedAt": "2026-10-23T13:50:51.178Z",
+        "usage": {
+          "inputTokensTotal": 2711,
+          "uncachedInputTokens": 791,
+          "cacheReadTokens": 1920,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        },
+        "context": {
+          "lastRequestInputTokens": 2711
+        },
+        "timing": {},
+        "quality": {
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "partial"
+        },
+        "formula": {
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.assistant_message_usage"
+        },
+        "anomalies": [],
+        "attempt": null,
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "97011c2b-a341-41e0-ab75-dc2009839a8c"
+      },
+      {
+        "source": "claude.result_usage",
+        "scope": "turn",
+        "aggregation": "delta",
+        "observedAt": "2026-10-23T13:50:51.252Z",
+        "usage": {
+          "inputTokensTotal": 4639,
+          "uncachedInputTokens": 2719,
+          "cacheReadTokens": 1920,
+          "cacheWriteTokens": 0,
+          "outputTokens": 163,
+          "totalTokens": 4802
+        },
+        "context": {
+          "lastRequestInputTokens": 4639,
+          "contextWindowTokens": 1000000,
+          "model": {
+            "provider": "claude",
+            "model": "claude-opus-5[1m]",
+            "source": "claude.result.modelUsage",
+            "observedAt": "2026-10-23T13:50:51.252Z"
+          }
+        },
+        "timing": {
+          "hostTurnWallMs": 3259
+        },
+        "quality": {
+          "totalTokens": "derived",
+          "inputTokensTotal": "derived",
+          "uncachedInputTokens": "host_reported",
+          "cacheReadTokens": "host_reported",
+          "cacheWriteTokens": "host_reported",
+          "outputTokens": "host_reported",
+          "lastRequestInputTokens": "derived"
+        },
+        "completeness": {
+          "inputTokensTotal": "complete",
+          "uncachedInputTokens": "complete",
+          "cacheReadTokens": "complete",
+          "cacheWriteTokens": "complete",
+          "outputTokens": "complete",
+          "totalTokens": "complete",
+          "hostTurnWallMs": "complete"
+        },
+        "formula": {
+          "totalTokens": "inputTokensTotal + outputTokens",
+          "inputTokensTotal": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens",
+          "lastRequestInputTokens": "input_tokens + cache_read_input_tokens + cache_creation_input_tokens"
+        },
+        "formulas": {},
+        "missingReason": {},
+        "contextSource": {
+          "lastRequestInputTokens": "claude.result_usage",
+          "contextWindowTokens": "claude.model_usage"
+        },
+        "anomalies": [],
+        "attempt": {
+          "id": "a82eef9b-a0da-438d-872e-30226c6d1010",
+          "state": "succeeded"
+        },
+        "nativeTurnId": null,
+        "stepId": null,
+        "requestId": "a82eef9b-a0da-438d-872e-30226c6d1010"
+      }
+    ],
+    "elapsedMs": 3632
+  }
+]

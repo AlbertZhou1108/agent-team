@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Users } from '@lucide/vue';
@@ -8,9 +8,11 @@ import {
   useMembersTelemetryQuery,
   useTelemetryCapabilitiesQuery,
 } from '@/features/queries';
+import TelemetryMemberComparison from './TelemetryMemberComparison.vue';
 import TelemetryExecutorCard from './TelemetryExecutorCard.vue';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import TelemetryCapabilitiesView from './TelemetryCapabilitiesView.vue';
+import { numeric } from './visuals';
 import { formatTimestamp } from './format';
 
 const props = defineProps<{ groupId: string }>();
@@ -21,6 +23,9 @@ const capabilitiesQuery = useTelemetryCapabilitiesQuery(
 );
 
 const data = computed(() => query.data.value);
+const selectedId = ref('');
+const selectedMember = computed(() => data.value?.members.find(m => m.executor.memberId === selectedId.value)
+  ?? [...(data.value?.members ?? [])].sort((a, b) => (numeric(b.totals.totalTokens) ?? -1) - (numeric(a.totals.totalTokens) ?? -1))[0]);
 const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
 
 function capabilitySummary(host: string): string {
@@ -43,18 +48,14 @@ function capabilitySummary(host: string): string {
   <div class="flex min-w-0 flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-1">
-        <h3 class="text-sm font-semibold">群成员概览</h3>
-        <Badge variant="outline">按执行归属</Badge>
-        <Badge variant="outline">只读</Badge>
+        <h3 class="text-sm font-semibold">成员开销</h3>
+
       </div>
       <span class="text-[11px] text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
-    <p class="text-xs text-muted-foreground">
-      按实际执行宿主回合的成员汇总，不按消息发送者；缺失指标显示“—”与缺失原因，不补零。物理
-      session 累计与批次指标是同一消耗的不同视图，禁止相加。
-    </p>
+    <p class="text-xs text-muted-foreground">先看消耗分布，再展开成员详情。未采集的数据不补零。</p>
 
     <PanelState
       v-if="query.isPending.value"
@@ -74,23 +75,27 @@ function capabilitySummary(host: string): string {
       description="成员执行任务后，这里会按执行归属显示消耗；没有数据时不显示为 0。"
     />
     <template v-else>
+      <TelemetryMemberComparison :members="data.members" :selected-id="selectedMember?.executor.memberId" @select="selectedId = $event" />
       <TelemetryExecutorCard
-        v-for="member in data.members"
-        :key="member.executor.memberId"
-        :executor="member.executor"
-        :totals="member.totals"
-        :context-reference="member.contextReference"
-        :physical-sessions="member.physicalSessions"
-        :batch-count="member.batchCount"
-        :coverage="member.coverage"
+        v-if="selectedMember"
+        :key="selectedMember.executor.memberId"
+        :executor="selectedMember.executor"
+        :totals="selectedMember.totals"
+        :context-reference="selectedMember.contextReference"
+        :physical-sessions="selectedMember.physicalSessions"
+        :batch-count="selectedMember.batchCount"
+        :coverage="selectedMember.coverage"
       >
         <template #footer>
           <div class="flex flex-wrap items-center gap-1 text-[11px]">
-            <Badge variant="outline">{{ capabilitySummary(member.executor.host) }}</Badge>
+            <Badge variant="outline">{{ capabilitySummary(selectedMember.executor.host) }}</Badge>
           </div>
         </template>
       </TelemetryExecutorCard>
 
+      <details class="text-xs text-muted-foreground">
+        <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
+        <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="data.sourceAnalysis.actors"
         :merged-batch-ids="data.sourceAnalysis.mergedBatchIds"
@@ -98,9 +103,12 @@ function capabilitySummary(host: string): string {
         :note="data.sourceAnalysis.note"
       />
 
+        </div>
+      </details>
+
       <details class="rounded-lg border p-3 text-xs">
         <summary class="w-fit cursor-pointer font-medium">
-          宿主能力明细（direct / derived / unsupported）
+          宿主采集能力
         </summary>
         <div class="mt-3">
           <TelemetryCapabilitiesView :group-id="groupId" />

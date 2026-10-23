@@ -751,3 +751,13 @@ export interface TelemetryCapabilityResponse {
     >;
   }>;
 }
+
+export interface TeamDirectiveReceipt {
+  operationId: string;
+  messageId: string;
+  seq: number;
+  recipient: string;
+  created: string;
+  status: 'queued' | 'delivered' | 'failed' | 'unknown';
+  error: string | null;
+}

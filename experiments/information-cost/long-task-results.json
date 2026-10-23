@@ -1,0 +1,288 @@
+[
+  {
+    "id": "long-evidence",
+    "variant": "full",
+    "repeat": 1,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [],
+    "reads": [],
+    "usage": {
+      "inputTokensTotal": 60929,
+      "cacheReadTokens": 6784,
+      "cacheWriteTokens": 0,
+      "outputTokens": 17,
+      "totalTokens": 60946,
+      "uncachedInputTokens": 54145
+    },
+    "elapsedMs": 3697,
+    "output": "{\"accept\":false,\"evidence\":\"E_TX_917\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "long-evidence",
+    "variant": "full-read",
+    "repeat": 1,
+    "model": "gpt-6-luna",
+    "passed": false,
+    "checks": [],
+    "reads": [
+      "evidence_read",
+      "evidence_read"
+    ],
+    "usage": {
+      "inputTokensTotal": 67889,
+      "cacheReadTokens": 40704,
+      "cacheWriteTokens": 0,
+      "outputTokens": 148,
+      "totalTokens": 68037,
+      "uncachedInputTokens": 27185
+    },
+    "elapsedMs": 5769,
+    "output": "{\"accept\":false,\"evidence\":\"CHECK_FAILED_ID_917\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "long-evidence",
+    "variant": "filtered-read",
+    "repeat": 1,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [],
+    "reads": [
+      "evidence_read"
+    ],
+    "usage": {
+      "inputTokensTotal": 29971,
+      "cacheReadTokens": 14208,
+      "cacheWriteTokens": 0,
+      "outputTokens": 41,
+      "totalTokens": 30012,
+      "uncachedInputTokens": 15763
+    },
+    "elapsedMs": 4283,
+    "output": "{\"accept\":false,\"evidence\":\"E_TX_917\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "long-evidence",
+    "variant": "full",
+    "repeat": 2,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [],
+    "reads": [],
+    "usage": {
+      "inputTokensTotal": 60929,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 17,
+      "totalTokens": 60946,
+      "uncachedInputTokens": 60929
+    },
+    "elapsedMs": 3931,
+    "output": "{\"accept\":false,\"evidence\":\"E_TX_917\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "long-evidence",
+    "variant": "full-read",
+    "repeat": 2,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [],
+    "reads": [
+      "evidence_read",
+      "evidence_read"
+    ],
+    "usage": {
+      "inputTokensTotal": 68918,
+      "cacheReadTokens": 54912,
+      "cacheWriteTokens": 0,
+      "outputTokens": 123,
+      "totalTokens": 69041,
+      "uncachedInputTokens": 14006
+    },
+    "elapsedMs": 5922,
+    "output": "{\"accept\":false,\"evidence\":\"E_TX_917\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "long-evidence",
+    "variant": "filtered-read",
+    "repeat": 2,
+    "model": "gpt-6-luna",
+    "passed": false,
+    "checks": [],
+    "reads": [],
+    "usage": {
+      "inputTokensTotal": 14427,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 19,
+      "totalTokens": 14446,
+      "uncachedInputTokens": 14427
+    },
+    "elapsedMs": 2987,
+    "output": "{\"accept\":false,\"evidence\":\"EVIDENCE_NOT_LOADED\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "code-task",
+    "variant": "full",
+    "repeat": 1,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [
+      true,
+      true
+    ],
+    "reads": [],
+    "usage": {
+      "inputTokensTotal": 19207,
+      "cacheReadTokens": 2432,
+      "cacheWriteTokens": 0,
+      "outputTokens": 75,
+      "totalTokens": 19282,
+      "uncachedInputTokens": 16775
+    },
+    "elapsedMs": 7213,
+    "output": "{\"code\":\"function selectCurrent(rows, goal, artifact) {\\n  return [...new Set(rows\\n    .filter(row => row.goal === goal && row.artifact === artifact && row.status === \\\"failed\\\")\\n    .map(row => row.id))]\\n    .sort((a, b) => a - b);\\n}\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  },
+  {
+    "id": "code-task",
+    "variant": "projected",
+    "repeat": 1,
+    "model": "gpt-6-luna",
+    "passed": true,
+    "checks": [
+      true,
+      true
+    ],
+    "reads": [],
+    "usage": {
+      "inputTokensTotal": 14389,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 66,
+      "totalTokens": 14455,
+      "uncachedInputTokens": 14389
+    },
+    "elapsedMs": 3986,
+    "output": "{\"code\":\"function selectCurrent(rows, goal, artifact) {\\n  return [...new Set(rows.filter(row => row.goal === goal && row.artifact === artifact && row.status === \\\"failed\\\").map(row => row.id))].sort((a, b) => a - b);\\n}\"}",
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ]
+  }
+]

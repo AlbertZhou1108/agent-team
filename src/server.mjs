@@ -92,6 +92,8 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         if (request.headers.host !== `127.0.0.1:${actualPort}` && request.headers.host !== `localhost:${actualPort}`) return fail(403, 'Invalid host');
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
         if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
+        const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
+        const isDirectiveMutation = request.method === 'POST' && Boolean(directiveMatch);
         const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
         const goalMutation = request.method === 'POST' && (
           /^\/api\/teams\/[^/]+\/goal-drafts\/[^/]+\/(?:confirm|delete)$/.test(url.pathname)
@@ -108,7 +110,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           || /^\/api\/preparations\/[^/]+\/approve$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
         );
-        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation && !isDirectiveMutation) return fail(403, 'Panel endpoint is not writable');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -119,7 +121,14 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         if (panelAuth && !(request.headers.cookie ?? '').split(';').some(part => part.trim() === `agent_team=${key}`)) return fail(401, '请打开启动时输出的面板链接');
         if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
           let value;
-          if (isPolicyMutation) {
+          if (directiveMatch) {
+            const groupId = decodeURIComponent(directiveMatch[1]);
+            if (isDirectiveMutation) {
+              if (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
+              if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+              value = bus.teamDirectives.submit(groupId, await readJsonBody(request));
+            } else value = bus.teamDirectives.list(groupId);
+          } else if (isPolicyMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });

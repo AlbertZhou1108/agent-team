@@ -36,8 +36,9 @@ defineProps<{
   <Card class="min-w-0 gap-4 py-4" :data-executor-id="executor.memberId">
     <CardHeader class="gap-1 px-4">
       <CardTitle class="flex flex-wrap items-center gap-2 text-sm">
-        {{ title ?? executor.name }}
+        <span class="min-w-0 truncate" :title="title ?? executor.name">{{ title ?? executor.name }}</span>
         <Badge variant="outline">{{ executor.host }}</Badge>
+        <Badge v-if="!coverage.complete" variant="outline">部分采集</Badge>
         <Badge v-if="executor.kind === 'panel_agent'" variant="secondary"
           >Panel Agent</Badge
         >
@@ -48,7 +49,11 @@ defineProps<{
       </CardDescription>
     </CardHeader>
     <CardContent class="flex min-w-0 flex-col gap-4 px-4">
-      <TelemetryMetricGrid :metrics="totals" />
+      <p v-if="batchCount === 0 && totals.totalTokens.value == null" class="text-xs text-muted-foreground">暂无执行观测</p>
+      <TelemetryMetricGrid v-else :metrics="totals" />
+      <details class="text-xs text-muted-foreground">
+        <summary class="w-fit cursor-pointer">上下文、会话与采集详情</summary>
+        <div class="mt-3 flex max-h-[min(28rem,60vh)] min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="上下文、会话与采集详情内容" tabindex="0">
       <TelemetryContextCard :context-reference="contextReference" />
       <TelemetryCoveragePanel :coverage="coverage" />
 
@@ -101,6 +106,8 @@ defineProps<{
         </details>
       </section>
       <slot name="footer" />
+        </div>
+      </details>
     </CardContent>
   </Card>
 </template>

@@ -1,5 +1,6 @@
 import type {
   CollaborationState,
+  TeamDirectiveReceipt,
   TelemetryCapabilityResponse,
   TelemetryConversationResponse,
   TelemetryCoordinationResponse,
@@ -62,6 +63,12 @@ function query(path: string, values: Record<string, string | number | undefined>
 }
 
 export const api = {
+  teamDirectives(groupId: string, signal?: AbortSignal) {
+    return request<TeamDirectiveReceipt[]>(`/api/teams/${encodeURIComponent(groupId)}/directives`, signal);
+  },
+  sendTeamDirective(groupId: string, body: { text: string; operationId: string; controllerId: string }) {
+    return mutate<TeamDirectiveReceipt>(`/api/teams/${encodeURIComponent(groupId)}/directives`, body);
+  },
   collaboration(group: string, after = 0, signal?: AbortSignal) {
     return request<CollaborationState>(query('/api/collaboration', { group, after }), signal);
   },

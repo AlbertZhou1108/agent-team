@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { compactNumber, numeric } from './visuals';
 import {
   Card,
   CardContent,
@@ -66,6 +67,19 @@ function recipientKindLabel(
 </script>
 
 <template>
+  <details class="min-w-0 rounded-lg border p-3">
+    <summary class="flex cursor-pointer flex-col gap-1 text-xs">
+      <span class="flex items-center justify-between gap-3">
+        <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
+        <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
+      </span>
+      <span class="flex flex-wrap items-center gap-2 text-muted-foreground">
+        <span>{{ batchStateLabel(batch.state) }}</span>
+        <span v-if="batch.completeness !== 'complete'">{{ completenessLabel(batch.completeness) }}</span>
+        <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
+        <span>展开执行详情</span>
+      </span>
+    </summary>
   <Card
     class="min-w-0 gap-3 py-4"
     :data-batch-id="batch.batchId"
@@ -237,4 +251,5 @@ function recipientKindLabel(
       </details>
     </CardContent>
   </Card>
+  </details>
 </template>

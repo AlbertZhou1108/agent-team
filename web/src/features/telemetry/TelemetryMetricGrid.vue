@@ -1,98 +1,61 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
 import TelemetryMetricBadge from './TelemetryMetricBadge.vue';
-import {
-  METRIC_KEYS,
-  METRIC_LABELS,
-  aggregationLabel,
-  completenessLabel,
-  countMissing,
-  countWithValue,
-  formatTimestamp,
-  metricDisplay,
-  missingReasonLabel,
-  qualityLabel,
-} from './format';
-
-withDefaults(
-  defineProps<{
-    metrics: TelemetryMetrics;
-    showDetail?: boolean;
-    columns?: 1 | 2 | 3;
-  }>(),
-  { showDetail: true, columns: 2 },
-);
+import { METRIC_KEYS, METRIC_LABELS, aggregationLabel, completenessLabel, formatTimestamp,
+  metricDisplay, missingReasonLabel, qualityLabel } from './format';
+import { compactDuration, compactNumber, numeric, ratioPercent, tokenComposition } from './visuals';
+const props = withDefaults(defineProps<{ metrics: TelemetryMetrics; showDetail?: boolean; columns?: 1 | 2 | 3 }>(), { showDetail: true, columns: 2 });
+const primary = ['totalTokens', 'cacheReadRatio', 'executionWallMs'] as const;
+const keys = computed(() => props.showDetail ? primary : METRIC_KEYS);
+const composition = computed(() => tokenComposition(props.metrics));
+const cache = computed(() => ratioPercent(props.metrics.cacheReadRatio));
+function display(key: keyof TelemetryMetrics) {
+  if (key === 'executionWallMs') return compactDuration(numeric(props.metrics[key]));
+  return key === 'totalTokens' ? compactNumber(numeric(props.metrics[key])) : metricDisplay(props.metrics[key], key);
+}
 </script>
-
 <template>
   <div class="flex min-w-0 flex-col gap-3">
-    <dl
-      class="grid gap-x-4 gap-y-3"
-      :class="
-        columns === 3
-          ? 'grid-cols-3'
-          : columns === 1
-            ? 'grid-cols-1'
-            : 'grid-cols-2'
-      "
-    >
-      <div
-        v-for="key in METRIC_KEYS"
-        :key="key"
-        class="flex min-w-0 flex-col gap-1"
-        :data-metric-key="key"
-      >
-        <dt class="text-xs text-muted-foreground">{{ METRIC_LABELS[key] }}</dt>
-        <dd class="flex min-w-0 flex-wrap items-center gap-1">
-          <span
-            class="text-sm font-medium tabular-nums"
-            :title="`${metrics[key].source}${
-              metrics[key].formula ? ` · ${metrics[key].formula}` : ''
-            }`"
-            >{{ metricDisplay(metrics[key], key) }}</span
-          >
-          <TelemetryMetricBadge :metric="metrics[key]" compact />
+    <dl :class="cn('grid gap-x-4 gap-y-3', showDetail ? 'grid-cols-3' : columns === 1 ? 'grid-cols-1' : columns === 3 ? 'grid-cols-3' : 'grid-cols-2')">
+      <div v-for="key in keys" :key="key" class="flex min-w-0 flex-col gap-1" :data-metric-key="key">
+        <dt class="text-xs text-muted-foreground">{{ key === 'totalTokens' ? 'Token 消耗' : key === 'cacheReadRatio' ? '缓存占比' : METRIC_LABELS[key] }}</dt>
+        <dd class="flex min-w-0 flex-col gap-1">
+          <span :class="cn('font-medium tabular-nums', showDetail ? 'text-lg' : 'text-sm')" :title="metricDisplay(metrics[key], key)">{{ display(key) }}</span>
+          <Badge v-if="metrics[key].quality === 'estimated'" variant="outline" class="w-fit">估算</Badge>
+          <span v-if="metrics[key].value == null" class="text-xs text-muted-foreground">未采集</span>
+          <Badge v-else-if="metrics[key].completeness !== 'complete'" variant="outline" class="w-fit">{{ completenessLabel(metrics[key].completeness) }}</Badge>
         </dd>
       </div>
     </dl>
-
+    <div v-if="showDetail && composition" class="flex flex-col gap-1.5">
+      <div class="flex h-2 overflow-hidden rounded-full bg-muted" role="img" :aria-label="`输入 ${composition.input} token，输出 ${composition.output} token`">
+        <div class="bg-primary" :style="{ width: `${composition.inputPercent}%` }" />
+        <div class="flex-1 bg-muted-foreground/40" />
+      </div>
+      <div class="flex justify-between text-xs text-muted-foreground">
+        <span>输入 {{ compactNumber(composition.input) }}</span><span>输出 {{ compactNumber(composition.output) }}</span>
+      </div>
+    </div>
+    <div v-if="showDetail && cache != null" class="flex items-center gap-2">
+      <span class="shrink-0 text-xs text-muted-foreground">缓存读取占输入</span>
+      <Progress :model-value="cache" :aria-label="`缓存读取占输入 ${cache.toFixed(1)}%`" class="h-1.5" />
+    </div>
     <details v-if="showDetail" class="text-xs text-muted-foreground">
-      <summary class="w-fit cursor-pointer">
-        来源与完整性 · 有值 {{ countWithValue(metrics) }}/{{ METRIC_KEYS.length }} ·
-        缺失 {{ countMissing(metrics) }}
-      </summary>
-      <ul class="mt-2 flex flex-col gap-2">
-        <li
-          v-for="key in METRIC_KEYS"
-          :key="key"
-          class="flex flex-col gap-0.5 border-l-2 border-border pl-2"
-        >
-          <span class="font-medium text-foreground"
-            >{{ METRIC_LABELS[key] }}：
-            <template v-if="metrics[key].value == null">未采集</template>
-            <template v-else>{{ metricDisplay(metrics[key], key) }}</template>
-          </span>
-          <span class="break-all">
-            {{ qualityLabel(metrics[key].quality) }} ·
-            {{ completenessLabel(metrics[key].completeness) }} ·
-            {{ aggregationLabel(metrics[key].aggregation) }} ·
-            {{ metrics[key].source }}
-          </span>
-          <span v-if="metrics[key].formula" class="break-all"
-            >公式：{{ metrics[key].formula }}</span
-          >
-          <span v-if="metrics[key].value == null" class="break-all"
-            >缺失原因：{{ missingReasonLabel(metrics[key].missingReason) }}</span
-          >
-          <span class="break-all"
-            >采样：{{ formatTimestamp(metrics[key].observedAt) }}</span
-          >
-        </li>
-      </ul>
+      <summary class="w-fit cursor-pointer">全部指标与来源</summary>
+      <dl class="mt-3 flex max-h-[min(24rem,50vh)] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="全部指标与来源内容" tabindex="0">
+        <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-col gap-1">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-foreground"><dt>{{ METRIC_LABELS[key] }}</dt><dd>{{ metricDisplay(metrics[key], key) }} <TelemetryMetricBadge :metric="metrics[key]" compact /></dd></div>
+          <span class="break-all">{{ qualityLabel(metrics[key].quality) }} · {{ completenessLabel(metrics[key].completeness) }} · {{ aggregationLabel(metrics[key].aggregation) }} · {{ metrics[key].source }}</span>
+          <span v-if="metrics[key].formula" class="break-all">公式：{{ metrics[key].formula }}</span>
+          <Badge v-if="metrics[key].quality === 'estimated'" variant="outline" class="w-fit">估算</Badge>
+          <span v-if="metrics[key].value == null">{{ missingReasonLabel(metrics[key].missingReason) }}</span>
+          <span>采样：{{ formatTimestamp(metrics[key].observedAt) }}</span>
+        </div>
+      </dl>
     </details>
-    <Badge v-if="!showDetail && countMissing(metrics)" variant="outline">
-      {{ countMissing(metrics) }} 项未采集
-    </Badge>
   </div>
 </template>

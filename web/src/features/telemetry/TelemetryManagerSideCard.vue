@@ -70,6 +70,9 @@ withDefaults(
     </CardHeader>
     <CardContent class="flex min-w-0 flex-col gap-4 px-4">
       <TelemetryMetricGrid :metrics="totals" :columns="2" />
+      <details class="text-xs text-muted-foreground">
+        <summary class="w-fit cursor-pointer">上下文、会话与采集详情</summary>
+        <div class="mt-3 flex max-h-[min(28rem,60vh)] min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="上下文、会话与采集详情内容" tabindex="0">
       <TelemetryContextCard
         :context-reference="contextReference"
         :columns="3"
@@ -129,6 +132,8 @@ withDefaults(
           </div>
         </details>
       </section>
+        </div>
+      </details>
     </CardContent>
   </Card>
 </template>

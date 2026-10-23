@@ -107,7 +107,6 @@ function clearFilters() {
       <div class="flex flex-wrap items-center gap-1">
         <h3 class="text-sm font-semibold">成员 ↔ 主 Agent</h3>
         <Badge variant="outline">仅成员端</Badge>
-        <Badge variant="outline">只读</Badge>
         <Badge variant="secondary">成员侧 ≠ 管理者侧</Badge>
         <Badge variant="outline">管理者侧 ≠ 协调总量</Badge>
       </div>

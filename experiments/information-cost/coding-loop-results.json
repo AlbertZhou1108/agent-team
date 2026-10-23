@@ -1,0 +1,422 @@
+[
+  {
+    "task": "review",
+    "variant": "full",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 36294,
+      "cacheReadTokens": 17920,
+      "cacheWriteTokens": 0,
+      "outputTokens": 154,
+      "totalTokens": 36448,
+      "uncachedInputTokens": 18374
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function canAccept(goal, artifact, reviews) {\n  return reviews.some(\n    (review) =>\n      review.goal === goal &&\n      review.artifact === artifact &&\n      review.passed === true &&\n      review.independent === true,\n  );\n}\n",
+    "elapsedMs": 5683
+  },
+  {
+    "task": "review",
+    "variant": "full",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 44305,
+      "cacheReadTokens": 39936,
+      "cacheWriteTokens": 0,
+      "outputTokens": 209,
+      "totalTokens": 44514,
+      "uncachedInputTokens": 4369
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function canAccept(goal, artifact, reviews) {\n  const matchingReviews = reviews.filter(\n    (review) => review.goal === goal && review.artifact === artifact,\n  );\n\n  if (\n    matchingReviews.some(\n      (review) => review.independent === true && review.passed === false,\n    )\n  ) {\n    return false;\n  }\n\n  return matchingReviews.some(\n    (review) => review.passed === true && review.independent === true,\n  );\n}\n",
+    "elapsedMs": 4613
+  },
+  {
+    "task": "review",
+    "variant": "projected",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 29049,
+      "cacheReadTokens": 14336,
+      "cacheWriteTokens": 0,
+      "outputTokens": 178,
+      "totalTokens": 29227,
+      "uncachedInputTokens": 14713
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function canAccept(goal, artifact, reviews) {\n  return reviews.some(\n    (review) =>\n      review.goal === goal &&\n      review.artifact === artifact &&\n      review.passed === true &&\n      review.independent === true\n  );\n}\n",
+    "elapsedMs": 7153
+  },
+  {
+    "task": "review",
+    "variant": "projected",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 29891,
+      "cacheReadTokens": 29184,
+      "cacheWriteTokens": 0,
+      "outputTokens": 215,
+      "totalTokens": 30106,
+      "uncachedInputTokens": 707
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function canAccept(goal, artifact, reviews) {\n  const matchingReviews = reviews.filter(\n    (review) => review.goal === goal && review.artifact === artifact\n  );\n\n  if (\n    matchingReviews.some(\n      (review) => review.independent === true && review.passed === false\n    )\n  ) {\n    return false;\n  }\n\n  return matchingReviews.some(\n    (review) => review.passed === true && review.independent === true\n  );\n}\n",
+    "elapsedMs": 3972
+  },
+  {
+    "task": "unicode",
+    "variant": "full",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 36280,
+      "cacheReadTokens": 17920,
+      "cacheWriteTokens": 0,
+      "outputTokens": 134,
+      "totalTokens": 36414,
+      "uncachedInputTokens": 18360
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function page(text,offset,limit){\n  if(limit<=0)return \"\";\n  const points=Array.from(text);\n  const start=Math.max(0,offset);\n  return points.slice(start,start+limit).join(\"\");\n}",
+    "elapsedMs": 4873
+  },
+  {
+    "task": "unicode",
+    "variant": "full",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 44158,
+      "cacheReadTokens": 39936,
+      "cacheWriteTokens": 0,
+      "outputTokens": 144,
+      "totalTokens": 44302,
+      "uncachedInputTokens": 4222
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function page(text,offset,limit){\n  if(!Number.isFinite(offset)||!Number.isInteger(offset)||!Number.isFinite(limit)||!Number.isInteger(limit))throw new TypeError(\"offset and limit must be finite integers\");\n  if(limit<=0)return \"\";\n  const points=Array.from(text);\n  const start=Math.max(0,offset);\n  return points.slice(start,start+limit).join(\"\");\n}",
+    "elapsedMs": 4930
+  },
+  {
+    "task": "unicode",
+    "variant": "projected",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 29078,
+      "cacheReadTokens": 14336,
+      "cacheWriteTokens": 0,
+      "outputTokens": 150,
+      "totalTokens": 29228,
+      "uncachedInputTokens": 14742
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function page(text, offset, limit) {\n  if (limit <= 0) return \"\";\n  const start = Math.max(0, offset);\n  return Array.from(text).slice(start, start + limit).join(\"\");\n}\n",
+    "elapsedMs": 4954
+  },
+  {
+    "task": "unicode",
+    "variant": "projected",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 29830,
+      "cacheReadTokens": 29056,
+      "cacheWriteTokens": 0,
+      "outputTokens": 197,
+      "totalTokens": 30027,
+      "uncachedInputTokens": 774
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function page(text, offset, limit) {\n  if (!Number.isFinite(offset) || !Number.isInteger(offset) ||\n      !Number.isFinite(limit) || !Number.isInteger(limit)) {\n    throw new TypeError(\"offset and limit must be finite integers\");\n  }\n  if (limit <= 0) return \"\";\n  const start = Math.max(0, offset);\n  return Array.from(text).slice(start, start + limit).join(\"\");\n}\n",
+    "elapsedMs": 4073
+  },
+  {
+    "task": "cursor",
+    "variant": "full",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 36346,
+      "cacheReadTokens": 17920,
+      "cacheWriteTokens": 0,
+      "outputTokens": 191,
+      "totalTokens": 36537,
+      "uncachedInputTokens": 18426
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function batch(rows, after, limit) {\n  const page = rows\n    .filter(row => row.seq > after)\n    .slice()\n    .sort((a, b) => a.seq - b.seq)\n    .slice(0, limit);\n  return {\n    rows: page,\n    nextAfter: page.length === 0 ? after : page[page.length - 1].seq\n  };\n}\n",
+    "elapsedMs": 5421
+  },
+  {
+    "task": "cursor",
+    "variant": "full",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 44462,
+      "cacheReadTokens": 40064,
+      "cacheWriteTokens": 0,
+      "outputTokens": 196,
+      "totalTokens": 44658,
+      "uncachedInputTokens": 4398
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function batch(rows, after, limit) {\n  const seen = new Set();\n  const unique = [];\n  for (const row of rows) {\n    if (row.seq > after && !seen.has(row.seq)) {\n      seen.add(row.seq);\n      unique.push(row);\n    }\n  }\n  unique.sort((a, b) => a.seq - b.seq);\n  const page = unique.slice(0, limit);\n  return {\n    rows: page,\n    nextAfter: page.length === 0 ? after : page[page.length - 1].seq\n  };\n}\n",
+    "elapsedMs": 4210
+  },
+  {
+    "task": "cursor",
+    "variant": "projected",
+    "round": 1,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 29139,
+      "cacheReadTokens": 14336,
+      "cacheWriteTokens": 0,
+      "outputTokens": 190,
+      "totalTokens": 29329,
+      "uncachedInputTokens": 14803
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_start"
+      }
+    ],
+    "failure": null,
+    "source": "export function batch(rows, after, limit) {\n  const selected = rows\n    .filter((row) => row.seq > after)\n    .sort((a, b) => a.seq - b.seq)\n    .slice(0, limit);\n\n  return {\n    rows: selected,\n    nextAfter: selected.length === 0 ? after : selected[selected.length - 1].seq,\n  };\n}\n",
+    "elapsedMs": 4595
+  },
+  {
+    "task": "cursor",
+    "variant": "projected",
+    "round": 2,
+    "passed": true,
+    "writes": [
+      "solution.mjs"
+    ],
+    "usage": {
+      "inputTokensTotal": 30091,
+      "cacheReadTokens": 29184,
+      "cacheWriteTokens": 0,
+      "outputTokens": 239,
+      "totalTokens": 30330,
+      "uncachedInputTokens": 907
+    },
+    "observed": [
+      {
+        "phase": "requested",
+        "model": "gpt-6-luna",
+        "reasoningEffort": "low",
+        "source": "member.selection"
+      },
+      {
+        "phase": "session",
+        "model": "gpt-6-luna",
+        "provider": "custom",
+        "reasoningEffort": "low",
+        "source": "codex.thread_resume"
+      }
+    ],
+    "failure": null,
+    "source": "export function batch(rows, after, limit) {\n  const firstBySeq = new Map();\n\n  for (const row of rows) {\n    if (row.seq > after && !firstBySeq.has(row.seq)) {\n      firstBySeq.set(row.seq, row);\n    }\n  }\n\n  const selected = [...firstBySeq.values()]\n    .sort((a, b) => a.seq - b.seq)\n    .slice(0, limit);\n\n  return {\n    rows: selected,\n    nextAfter: selected.length === 0 ? after : selected[selected.length - 1].seq,\n  };\n}\n",
+    "elapsedMs": 3679
+  }
+]

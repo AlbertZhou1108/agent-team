@@ -19,7 +19,6 @@ const expanded = ref(false);
 const traceQuery = useQuery({
   queryKey: computed(() => ['message-trace', props.messageId] as const),
   queryFn: ({ signal }) => api.messageTrace(props.messageId, signal),
-  enabled: expanded,
   staleTime: 60_000,
   retry: 0,
 });
@@ -66,7 +65,7 @@ const stepCount = computed(() =>
 </script>
 
 <template>
-  <details class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
+  <details v-if="turnId && (!turnQuery.isSuccess.value || turns.length)" class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
     <summary><Clock3 class="size-3.5" />执行轨迹</summary>
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value || (turnId && turnQuery.isPending.value)" loading title="正在读取执行轨迹" />
@@ -77,7 +76,6 @@ const stepCount = computed(() =>
         <p>用时 {{ duration }} · {{ stepCount }} 步</p>
         <TraceTimeline :turns="turns" />
       </div>
-      <p v-else>暂无执行轨迹</p>
     </template>
   </details>
 </template>

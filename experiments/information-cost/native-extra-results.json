@@ -1,0 +1,1254 @@
+{
+  "catalogSource": "codex.model/list",
+  "results": [
+    {
+      "model": "gpt-6-luna",
+      "case": "scope-change",
+      "variant": "full",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"c2\"}",
+      "reads": [],
+      "promptBytes": 4874,
+      "readBytes": 0,
+      "elapsedMs": 4063,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-luna",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-luna",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:50:59.654Z",
+          "usage": {
+            "inputTokensTotal": 15267,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 15,
+            "totalTokens": 15282,
+            "uncachedInputTokens": 15267
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-68c0-74e1-a499-3b4846e9b0bf",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-68c0-74e1-a499-3b4846e9b0bf",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:50:59.654Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15267,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-luna",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:50:55.679Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-68c0-74e1-a499-3b4846e9b0bf",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:50:59.662Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 3978
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-68c0-74e1-a499-3b4846e9b0bf",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-68c0-74e1-a499-3b4846e9b0bf",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-luna",
+      "case": "scope-change",
+      "variant": "selective",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"c2\"}",
+      "reads": [
+        "current"
+      ],
+      "promptBytes": 525,
+      "readBytes": 82,
+      "elapsedMs": 4837,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-luna",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-luna",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:03.026Z",
+          "usage": {
+            "inputTokensTotal": 14468,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 28,
+            "totalTokens": 14496,
+            "uncachedInputTokens": 14468
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:03.026Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 14468,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-luna",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:50:59.728Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:04.493Z",
+          "usage": {
+            "inputTokensTotal": 29017,
+            "cacheReadTokens": 14336,
+            "cacheWriteTokens": 0,
+            "outputTokens": 43,
+            "totalTokens": 29060,
+            "uncachedInputTokens": 14681
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:04.493Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 14549,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-luna",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:50:59.728Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:04.500Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 4766
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-7891-7f83-b2da-0d30d4bbe591",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-luna",
+      "case": "missing-evidence",
+      "variant": "full",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"MISSING\"}",
+      "reads": [],
+      "promptBytes": 312,
+      "readBytes": 0,
+      "elapsedMs": 9391,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-luna",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-luna",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:13.887Z",
+          "usage": {
+            "inputTokensTotal": 14350,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 15,
+            "totalTokens": 14365,
+            "uncachedInputTokens": 14350
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-8b7b-74a0-921f-30967f364b2e",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-8b7b-74a0-921f-30967f364b2e",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:13.887Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 14350,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-luna",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:04.571Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-8b7b-74a0-921f-30967f364b2e",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:13.891Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 9317
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-8b7b-74a0-921f-30967f364b2e",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-8b7b-74a0-921f-30967f364b2e",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-luna",
+      "case": "missing-evidence",
+      "variant": "selective",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"MISSING\"}",
+      "reads": [],
+      "promptBytes": 365,
+      "readBytes": 0,
+      "elapsedMs": 3989,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-luna",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-luna",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:17.876Z",
+          "usage": {
+            "inputTokensTotal": 14434,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 15,
+            "totalTokens": 14449,
+            "uncachedInputTokens": 14434
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-b02c-7b21-9d48-245798a9d3ec",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-b02c-7b21-9d48-245798a9d3ec",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:17.876Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 14434,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-luna",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:13.963Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-b02c-7b21-9d48-245798a9d3ec",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:17.882Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 3915
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-b02c-7b21-9d48-245798a9d3ec",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-b02c-7b21-9d48-245798a9d3ec",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-astra",
+      "case": "scope-change",
+      "variant": "full",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"c2\"}",
+      "reads": [],
+      "promptBytes": 4874,
+      "readBytes": 0,
+      "elapsedMs": 4075,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-astra",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-astra",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:21.956Z",
+          "usage": {
+            "inputTokensTotal": 15895,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 15,
+            "totalTokens": 15910,
+            "uncachedInputTokens": 15895
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-bfd9-73f0-a09f-9a599e2d70a6",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-bfd9-73f0-a09f-9a599e2d70a6",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:21.956Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15895,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:17.976Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-bfd9-73f0-a09f-9a599e2d70a6",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:21.959Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 3980
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-bfd9-73f0-a09f-9a599e2d70a6",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-bfd9-73f0-a09f-9a599e2d70a6",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-astra",
+      "case": "scope-change",
+      "variant": "selective",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"c2\"}",
+      "reads": [
+        "current"
+      ],
+      "promptBytes": 525,
+      "readBytes": 82,
+      "elapsedMs": 8073,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-astra",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-astra",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:26.431Z",
+          "usage": {
+            "inputTokensTotal": 15096,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 23,
+            "totalTokens": 15119,
+            "uncachedInputTokens": 15096
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:26.431Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15096,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:22.024Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:30.032Z",
+          "usage": {
+            "inputTokensTotal": 30268,
+            "cacheReadTokens": 14976,
+            "cacheWriteTokens": 0,
+            "outputTokens": 38,
+            "totalTokens": 30306,
+            "uncachedInputTokens": 15292
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:30.032Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15172,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:22.024Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:30.033Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 8007
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-cfa8-7072-ae3a-5317d20c91ce",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-astra",
+      "case": "missing-evidence",
+      "variant": "full",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"MISSING\"}",
+      "reads": [],
+      "promptBytes": 312,
+      "readBytes": 0,
+      "elapsedMs": 9130,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-astra",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-astra",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:39.161Z",
+          "usage": {
+            "inputTokensTotal": 14978,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 15,
+            "totalTokens": 14993,
+            "uncachedInputTokens": 14978
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-ef2d-79b3-8ef3-63689afb26c6",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-ef2d-79b3-8ef3-63689afb26c6",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:39.161Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 14978,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:30.092Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16907-ef2d-79b3-8ef3-63689afb26c6",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:39.164Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 9069
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16907-ef2d-79b3-8ef3-63689afb26c6",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16907-ef2d-79b3-8ef3-63689afb26c6",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-astra",
+      "case": "missing-evidence",
+      "variant": "selective",
+      "passed": true,
+      "output": "{\"accept\":false,\"evidence\":\"MISSING\"}",
+      "reads": [
+        "evidence"
+      ],
+      "promptBytes": 365,
+      "readBytes": 87,
+      "elapsedMs": 10358,
+      "observedModels": [
+        {
+          "phase": "requested",
+          "model": "gpt-6-astra",
+          "reasoningEffort": "low",
+          "source": "member.selection"
+        },
+        {
+          "phase": "session",
+          "model": "gpt-6-astra",
+          "provider": "custom",
+          "reasoningEffort": "low",
+          "source": "codex.thread_start"
+        }
+      ],
+      "telemetry": [
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:46.311Z",
+          "usage": {
+            "inputTokensTotal": 15062,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 35,
+            "totalTokens": 15097,
+            "uncachedInputTokens": 15062
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:46.311Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15062,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:39.233Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.thread_token_usage",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:49.522Z",
+          "usage": {
+            "inputTokensTotal": 30215,
+            "cacheReadTokens": 14848,
+            "cacheWriteTokens": 0,
+            "outputTokens": 50,
+            "totalTokens": 30265,
+            "uncachedInputTokens": 15367
+          },
+          "context": {},
+          "timing": {},
+          "quality": {
+            "uncachedInputTokens": "derived"
+          },
+          "completeness": {
+            "inputTokensTotal": "complete",
+            "uncachedInputTokens": "complete",
+            "cacheReadTokens": "complete",
+            "cacheWriteTokens": "complete",
+            "outputTokens": "complete",
+            "totalTokens": "complete"
+          },
+          "formula": {
+            "uncachedInputTokens": "inputTokensTotal - cacheReadTokens - cacheWriteTokens"
+          },
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.token_usage",
+          "scope": "request",
+          "aggregation": "snapshot",
+          "observedAt": "2026-10-23T13:51:49.522Z",
+          "usage": {},
+          "context": {
+            "lastRequestInputTokens": 15153,
+            "contextWindowTokens": 258400,
+            "model": {
+              "provider": "custom",
+              "model": "gpt-6-astra",
+              "source": "codex.thread_start",
+              "observedAt": "2026-10-23T13:51:39.233Z"
+            }
+          },
+          "timing": {},
+          "quality": {},
+          "completeness": {
+            "lastRequestInputTokens": "complete",
+            "contextWindowTokens": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": null,
+          "nativeTurnId": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+          "stepId": null,
+          "requestId": null
+        },
+        {
+          "source": "codex.turn_completed",
+          "scope": "turn",
+          "aggregation": "delta",
+          "observedAt": "2026-10-23T13:51:49.523Z",
+          "usage": {},
+          "context": {},
+          "timing": {
+            "hostTurnWallMs": 10286
+          },
+          "quality": {},
+          "completeness": {
+            "hostTurnWallMs": "complete"
+          },
+          "formula": {},
+          "formulas": {},
+          "missingReason": {},
+          "contextSource": {},
+          "anomalies": [],
+          "attempt": {
+            "id": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+            "state": "succeeded"
+          },
+          "nativeTurnId": "01a16908-12e2-7d71-88fd-21a8a9b2ab19",
+          "stepId": null,
+          "requestId": null
+        }
+      ]
+    }
+  ]
+}

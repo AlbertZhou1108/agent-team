@@ -2,7 +2,16 @@ const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const definitions = [
   ['send', '给一位成员发送任务、汇报或审查消息。发给主 Agent时进入统一调度会话。是否回复由正文说明。', { to: string, text: string, workItemId: string }, ['to', 'text']],
   ['note', '给一位成员留言，不唤醒，随下一条正式消息交付。', { to: string, text: string, workItemId: string }, ['to', 'text']],
-  ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。', { after: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 200 }, sender: string }, []],
+  ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。新会话默认返回有界列表（ID/seq/作者/接收者/kind/关联/完整性/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
+    after: { type: 'integer', minimum: 0 },
+    limit: { type: 'integer', minimum: 1, maximum: 200 },
+    sender: string,
+    itemId: string,
+    messageId: string,
+    hash: string,
+    offset: { type: 'integer', minimum: 0 },
+    bodyLimit: { type: 'integer', minimum: 1, maximum: 4096 },
+  }, []],
   ['members', '读取本群成员与能力自述。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
   ['group_add', '主 Agent 提议添加成员；框架会向正在聊天的用户请求确认，并按全局模型策略选择新角色模型。', {
@@ -19,7 +28,10 @@ const definitions = [
   }, ['name', 'workspace']],
   ['groups', '主 Agent 列出自己可见的群。', {}, []],
   ['model_catalog', '读取当前实时模型目录。只能从返回目录中选择模型和思考强度。', {}, []],
-  ['collaboration_read', '读取本群有效契约、工作项、审查与接受、待用户决定及运行状态；records通过after分页。', { after: { type: 'integer', minimum: 0 } }, []],
+  ['collaboration_read', '读取本群有效契约、工作项、审查与接受、待用户决定及运行状态；records通过after分页。新会话默认返回当前目标概况与相关工作项；传入 itemId 可按权威 revision 定向读取单个工作项及其记录。', {
+    after: { type: 'integer', minimum: 0 },
+    itemId: string,
+  }, []],
   ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', {}, []],
   ['goal_draft_create', '创建Goal Draft，等待用户确认。contract为完整契约JSON，requiredMemberIds为逗号分隔的成员ID。', {
     contract: string,

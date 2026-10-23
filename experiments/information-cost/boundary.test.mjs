@@ -1,0 +1,38 @@
+import{createCodexHost}from'../../src/hosts/codex.mjs';
+import test from'node:test';import assert from'node:assert/strict';import{mkdtempSync,rmSync,writeFileSync,chmodSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';import net from'node:net';import{spawn}from'node:child_process';import{fileURLToPath}from'node:url';import{Bus}from'../../src/bus.mjs';import{confirmedGroup}from'../../test/helpers.mjs';import{rpc}from'../../src/rpc.mjs';import{projectFacts,createBoundary}from'./projection-prototype.mjs';
+async function setup(t){const dir=mkdtempSync(join(tmpdir(),'info-boundary-'));const bus=new Bus({directory:dir,hosts:new Map([['fake',{async run(c){c.onSession(c.endpoint.id);c.onAccepted();return''}}]])});const make=name=>confirmedGroup(bus,{name,workspace:dir,lead:{name:'lead',host:'fake'},members:[]});const group=make('one'),endpoint=bus.store.endpoint(group.lead,'coordination'),boundary=createBoundary(bus);t.after(async()=>{await bus.close();rmSync(dir,{recursive:true,force:true})});return{bus,group,endpoint,boundary,make,dir}}
+test('projection retains mandatory constraints, pending messages and unresolved identities',()=>{const input={goal:'G2',artifact:'v3',constraints:{policy:'read-only',allowShell:false},rows:[{id:'valid',goal:'G2',artifact:'v3'},{id:'unbound',goal:'G2'},{id:'unknown'},{id:'old',goal:'G1',artifact:'v3'}],pending:['must-dispose'],unknown:['runtime-unknown']};const out=projectFacts(input);assert.deepEqual(out.relevant.map(r=>r.id),['valid']);assert.deepEqual(out.unresolved.map(r=>r.id),['unbound','unknown']);assert.deepEqual(out.constraints,input.constraints);assert.deepEqual(out.pending,input.pending);assert.deepEqual(out.unknown,input.unknown);assert.throws(()=>projectFacts(input,10),/exceed budget/);assert.throws(()=>projectFacts({...input,goal:null}),/explicit identity/);});
+test('real authenticated boundary: unicode recovery, bad key, cross-team, deletion and revoked member',async t=>{const{bus,group,endpoint:e,boundary:b,make}=await setup(t);const text='A🧪中\n'.repeat(1000);const message=bus.store.append(group.id,group.lead,group.lead,'note',text);const list=await b.invoke(e.id,e.key,'list');const ref=list.messages[0].ref;assert.equal(list.messages[0].complete,false);let offset=0,restored='';for(;;){const page=await b.invoke(e.id,e.key,'expand',{ref,offset,limit:13});restored+=page.text;offset=page.next;if(!page.hasMore)break}assert.equal(restored,text);await assert.rejects(b.invoke(e.id,'wrong','expand',{ref}));const other=make('two'),foreign=bus.store.endpoint(other.lead,'coordination');await assert.rejects(b.invoke(foreign.id,foreign.key,'expand',{ref}),/outside team/);await assert.rejects(b.invoke(e.id,e.key,'expand',{ref,limit:1025}),/invalid range/);bus.store.run('DELETE FROM messages WHERE id=?',message.id);await assert.rejects(b.invoke(e.id,e.key,'expand',{ref}),/deleted/);bus.store.run('UPDATE members SET removed=? WHERE id=?','now',group.lead);await assert.rejects(b.invoke(e.id,e.key,'list'));});
+test('stale references refuse changed evidence instead of silently using another version',async t=>{const{bus,group,endpoint:e,boundary:b}=await setup(t);const m=bus.store.append(group.id,group.lead,group.lead,'note','original');const ref=(await b.invoke(e.id,e.key,'list')).messages[0].ref;bus.store.run('UPDATE messages SET text=? WHERE id=?','changed',m.id);await assert.rejects(b.invoke(e.id,e.key,'expand',{ref}),/stale/);});
+test('real RPC transport preserves projected results and explicit errors',async t=>{const{bus,group,endpoint:e,boundary:b,dir}=await setup(t);bus.store.append(group.id,group.lead,group.lead,'note','x'.repeat(10000));const path=join(dir,'boundary.sock');const server=net.createServer(s=>{let buffer='';s.on('data',chunk=>{buffer+=chunk;if(!buffer.includes('\n'))return;const r=JSON.parse(buffer.split('\n')[0]);b.invoke(r.endpoint,r.key,r.name,r.args).then(result=>s.end(JSON.stringify({result})+'\n'),error=>s.end(JSON.stringify({error:error.message})+'\n'));})});await new Promise(r=>server.listen(path,r));t.after(()=>new Promise(r=>server.close(r)));const args={endpoint:e.id,key:e.key,name:'list',args:{}};const direct=await b.invoke(e.id,e.key,'list');assert.deepEqual(await rpc(path,args),direct);await assert.rejects(rpc(path,{...args,key:'invalid'}));assert.ok(Buffer.byteLength(JSON.stringify(direct))<2000);});
+
+test('actual MCP stdio returns the same projection as direct boundary invocation',async t=>{
+ const {bus,group,endpoint:e,boundary:b,dir}=await setup(t);
+ bus.store.append(group.id,group.lead,group.lead,'note','测试🧪'.repeat(100));
+ const path=join(dir,'mcp.sock');
+ const server=net.createServer(s=>{let buffer='';s.on('data',chunk=>{buffer+=chunk;if(!buffer.includes('\n'))return;const r=JSON.parse(buffer.split('\n')[0]);b.invoke(r.endpoint,r.key,r.name,r.args).then(result=>s.end(JSON.stringify({result})+'\n'),error=>s.end(JSON.stringify({error:error.message})+'\n'));})});
+ await new Promise(r=>server.listen(path,r));t.after(()=>new Promise(r=>server.close(r)));
+ const child=spawn(process.execPath,[fileURLToPath(new URL('../../src/cli.mjs',import.meta.url)),'mcp','--socket',path,'--endpoint',e.id],{env:{...process.env,AGENT_TEAM_KEY:e.key,AGENT_TEAM_TURN:'test-turn'},stdio:['pipe','pipe','pipe']});
+ t.after(()=>child.kill());
+ const answer=await new Promise((resolve,reject)=>{let buffer='';const timer=setTimeout(()=>reject(Error('MCP timeout')),5000);child.stdout.on('data',chunk=>{buffer+=chunk;if(buffer.includes('\n')){clearTimeout(timer);resolve(JSON.parse(buffer.split('\n')[0]))}});child.on('error',reject);child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'list',arguments:{}}})+'\n')});
+ assert.equal(answer.result.isError,false);assert.deepEqual(JSON.parse(answer.result.content[0].text),await b.invoke(e.id,e.key,'list'));
+ child.kill();await new Promise(r=>child.once('close',r));
+});
+
+test('actual Codex dynamic-tool adapter preserves the same projected JSON (simulated model process)',async t=>{
+ const {bus,group,endpoint:e,boundary:b,dir}=await setup(t);
+ bus.store.append(group.id,group.lead,group.lead,'note','evidence'.repeat(100));
+ const expected=await b.invoke(e.id,e.key,'list'),fake=join(dir,'fake-codex.mjs');
+ writeFileSync(fake,`#!/usr/bin/env node
+import{createInterface}from'node:readline';const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);
+if(r.id===900&&r.result){send({method:'item/completed',params:{threadId:'t',turnId:'u',item:{type:'agentMessage',text:r.result.contentItems[0].text}}});send({method:'turn/completed',params:{threadId:'t',turn:{id:'u',status:'completed'}}});return}
+if(r.method==='initialize')send({id:r.id,result:{}});
+if(r.method==='config/read')send({id:r.id,result:{config:{mcp_servers:{}}}});
+if(r.method==='thread/start')send({id:r.id,result:{thread:{id:'t'},model:'fake',modelProvider:'fake'}});
+if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(()=>send({id:900,method:'item/tool/call',params:{threadId:'t',turnId:'u',tool:'agent_team_list',arguments:{},callId:'c'}}));}
+});`);chmodSync(fake,0o700);
+ const host=createCodexHost({command:fake});t.after(()=>host.close());
+ const text=await host.run({endpoint:{id:'fake',key:'test',session:null},turnId:'turn',workspace:dir,prompt:'test',instructions:'test',tools:[{name:'list',description:'test',inputSchema:{type:'object',properties:{}}}],policy:{mode:'communication',allowShell:false},signal:new AbortController().signal,onSession(){},onAccepted(){},onNativeTurn(){},onModel(){},onEvent(){},onTool:(name,args)=>b.invoke(e.id,e.key,name,args)});
+ assert.deepEqual(JSON.parse(text),expected);
+});

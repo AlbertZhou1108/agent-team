@@ -28,7 +28,6 @@ async function loadMore() {
       <div class="flex flex-wrap items-center gap-1">
         <h3 class="text-sm font-semibold">主 Agent 协调会话</h3>
         <Badge variant="outline">按输入批次</Badge>
-        <Badge variant="outline">只读</Badge>
       </div>
       <span class="text-[11px] text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
@@ -75,11 +74,17 @@ async function loadMore() {
         >
       </section>
 
+      <details class="text-xs text-muted-foreground">
+        <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
+        <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="summary.sourceSubtotals"
         :merged-batch-ids="summary.mergedBatchIds"
         :shared-source-batch-ids="summary.sharedSourceBatchIds"
       />
+
+        </div>
+      </details>
 
       <TelemetryBatchList
         :batches="query.batches.value"

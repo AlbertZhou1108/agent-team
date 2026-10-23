@@ -316,3 +316,13 @@ export function useTelemetryCapabilitiesQuery(
     refetchOnWindowFocus: false,
   });
 }
+
+export function useTeamDirectivesQuery(groupId: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: computed(() => ['team-directives', toValue(groupId)]),
+    queryFn: ({ signal }) => api.teamDirectives(toValue(groupId)!, signal),
+    enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}

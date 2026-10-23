@@ -19,7 +19,7 @@ const emit = defineEmits<{
 </script>
 <template>
   <div
-    class="team-row"
+    class="team-row w-full"
     :class="{ 'team-row-selected': selected }"
     draggable="true"
     @dragstart="emit('drag', $event)"

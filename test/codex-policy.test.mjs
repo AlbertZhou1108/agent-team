@@ -55,3 +55,42 @@ createInterface({ input: process.stdin }).on('line', line => {
     onTool: async () => ({}),
   }), /原生子 Agent\/协同工具/);
 });
+
+test('Codex resumes an existing session when only MCP configuration order changes', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-codex-order-'));
+  const fake = join(directory, 'fake-codex.mjs');
+  writeFileSync(fake, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  if (row.method === 'initialize') return send({ id: row.id, result: {} });
+  if (row.method === 'config/read') return send({ id: row.id, result: { config: { mcp_servers: { node_repl: {}, shadcn: {}, webstorm: {}, idea: {} } } } });
+  if (row.method === 'thread/resume') return send({ id: row.id, result: { thread: { id: row.params.threadId }, model: 'test' } });
+  if (row.method === 'thread/start') return send({ id: row.id, error: { message: 'must preserve existing session' } });
+  if (row.method === 'turn/start') {
+    send({ id: row.id, result: { turn: { id: 'turn-resumed' } } });
+    setImmediate(() => send({ method: 'turn/completed', params: { threadId: 'original-session', turn: { id: 'turn-resumed', status: 'completed' } } }));
+  }
+});
+`);
+  chmodSync(fake, 0o700);
+  const host = createCodexHost({ command: fake });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+  const { codexPolicyConfig } = await import('../src/hosts/policies.mjs');
+  const policy = { mode: 'communication', allowShell: false };
+  const config = codexPolicyConfig(policy, ['webstorm', 'idea', 'node_repl', 'shadcn']);
+  let resumed;
+  const context = {
+    endpoint: { id: 'endpoint', session: 'original-session' }, workspace: directory,
+    turnId: 'framework-turn', prompt: 'report status', instructions: 'Use team tools.', tools: [], policy,
+    previousPolicy: { signature: JSON.stringify({ config, tools: [] }) },
+    signal: new AbortController().signal, onSession(id) { resumed = id; },
+    onAccepted() {}, onNativeTurn() {}, onModel() {}, onEvent() {}, onTool: async () => ({}),
+  };
+  await host.run(context);
+  assert.equal(resumed, 'original-session');
+  await assert.rejects(host.run({ ...context, previousPolicy: { signature: JSON.stringify({ config: { ...config, 'features.shell_tool': true }, tools: [] }) } }), /工具配置/);
+  await assert.rejects(host.run({ ...context, previousPolicy: { signature: JSON.stringify({ config, tools: ['old_tool'] }) } }), /工具配置/);
+  await assert.rejects(host.run({ ...context, previousPolicy: null }), /工具配置/);
+});

@@ -3,11 +3,13 @@ import { resolve } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
+import { TeamDirectives } from './team-directives.mjs';
 import { Telemetry, telemetryObservation } from './telemetry.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { panelCommandObject, panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { Collaboration, roleNameKey } from './collaboration.mjs';
 import { TeamGoalLifecycle } from './team-goal-lifecycle.mjs';
+import { Information, CONTEXT_SCHEMA_VERSION, fixedRules } from './information.mjs';
 import {
   DEFAULT_USER_MODEL_RULES,
   SMART_COST_RULES,
@@ -24,6 +26,8 @@ export class Bus extends EventEmitter {
     });
     this.collaboration = new Collaboration(this.store);
     this.lifecycle = new TeamGoalLifecycle(this.store);
+    this.information = new Information(this.store);
+    this.teamDirectives = new TeamDirectives(this);
     this.hosts = hosts;
     this.collaboration.policyValidator = (member, policy) => {
       const host = this.hosts.get(member.host);
@@ -38,6 +42,7 @@ export class Bus extends EventEmitter {
     this.modelCatalogPending = null;
   }
   start() {
+    this.teamDirectives.recoverOutputs();
     // Serving the panel does not implicitly resume historical work.
     for (const s of this.store.all("SELECT group_id FROM team_state WHERE phase='closing'")) this.reconcile(s.group_id);
     for (const group of this.store.all('SELECT id FROM groups')) {
@@ -299,14 +304,21 @@ export class Bus extends EventEmitter {
     }
     return group;
   }
-  panelTeamSnapshot(groupId) {
+  panelTeamSnapshot(groupId, schema = 0) {
     this.ensurePanelBindings();
     const group = this.store.group(groupId);
     const panelAgent = this.panelAgent();
     const relation = panelAgent ? this.panelTeamRelation(groupId) : null;
     let collaboration;
-    try { collaboration = this.collaboration.read(groupId); }
-    catch (error) { collaboration = { error: error.message }; }
+    try {
+      collaboration = this.collaboration.read(groupId);
+      if (schema === CONTEXT_SCHEMA_VERSION) {
+        collaboration = this.information.collaborationView(collaboration, {
+          schema,
+          goalId: this.collaboration.currentGoalId(groupId),
+        });
+      }
+    } catch (error) { collaboration = { error: error.message }; }
     return {
       group,
       relation,
@@ -345,6 +357,15 @@ export class Bus extends EventEmitter {
         nativeCallId: provenance.nativeCallId ?? null,
         activeTeamId,
       });
+      this.measureToolCall({
+        groupId: session.group_id ?? args.groupId ?? null,
+        endpointId: session.id,
+        turnId,
+        name,
+        args,
+        result,
+        schema: this.information.panelSchemaForTurn(turnId) ?? this.information.panelSchemaForSession(session),
+      });
       this.store.panelHistory(sessionId, { type: 'framework.tool_result', callId, result }, turnId);
       return result;
     } catch (error) {
@@ -353,6 +374,7 @@ export class Bus extends EventEmitter {
     }
   }
   async executePanelTool(session, panelAgent, name, args, origin) {
+    const schema = this.information.panelSchemaForTurn(origin.turnId) ?? this.information.panelSchemaForSession(session);
     if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
     if (name === 'teams_list') return this.panelTeamViews();
     if (name === 'team_preparation_create') return this.createPanelPreparation(panelAgent, args);
@@ -413,24 +435,48 @@ export class Bus extends EventEmitter {
     }
 
     const group = this.store.group(args.groupId);
-    if (name === 'team_snapshot') return this.panelTeamSnapshot(group.id);
+    if (name === 'team_snapshot') return this.panelTeamSnapshot(group.id, schema);
     if (name === 'team_members') return this.members(group.id);
-    if (name === 'team_collaboration_read') return this.collaboration.read(group.id, args.after ?? 0);
+    if (name === 'team_collaboration_read') {
+      const full = this.collaboration.read(group.id, args.after ?? 0);
+      if (schema !== CONTEXT_SCHEMA_VERSION) return full;
+      return this.information.collaborationView(full, {
+        schema,
+        itemId: args.itemId ?? null,
+        goalId: this.collaboration.currentGoalId(group.id),
+      });
+    }
     if (name === 'goal_draft_read') return this.teamGoals(group.id);
     if (name === 'team_read') {
+      if (args.messageId) {
+        if (args.after !== undefined || args.limit !== undefined || args.sender !== undefined || args.itemId !== undefined) {
+          throw new Error('正文展开不能同时使用列表参数');
+        }
+        return this.information.readBody({
+          groupId: group.id,
+          messageId: args.messageId,
+          hash: args.hash,
+          offset: args.offset ?? 0,
+          bodyLimit: args.bodyLimit ?? 1024,
+          schema,
+        });
+      }
+      if (args.hash !== undefined || args.offset !== undefined || args.bodyLimit !== undefined) {
+        throw new Error('hash、offset、bodyLimit 需要同时提供 messageId');
+      }
       const senderId = args.sender === panelAgent.id || args.sender === panelAgent.name
         ? panelAgent.id
         : args.sender
           ? this.resolveMember(group.id, args.sender).id
-          : undefined;
-      const rows = this.store.all(
-        `SELECT * FROM messages WHERE group_id=? AND seq>? ${args.sender ? 'AND sender=?' : ''} ORDER BY seq LIMIT ?`,
-        group.id,
-        args.after ?? 0,
-        ...(senderId ? [senderId] : []),
-        args.limit ?? 50,
-      );
-      return { messages: rows, nextAfter: rows.at(-1)?.seq ?? args.after ?? 0 };
+          : null;
+      return this.information.listMessages({
+        groupId: group.id,
+        after: args.after ?? 0,
+        limit: args.limit ?? 50,
+        senderId,
+        itemId: args.itemId ?? null,
+        schema,
+      });
     }
     if (name === 'team_message_trace') {
       const message = this.store.get('SELECT id FROM messages WHERE id=? AND group_id=?', args.messageId, group.id);
@@ -718,6 +764,9 @@ export class Bus extends EventEmitter {
     const group = session.group_id ? this.store.group(session.group_id) : null;
     const state = group ? this.collaboration.state(group.id) : null;
     const policy = { mode: 'communication', allowShell: false, contractVersion: state?.contract_version ?? 0, domain: 'communication' };
+    const schema = this.information.rememberPanelSchema(session, this.information.panelSchemaForStart(session));
+    const instructions = this.panelInstructions(session, panelAgent, activeTeamId);
+    this.information.assertRuleBudget(instructions, schema);
     const turnId = randomUUID();
     const now = new Date().toISOString();
     this.store.run(
@@ -731,6 +780,7 @@ export class Bus extends EventEmitter {
       'running',
       now,
     );
+    this.information.rememberTurnSchema(turnId, 'panel', schema);
     inputs.forEach((message, ordinal) => this.store.run(
       'INSERT INTO panel_turn_inputs VALUES(?,?,?)',
       turnId,
@@ -747,10 +797,30 @@ export class Bus extends EventEmitter {
     const telemetryStarted = performance.now();
     this.running.set(session.id, live);
     this.store.panelHistory(session.id, { type: 'input', text: prompt }, turnId);
+    try {
+      this.information.measureRules({
+        groupId: session.group_id ?? null,
+        endpointId: session.id,
+        turnId,
+        schemaVersion: schema,
+        instructions,
+        fixed: false,
+      });
+      this.information.measureTurnInput({
+        groupId: session.group_id ?? null,
+        endpointId: session.id,
+        turnId,
+        schemaVersion: schema,
+        prompt,
+      });
+    } catch {
+      // Measurement is observational and must never change the host outcome.
+    }
     this.store.panelHistory(session.id, {
       type: 'framework.context',
       activeTeamId,
       relation: activeTeamId ? this.panelTeamRelation(activeTeamId) : null,
+      contextSchemaVersion: schema,
     }, turnId);
     const previousPolicy = session.policy_signature ? { signature: session.policy_signature } : null;
     const promise = Promise.resolve().then(() => host.run({
@@ -758,7 +828,7 @@ export class Bus extends EventEmitter {
       turnId,
       workspace: group?.workspace ?? this.store.directory,
       prompt,
-      instructions: this.panelInstructions(session, panelAgent, activeTeamId),
+      instructions,
       tools: panelToolsFor(session.context),
       policy,
       previousPolicy,
@@ -834,6 +904,7 @@ export class Bus extends EventEmitter {
       );
       this.store.panelHistory(session.id, { type: 'framework.output', text: result }, turnId);
       if (result) this.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), activeTeamId);
+      if (!abort.signal.aborted && session.context === 'coordination') this.teamDirectives.publishOutput(turnId, result, true);
       return result;
     } catch (error) {
       const state = error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed';
@@ -1543,12 +1614,20 @@ export class Bus extends EventEmitter {
     const panelSessions = this.store.all("SELECT id FROM panel_sessions WHERE group_id=? AND context='coordination'", groupId);
     await this.stopWhere(endpoint => endpoint.group_id === groupId);
     this.store.run('DELETE FROM groups WHERE id=?', groupId);
+    this.store.run('DELETE FROM information_measurements WHERE group_id=?', groupId);
+    this.information.pruneOrphanTurnSchemas();
     for (const { id } of endpoints) rmSync(resolve(this.store.directory, 'endpoints', id), { recursive: true, force: true });
     for (const { id } of panelSessions) rmSync(resolve(this.store.directory, 'endpoints', id), { recursive: true, force: true });
     return { deleted: groupId };
   }
-  rules(endpoint) {
+  rules(endpoint, schema = this.information.memberSchemaForEndpoint(endpoint.id)) {
     const member = this.store.member(endpoint.member_id);
+    if (schema === CONTEXT_SCHEMA_VERSION) {
+      const modelPolicy = member.role === 'lead' && ['coordination', 'private'].includes(endpoint.context) ? this.modelPolicy() : null;
+      return fixedRules(member, { modelPolicy });
+    }
+    // Legacy sessions keep the original rules text so upgrading the framework
+    // does not silently migrate or reset existing conversations.
     return `你是本机 Agent 群成员 ${member.name}，成员编号 ${member.id}，角色 ${member.role}。群编号 ${member.group_id}。
 成员与参考能力：${JSON.stringify(this.members(member.group_id).map(({ id, name, profile }) => ({ id, name, profile })))}
 使用 send/note 在群里发言，正文是自然语言。最终文本只属于宿主会话，不会自动进入群。
@@ -1575,18 +1654,38 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     if (endpointId.startsWith('panel-session-')) return this.panelTool(endpointId, key, name, args, provenance);
     if (endpointId.startsWith('preparation:')) return this.preparationTool(endpointId.slice(12), key, name, args, provenance.turnId);
     const endpoint = this.store.authenticate(endpointId, key);
-    validateTool(this.store.member(endpoint.member_id).role, name, args, endpoint.context);
+    const member = this.store.member(endpoint.member_id);
+    validateTool(member.role, name, args, endpoint.context);
     const { turnId, nativeCallId = null } = provenance;
     if (turnId && this.running.get(endpointId)?.turnId !== turnId) throw new Error('工具不属于当前执行回合');
     const origin = turnId ? { turnId, callId: randomUUID(), nativeCallId } : null;
     if (origin) origin.eventSeq = this.store.history(endpointId, { type: 'framework.tool_call', name, args, callId: origin.callId, nativeCallId }, turnId);
     try {
       const result = await this.executeTool(endpointId, key, name, args, origin);
+      this.measureToolCall({ groupId: member.group_id, endpointId, turnId, name, args, result, schema: this.information.toolSchema(turnId, endpointId) });
       if (origin) this.store.history(endpointId, { type: 'framework.tool_result', callId: origin.callId, result }, turnId);
       return result;
     } catch (error) {
       if (origin) this.store.history(endpointId, { type: 'framework.tool_result', callId: origin.callId, error: error.message }, turnId);
       throw error;
+    }
+  }
+  measureToolCall({ groupId, endpointId, turnId, name, args, result, schema }) {
+    if (!turnId) return;
+    try {
+      const detail = { view: result?.view ?? null, complete: result?.complete ?? null, hasMore: result?.hasMore ?? null };
+      if (args?.messageId) {
+        detail.expansion = true;
+        detail.messageId = args.messageId;
+        detail.offset = result?.offset ?? args.offset ?? 0;
+        detail.bodyLimit = args.bodyLimit ?? null;
+        detail.next = result?.next ?? null;
+      }
+      if (args?.itemId) detail.itemId = args.itemId;
+      if (Array.isArray(result?.omissions)) detail.omissions = result.omissions.length;
+      this.information.measureToolResult({ groupId, endpointId, turnId, schemaVersion: schema, name, result, detail });
+    } catch {
+      // Measurement is observational and must never change a tool outcome.
     }
   }
   async executeTool(endpointId, key, name, args, origin) {
@@ -1595,7 +1694,16 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     validateTool(member.role, name, args, endpoint.context);
     const groupId = member.group_id;
     if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
-    if (name === 'collaboration_read') return this.collaboration.read(groupId, args.after ?? 0);
+    if (name === 'collaboration_read') {
+      const full = this.collaboration.read(groupId, args.after ?? 0);
+      const schema = this.information.toolSchema(origin?.turnId, endpoint.id);
+      if (schema !== CONTEXT_SCHEMA_VERSION) return full;
+      return this.information.collaborationView(full, {
+        schema,
+        itemId: args.itemId ?? null,
+        goalId: this.collaboration.currentGoalId(groupId),
+      });
+    }
     if (name === 'goal_draft_read') return this.teamGoals(groupId);
     if (name === 'goal_draft_create' || name === 'goal_draft_update') {
       const requiredMemberIds = typeof args.requiredMemberIds === 'string'
@@ -1634,8 +1742,32 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     }
     if (name === 'members') return this.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
     if (name === 'read') {
-      const rows = this.store.all(`SELECT * FROM messages WHERE group_id=? AND seq>? ${args.sender ? 'AND sender=?' : ''} ORDER BY seq LIMIT ?`, groupId, args.after ?? 0, ...(args.sender ? [this.resolveMember(groupId, args.sender).id] : []), args.limit ?? 50);
-      return { messages: rows, nextAfter: rows.at(-1)?.seq ?? args.after ?? 0 };
+      const schema = this.information.toolSchema(origin?.turnId, endpoint.id);
+      if (args.messageId) {
+        if (args.after !== undefined || args.limit !== undefined || args.sender !== undefined || args.itemId !== undefined) {
+          throw new Error('正文展开不能同时使用列表参数');
+        }
+        return this.information.readBody({
+          groupId,
+          messageId: args.messageId,
+          hash: args.hash,
+          offset: args.offset ?? 0,
+          bodyLimit: args.bodyLimit ?? 1024,
+          schema,
+        });
+      }
+      if (args.hash !== undefined || args.offset !== undefined || args.bodyLimit !== undefined) {
+        throw new Error('hash、offset、bodyLimit 需要同时提供 messageId');
+      }
+      const senderId = args.sender ? this.resolveMember(groupId, args.sender).id : null;
+      return this.information.listMessages({
+        groupId,
+        after: args.after ?? 0,
+        limit: args.limit ?? 50,
+        senderId,
+        itemId: args.itemId ?? null,
+        schema,
+      });
     }
     if (name === 'profile_set') { this.store.run('UPDATE members SET profile=? WHERE id=?', args.text, member.id); return { member: member.id, profile: args.text }; }
     if (name === 'send' || name === 'note') {
@@ -1732,13 +1864,13 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       const controller = this.teamController(message.group_id);
       if (message.recipient === controller.id && controller.kind === 'panel_agent') {
         const session = this.store.panelSession(controller.id, 'coordination', message.group_id);
-        if (this.running.has(session.id) || this.store.get('SELECT 1 FROM panel_outbox WHERE session_id=? AND accepted IS NULL', session.id)) continue;
+        if (this.running.has(session.id) || this.store.get('SELECT 1 FROM panel_outbox WHERE session_id=? AND accepted IS NULL AND error IS NULL', session.id)) continue;
         const entry = this.store.preparePanel(message, session, () => true);
         if (entry) this.deliverPanel(entry);
         continue;
       }
       const endpoint = this.store.endpoint(message.recipient, message.recipient === controller.id ? 'coordination' : `pair:${message.sender}`, message.recipient === controller.id ? null : message.sender);
-      if (this.running.has(endpoint.id) || this.store.get('SELECT 1 FROM outbox WHERE endpoint_id=? AND accepted IS NULL', endpoint.id)) continue;
+      if (this.running.has(endpoint.id) || this.store.get('SELECT 1 FROM outbox WHERE endpoint_id=? AND accepted IS NULL AND error IS NULL', endpoint.id)) continue;
       let policy;
       try { policy = this.collaboration.policy(endpoint, [message]); } catch { /* Persist this input and let deliver record the policy rejection. */ }
       const entry = this.store.prepare(message, endpoint, candidates => {
@@ -1764,35 +1896,78 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const input = JSON.parse(entry.payload);
     return [input.message, ...(input.additionalMessages ?? [])].some(m => this.store.get('SELECT 1 FROM message_dispositions WHERE message_id=?', m.id));
   }
+  failPanelDelivery(session, input, entry, error) {
+    this.store.run('UPDATE panel_outbox SET error=? WHERE id=?', error.message, entry.id);
+    if (this.closing) return;
+    const message = this.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
+    if (message?.sender) {
+      const notice = this.store.append(session.group_id, 'system', message.sender, 'system',
+        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
+      this.emit('notice', notice);
+    }
+  }
   deliverPanel(entry) {
     const session = this.store.get('SELECT * FROM panel_sessions WHERE id=?', entry.session_id);
     if (!session || session.context !== 'coordination') return;
     const panelAgent = this.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
     if (!panelAgent) return;
     const input = JSON.parse(entry.payload);
+    const schema = this.information.panelSchemaForStart(session);
+    let prompt;
+    try {
+      if (schema === CONTEXT_SCHEMA_VERSION) {
+        const state = this.collaboration.state(session.group_id);
+        const policy = {
+          mode: 'communication',
+          allowShell: false,
+          contractVersion: state?.contract_version ?? 0,
+          domain: 'communication',
+        };
+        const full = this.collaboration.read(session.group_id);
+        prompt = JSON.stringify(this.information.turnInput({
+          full,
+          group: this.store.group(session.group_id),
+          policy,
+          input,
+          schema,
+          goalId: this.collaboration.currentGoalId(session.group_id),
+        }));
+      } else {
+        prompt = `当前团队 coordination 收到新的正式消息与待阅留言。按契约和工作状态处理：\n${JSON.stringify(input)}`;
+      }
+    } catch (error) {
+      this.failPanelDelivery(session, input, entry, error);
+      return;
+    }
     this.runPanelTurn({
       session: { ...session, group_id: session.group_id },
       panelAgent,
-      prompt: `当前团队 coordination 收到新的正式消息与待阅留言。按契约和工作状态处理：\n${JSON.stringify(input)}`,
+      prompt,
       activeTeamId: session.group_id,
       inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
       onAccepted: () => this.store.run('UPDATE panel_outbox SET accepted=? WHERE id=?', new Date().toISOString(), entry.id),
     }).catch(error => {
-      this.store.run('UPDATE panel_outbox SET error=? WHERE id=?', error.message, entry.id);
-      if (this.closing) return;
-      const message = this.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
-      if (message?.sender) {
-        const notice = this.store.append(session.group_id, 'system', message.sender, 'system',
-          `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
-        this.emit('notice', notice);
-      }
+      this.failPanelDelivery(session, input, entry, error);
     });
   }
   deliver(entry) {
     const endpoint = this.store.get('SELECT * FROM endpoints WHERE id=?', entry.endpoint_id);
     if (!endpoint || !this.store.get('SELECT 1 FROM members WHERE id=? AND removed IS NULL', endpoint.member_id)) return;
     const input = JSON.parse(entry.payload);
-    this.runEndpoint(endpoint, `当前正式群消息与附带待阅留言（一次输入；此前回合的临时指令已结束）：\n${JSON.stringify(input)}`, () => {
+    this.runEndpoint(endpoint, context => {
+      if (context.schema !== CONTEXT_SCHEMA_VERSION) {
+        return `当前正式群消息与附带待阅留言（一次输入；此前回合的临时指令已结束）：\n${JSON.stringify(input)}`;
+      }
+      const full = this.collaboration.read(endpoint.group_id);
+      return JSON.stringify(this.information.turnInput({
+        full,
+        group: this.store.group(endpoint.group_id),
+        policy: context.policy,
+        input,
+        schema: context.schema,
+        goalId: this.collaboration.currentGoalId(endpoint.group_id),
+      }));
+    }, () => {
       this.store.run('UPDATE outbox SET accepted=? WHERE id=?', new Date().toISOString(), entry.id);
     }, [input.message, ...(input.additionalMessages ?? []), ...input.notes]).catch(error => {
       this.store.run('UPDATE outbox SET error=? WHERE id=?', error.message, entry.id);
@@ -1818,7 +1993,15 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const effectiveEndpoint = { ...endpoint, session: binding?.session ?? fallbackSession };
     const previousPolicy = this.store.get('SELECT signature FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', endpoint.id, sessionKey)
       ?? (!binding && fallbackSession ? this.store.get('SELECT signature FROM endpoint_policy WHERE endpoint_id=?', endpoint.id) : null);
+    const schema = this.information.memberSchemaForSession(endpoint, sessionKey, binding?.session ?? fallbackSession);
+    const prompt = typeof text === 'function'
+      ? text({ schema, policy, sessionKey, group, endpoint: effectiveEndpoint })
+      : text;
+    if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('回合输入为空');
+    const instructions = this.rules(endpoint, schema);
+    this.information.assertRuleBudget(instructions, schema);
     const turnId = this.store.createTurn(effectiveEndpoint, inputs);
+    this.information.rememberTurnSchema(turnId, 'member', schema, sessionKey);
     this.store.run(
       'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,contract_version,created,goal_id) VALUES(?,?,?,?,?,?,?,?)',
       turnId,
@@ -1833,16 +2016,30 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const live = { endpoint: effectiveEndpoint, abort, turnId, done: null };
     const telemetryStarted = performance.now();
     this.running.set(endpoint.id, live);
-    this.store.history(endpoint.id, { type: 'input', text }, turnId);
+    this.store.history(endpoint.id, { type: 'input', text: prompt }, turnId);
+    try {
+      this.information.measureRules({
+        groupId: group.id,
+        endpointId: endpoint.id,
+        turnId,
+        schemaVersion: schema,
+        instructions,
+        fixed: schema === CONTEXT_SCHEMA_VERSION,
+      });
+      this.information.measureTurnInput({ groupId: group.id, endpointId: endpoint.id, turnId, schemaVersion: schema, prompt });
+    } catch {
+      // Measurement is observational and must never change the host outcome.
+    }
     this.store.history(endpoint.id, {
       type: 'framework.session_scope',
       domain: policy.domain,
       sessionKey,
       session: binding?.session ?? fallbackSession,
       reused: Boolean(binding?.session ?? fallbackSession),
+      contextSchemaVersion: schema,
     }, turnId);
     const promise = Promise.resolve().then(() => host.run({
-      endpoint: effectiveEndpoint, turnId, workspace: group.workspace, prompt: text, instructions: this.rules(endpoint),
+      endpoint: effectiveEndpoint, turnId, workspace: group.workspace, prompt, instructions,
       tools: toolsFor(member.role, endpoint.context), policy, previousPolicy, signal: abort.signal,
       modelSelection: {
         model_provider: member.model_provider ?? null,
@@ -1893,7 +2090,9 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     try {
       const result = await promise;
       this.store.run("UPDATE runtime_attempts SET state=?,ended=? WHERE turn_id=?", abort.signal.aborted ? 'cancelled' : 'completed', new Date().toISOString(), turnId);
-      this.store.history(endpoint.id, { type: 'framework.output', text: result }, turnId); return result;
+      this.store.history(endpoint.id, { type: 'framework.output', text: result }, turnId);
+      if (!abort.signal.aborted && endpoint.context === 'coordination') this.teamDirectives.publishOutput(turnId, result);
+      return result;
     }
     catch (error) {
       this.store.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', error.message, new Date().toISOString(), turnId);
@@ -1996,10 +2195,12 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     if (sessionKey) {
       this.store.run('DELETE FROM endpoint_session_bindings WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
       this.store.run('DELETE FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
+      this.information.forgetSessionFormats(e.id, sessionKey);
     } else {
       this.store.run('DELETE FROM endpoint_session_bindings WHERE endpoint_id=?', e.id);
       this.store.run('DELETE FROM endpoint_session_policies WHERE endpoint_id=?', e.id);
       this.store.run('DELETE FROM endpoint_policy WHERE endpoint_id=?', e.id);
+      this.information.forgetSessionFormats(e.id);
     }
     const remaining = this.store.get('SELECT session FROM endpoint_session_bindings WHERE endpoint_id=? ORDER BY updated DESC LIMIT 1', e.id);
     this.store.run('UPDATE endpoints SET session=? WHERE id=?', remaining?.session ?? null, e.id);
@@ -2025,6 +2226,9 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
     const controllers = [];
     try { controllers.push(this.teamController(groupId)); } catch { /* A group without a controller still has host capability declarations. */ }
     return this.telemetry.capabilities(groupId, controllers);
+  }
+  informationManifest(turnId) {
+    return this.information.manifest(turnId);
   }
   snapshot(groupId) {
     this.ensurePanelBindings();

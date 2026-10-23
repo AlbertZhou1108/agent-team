@@ -1,6 +1,13 @@
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
 const groupId = { type: 'string', minLength: 1, maxLength: 200 };
+const readRange = {
+  itemId: string,
+  messageId: string,
+  hash: string,
+  offset: { type: 'integer', minimum: 0 },
+  bodyLimit: { type: 'integer', minimum: 1, maximum: 4096 },
+};
 const cancellation = {
   type: 'object',
   description: '取消工作项时必须提供。kind=covered 时 by 填当前目标下其他已接受工作项；kind=irrelevant 表示该工作项与目标无关。',
@@ -101,16 +108,18 @@ const finishCommand = {
 const observerDefinitions = [
   ['teams_list', '列出当前数据目录中的团队及 Panel Agent 与每个团队的关系。', {}, []],
   ['team_snapshot', '读取一个团队的基础快照、成员、运行状态和协作摘要。', { groupId }, ['groupId']],
-  ['team_read', '读取当前团队共享消息；after 是消息序号游标。', {
+  ['team_read', '读取当前团队共享消息；after 是消息序号游标。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 200 },
     sender: string,
+    ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_collaboration_read', '读取当前团队的契约、目标、工作项、审查、接受和运行状态。', {
+  ['team_collaboration_read', '读取当前团队的契约、目标、工作项、审查、接受和运行状态。新会话默认返回当前目标概况；传入 itemId 定向读取单个工作项。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
+    itemId: string,
   }, ['groupId']],
   ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
   ['team_message_trace', '读取一条团队消息的真实来源和输入回合。', {
@@ -149,16 +158,18 @@ const preparationDefinitions = [
 ];
 
 const mainDefinitions = [
-  ['team_read', '读取当前团队共享消息；after 是消息序号游标。', {
+  ['team_read', '读取当前团队共享消息；after 是消息序号游标。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 200 },
     sender: string,
+    ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_collaboration_read', '读取当前团队协作状态。', {
+  ['team_collaboration_read', '读取当前团队协作状态。新会话默认返回当前目标概况；传入 itemId 定向读取单个工作项。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
+    itemId: string,
   }, ['groupId']],
   ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
   ['goal_draft_create', '创建Goal Draft，等待用户确认。contract为完整契约JSON，requiredMemberIds为逗号分隔的成员ID。', {

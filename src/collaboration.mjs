@@ -222,12 +222,13 @@ export class Collaboration {
   read(groupId, after = 0) {
     this.store.group(groupId);
     const s = this.state(groupId);
-    if (!s) return { legacy: true, contract: null, state: null, communicationOpen: false, items: [], requests: [], records: [], unknown: [] };
-    const records = this.store.all('SELECT * FROM work_records WHERE group_id=? AND seq>? ORDER BY seq LIMIT 100', groupId, after).map(r => ({ ...r, body: parse(r.body) }));
+    if (!s) return { legacy: true, contract: null, state: null, communicationOpen: false, items: [], requests: [], records: [], recordsHasMore: false, unknown: [] };
+    const page = this.store.all('SELECT * FROM work_records WHERE group_id=? AND seq>? ORDER BY seq LIMIT 101', groupId, after);
+    const records = page.slice(0, 100).map(r => ({ ...r, body: parse(r.body) }));
     return { legacy: false, contract: this.contract(groupId), state: s, communicationOpen: this.communicationOpen(groupId),
       items: this.store.all('SELECT id FROM work_items WHERE group_id=? ORDER BY rowid', groupId).map(r => this.item(r.id, groupId)),
       requests: this.store.all("SELECT id,base_version,kind,body,state,created FROM change_requests WHERE group_id=? ORDER BY rowid", groupId).map(r => ({ ...r, body: parse(r.body) })),
-      records, nextAfter: records.at(-1)?.seq ?? after, unknown: this.unknown(groupId),
+      records, recordsHasMore: page.length > 100, nextAfter: records.at(-1)?.seq ?? after, unknown: this.unknown(groupId),
       pendingMessages: this.pending(groupId),
       runningCount: this.store.get("SELECT COUNT(*) AS n FROM runtime_attempts WHERE group_id=? AND state='running'", groupId).n,
       outputs: this.store.all('SELECT id,goal_version,body,created FROM user_outputs WHERE group_id=? ORDER BY rowid', groupId)

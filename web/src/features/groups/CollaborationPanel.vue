@@ -95,7 +95,7 @@ const effectivePolicy = (item: { policy: string }, role: string) =>
 
 <template>
   <div
-    class="flex flex-col collaboration-content gap-6 p-1 text-sm leading-relaxed"
+    class="flex min-w-0 flex-col collaboration-content gap-6 p-1 text-sm leading-relaxed [overflow-wrap:anywhere]"
     data-testid="collaboration-panel"
   >
     <PanelState v-if="query.isPending.value" loading title="正在读取协作状态" description="正在同步目标契约和工作项。" />
@@ -263,8 +263,8 @@ const effectivePolicy = (item: { policy: string }, role: string) =>
         <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
           交付结果
         </h3>
-        <Card class="flex flex-col">
-          <CardContent class="flex flex-col gap-3">
+        <Card class="flex min-w-0 flex-col">
+          <CardContent class="flex min-w-0 flex-col gap-3">
           <p class="whitespace-pre-wrap">
             {{ currentOutput?.body ?? data.state.final }}
           </p>

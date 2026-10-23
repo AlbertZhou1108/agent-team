@@ -4,7 +4,7 @@
 
 ## 读取接口
 
-沿用本机面板启动链接建立的 Cookie。查询接口只读；团队观测页不提供通用写 RPC。全局模型策略使用 `POST /api/model-policy`。Panel Agent 使用命名的身份、私聊、准备确认、接管和交还接口，每个接口独立校验参数、团队作用域、控制者 revision 和同源请求。
+沿用本机面板启动链接建立的 Cookie。查询接口只读；团队操作面板不提供通用写 RPC。`POST /api/teams/:id/directives` 接收 text、operationId 和当前 controllerId，经面板 Cookie、同源和团队/主控检查后复用用户 directive 通道；同编号同内容幂等返回原消息。`GET` 同一路径返回最近 50 条发送回执，已投递仅表示宿主接收，不代表任务完成。归档/closing 团队拒绝新指令；closed 目标只允许既有沟通语义，消息不替代正式审批。全局模型策略使用 `POST /api/model-policy`。Panel Agent 使用命名的身份、私聊、准备确认、接管和交还接口，每个接口独立校验参数、团队作用域、控制者 revision 和同源请求。
 
 - `GET /api/snapshot`：返回群、成员、群会话、活动运行和团队阶段摘要。
 - `GET /api/collaboration?group=<群编号>&after=<记录序号>`：返回有效契约、工作项、证据引用、待用户决定、收尾状态、未处理消息、待核实运行和分页流转记录。

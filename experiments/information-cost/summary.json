@@ -1,0 +1,297 @@
+[
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "middle-error",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15150,
+    "cached": 0,
+    "uncached": 15150,
+    "output": 18,
+    "elapsedMs": 10440
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "middle-error",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "log"
+    ],
+    "input": 29743,
+    "cached": 14208,
+    "uncached": 15535,
+    "output": 45,
+    "elapsedMs": 5043
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "stale-review",
+    "variant": "full",
+    "strictPass": false,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15128,
+    "cached": 0,
+    "uncached": 15128,
+    "output": 17,
+    "elapsedMs": 3210
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "stale-review",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "current",
+      "history"
+    ],
+    "input": 44435,
+    "cached": 28672,
+    "uncached": 15763,
+    "output": 71,
+    "elapsedMs": 6811
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "middle-error",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15778,
+    "cached": 0,
+    "uncached": 15778,
+    "output": 18,
+    "elapsedMs": 4530
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "middle-error",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "log"
+    ],
+    "input": 30995,
+    "cached": 14848,
+    "uncached": 16147,
+    "output": 41,
+    "elapsedMs": 6843
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "stale-review",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15756,
+    "cached": 0,
+    "uncached": 15756,
+    "output": 15,
+    "elapsedMs": 4900
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "stale-review",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "current"
+    ],
+    "input": 30281,
+    "cached": 14976,
+    "uncached": 15305,
+    "output": 38,
+    "elapsedMs": 7042
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "scope-change",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15267,
+    "cached": 0,
+    "uncached": 15267,
+    "output": 15,
+    "elapsedMs": 4063
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "scope-change",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "current"
+    ],
+    "input": 29017,
+    "cached": 14336,
+    "uncached": 14681,
+    "output": 43,
+    "elapsedMs": 4837
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "missing-evidence",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 14350,
+    "cached": 0,
+    "uncached": 14350,
+    "output": 15,
+    "elapsedMs": 9391
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-luna",
+    "case": "missing-evidence",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 14434,
+    "cached": 0,
+    "uncached": 14434,
+    "output": 15,
+    "elapsedMs": 3989
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "scope-change",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 15895,
+    "cached": 0,
+    "uncached": 15895,
+    "output": 15,
+    "elapsedMs": 4075
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "scope-change",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "current"
+    ],
+    "input": 30268,
+    "cached": 14976,
+    "uncached": 15292,
+    "output": 38,
+    "elapsedMs": 8073
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "missing-evidence",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 14978,
+    "cached": 0,
+    "uncached": 14978,
+    "output": 15,
+    "elapsedMs": 9130
+  },
+  {
+    "host": "codex",
+    "model": "gpt-6-astra",
+    "case": "missing-evidence",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "evidence"
+    ],
+    "input": 30215,
+    "cached": 14848,
+    "uncached": 15367,
+    "output": 50,
+    "elapsedMs": 10358
+  },
+  {
+    "host": "dsh",
+    "case": "hidden-error",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 1296,
+    "cached": 128,
+    "uncached": 1168,
+    "output": 51,
+    "elapsedMs": 1867
+  },
+  {
+    "host": "dsh",
+    "case": "hidden-error",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "read"
+    ],
+    "input": 2476,
+    "cached": 1024,
+    "uncached": 1452,
+    "output": 87,
+    "elapsedMs": 2463
+  },
+  {
+    "host": "claude",
+    "case": "hidden-error",
+    "variant": "full",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [],
+    "input": 5484,
+    "cached": 2560,
+    "uncached": 2924,
+    "output": 309,
+    "elapsedMs": 5345
+  },
+  {
+    "host": "claude",
+    "case": "hidden-error",
+    "variant": "selective",
+    "strictPass": true,
+    "semanticPass": true,
+    "reads": [
+      "read"
+    ],
+    "input": 4639,
+    "cached": 1920,
+    "uncached": 2719,
+    "output": 163,
+    "elapsedMs": 3632
+  }
+]

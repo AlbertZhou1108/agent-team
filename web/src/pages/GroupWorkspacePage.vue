@@ -33,6 +33,7 @@ import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue'
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import MessageFeed from '@/features/messages/MessageFeed.vue';
+import TeamDirectiveComposer from '@/features/messages/TeamDirectiveComposer.vue';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
 import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
@@ -40,6 +41,7 @@ import type { InspectorTab } from '@/features/sessions/types';
 import { toMessageViews } from '@/features/messages/adapters';
 import { buildTurns } from '@/features/traces/reducer';
 import {
+  useTeamDirectivesQuery,
   useHistoryQuery,
   useMessagesQuery,
   useModelsQuery,
@@ -281,6 +283,7 @@ const contextTabs: Array<{
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
 const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
+const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
 const messagesQuery = useMessagesQuery(() => groupId.value || undefined, () => selectedSessionId.value || undefined);
 const historyQuery = useHistoryQuery(
   () => detailsVisible.value && ['trace', 'events'].includes(activeTab.value) ? selectedSessionId.value || undefined : undefined,
@@ -667,7 +670,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           'manager-view-open': managerConversationActive,
         }"
       >
-        <ConversationFrame class="chat-window">
+        <ConversationFrame class="chat-window" :readonly="false">
             <header class="chat-header">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
@@ -699,7 +702,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 >
                   {{
                     group?.workspace ??
-                    '团队观测页只读展示共享记录；私人交互由 Panel Agent 提供。'
+                    '团队操作面板展示共享记录，并支持向主 Agent 发送指令。'
                   }}
                 </p>
               </div>
@@ -769,6 +772,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :key="`${groupId}:${selectedSessionId}`"
                 class="chat-feed"
                 :messages="messageViews"
+                :directives="directivesQuery.data.value ?? []"
                 :title="conversationTitle"
                 :selected-pair="selectedPair"
                 :hosts="endpointHosts"
@@ -778,7 +782,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 @load-more="messagesQuery.fetchNextPage()"
               />
               <footer class="chat-footer text-xs text-muted-foreground">
-                <span>只读观测</span>
+                <span>团队观测与指令</span>
                 <span class="text-muted-foreground">·</span>
                 <span>{{
                   connection.lastSyncedAt?.toLocaleTimeString('zh-CN') ??
@@ -786,6 +790,12 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 }}</span>
               </footer>
             </template>
+          <template #composer>
+            <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
+              :controller-id="currentControllerId" :controller-name="currentController?.name"
+              :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
+              @sent="replaceQuery({ session: undefined, pair: undefined })" />
+          </template>
         </ConversationFrame>
 
         <button
@@ -876,12 +886,17 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 v-else-if="contextPanel === 'members'"
                 class="flex flex-col gap-5"
               >
+                <TelemetryMembersView :group-id="groupId" />
+                <details class="text-sm text-muted-foreground">
+                  <summary class="w-fit cursor-pointer">成员资料与模型（{{ currentMembers.length }}）</summary>
+                  <div class="mt-3">
                 <MemberStrip
                   :members="currentMembers"
                   :running-member-ids="runningMemberIds"
                   :paused-member-ids="pausedMemberIds"
                 />
-                <TelemetryMembersView :group-id="groupId" />
+                  </div>
+                </details>
               </div>
               <SessionList
                 v-else-if="contextPanel === 'sessions'"
