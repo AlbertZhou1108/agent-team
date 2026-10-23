@@ -1,9 +1,21 @@
 <script setup lang="ts">
+import PanelState from '@/components/panel/PanelState.vue';
+import {
+  Item,
+  ItemGroup,
+  ItemMedia,
+  ItemContent,
+  ItemTitle,
+  ItemDescription,
+} from '@/components/ui/item';
 import { computed } from 'vue';
 import { Bot, Radio } from '@lucide/vue';
-import type { Member, SessionBinding, SessionEndpoint } from '@/shared/api/raw-types';
+import type {
+  Member,
+  SessionBinding,
+  SessionEndpoint,
+} from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
 
 const props = defineProps<{
   endpoints: SessionEndpoint[];
@@ -25,36 +37,50 @@ const emit = defineEmits<{ select: [id: string] }>();
 
 const conversations = computed(() => {
   const seen = new Set<string>();
-  return props.endpoints.filter(endpoint => {
+  return props.endpoints.filter((endpoint) => {
     if (endpoint.context === 'profile') return false;
-    const key = endpoint.peer ? [endpoint.member_id, endpoint.peer].sort().join(':') : endpoint.id;
+    const key = endpoint.peer
+      ? [endpoint.member_id, endpoint.peer].sort().join(':')
+      : endpoint.id;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 });
 function selected(endpoint: SessionEndpoint) {
-  const active = props.endpoints.find(item => item.id === props.selectedId);
-  return endpoint.id === props.selectedId || Boolean(endpoint.peer && active?.peer &&
-    [endpoint.member_id, endpoint.peer].sort().join(':') === [active.member_id, active.peer].sort().join(':'));
+  const active = props.endpoints.find((item) => item.id === props.selectedId);
+  return (
+    endpoint.id === props.selectedId ||
+    Boolean(
+      endpoint.peer &&
+        active?.peer &&
+        [endpoint.member_id, endpoint.peer].sort().join(':') ===
+          [active.member_id, active.peer].sort().join(':'),
+    )
+  );
 }
 
 function memberName(id: string) {
-  return props.members.find(member => member.id === id)?.name
-    ?? props.actors?.find(actor => actor.id === id)?.name
-    ?? id;
+  return (
+    props.members.find((member) => member.id === id)?.name ??
+    props.actors?.find((actor) => actor.id === id)?.name ??
+    id
+  );
 }
 function configuredModel(id: string) {
-  const member = props.members.find(item => item.id === id);
-  const actor = props.actors?.find(item => item.id === id);
+  const member = props.members.find((item) => item.id === id);
+  const actor = props.actors?.find((item) => item.id === id);
   const configured = member?.model ? member : actor;
   if (!configured?.model) return null;
   return `${configured.model_provider ? `${configured.model_provider}/` : ''}${configured.model} · ${configured.reasoning_effort ?? '默认强度'}`;
 }
 function domains(endpointId: string) {
   return props.sessionBindings
-    .filter(binding => binding.endpoint_id === endpointId && binding.session_key !== 'default')
-    .map(binding => binding.session_key);
+    .filter(
+      (binding) =>
+        binding.endpoint_id === endpointId && binding.session_key !== 'default',
+    )
+    .map((binding) => binding.session_key);
 }
 function domainLabel(domain: string) {
   if (domain === 'default') return '统一会话';
@@ -70,45 +96,66 @@ function contextLabel(endpoint: SessionEndpoint) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1.5">
-    <button type="button" :class="cn('session-item', !selectedId && 'session-item-active')" :aria-pressed="!selectedId" @click="emit('select', '')">
-      <span class="session-icon"><Bot :size="14" /></span>
-      <span class="text-xs font-medium">全部群消息</span>
-    </button>
-    <button
+  <ItemGroup class="gap-2">
+    <Item
+      as="button"
+      :variant="!selectedId ? 'muted' : 'default'"
+      type="button"
+      class="session-item text-left"
+      :aria-pressed="!selectedId"
+      @click="emit('select', '')"
+    >
+      <ItemMedia variant="icon"><Bot /></ItemMedia>
+      <ItemContent><ItemTitle>全部群消息</ItemTitle></ItemContent>
+    </Item>
+    <Item
+      as="button"
+      :variant="selected(endpoint) ? 'muted' : 'default'"
       v-for="endpoint in conversations"
       :key="endpoint.id"
       :aria-pressed="selected(endpoint)"
       type="button"
-      :class="cn('session-item', selected(endpoint) && 'session-item-active')"
+      class="session-item text-left"
       @click="emit('select', endpoint.id)"
     >
-      <span class="session-icon">
-        <Bot :size="14" />
-      </span>
-      <span class="min-w-0 flex-1">
-        <span class="block truncate text-left text-xs font-medium">
+      <ItemMedia variant="icon"><Bot /></ItemMedia>
+      <ItemContent>
+        <ItemTitle>
           {{ memberName(endpoint.member_id) }}
-          <span class="font-normal text-dim">· {{ contextLabel(endpoint) }}</span>
-        </span>
-        <span class="mt-1 block truncate text-left font-mono text-[9px] text-dim">
+          <span class="font-normal text-muted-foreground"
+            >· {{ contextLabel(endpoint) }}</span
+          >
+        </ItemTitle>
+        <ItemDescription>
           <template v-if="endpoint.modelState.currentModel?.model">
             {{ endpoint.modelState.currentModel.model }}
-            · {{ endpoint.modelState.currentReasoningEffort?.reasoningEffort ?? '强度未知' }}
+            ·
+            {{
+              endpoint.modelState.currentReasoningEffort?.reasoningEffort ??
+              '强度未知'
+            }}
           </template>
           <template v-else>
             {{ configuredModel(endpoint.member_id) ?? '模型未知' }}
           </template>
+        </ItemDescription>
+        <span
+          v-if="domains(endpoint.id).length"
+          class="mt-1 flex flex-wrap gap-1"
+        >
+          <Badge
+            v-for="domain in domains(endpoint.id)"
+            :key="domain"
+            variant="outline"
+            >{{ domainLabel(domain) }}</Badge
+          >
         </span>
-        <span v-if="domains(endpoint.id).length" class="mt-1 flex flex-wrap gap-1">
-          <Badge v-for="domain in domains(endpoint.id)" :key="domain" variant="default">{{ domainLabel(domain) }}</Badge>
-        </span>
-      </span>
-      <Badge v-if="runningEndpoints.includes(endpoint.id)" variant="accent">
-        <Radio :size="9" class="animate-pulse" />
+      </ItemContent>
+      <Badge v-if="runningEndpoints.includes(endpoint.id)" variant="default">
+        <Radio class="animate-pulse" />
         运行
       </Badge>
-    </button>
-    <div v-if="!conversations.length" class="empty-state compact">这个群还没有宿主会话。</div>
-  </div>
+    </Item>
+    <PanelState v-if="!conversations.length" :icon="Bot" title="暂无宿主会话" description="成员执行任务后，会话会显示在这里。" />
+  </ItemGroup>
 </template>

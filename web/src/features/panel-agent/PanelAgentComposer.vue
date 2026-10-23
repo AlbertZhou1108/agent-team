@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import {
-  ArrowUp,
-  CircleStop,
-  Settings2,
-} from '@lucide/vue';
+import { ArrowUp, CircleStop, Settings2 } from '@lucide/vue';
 import {
   InputGroup,
   InputGroupAddon,
@@ -14,10 +10,7 @@ import {
 import { useUiStore } from '@/stores/ui';
 import type { PanelAgent } from '@/shared/api/raw-types';
 import PanelAgentModelSelector from './PanelAgentModelSelector.vue';
-import type {
-  AvailableHost,
-  PanelAgentForm,
-} from './types';
+import type { AvailableHost, PanelAgentForm } from './types';
 
 const props = defineProps<{
   agent: PanelAgent;
@@ -101,13 +94,13 @@ function keyboardResize(event: KeyboardEvent) {
       @lostpointercapture="endResize"
       @keydown="keyboardResize"
     />
-    <InputGroup class="bg-background shadow-sm">
+    <InputGroup>
       <InputGroupTextarea
         v-model="draft"
         rows="2"
         maxlength="48000"
         placeholder="询问团队状态，或让 Panel Agent 准备一个新团队…"
-        class="max-h-none min-h-20 flex-none field-sizing-fixed px-4 py-3 text-sm"
+        class="max-h-none min-h-20 flex-none field-sizing-fixed"
         :style="{ height: 'var(--agent-composer-height)' }"
         @keydown="onKeydown"
       />
@@ -127,9 +120,9 @@ function keyboardResize(event: KeyboardEvent) {
           title="Panel Agent 设置"
           @click="emit('edit')"
         >
-          <Settings2 :size="14" />
+          <Settings2 />
         </InputGroupButton>
-        <span class="ml-auto hidden text-[10px] text-muted-foreground sm:inline">
+        <span class="ml-auto hidden text-muted-foreground sm:inline">
           Enter 发送 · Shift + Enter 换行
         </span>
         <InputGroupButton
@@ -139,7 +132,7 @@ function keyboardResize(event: KeyboardEvent) {
           :disabled="stopping"
           @click="emit('stop')"
         >
-          <CircleStop :size="13" data-icon="inline-start" />
+          <CircleStop data-icon="inline-start" />
           {{ stopping ? '停止中…' : '停止' }}
         </InputGroupButton>
         <InputGroupButton
@@ -149,7 +142,7 @@ function keyboardResize(event: KeyboardEvent) {
           :disabled="!draft.trim() || sending"
           aria-label="发送"
         >
-          <ArrowUp :size="14" />
+          <ArrowUp />
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>

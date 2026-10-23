@@ -17,5 +17,5 @@ const html = computed(() => (
 </script>
 
 <template>
-  <div v-html="html" />
+  <div class="markdown-content min-w-0 max-w-full overflow-x-auto" v-html="html" />
 </template>

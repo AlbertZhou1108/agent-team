@@ -20,11 +20,11 @@ const traceQuery = useQuery({
   retry: 0,
 });
 
-const turnId = computed(() => (
+const turnId = computed(() =>
   traceQuery.data.value?.source.kind === 'group'
     ? traceQuery.data.value.source.turnId
-    : undefined
-));
+    : undefined,
+);
 
 const turnQuery = useQuery({
   queryKey: computed(() => ['turn', turnId.value] as const),
@@ -49,31 +49,32 @@ const duration = computed(() => {
   const start = new Date(trace.turn.created).getTime();
   const end = Math.max(
     start,
-    ...trace.events.map(event => new Date(event.created).getTime()),
+    ...trace.events.map((event) => new Date(event.created).getTime()),
   );
   const seconds = Math.max(0, Math.round((end - start) / 1000));
   if (seconds < 60) return `${seconds} 秒`;
   return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 });
 
-const stepCount = computed(() => turns.value.reduce((total, turn) => total + turn.steps.length, 0));
+const stepCount = computed(() =>
+  turns.value.reduce((total, turn) => total + turn.steps.length, 0),
+);
 </script>
 
 <template>
-  <div
-    v-if="turnId"
-    class="inline-trace"
-  >
+  <div v-if="turnId" class="inline-trace text-xs text-muted-foreground">
     <div v-if="turnQuery.isPending.value" class="inline-trace-loading">
-      <LoaderCircle :size="12" class="animate-spin" />
+      <LoaderCircle class="animate-spin" />
       正在读取执行轨迹
     </div>
     <details v-else-if="turns.length">
       <summary>
-        <Clock3 :size="12" />
+        <Clock3 class="size-3.5" />
         <span>执行轨迹</span>
-        <span v-if="duration" class="text-dim">用时 {{ duration }}</span>
-        <span class="text-dim">· {{ stepCount }} 步</span>
+        <span v-if="duration" class="text-muted-foreground"
+          >用时 {{ duration }}</span
+        >
+        <span class="text-muted-foreground">· {{ stepCount }} 步</span>
       </summary>
       <div class="inline-trace-content">
         <TraceTimeline :turns="turns" />

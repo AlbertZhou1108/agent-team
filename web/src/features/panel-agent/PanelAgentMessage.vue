@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import {
-  Check,
-  Copy,
-} from '@lucide/vue';
+import { Check, Copy } from '@lucide/vue';
 import { useClipboard } from '@vueuse/core';
 import ConversationMessage from '@/components/ai-elements/ConversationMessage.vue';
 import { Badge } from '@/components/ui/badge';
@@ -23,27 +20,29 @@ const props = defineProps<{
 }>();
 
 const { copy, copied } = useClipboard({ copiedDuring: 1500, legacy: true });
-const teamName = computed(() => (
-  props.teams.find(team => team.id === props.message.active_team_id)?.name
-  ?? props.message.active_team_id
-));
-const time = computed(() => new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-}).format(new Date(props.message.created)));
+const teamName = computed(
+  () =>
+    props.teams.find((team) => team.id === props.message.active_team_id)
+      ?.name ?? props.message.active_team_id,
+);
+const time = computed(() =>
+  new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(props.message.created)),
+);
 </script>
 
 <template>
-  <ConversationMessage
-    :role="message.role"
-    :content="message.text"
-  >
+  <ConversationMessage :role="message.role" :content="message.text">
     <template #footer>
-      <MessageFooter class="agent-ai-message-footer">
-        <time>{{ time }}</time>
-        <Badge v-if="message.role === 'system'" variant="accent">自动进度</Badge>
-        <Badge v-if="teamName" variant="default">{{ teamName }}</Badge>
+      <MessageFooter class="agent-ai-message-footer flex-wrap gap-2">
+        <time :datetime="message.created" :title="new Date(message.created).toLocaleString('zh-CN')">{{ time }}</time>
+        <Badge v-if="message.role === 'system'" variant="default"
+          >自动进度</Badge
+        >
+        <Badge v-if="teamName" variant="secondary" class="max-w-full"><span class="truncate" :title="teamName">{{ teamName }}</span></Badge>
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
@@ -52,8 +51,8 @@ const time = computed(() => new Intl.DateTimeFormat('zh-CN', {
               :aria-label="copied ? '已复制' : '复制消息'"
               @click="copy(message.text)"
             >
-              <Check v-if="copied" :size="12" data-icon />
-              <Copy v-else :size="12" data-icon />
+              <Check v-if="copied" data-icon />
+              <Copy v-else data-icon />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{{ copied ? '已复制' : '复制消息' }}</TooltipContent>

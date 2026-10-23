@@ -185,6 +185,10 @@ Claude/DSH 的 print/headless 模式尚未验证独立的持久入队回执，�
 
 面板使用 Vue 3、TypeScript、Vite、Vue Router、Pinia、TanStack Vue Query、shadcn-vue 风格组件和 Reka UI。生产构建仍在同一个 Node 进程中与 `/api/*` 同源提供。
 
+`web/` 是 npm workspace，依赖安装和锁文件统一由仓库根目录管理。运行 shadcn-vue CLI 时进入 `web/`，该目录包含安装命令要求的 `package.json` 和 `components.json`。
+
+面板采用 shadcn-vue 默认组件样式与 Neutral 明暗主题。页面通过内置 variant 和 size 组合组件；全局 CSS 负责标准主题 token、应用布局与消息 Markdown 排版，组件外观优先沿用默认样式。
+
 ```bash
 npm run build       # 构建 web/dist
 npm run typecheck   # Vue 与 TypeScript 类型检查

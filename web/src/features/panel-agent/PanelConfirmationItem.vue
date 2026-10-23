@@ -10,16 +10,19 @@ import {
   ItemTitle,
 } from '@/components/ui/item';
 
-withDefaults(defineProps<{
-  icon?: Component;
-  title: string;
-  description?: string;
-  actionsAtFooter?: boolean;
-}>(), {
-  icon: undefined,
-  description: '',
-  actionsAtFooter: false,
-});
+withDefaults(
+  defineProps<{
+    icon?: Component;
+    title: string;
+    description?: string;
+    actionsAtFooter?: boolean;
+  }>(),
+  {
+    icon: undefined,
+    description: '',
+    actionsAtFooter: false,
+  },
+);
 </script>
 
 <template>
@@ -29,7 +32,7 @@ withDefaults(defineProps<{
     </ItemMedia>
     <ItemContent>
       <ItemTitle>{{ title }}</ItemTitle>
-      <ItemDescription v-if="description" class="line-clamp-none text-xs leading-5">
+      <ItemDescription v-if="description" class="line-clamp-none">
         {{ description }}
       </ItemDescription>
       <slot name="meta" />
@@ -37,7 +40,7 @@ withDefaults(defineProps<{
     <ItemActions v-if="!actionsAtFooter" class="w-full justify-end sm:w-auto">
       <slot />
     </ItemActions>
-    <ItemFooter v-else class="justify-end pt-1">
+    <ItemFooter v-else class="justify-end">
       <slot />
     </ItemFooter>
   </Item>

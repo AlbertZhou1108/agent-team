@@ -1,12 +1,10 @@
 <script setup lang="ts">
+import PanelState from '@/components/panel/PanelState.vue';
+import RecordPanel from '@/components/panel/RecordPanel.vue';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { computed } from 'vue';
-import {
-  Activity,
-  Braces,
-  Database,
-  LoaderCircle,
-  PanelRightClose,
-} from '@lucide/vue';
+import { Activity, ArrowLeftRight, Braces, Database, LoaderCircle, ChevronRight } from '@lucide/vue';
 import type {
   Member,
   ModelObservation,
@@ -19,14 +17,12 @@ import TraceTimeline from '@/components/ai-elements/TraceTimeline.vue';
 import CodeBlock from '@/components/ai-elements/CodeBlock.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
 import type { InspectorTab } from './types';
 
 const props = defineProps<{
   endpoint?: SessionEndpoint;
   members: Member[];
-  actors?: Array<{ id: string; name: string }>;
+  actors?: Array<{ id: string; name: string; host?: string }>;
   turns: TurnView[];
   historyRows: HistoryRow[];
   modelState?: ModelState | null;
@@ -41,9 +37,14 @@ const emit = defineEmits<{
   'update:tab': [value: InspectorTab];
   loadMore: [];
   close: [];
+  chooseSession: [];
 }>();
 
-const tabs: Array<{ value: InspectorTab; label: string; icon: typeof Activity }> = [
+const tabs: Array<{
+  value: InspectorTab;
+  label: string;
+  icon: typeof Activity;
+}> = [
   { value: 'trace', label: '执行轨迹', icon: Activity },
   { value: 'events', label: '原始事件', icon: Braces },
   { value: 'models', label: '模型', icon: Database },
@@ -51,11 +52,34 @@ const tabs: Array<{ value: InspectorTab; label: string; icon: typeof Activity }>
 
 const memberName = computed(() => {
   const id = props.endpoint?.member_id;
-  return props.members.find(member => member.id === id)?.name
-    ?? props.actors?.find(actor => actor.id === id)?.name
-    ?? id
-    ?? '宿主会话';
+  return (
+    props.members.find((member) => member.id === id)?.name ??
+    props.actors?.find((actor) => actor.id === id)?.name ??
+    id ??
+    '宿主会话'
+  );
 });
+
+const endpointHost = computed(
+  () =>
+    props.members.find((member) => member.id === props.endpoint?.member_id)
+      ?.host ??
+    props.actors?.find((actor) => actor.id === props.endpoint?.member_id)?.host,
+);
+
+function selectTab(value: string | number) {
+  if (value === 'trace' || value === 'events' || value === 'models')
+    emit('update:tab', value);
+}
+
+function eventName(value: string) {
+  try {
+    const event = JSON.parse(value);
+    return event.method ?? event.type ?? 'event';
+  } catch {
+    return '无法解析的事件';
+  }
+}
 
 function prettyEvent(value: string) {
   try {
@@ -67,110 +91,146 @@ function prettyEvent(value: string) {
 </script>
 
 <template>
-  <section class="inspector-panel">
-    <header class="flex items-start justify-between gap-3 border-b border-[var(--border)] pb-3">
-      <div class="min-w-0">
-        <p class="eyebrow">SESSION INSPECTOR</p>
-        <h2 class="mt-1 truncate text-sm font-medium">{{ memberName }}</h2>
-        <p class="mt-1 truncate font-mono text-[9px] text-dim">{{ endpoint?.id ?? '尚未选择会话' }}</p>
-      </div>
-      <Button variant="ghost" size="icon" class="lg:hidden" title="关闭详情" @click="emit('close')">
-        <PanelRightClose :size="15" />
-      </Button>
-    </header>
-
-    <TabsRoot
-      v-if="endpoint"
-      :model-value="tab"
-      class="mt-4"
-      @update:model-value="emit('update:tab', $event as InspectorTab)"
-    >
-      <TabsList class="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-1">
-        <TabsTrigger
-          v-for="item in tabs"
-          :key="item.value"
-          :value="item.value"
-          :class="cn('inspector-tab', tab === item.value && 'inspector-tab-active')"
-        >
-          <component :is="item.icon" :size="12" />
-          {{ item.label }}
-        </TabsTrigger>
-      </TabsList>
-    </TabsRoot>
-
-    <div v-if="loading" class="mt-8 flex items-center justify-center gap-2 text-xs text-muted">
-      <LoaderCircle :size="15" class="animate-spin" />
-      正在读取宿主事件…
-    </div>
-
-    <div v-else-if="!endpoint" class="empty-state mt-6">
-      从右侧会话列表选择一个宿主会话。
-    </div>
-
-    <div v-else class="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-      <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
-
-      <div v-else-if="tab === 'events'" class="space-y-2">
-        <div class="mb-3 flex items-center justify-between">
-          <p class="text-[11px] leading-5 text-muted">宿主实际输出的事件流，可能包含宿主自身的截断。</p>
-          <Badge>{{ historyRows.length }} 条</Badge>
+  <section class="flex min-h-0 flex-1 flex-col gap-5">
+    <PanelState v-if="!endpoint" :icon="Activity" title="选择一个会话" description="查看成员的执行过程、原始事件和模型观测。"><Button variant="outline" size="sm" @click="emit('chooseSession')">浏览会话</Button></PanelState>
+    <template v-else>
+      <header class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-base font-semibold">{{ memberName }}</h2>
+          <div class="flex items-center gap-2">
+            <Badge v-if="endpointHost" variant="outline">{{
+              endpointHost
+            }}</Badge
+            ><Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="切换会话"
+              title="切换会话"
+              @click="emit('chooseSession')"
+              ><ArrowLeftRight
+            /></Button>
+          </div>
         </div>
-        <details v-for="row in historyRows" :key="row.seq" class="event-row">
-          <summary class="flex cursor-pointer items-center gap-2">
-            <span class="font-mono text-[10px] text-dim">#{{ row.seq }}</span>
-            <span class="min-w-0 flex-1 truncate font-mono text-[11px]">
-              {{ (() => { try { const event = JSON.parse(row.event); return event.method ?? event.type ?? 'event'; } catch { return 'invalid event'; } })() }}
-            </span>
-            <span class="font-mono text-[9px] text-dim">{{ new Date(row.created).toLocaleTimeString('zh-CN') }}</span>
-          </summary>
-          <div class="mt-2">
-            <CodeBlock :code="prettyEvent(row.event)" max-height="16rem" />
-          </div>
+        <details class="text-xs text-muted-foreground">
+          <summary class="w-fit cursor-pointer">会话标识</summary>
+          <p class="mt-2 break-all font-mono">{{ endpoint.id }}</p>
         </details>
-      </div>
-
-      <div v-else class="space-y-4">
-        <section class="inspector-section">
-          <p class="eyebrow">CURRENT MODEL</p>
-          <dl class="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <dt class="text-[10px] text-dim">模型</dt>
-              <dd class="mt-1 font-mono text-xs">{{ modelState?.currentModel?.model ?? '未知' }}</dd>
-              <p class="mt-1 text-[10px] text-dim">{{ modelState?.currentModel?.source ?? '宿主尚未报告' }}</p>
-            </div>
-            <div>
-              <dt class="text-[10px] text-dim">思考强度</dt>
-              <dd class="mt-1 font-mono text-xs">{{ modelState?.currentReasoningEffort?.reasoningEffort ?? '未知' }}</dd>
-              <p class="mt-1 text-[10px] text-dim">{{ modelState?.currentReasoningEffort?.source ?? '宿主尚未报告' }}</p>
-            </div>
-          </dl>
-        </section>
-        <section class="inspector-section">
-          <p class="eyebrow">MODEL OBSERVATIONS</p>
-          <div v-if="observations.length" class="mt-3 space-y-1">
-            <details v-for="observation in observations" :key="observation.seq" class="event-row">
-              <summary class="cursor-pointer">
-                <span class="font-mono text-[10px] text-dim">#{{ observation.seq }}</span>
-                {{ observation.phase }} · {{ observation.model ?? observation.models?.join(', ') ?? '模型未知' }}
-              </summary>
-              <CodeBlock :code="JSON.stringify(observation, null, 2)" max-height="12rem" />
-            </details>
-          </div>
-          <div v-else class="empty-state compact">本会话还没有模型观测。</div>
-        </section>
-      </div>
-
-      <Button
-        v-if="hasNextPage"
-        variant="outline"
-        size="sm"
-        class="mt-4 w-full"
-        :disabled="fetchingNextPage"
-        @click="emit('loadMore')"
+      </header>
+      <Tabs
+        :model-value="tab"
+        class="min-h-0 flex-1"
+        @update:model-value="selectTab"
       >
-        <LoaderCircle v-if="fetchingNextPage" :size="13" class="animate-spin" />
-        {{ fetchingNextPage ? '正在加载' : '加载更多事件' }}
-      </Button>
-    </div>
+        <TabsList class="w-full" aria-label="会话详情"
+          ><TabsTrigger
+            v-for="item in tabs"
+            :key="item.value"
+            :value="item.value"
+            ><component :is="item.icon" />{{ item.label }}</TabsTrigger
+          ></TabsList
+        >
+        <TabsContent :value="tab" class="pt-3">
+          <PanelState v-if="loading" loading title="正在读取事件" description="等待宿主会话的观测数据。" />
+          <template v-else>
+            <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
+            <RecordPanel v-else-if="tab === 'events'" title="原始事件" :count="historyRows.length" description="宿主实际输出的事件流，可能包含宿主自身的截断。">
+              <PanelState v-if="!historyRows.length" :icon="Braces" title="暂无原始事件" description="会话产生事件后会显示在这里。" />
+              <details v-for="row in historyRows" :key="row.seq" class="group" data-record-row>
+                <summary
+                  class="flex cursor-pointer items-center gap-2 py-2 text-xs"
+                >
+                  <span class="text-muted-foreground tabular-nums"
+                    >#{{ row.seq }}</span
+                  ><span class="min-w-0 flex-1 truncate font-mono">{{
+                    eventName(row.event)
+                  }}</span
+                  ><time class="text-muted-foreground tabular-nums">{{
+                    new Date(row.created).toLocaleTimeString('zh-CN')
+                  }}</time>
+                  <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
+                </summary>
+                <CodeBlock :code="prettyEvent(row.event)" max-height="16rem" />
+              </details>
+            </RecordPanel>
+            <div v-else class="flex flex-col gap-6">
+              <section class="flex flex-col gap-4">
+                <h3 class="text-sm font-medium">当前观测</h3>
+                <dl class="flex flex-col gap-4 text-sm">
+                  <div class="flex flex-col gap-1">
+                    <dt class="text-xs text-muted-foreground">模型</dt>
+                    <dd class="break-all font-medium">
+                      {{ modelState?.currentModel?.model ?? '尚未报告' }}
+                    </dd>
+                    <dd class="text-xs text-muted-foreground">
+                      {{
+                        modelState?.currentModel?.source ??
+                        '等待宿主提供模型信息'
+                      }}
+                    </dd>
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <dt class="text-xs text-muted-foreground">思考强度</dt>
+                    <dd class="font-medium">
+                      {{
+                        modelState?.currentReasoningEffort?.reasoningEffort ??
+                        '尚未报告'
+                      }}
+                    </dd>
+                    <dd class="text-xs text-muted-foreground">
+                      {{
+                        modelState?.currentReasoningEffort?.source ??
+                        '等待宿主提供强度信息'
+                      }}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+              <Separator />
+              <RecordPanel title="观测记录" :count="observations.length">
+                <PanelState v-if="!observations.length" :icon="Database" title="暂无模型观测" description="配置值与实际观测可能不同，以宿主报告为准。" />
+                <details
+                  v-for="observation in observations"
+                  :key="observation.seq"
+                  data-record-row
+                  class="group"
+                >
+                  <summary
+                    class="flex cursor-pointer items-start gap-2 py-2 text-xs"
+                  >
+                    <span class="text-muted-foreground"
+                      >#{{ observation.seq }}</span
+                    ><span class="min-w-0 flex-1 break-words"
+                      >{{
+                        observation.model ??
+                        observation.models?.join(', ') ??
+                        '模型未知'
+                      }}<span class="mt-1 block text-muted-foreground">{{
+                        observation.phase
+                      }}</span></span
+                    >
+                    <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
+                  </summary>
+                  <CodeBlock
+                    :code="JSON.stringify(observation, null, 2)"
+                    max-height="12rem"
+                  />
+                </details>
+              </RecordPanel>
+            </div>
+            <Button
+              v-if="hasNextPage"
+              variant="outline"
+              size="sm"
+              class="mt-4 w-full"
+              :disabled="fetchingNextPage"
+              @click="emit('loadMore')"
+              ><LoaderCircle v-if="fetchingNextPage" class="animate-spin" />{{
+                fetchingNextPage ? '正在加载' : '加载更多事件'
+              }}</Button
+            >
+          </template>
+        </TabsContent>
+      </Tabs>
+    </template>
   </section>
 </template>

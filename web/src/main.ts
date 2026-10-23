@@ -3,7 +3,8 @@ import { createPinia } from 'pinia';
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query';
 import App from './App.vue';
 import { router } from './app/router';
-import { applyColorMode, applyColorTheme, usePreferencesStore } from './stores/preferences';
+import { applyColorMode, usePreferencesStore } from './stores/preferences';
+import '@fontsource-variable/noto-sans-sc';
 import './styles/globals.css';
 
 function showFatal(error: unknown) {
@@ -19,7 +20,9 @@ function showFatal(error: unknown) {
       </section>
     </main>`;
   const detail = root.querySelector('pre');
-  if (detail) detail.textContent = error instanceof Error ? error.stack ?? error.message : String(error);
+  if (detail)
+    detail.textContent =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 try {
@@ -35,15 +38,13 @@ try {
   });
 
   const app = createApp(App);
-  app.config.errorHandler = error => showFatal(error);
+  app.config.errorHandler = (error) => showFatal(error);
   app.use(pinia);
   app.use(router);
   app.use(VueQueryPlugin, { queryClient });
 
   const preferences = usePreferencesStore(pinia);
   applyColorMode(preferences.colorMode);
-  applyColorTheme(preferences.colorTheme);
-  document.documentElement.dataset.density = preferences.density;
 
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const handleSystemTheme = () => {

@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { cn } from '@/lib/utils';
+import type { HTMLAttributes } from "vue"
+import { cn } from "cn"
 
-const props = defineProps<{ class?: string }>();
+const props = defineProps<{
+  class?: HTMLAttributes["class"]
+}>()
 </script>
 
 <template>
-  <section :class="cn('panel', props.class)">
+  <div
+    data-slot="card"
+    :class="
+      cn(
+        'bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm',
+        props.class,
+      )
+    "
+  >
     <slot />
-  </section>
+  </div>
 </template>

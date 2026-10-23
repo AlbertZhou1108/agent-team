@@ -2,6 +2,9 @@
   "name": "agent-team-local",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "web"
+  ],
   "type": "module",
   "description": "Local single-user CLI agent groups with independent pair conversations",
   "engines": {

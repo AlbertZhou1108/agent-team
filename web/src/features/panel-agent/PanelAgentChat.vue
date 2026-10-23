@@ -1,10 +1,7 @@
 <script setup lang="ts">
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { computed } from 'vue';
-import {
-  Bot,
-  LoaderCircle,
-  Settings2,
-} from '@lucide/vue';
+import { Bot, LoaderCircle, Settings2 } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +13,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
+import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
 import {
   Trace,
   TraceDescription,
@@ -23,18 +21,11 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace';
-import type {
-  PanelAgent,
-  PanelMessage,
-} from '@/shared/api/raw-types';
+import type { PanelAgent, PanelMessage } from '@/shared/api/raw-types';
 import PanelAgentComposer from './PanelAgentComposer.vue';
 import PanelAgentMessage from './PanelAgentMessage.vue';
 import { filterPanelMessagesForContext } from './message-context';
-import type {
-  AvailableHost,
-  PanelAgentForm,
-  PanelTeam,
-} from './types';
+import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 
 const props = defineProps<{
   agent: PanelAgent;
@@ -59,14 +50,14 @@ const emit = defineEmits<{
 }>();
 
 const globalContextKey = '__global__';
-const activeTeam = computed(() => (
-  props.teams.find(team => team.id === activeTeamId.value)
-));
-const visibleMessages = computed(() => (
-  filterPanelMessagesForContext(props.messages, activeTeamId.value)
-));
+const activeTeam = computed(() =>
+  props.teams.find((team) => team.id === activeTeamId.value),
+);
+const visibleMessages = computed(() =>
+  filterPanelMessagesForContext(props.messages, activeTeamId.value),
+);
 const visibleMessageIds = computed(() => [
-  ...visibleMessages.value.map(message => message.id),
+  ...visibleMessages.value.map((message) => message.id),
   ...(props.contextRunning ? ['panel-agent-running'] : []),
 ]);
 const suggestions = [
@@ -77,8 +68,8 @@ const suggestions = [
 </script>
 
 <template>
+  <ConversationFrame :readonly="false" class="agent-chat">
   <ConversationPanel
-    class="panel agent-chat"
     :ids="visibleMessageIds"
     :reset-key="activeTeamId || globalContextKey"
     :readonly="false"
@@ -95,22 +86,26 @@ const suggestions = [
             <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
             <Badge>{{ agent.host }}</Badge>
             <Badge>{{ agent.model ?? '默认模型' }}</Badge>
-            <Badge v-if="agent.reasoning_effort">{{ agent.reasoning_effort }}</Badge>
+            <Badge v-if="agent.reasoning_effort">{{
+              agent.reasoning_effort
+            }}</Badge>
           </div>
-          <p class="mt-1 text-[11px] text-muted-foreground">
+          <p class="mt-1 text-muted-foreground">
             全局私人会话 · {{ activeTeam?.name ?? '未附加团队上下文' }}
           </p>
         </div>
-        <Button variant="ghost" size="icon" title="Panel Agent 设置" @click="emit('edit')">
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Panel Agent 设置"
+          @click="emit('edit')"
+        >
           <Settings2 />
         </Button>
       </header>
     </template>
 
-    <Empty
-      v-if="!visibleMessages.length"
-      class="min-h-[360px] border-0"
-    >
+    <Empty v-if="!visibleMessages.length" class="min-h-[360px]">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Bot />
@@ -149,10 +144,7 @@ const suggestions = [
       <PanelAgentMessage :message="message" :teams="teams" />
     </div>
 
-    <div
-      v-if="contextRunning"
-      data-message-id="panel-agent-running"
-    >
+    <div v-if="contextRunning" data-message-id="panel-agent-running">
       <Trace>
         <TraceLine status="running">
           <TraceIcon>
@@ -164,10 +156,17 @@ const suggestions = [
       </Trace>
     </div>
 
+  </ConversationPanel>
     <template #composer>
-      <div v-if="actionError" class="error-banner mx-4 mt-3" role="alert">
-        {{ actionError }}
-      </div>
+      <Alert
+        variant="destructive"
+        v-if="actionError"
+        class="error-banner mx-4 mt-3"
+        role="alert"
+        ><AlertDescription class="flex items-center gap-2">
+          {{ actionError }}
+        </AlertDescription></Alert
+      >
       <PanelAgentComposer
         v-model="draft"
         v-model:form="form"
@@ -183,5 +182,5 @@ const suggestions = [
         @update-model="emit('updateModel', $event)"
       />
     </template>
-  </ConversationPanel>
+  </ConversationFrame>
 </template>

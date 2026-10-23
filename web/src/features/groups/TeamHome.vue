@@ -1,22 +1,43 @@
 <script setup lang="ts">
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
 import {
-  computed,
-  onBeforeUnmount,
-  ref,
-} from 'vue';
+  Item,
+  ItemGroup,
+  ItemContent,
+  ItemTitle,
+  ItemDescription,
+  ItemActions,
+} from '@/components/ui/item';
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+} from '@/components/ui/empty';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ArrowUpRight,
   Bot,
   ChevronsUpDown,
-  Clock3,
   Folder,
   LoaderCircle,
   Pin,
   Radio,
+  Search,
+  X,
   Users,
 } from '@lucide/vue';
 import type { Group, Member, SessionEndpoint } from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupButton,
+} from '@/components/ui/input-group';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -25,6 +46,10 @@ import {
 } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTeamOrganization } from '@/stores/team-organization';
+
+function workspaceLabel(workspace: string) {
+  return workspace.split(/[\\/]/).filter(Boolean).slice(-2).join(' / ');
+}
 
 const props = defineProps<{
   groups: Group[];
@@ -46,39 +71,48 @@ const dropInsertion = ref<{ id: string; after: boolean }>();
 const settledId = ref<string>();
 let settleTimer: ReturnType<typeof setTimeout> | undefined;
 const organization = useTeamOrganization();
-const sortedGroups = computed(() => [...props.groups].sort((left, right) => {
-  const pinOrder = Number(organization.homePinned.includes(right.id))
-    - Number(organization.homePinned.includes(left.id));
-  if (pinOrder) return pinOrder;
-  const leftIndex = organization.homeOrder.indexOf(left.id);
-  const rightIndex = organization.homeOrder.indexOf(right.id);
-  return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex)
-    - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex);
-}));
-const memberCount = computed(() => props.members.filter(member => !member.removed).length);
+const sortedGroups = computed(() =>
+  [...props.groups].sort((left, right) => {
+    const pinOrder =
+      Number(organization.homePinned.includes(right.id)) -
+      Number(organization.homePinned.includes(left.id));
+    if (pinOrder) return pinOrder;
+    const leftIndex = organization.homeOrder.indexOf(left.id);
+    const rightIndex = organization.homeOrder.indexOf(right.id);
+    return (
+      (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+      (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex)
+    );
+  }),
+);
+const memberCount = computed(
+  () => props.members.filter((member) => !member.removed).length,
+);
 const runningCount = computed(() => props.runningEndpoints.length);
-const pinnedCount = computed(() => props.groups.filter(group => organization.homePinned.includes(group.id)).length);
+const pinnedCount = computed(
+  () =>
+    props.groups.filter((group) => organization.homePinned.includes(group.id))
+      .length,
+);
 
 function memberCountFor(groupId: string) {
-  return props.members.filter(member => member.group_id === groupId && !member.removed).length;
+  return props.members.filter(
+    (member) => member.group_id === groupId && !member.removed,
+  ).length;
 }
 
 function runningCountFor(groupId: string) {
   const endpointIds = new Set(
     props.endpoints
-      .filter(endpoint => endpoint.group_id === groupId)
-      .map(endpoint => endpoint.id),
+      .filter((endpoint) => endpoint.group_id === groupId)
+      .map((endpoint) => endpoint.id),
   );
-  return props.runningEndpoints.filter(id => endpointIds.has(id)).length;
+  return props.runningEndpoints.filter((id) => endpointIds.has(id)).length;
 }
 
 function folderNameFor(groupId: string) {
   const folderId = organization.teams[groupId]?.folder;
-  return organization.folders.find(folder => folder.id === folderId)?.name;
-}
-
-function colorFor(groupId: string) {
-  return organization.teams[groupId]?.color;
+  return organization.folders.find((folder) => folder.id === folderId)?.name;
 }
 
 function isHomePinned(groupId: string) {
@@ -99,7 +133,11 @@ function startHomeDrag(groupId: string, event: DragEvent) {
 }
 
 function overHomeCard(groupId: string, event: DragEvent) {
-  if (!draggingId.value || draggingId.value === groupId || isHomePinned(groupId)) {
+  if (
+    !draggingId.value ||
+    draggingId.value === groupId ||
+    isHomePinned(groupId)
+  ) {
     dropInsertion.value = undefined;
     return;
   }
@@ -115,7 +153,10 @@ function overHomeCard(groupId: string, event: DragEvent) {
 
 function leaveHomeCard(groupId: string, event: DragEvent) {
   const element = event.currentTarget as HTMLElement;
-  if (!element.contains(event.relatedTarget as Node | null) && dropInsertion.value?.id === groupId) {
+  if (
+    !element.contains(event.relatedTarget as Node | null) &&
+    dropInsertion.value?.id === groupId
+  ) {
     dropInsertion.value = undefined;
   }
 }
@@ -125,12 +166,13 @@ function dropHomeCard(groupId: string, event: DragEvent) {
   event.preventDefault();
   event.stopPropagation();
   const movedId = draggingId.value;
-  const after = dropInsertion.value?.id === groupId ? dropInsertion.value.after : false;
+  const after =
+    dropInsertion.value?.id === groupId ? dropInsertion.value.after : false;
   organization.reorderHomeTeams(
     [movedId],
     groupId,
     after,
-    props.groups.map(group => group.id),
+    props.groups.map((group) => group.id),
   );
   clearHomeDrag();
   settledId.value = movedId;
@@ -140,6 +182,19 @@ function dropHomeCard(groupId: string, event: DragEvent) {
     settleTimer = undefined;
   }, 620);
 }
+
+const search = ref('');
+watch(search, () => { teamsOpen.value = true; });
+const visibleGroups = computed(() => {
+  const term = search.value.trim().toLocaleLowerCase();
+  return sortedGroups.value.filter(
+    (group) =>
+      !term ||
+      `${group.name} ${group.workspace} ${folderNameFor(group.id) ?? ''}`
+        .toLocaleLowerCase()
+        .includes(term),
+  );
+});
 
 function clearHomeDrag() {
   draggingId.value = undefined;
@@ -154,189 +209,182 @@ onBeforeUnmount(() => {
 <template>
   <div class="team-home">
     <div class="team-home-inner">
-      <header class="team-home-hero panel">
-        <p class="eyebrow">TEAM OVERVIEW</p>
-        <div class="mt-2 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight">团队总览</h1>
-            <p class="mt-2 max-w-xl text-sm leading-6 text-muted">
-              查看本机团队与运行状态。选择团队后进入消息、成员和协作详情。
-            </p>
-          </div>
-          <Badge v-if="pinnedCount" variant="accent">
-            <Pin :size="10" />
-            {{ pinnedCount }} 个首页置顶
-          </Badge>
+      <header class="flex flex-wrap items-start justify-between gap-4">
+        <div class="flex flex-col gap-2">
+          <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
+          <p class="text-sm text-muted-foreground">所有协作，一处查看。</p>
         </div>
-
-        <div class="team-home-stats">
-          <div class="team-home-stat">
-            <span class="team-home-stat-icon"><Users :size="16" /></span>
-            <span>
-              <strong>{{ groups.length }}</strong>
-              <small>团队</small>
-            </span>
-          </div>
-          <div class="team-home-stat">
-            <span class="team-home-stat-icon"><Users :size="16" /></span>
-            <span>
-              <strong>{{ memberCount }}</strong>
-              <small>成员</small>
-            </span>
-          </div>
-          <div class="team-home-stat">
-            <span class="team-home-stat-icon"><Radio :size="16" /></span>
-            <span>
-              <strong>{{ runningCount }}</strong>
-              <small>运行中会话</small>
-            </span>
-          </div>
-        </div>
+        <Button as-child variant="outline">
+          <RouterLink :to="{ name: 'panel-agent' }"
+            ><Bot data-icon="inline-start" />打开 Panel Agent<ArrowUpRight
+              data-icon="inline-end"
+          /></RouterLink>
+        </Button>
       </header>
 
-      <div v-if="error" class="error-banner" role="alert">
-        <span class="min-w-0 flex-1">{{ error }}</span>
-        <Button variant="outline" size="sm" @click="emit('retry')">重试</Button>
-      </div>
+      <dl class="grid grid-cols-3 gap-6 py-4">
+        <div class="flex flex-col gap-1">
+          <dt class="text-sm text-muted-foreground">团队</dt>
+          <dd class="text-3xl font-semibold tabular-nums">
+            {{ groups.length }}
+          </dd>
+        </div>
+        <div class="flex flex-col gap-1">
+          <dt class="text-sm text-muted-foreground">成员</dt>
+          <dd class="text-3xl font-semibold tabular-nums">{{ memberCount }}</dd>
+        </div>
+        <div class="flex flex-col gap-1">
+          <dt class="text-sm text-muted-foreground">运行中</dt>
+          <dd class="text-3xl font-semibold tabular-nums">
+            {{ runningCount }}
+          </dd>
+        </div>
+      </dl>
+      <Separator />
 
-      <div
-        class="team-home-agent-entry"
+      <Alert v-if="error" variant="destructive"
+        ><AlertDescription class="flex items-center gap-2"
+          ><span class="flex-1">{{ error }}</span
+          ><Button variant="outline" size="sm" @click="emit('retry')"
+            >重试</Button
+          ></AlertDescription
+        ></Alert
       >
-        <span class="agent-mark agent-mark-small">
-          <Bot :size="16" />
-        </span>
-        <span class="team-home-agent-copy">
-          <span class="eyebrow">PANEL AGENT</span>
-          <strong>打开私人协作会话</strong>
-          <small>直接询问团队状态、调度对话或准备新的团队。</small>
-        </span>
-        <RouterLink
-          :to="{ name: 'panel-agent' }"
-          class="team-home-agent-action"
-        >
-          进入 Agent
-          <ArrowUpRight data-icon="inline-end" />
-        </RouterLink>
-      </div>
 
-      <section class="team-home-teams">
-        <Collapsible v-model:open="teamsOpen" class="team-home-teams-collapsible">
-          <div class="team-home-section-header">
-            <div>
-              <h2 id="team-home-list-title" class="text-base font-semibold">全部团队</h2>
-              <p class="mt-1 text-xs text-muted">点击团队卡片进入对应工作区。</p>
-            </div>
+      <section aria-labelledby="team-home-list-title">
+        <Collapsible v-model:open="teamsOpen" class="flex flex-col gap-4">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <h2 id="team-home-list-title" class="text-sm font-medium">
+              团队目录
+            </h2>
+            <InputGroup class="w-full sm:w-64 sm:ml-auto">
+              <InputGroupAddon><Search /></InputGroupAddon>
+              <InputGroupInput
+                v-model="search"
+                placeholder="搜索团队或工作区"
+                aria-label="搜索团队或工作区"
+              />
+              <InputGroupAddon v-if="search" align="inline-end">
+                <InputGroupButton size="icon-xs" aria-label="清空搜索" @click="search = ''"><X /></InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
             <div class="flex items-center gap-2">
-              <Badge>{{ groups.length }} 个团队</Badge>
-              <CollapsibleTrigger as-child>
-                <Button
+              <Badge v-if="pinnedCount" variant="secondary"
+                ><Pin />{{ pinnedCount }} 个置顶</Badge
+              >
+              <CollapsibleTrigger as-child
+                ><Button
                   variant="ghost"
-                  size="sm"
+                  size="icon-sm"
                   :aria-label="teamsOpen ? '收起全部团队' : '展开全部团队'"
-                  :title="teamsOpen ? '收起全部团队' : '展开全部团队'"
-                >
-                  <span>{{ teamsOpen ? '收起' : '展开' }}</span>
-                  <ChevronsUpDown data-icon="inline-end" />
-                </Button>
-              </CollapsibleTrigger>
+                  ><ChevronsUpDown /></Button
+              ></CollapsibleTrigger>
             </div>
           </div>
-
           <CollapsibleContent>
-            <div class="team-home-teams-content">
-              <div v-if="loading" class="team-home-empty panel">
-                <LoaderCircle :size="20" class="animate-spin" />
-                <p class="text-xs text-muted">正在读取团队…</p>
-              </div>
-              <div v-else-if="!groups.length" class="team-home-empty panel">
-                <Users :size="24" />
-                <div>
-                  <h3 class="text-sm font-medium">还没有团队</h3>
-                  <p class="mt-1 text-xs leading-5 text-muted">先在 CLI 中创建团队，完成后会自动显示在这里。</p>
-                </div>
-              </div>
-              <ScrollArea
-                v-else
-                class="w-full pr-2"
-                item-selector=".team-home-card"
-                :max-visible-items="10"
-                aria-label="全部团队列表"
+            <Empty v-if="loading || !groups.length">
+              <EmptyHeader
+                ><EmptyMedia variant="icon"
+                  ><LoaderCircle v-if="loading" class="animate-spin" /><Users
+                    v-else /></EmptyMedia
+                ><EmptyTitle>{{
+                  loading ? '正在读取团队' : '还没有团队'
+                }}</EmptyTitle
+                ><EmptyDescription v-if="!loading"
+                  >在 CLI 中创建团队后，会自动显示在这里。</EmptyDescription
+                ></EmptyHeader
               >
-                <TransitionGroup
-                  name="team-home-card-motion"
-                  tag="div"
-                  class="team-home-grid"
+            </Empty>
+            <Empty v-else-if="!visibleGroups.length"
+              ><EmptyHeader
+                ><EmptyMedia variant="icon"><Search /></EmptyMedia
+                ><EmptyTitle>没有匹配的团队</EmptyTitle
+                ><EmptyDescription
+                  >换个名称、文件夹或工作区试试。</EmptyDescription
+                ></EmptyHeader>
+                <EmptyContent><Button variant="outline" size="sm" @click="search = ''">清空搜索</Button></EmptyContent>
+              </Empty>
+            <ScrollArea
+              v-else
+              class="w-full"
+              item-selector=".team-home-card"
+              :max-visible-items="10"
+              aria-label="全部团队列表"
+            >
+              <ItemGroup class="team-home-grid">
+                <Item
+                  v-for="group in visibleGroups"
+                  :key="group.id"
+                  variant="outline"
+                  class="team-home-card flex-nowrap"
+                  :draggable="!search.trim() && !isHomePinned(group.id)"
+                  :title="
+                    isHomePinned(group.id)
+                      ? '已置顶团队固定在前面'
+                      : '拖动调整首页排序'
+                  "
+                  @dragstart="startHomeDrag(group.id, $event)"
+                  @dragover="overHomeCard(group.id, $event)"
+                  @dragleave="leaveHomeCard(group.id, $event)"
+                  @drop="dropHomeCard(group.id, $event)"
+                  @dragend="clearHomeDrag"
                 >
-                  <article
-                    v-for="group in sortedGroups"
-                    :key="group.id"
-                    class="team-home-card"
-                    :class="{
-                      'team-home-card-dragging': draggingId === group.id,
-                      'team-home-card-pinned': isHomePinned(group.id),
-                      'team-home-card-drop-target': dropInsertion?.id === group.id,
-                      'team-home-card-settled': settledId === group.id,
-                      'team-insert-before': dropInsertion?.id === group.id && !dropInsertion.after,
-                      'team-insert-after': dropInsertion?.id === group.id && dropInsertion.after,
-                    }"
-                    :draggable="!isHomePinned(group.id)"
-                    :title="isHomePinned(group.id) ? '已置顶团队固定在前面' : '拖动调整首页排序'"
-                    @dragstart="startHomeDrag(group.id, $event)"
-                    @dragover="overHomeCard(group.id, $event)"
-                    @dragleave="leaveHomeCard(group.id, $event)"
-                    @drop="dropHomeCard(group.id, $event)"
-                    @dragend="clearHomeDrag"
-                  >
+                  <ItemContent>
                     <button
                       type="button"
-                      class="team-home-card-link"
+                      class="flex min-w-0 flex-col gap-3 text-left"
                       @click="emit('select', group.id)"
                     >
-                      <span class="flex items-start gap-3">
-                        <span
-                          class="team-home-avatar"
-                          :class="{ 'team-avatar-tagged': colorFor(group.id) }"
-                          :style="colorFor(group.id) ? { '--tag-color': colorFor(group.id) } : undefined"
+                      <span class="flex min-w-0 flex-col gap-1">
+                        <ItemTitle>{{ group.name }}</ItemTitle>
+                        <ItemDescription :title="group.workspace">{{
+                          workspaceLabel(group.workspace)
+                        }}</ItemDescription>
+                      </span>
+                      <span class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs text-muted-foreground"
+                          >{{ memberCountFor(group.id) }} 名成员</span
                         >
-                          {{ group.name.slice(0, 1) }}
-                        </span>
-                        <span class="min-w-0 flex-1 text-left">
-                          <strong class="block truncate text-sm">{{ group.name }}</strong>
-                          <span class="mt-1 block truncate text-[11px] text-muted">{{ group.workspace }}</span>
-                        </span>
-                      </span>
-                      <span class="mt-4 flex flex-wrap items-center gap-2">
-                        <Badge variant="default">{{ memberCountFor(group.id) }} 名成员</Badge>
-                        <Badge v-if="runningCountFor(group.id)" variant="accent">
-                          <Radio :size="9" class="animate-pulse" />
-                          {{ runningCountFor(group.id) }} 个运行中
-                        </Badge>
-                        <Badge v-if="folderNameFor(group.id)" variant="default">
-                          <Folder :size="9" />
-                          {{ folderNameFor(group.id) }}
-                        </Badge>
-                      </span>
-                      <span class="mt-3 flex items-center gap-1 text-[10px] text-dim">
-                        <Clock3 :size="10" />
-                        {{ new Date(group.created).toLocaleString('zh-CN') }}
+                        <Badge
+                          v-if="runningCountFor(group.id)"
+                          variant="secondary"
+                          ><Radio />{{
+                            runningCountFor(group.id)
+                          }}
+                          个运行中</Badge
+                        >
+                        <Badge v-if="folderNameFor(group.id)" variant="outline"
+                          ><Folder />{{ folderNameFor(group.id) }}</Badge
+                        >
+                        <Badge
+                          v-if="dropInsertion?.id === group.id"
+                          variant="secondary"
+                          >{{
+                            dropInsertion.after ? '放在后面' : '放在前面'
+                          }}</Badge
+                        >
                       </span>
                     </button>
-                    <button
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
                       type="button"
-                      class="team-home-pin"
-                      :class="{ 'team-home-pin-active': organization.homePinned.includes(group.id) }"
-                      :aria-label="organization.homePinned.includes(group.id) ? '取消首页置顶团队' : '首页置顶团队'"
-                      :aria-pressed="organization.homePinned.includes(group.id)"
-                      :title="organization.homePinned.includes(group.id) ? '取消首页置顶' : '首页置顶'"
+                      size="icon-sm"
+                      :variant="isHomePinned(group.id) ? 'secondary' : 'ghost'"
+                      :aria-label="
+                        isHomePinned(group.id)
+                          ? '取消首页置顶团队'
+                          : '首页置顶团队'
+                      "
+                      :aria-pressed="isHomePinned(group.id)"
                       @dragstart.stop.prevent
                       @click="organization.toggleHomePin(group.id)"
-                    >
-                      <Pin :size="15" :fill="organization.homePinned.includes(group.id) ? 'currentColor' : 'none'" />
-                    </button>
-                  </article>
-                </TransitionGroup>
-              </ScrollArea>
-            </div>
+                      ><Pin
+                    /></Button>
+                  </ItemActions>
+                </Item>
+              </ItemGroup>
+            </ScrollArea>
           </CollapsibleContent>
         </Collapsible>
       </section>

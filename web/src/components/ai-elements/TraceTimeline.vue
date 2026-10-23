@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle } from '@lucide/vue';
+import PanelState from '@/components/panel/PanelState.vue';
+import RecordPanel from '@/components/panel/RecordPanel.vue';
+import { ItemGroup } from '@/components/ui/item';
+import { Badge } from '@/components/ui/badge';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleDot,
+  LoaderCircle,
+} from '@lucide/vue';
 import type { TurnView } from '@/shared/models/view-types';
 import TraceStepCard from './TraceStepCard.vue';
 
@@ -7,25 +16,58 @@ defineProps<{ turns: TurnView[] }>();
 </script>
 
 <template>
-  <div class="space-y-4">
-    <section v-for="turn in turns" :key="turn.id" class="trace-turn">
-      <header class="mb-3 flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-dim">TURN</p>
-          <p class="truncate font-mono text-[11px] text-muted">{{ turn.id === 'unknown' ? '未关联回合' : turn.id }}</p>
+  <ItemGroup class="gap-4">
+    <RecordPanel v-for="(turn, index) in turns" :key="turn.id"
+      :title="turn.id === 'unknown' ? '未关联回合' : `回合 ${index + 1}`"
+      :count="turn.steps.length"
+      count-label="步"
+      :description="`源事件 #${turn.firstSeq}–#${turn.lastSeq}`">
+        <template #status>
+          <Badge
+            :variant="
+              turn.status === 'error'
+                ? 'destructive'
+                : turn.status === 'running'
+                  ? 'secondary'
+                  : 'outline'
+            "
+          >
+            <LoaderCircle
+              v-if="turn.status === 'running'"
+              class="animate-spin"
+            /><CheckCircle2
+              v-else-if="turn.status === 'completed'"
+            /><AlertTriangle v-else-if="turn.status === 'error'" /><CircleDot
+              v-else
+            />
+            {{
+              turn.status === 'running'
+                ? '运行中'
+                : turn.status === 'completed'
+                  ? '已完成'
+                  : turn.status === 'error'
+                    ? '失败'
+                    : '状态未知'
+            }}
+          </Badge>
+        </template>
+        <div class="flex flex-col">
+          <TraceStepCard
+            v-for="step in turn.steps"
+            :key="step.id"
+            :step="step"
+            data-record-row
+          />
         </div>
-        <span :class="['turn-status', `turn-${turn.status}`]">
-          <LoaderCircle v-if="turn.status === 'running'" :size="12" class="animate-spin" />
-          <CheckCircle2 v-else-if="turn.status === 'completed'" :size="12" />
-          <AlertTriangle v-else-if="turn.status === 'error'" :size="12" />
-          <CircleDot v-else :size="12" />
-          {{ turn.status === 'running' ? '运行中' : turn.status === 'completed' ? '已完成' : turn.status === 'error' ? '失败' : '状态未知' }}
-        </span>
-      </header>
-      <div class="space-y-1 border-l border-[var(--border)] pl-3">
-        <TraceStepCard v-for="step in turn.steps" :key="step.id" :step="step" />
-      </div>
-    </section>
-    <div v-if="!turns.length" class="empty-state">还没有可展示的执行轨迹。</div>
-  </div>
+        <template v-if="turn.id !== 'unknown'" #footer>
+        <details
+          class="text-xs text-muted-foreground"
+        >
+          <summary class="w-fit cursor-pointer">回合标识</summary>
+          <p class="mt-2 break-all font-mono">{{ turn.id }}</p>
+        </details>
+        </template>
+    </RecordPanel>
+    <PanelState v-if="!turns.length" :icon="CircleDot" title="暂无执行轨迹" description="会话开始执行后，步骤和结果会显示在这里。" />
+  </ItemGroup>
 </template>

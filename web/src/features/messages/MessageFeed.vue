@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
 import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
@@ -21,22 +22,32 @@ const emit = defineEmits<{
   loadMore: [];
 }>();
 
-const filtered = computed(() => (
+const filtered = computed(() =>
   props.selectedPair
-    ? props.messages.filter(message => message.pairKey === props.selectedPair)
-    : props.messages
-));
+    ? props.messages.filter((message) => message.pairKey === props.selectedPair)
+    : props.messages,
+);
 
 const messageGroups = computed(() => {
-  const groups: { id: string; notifications: boolean; messages: MessageView[] }[] = [];
+  const groups: {
+    id: string;
+    notifications: boolean;
+    messages: MessageView[];
+  }[] = [];
   for (const message of filtered.value) {
     const previous = groups.at(-1);
-    if (message.kind === 'system' && previous?.notifications) previous.messages.push(message);
-    else groups.push({ id: message.id, notifications: message.kind === 'system', messages: [message] });
+    if (message.kind === 'system' && previous?.notifications)
+      previous.messages.push(message);
+    else
+      groups.push({
+        id: message.id,
+        notifications: message.kind === 'system',
+        messages: [message],
+      });
   }
   return groups;
 });
-const messageIds = computed(() => filtered.value.map(message => message.id));
+const messageIds = computed(() => filtered.value.map((message) => message.id));
 </script>
 
 <template>
@@ -50,37 +61,52 @@ const messageIds = computed(() => filtered.value.map(message => message.id));
     content-class="message-content"
   >
     <template #header>
-      <div class="message-toolbar">
-        <h3 class="truncate text-sm font-medium">{{ title ?? '全部群消息' }}</h3>
+      <div class="message-toolbar justify-between">
+        <h3 class="truncate text-sm font-medium">
+          {{ title ?? '全部群消息' }}
+        </h3>
+        <span class="text-xs text-muted-foreground tabular-nums"
+          >{{ filtered.length }} 条消息</span
+        >
       </div>
     </template>
-      <div v-for="group in messageGroups" :key="group.id" class="chat-message">
-        <details v-if="group.notifications && group.messages.length > 1" class="notification-stack">
-          <summary>
-            <span class="font-medium">系统通知 <span class="text-xs text-muted-foreground">{{ group.messages.length }} 条</span></span>
-            <span class="notification-expand text-xs text-muted-foreground">展开</span>
-            <span class="notification-collapse text-xs text-muted-foreground">收起</span>
-          </summary>
-          <div class="flex flex-col gap-2 p-3">
-            <AgentMessage v-for="message in group.messages" :key="message.id" :message="message" />
-          </div>
-        </details>
-        <template v-else>
-          <MessageTrace
-            :message-id="group.messages[0]!.id"
-            :hosts="hosts ?? {}"
+    <div v-for="group in messageGroups" :key="group.id" class="chat-message">
+      <details
+        v-if="group.notifications && group.messages.length > 1"
+        class="notification-stack"
+      >
+        <summary>
+          <span class="font-medium"
+            >系统通知
+            <span class="text-xs text-muted-foreground"
+              >{{ group.messages.length }} 条</span
+            ></span
+          >
+          <span class="notification-expand text-xs text-muted-foreground"
+            >展开</span
+          >
+          <span class="notification-collapse text-xs text-muted-foreground"
+            >收起</span
+          >
+        </summary>
+        <div class="flex flex-col gap-2 p-3">
+          <AgentMessage
+            v-for="message in group.messages"
+            :key="message.id"
+            :message="message"
           />
-          <AgentMessage :message="group.messages[0]!" />
-        </template>
-      </div>
-      <div v-if="!filtered.length && !loading" class="empty-state">
-        <MessagesSquare :size="22" />
-        <p>{{ selectedPair ? '这个双人会话还没有消息。' : '还没有群消息。成员会通过群工具在这里出现。' }}</p>
-      </div>
-      <div v-if="loading" class="empty-state">
-        <LoaderCircle :size="20" class="animate-spin" />
-        <p>正在读取群消息…</p>
-      </div>
+        </div>
+      </details>
+      <template v-else>
+        <MessageTrace
+          :message-id="group.messages[0]!.id"
+          :hosts="hosts ?? {}"
+        />
+        <AgentMessage :message="group.messages[0]!" />
+      </template>
+    </div>
+    <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
+    <PanelState v-else-if="!filtered.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
     <template #footer>
       <Button
         v-if="hasNextPage"
@@ -90,7 +116,7 @@ const messageIds = computed(() => filtered.value.map(message => message.id));
         :disabled="fetchingNextPage"
         @click="emit('loadMore')"
       >
-        <LoaderCircle v-if="fetchingNextPage" :size="13" class="animate-spin" />
+        <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
         {{ fetchingNextPage ? '正在加载' : '加载更多消息' }}
       </Button>
     </template>

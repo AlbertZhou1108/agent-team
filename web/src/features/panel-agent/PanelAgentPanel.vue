@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import {
-  computed,
-  ref,
-  watch,
-} from 'vue';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 import { LoaderCircle } from '@lucide/vue';
@@ -22,11 +20,7 @@ import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
 import PanelAgentSidebar from './PanelAgentSidebar.vue';
 import { isPreparationApprovable } from './preparation';
-import type {
-  AvailableHost,
-  PanelAction,
-  PanelAgentForm,
-} from './types';
+import type { AvailableHost, PanelAction, PanelAgentForm } from './types';
 
 const router = useRouter();
 const route = useRoute();
@@ -43,27 +37,44 @@ const stopping = ref(false);
 const actionError = ref('');
 const draft = computed({
   get: () => panelState.draft,
-  set: value => panelState.setDraft(value),
+  set: (value) => panelState.setDraft(value),
 });
 const activeTeamId = computed({
   get: () => panelState.activeTeamId,
-  set: value => panelState.setActiveTeamId(value),
+  set: (value) => panelState.setActiveTeamId(value),
 });
-const privateSessionId = computed(() => (
-  panel.value?.sessions.find(session => session.context === 'private')?.id
-));
-const privateRunningContext = computed(() => (
-  panel.value?.running.find(item => item.endpoint === privateSessionId.value)?.groupId ?? null
-));
-const sending = computed(() => (
-  panelState.submitting
-  || Boolean(privateSessionId.value && panel.value?.running.some(item => item.endpoint === privateSessionId.value))
-));
-const contextRunning = computed(() => (
-  Boolean(privateSessionId.value && panel.value?.running.some(item => item.endpoint === privateSessionId.value))
-  && privateRunningContext.value === (activeTeamId.value || null)
-));
-const conversationError = computed(() => actionError.value || panelState.sendError);
+const privateSessionId = computed(
+  () =>
+    panel.value?.sessions.find((session) => session.context === 'private')?.id,
+);
+const privateRunningContext = computed(
+  () =>
+    panel.value?.running.find(
+      (item) => item.endpoint === privateSessionId.value,
+    )?.groupId ?? null,
+);
+const sending = computed(
+  () =>
+    panelState.submitting ||
+    Boolean(
+      privateSessionId.value &&
+        panel.value?.running.some(
+          (item) => item.endpoint === privateSessionId.value,
+        ),
+    ),
+);
+const contextRunning = computed(
+  () =>
+    Boolean(
+      privateSessionId.value &&
+        panel.value?.running.some(
+          (item) => item.endpoint === privateSessionId.value,
+        ),
+    ) && privateRunningContext.value === (activeTeamId.value || null),
+);
+const conversationError = computed(
+  () => actionError.value || panelState.sendError,
+);
 
 const form = ref<PanelAgentForm>({
   name: 'Panel Agent',
@@ -73,20 +84,22 @@ const form = ref<PanelAgentForm>({
   reasoning_effort: '',
 });
 
-const availableHosts = computed<AvailableHost[]>(() => (
-  catalog.value?.hosts
-    .filter(host => host.ok && host.catalog)
-    .map(host => ({
-      host: host.host,
-      catalog: host.catalog!,
-    })) ?? []
-));
-const pendingPreparations = computed(() => (
-  panel.value?.preparations.filter(isPreparationApprovable) ?? []
-));
-const pendingActions = computed<PanelAction[]>(() => (
-  panel.value?.actions.filter(action => action.state === 'pending') ?? []
-));
+const availableHosts = computed<AvailableHost[]>(
+  () =>
+    catalog.value?.hosts
+      .filter((host) => host.ok && host.catalog)
+      .map((host) => ({
+        host: host.host,
+        catalog: host.catalog!,
+      })) ?? [],
+);
+const pendingPreparations = computed(
+  () => panel.value?.preparations.filter(isPreparationApprovable) ?? [],
+);
+const pendingActions = computed<PanelAction[]>(
+  () =>
+    panel.value?.actions.filter((action) => action.state === 'pending') ?? [],
+);
 
 function formFromAgent(agent: PanelAgent): PanelAgentForm {
   return {
@@ -99,9 +112,10 @@ function formFromAgent(agent: PanelAgent): PanelAgentForm {
 }
 
 function selectDefaultModel(host: AvailableHost) {
-  const model = host.catalog.models.find(item => item.id === host.catalog.defaultModel)
-    ?? host.catalog.models.find(item => item.isDefault)
-    ?? host.catalog.models[0];
+  const model =
+    host.catalog.models.find((item) => item.id === host.catalog.defaultModel) ??
+    host.catalog.models.find((item) => item.isDefault) ??
+    host.catalog.models[0];
   const efforts = model?.reasoningEfforts.length
     ? model.reasoningEfforts
     : host.catalog.reasoningEfforts;
@@ -110,9 +124,7 @@ function selectDefaultModel(host: AvailableHost) {
     host: host.host,
     model_provider: model?.provider ?? '',
     model: model?.id ?? '',
-    reasoning_effort: model?.defaultReasoningEffort
-      ?? efforts[0]?.id
-      ?? '',
+    reasoning_effort: model?.defaultReasoningEffort ?? efforts[0]?.id ?? '',
   };
 }
 
@@ -147,13 +159,14 @@ function cancelEdit() {
 
 async function saveAgent() {
   if (
-    saving.value
-    || catalogLoading.value
-    || !form.value.name.trim()
-    || !form.value.host
-    || !form.value.model
-    || !form.value.reasoning_effort
-  ) return;
+    saving.value ||
+    catalogLoading.value ||
+    !form.value.name.trim() ||
+    !form.value.host ||
+    !form.value.model ||
+    !form.value.reasoning_effort
+  )
+    return;
   saving.value = true;
   const wasExisting = Boolean(panel.value?.agent);
   actionError.value = '';
@@ -169,7 +182,9 @@ async function saveAgent() {
     else await api.createPanelAgent(body);
     editing.value = false;
     await panelQuery.refetch();
-    toast.success(wasExisting ? 'Panel Agent 配置已更新' : 'Panel Agent 已创建');
+    toast.success(
+      wasExisting ? 'Panel Agent 配置已更新' : 'Panel Agent 已创建',
+    );
   } catch (error) {
     actionError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -182,10 +197,11 @@ async function updateAgentModel(next: PanelAgentForm) {
   if (!agent || modelSaving.value) return;
   const previous = formFromAgent(agent);
   if (
-    next.host === agent.host
-    && next.model === agent.model
-    && next.reasoning_effort === agent.reasoning_effort
-  ) return;
+    next.host === agent.host &&
+    next.model === agent.model &&
+    next.reasoning_effort === agent.reasoning_effort
+  )
+    return;
   modelSaving.value = true;
   actionError.value = '';
   try {
@@ -213,7 +229,9 @@ async function sendMessage() {
   try {
     await panelState.sendMessage(text, activeTeamId.value || null);
     await panelQuery.refetch();
-  } catch { /* The store keeps the error and restores the draft when needed. */ }
+  } catch {
+    /* The store keeps the error and restores the draft when needed. */
+  }
 }
 
 async function stopTurn() {
@@ -237,7 +255,11 @@ async function approvePreparation(preparation: PanelPreparation) {
   if (!confirmed) return;
   actionError.value = '';
   try {
-    const group = await api.approvePreparation(preparation.id, preparation.revision, preparation.hash);
+    const group = await api.approvePreparation(
+      preparation.id,
+      preparation.revision,
+      preparation.hash,
+    );
     await panelQuery.refetch();
     activeTeamId.value = group.id;
     toast.success(`团队已创建并切换到 ${group.name}`);
@@ -293,9 +315,9 @@ async function resolveRuntime(turnId: string) {
 }
 
 async function decideAction(id: string, approved: boolean) {
-  const action = pendingActions.value.find(item => item.id === id);
+  const action = pendingActions.value.find((item) => item.id === id);
   if (!action) return;
-  const team = panel.value?.teams.find(item => item.id === action.group_id);
+  const team = panel.value?.teams.find((item) => item.id === action.group_id);
   const label = action.action === 'takeover' ? '接管' : '交还';
   const confirmed = window.confirm(
     `${approved ? '确认' : '取消'}${label}“${team?.name ?? action.group_id}”？`,
@@ -315,13 +337,17 @@ function openTeam(teamId: string) {
   router.push({ name: 'group', params: { groupId: teamId } });
 }
 
-watch(availableHosts, hosts => {
-  if (!form.value.host && hosts[0]) selectDefaultModel(hosts[0]);
-}, { immediate: true });
+watch(
+  availableHosts,
+  (hosts) => {
+    if (!form.value.host && hosts[0]) selectDefaultModel(hosts[0]);
+  },
+  { immediate: true },
+);
 
 watch(
   () => panel.value?.agent,
-  agent => {
+  (agent) => {
     if (agent && !editing.value) form.value = formFromAgent(agent);
   },
   { immediate: true },
@@ -338,16 +364,17 @@ function syncTeamQuery(id: string) {
 
 watch(
   () => route.query.team,
-  value => {
+  (value) => {
     const teamId = typeof value === 'string' ? value : '';
-    if (teamId && teamId !== panelState.activeTeamId) panelState.setActiveTeamId(teamId);
+    if (teamId && teamId !== panelState.activeTeamId)
+      panelState.setActiveTeamId(teamId);
   },
   { immediate: true },
 );
 
-watch(activeTeamId, id => {
+watch(activeTeamId, (id) => {
   if (!panel.value) return;
-  if (id && !panel.value.teams.some(team => team.id === id)) {
+  if (id && !panel.value.teams.some((team) => team.id === id)) {
     panelState.setActiveTeamId('');
     return;
   }
@@ -356,10 +383,11 @@ watch(activeTeamId, id => {
 
 watch(
   () => panel.value?.teams,
-  teams => {
+  (teams) => {
     if (!teams) return;
     const id = panelState.activeTeamId;
-    if (id && !teams.some(team => team.id === id)) panelState.setActiveTeamId('');
+    if (id && !teams.some((team) => team.id === id))
+      panelState.setActiveTeamId('');
     else if (id) syncTeamQuery(id);
   },
   { immediate: true },
@@ -377,17 +405,30 @@ watch(
 <template>
   <TooltipProvider>
     <section class="panel-agent-page">
-      <div v-if="panelQuery.isPending.value" class="panel agent-state-panel">
-        <LoaderCircle class="animate-spin" />
-        <p class="text-sm text-muted-foreground">正在读取 Panel Agent…</p>
-      </div>
+      <Card v-if="panelQuery.isPending.value" class="panel agent-state-panel">
+        <CardContent>
+          <LoaderCircle class="animate-spin" />
+          <p class="text-sm text-muted-foreground">正在读取 Panel Agent…</p>
+        </CardContent>
+      </Card>
 
-      <div v-else-if="panelQuery.error.value" class="panel agent-state-panel">
-        <div class="error-banner w-full max-w-xl" role="alert">
-          <span class="min-w-0 flex-1">{{ panelQuery.error.value.message }}</span>
-          <Button variant="outline" size="sm" @click="panelQuery.refetch()">重试</Button>
-        </div>
-      </div>
+      <Card v-else-if="panelQuery.error.value" class="panel agent-state-panel">
+        <CardContent>
+          <Alert
+            variant="destructive"
+            class="error-banner w-full max-w-xl"
+            role="alert"
+            ><AlertDescription class="flex items-center gap-2">
+              <span class="min-w-0 flex-1">{{
+                panelQuery.error.value.message
+              }}</span>
+              <Button variant="outline" size="sm" @click="panelQuery.refetch()"
+                >重试</Button
+              >
+            </AlertDescription></Alert
+          >
+        </CardContent>
+      </Card>
 
       <PanelAgentSetup
         v-else-if="!panel?.agent || editing"

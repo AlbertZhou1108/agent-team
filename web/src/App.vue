@@ -6,8 +6,5 @@ import 'vue-sonner/style.css';
 
 <template>
   <RouterView />
-  <Toaster
-    position="bottom-right"
-    :toast-options="{ class: 'agent-toast' }"
-  />
+  <Toaster position="bottom-right" />
 </template>

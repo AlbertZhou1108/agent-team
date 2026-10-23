@@ -1,31 +1,28 @@
 <script setup lang="ts">
-import {
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ArrowDown } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const props = withDefaults(defineProps<{
-  ids: Array<string | number>;
-  resetKey?: string | number;
-  viewportClass?: string;
-  streamClass?: string;
-  contentClass?: string;
-  threshold?: number;
-  ariaLabel?: string;
-}>(), {
-  resetKey: undefined,
-  viewportClass: '',
-  streamClass: '',
-  contentClass: '',
-  threshold: 24,
-  ariaLabel: '会话消息',
-});
+const props = withDefaults(
+  defineProps<{
+    ids: Array<string | number>;
+    resetKey?: string | number;
+    viewportClass?: string;
+    streamClass?: string;
+    contentClass?: string;
+    threshold?: number;
+    ariaLabel?: string;
+  }>(),
+  {
+    resetKey: undefined,
+    viewportClass: '',
+    streamClass: '',
+    contentClass: '',
+    threshold: 24,
+    ariaLabel: '会话消息',
+  },
+);
 
 const stream = ref<HTMLElement>();
 const content = ref<HTMLElement>();
@@ -35,10 +32,9 @@ let observer: ResizeObserver | undefined;
 function updatePosition() {
   const element = stream.value;
   if (!element) return;
-  atBottom.value = (
-    element.scrollHeight - element.clientHeight - element.scrollTop
-    <= props.threshold
-  );
+  atBottom.value =
+    element.scrollHeight - element.clientHeight - element.scrollTop <=
+    props.threshold;
 }
 
 function scrollToBottom(behavior: ScrollBehavior = 'auto') {
@@ -49,7 +45,7 @@ function scrollToBottom(behavior: ScrollBehavior = 'auto') {
 }
 
 watch(
-  () => props.ids.map(id => String(id)).join('\u0000'),
+  () => props.ids.map((id) => String(id)).join('\u0000'),
   async () => {
     // Capture intent before Vue appends content and changes scroll geometry.
     const follow = atBottom.value;
@@ -100,7 +96,7 @@ defineExpose({ scrollToBottom });
     </div>
     <Button
       v-if="!atBottom"
-      class="jump-to-bottom rounded-full"
+      class="jump-to-bottom"
       variant="secondary"
       size="icon"
       aria-label="回到底部"

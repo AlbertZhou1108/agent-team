@@ -3,7 +3,7 @@ import type { DropdownMenuRadioItemEmits, DropdownMenuRadioItemProps } from "rek
 import type { HTMLAttributes } from "vue"
 import { Circle } from "@lucide/vue"
 import { reactiveOmit } from "@vueuse/core"
-import { cn } from "@/lib/utils"
+import { cn } from "cn"
 import {
   DropdownMenuItemIndicator,
   DropdownMenuRadioItem,
