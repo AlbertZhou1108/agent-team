@@ -109,7 +109,7 @@ export const api = {
     return mutate<PanelAgentState>('/api/panel-agent/update', body);
   },
   panelMessage(text: string, activeTeamId?: string | null) {
-    return mutate<{ reply: unknown; result: string }>('/api/panel-agent/messages', { text, activeTeamId: activeTeamId ?? null });
+    return mutate<{ reply: unknown; result: string; activeTeamId?: string | null }>('/api/panel-agent/messages', { text, activeTeamId: activeTeamId ?? null });
   },
   stopPanel() {
     return mutate<{ stopped: string[] }>('/api/panel-agent/stop', {});

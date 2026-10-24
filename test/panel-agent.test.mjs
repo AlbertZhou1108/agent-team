@@ -417,6 +417,74 @@ test('Panel Agent creates a team directly without becoming a member', async t =>
   }), /当前上下文不能使用此工具/);
 });
 
+test('Panel main receives member reports and can write only in the bound team context', async t => {
+  const { bus, directory, calls } = await fixture(t);
+  const state = await createAgent(bus);
+  const session = bus.store.panelSession(state.agent.id, 'private');
+  const group = await bus.panelTool(session.id, session.key, 'team_create', {
+    name: 'panel coordination',
+    workspace: directory,
+    members: 'worker=fake',
+  });
+  await until(() => !bus.running.size);
+  const worker = bus.members(group.id)[0];
+
+  const report = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'work report');
+  bus.pump();
+  await until(() => calls.some(call => call.context === 'panel-coordination'));
+  await until(() => !bus.running.size);
+  assert.equal(bus.store.get('SELECT accepted FROM panel_outbox WHERE id=(SELECT outbox_id FROM panel_attached WHERE message_id=?)', report.id).accepted != null, true);
+  assert.ok(calls.some(call => call.context === 'panel-coordination' && call.groupId === group.id));
+  assert.equal(bus.store.pending().filter(m => m.group_id === group.id).length, 0);
+});
+
+test('team_create binds the created team as the private turn context and follow-up writes pass', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-ctx-'));
+  const calls = [];
+  const base = hostFixture(calls);
+  let createdGroupId = null;
+  const host = {
+    ...base,
+    async run(context) {
+      if (context.endpoint.context === 'panel-private') {
+        context.onSession(context.endpoint.session ?? context.endpoint.id);
+        const group = await context.onTool('team_create', {
+          name: 'context team',
+          workspace: directory,
+          members: 'worker=fake',
+        });
+        createdGroupId = group.activeTeamId;
+        await context.onTool('team_send', { groupId: createdGroupId, to: 'worker', text: 'context-bound write' });
+        context.onAccepted();
+        return 'created and dispatched';
+      }
+      return base.run(context);
+    },
+  };
+  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const state = await createAgent(bus);
+  await until(() => !bus.running.size);
+  const result = await bus.panelPrivateTurn('创建团队并直接派发', null);
+  assert.ok(createdGroupId);
+  assert.equal(result.activeTeamId, createdGroupId);
+  assert.equal(result.message.active_team_id, createdGroupId);
+  const reply = bus.store.get("SELECT active_team_id FROM panel_messages WHERE panel_agent_id=? AND context='private' AND role='assistant' ORDER BY seq DESC LIMIT 1", state.agent.id);
+  assert.equal(reply.active_team_id, createdGroupId);
+  const turnRow = bus.store.get(
+    'SELECT active_team_id FROM panel_turns WHERE session_id=? ORDER BY created DESC LIMIT 1',
+    bus.store.panelSession(state.agent.id, 'private').id,
+  );
+  assert.equal(turnRow.active_team_id, createdGroupId);
+  const message = bus.store.get('SELECT * FROM messages WHERE text=?', 'context-bound write');
+  assert.equal(message.sender, state.agent.id);
+  await until(() => !bus.running.size);
+});
+
 test('lead takeover and handback are revisioned and require an idle team', async t => {
   const { bus, directory } = await fixture(t);
   const group = confirmedGroup(bus, {

@@ -328,8 +328,13 @@ async function sendMessage() {
     // The user message is persisted before the host starts. Refresh now so it
     // appears alongside the first SSE delta instead of waiting for completion.
     await panelQuery.refetch();
-    await pending;
+    const response = await pending;
     await panelQuery.refetch();
+    // Creating a team rebinds the turn context server-side; follow it so the
+    // next message continues inside the new team without a manual switch.
+    if (response?.activeTeamId && response.activeTeamId !== activeTeamId.value) {
+      activeTeamId.value = response.activeTeamId;
+    }
   } catch {
     /* The store keeps the error and restores the draft when needed. */
   }

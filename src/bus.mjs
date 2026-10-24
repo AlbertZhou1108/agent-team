@@ -632,7 +632,15 @@ export class Bus extends EventEmitter {
     if (name === 'teams_list') return this.panelTeamViews();
     if (name === 'team_create') {
       if (session.context !== 'private') throw new Error('团队创建只能在 Panel Agent 私人会话中执行');
-      return this.createPanelTeam(panelAgent, args);
+      const group = this.createPanelTeam(panelAgent, args);
+      if (origin.turnId) {
+        // The created team becomes this turn's active context so follow-up
+        // team writes in the same turn pass the activeTeamId guard.
+        this.store.run('UPDATE panel_turns SET active_team_id=? WHERE id=?', group.id, origin.turnId);
+        const live = this.running.get(session.id);
+        if (live) live.activeTeamId = group.id;
+      }
+      return { ...group, activeTeamId: group.id };
     }
     if (name === 'request_team_takeover' || name === 'request_team_handback') {
       if (origin.activeTeamId !== args.groupId) {
@@ -1138,7 +1146,10 @@ export class Bus extends EventEmitter {
         turnId,
       );
       this.store.panelHistory(session.id, { type: 'framework.output', text: result }, turnId);
-      if (result) this.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), activeTeamId);
+      if (result) {
+        const finalActiveTeamId = this.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
+        this.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
+      }
       const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
         ? this.teamDirectives.publishOutput(turnId, result, true)
         : [];
@@ -1250,7 +1261,20 @@ export class Bus extends EventEmitter {
       if (result && acceptedTurnId) {
         this.markPanelUpdatesDelivered(updates.map(update => update.id), acceptedTurnId);
       }
-      return { message: user, reply: this.store.get("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 1", panelAgent.id), result };
+      let finalActiveTeamId = activeTeamId ?? null;
+      if (acceptedTurnId) {
+        finalActiveTeamId = this.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
+      }
+      if (finalActiveTeamId && finalActiveTeamId !== (activeTeamId ?? null)) {
+        this.store.run('UPDATE panel_messages SET active_team_id=? WHERE id=?', finalActiveTeamId, user.id);
+        user.active_team_id = finalActiveTeamId;
+      }
+      return {
+        message: user,
+        reply: this.store.get("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 1", panelAgent.id),
+        result,
+        activeTeamId: finalActiveTeamId,
+      };
     } catch (error) {
       throw Object.assign(error, { panelMessageId: user.id, accepted });
     }
