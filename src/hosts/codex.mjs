@@ -220,7 +220,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
     supportsPolicy({ policy }) {
       return policy.mode === 'communication' || policy.allowShell
         ? { supported: true }
-        : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要契约允许沙箱命令' };
+        : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要群策略允许沙箱命令' };
     },
     supportsPanelAccess() {
       return { supported: true };
@@ -233,7 +233,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       const selectedEffort = context.modelSelection?.reasoning_effort ?? reasoningEffort;
       if (signal.aborted) throw new Error('回合已中断');
       const policy = executionPolicy(context);
-      if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要契约明确允许沙箱命令；请调整安排或由用户批准契约变更');
+      if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要允许沙箱命令；请调整群策略或成员安排');
       const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace);
       const config = { ...codexPolicyConfig(policy, serverNames), ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) };
       const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
