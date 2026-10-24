@@ -1,5 +1,7 @@
 # 成员 ↔ 主 Agent 用量视图设计
 
+> 注:ADR 0004([通信内核优先](./adr/0004-revert-to-communication-core.md))已移除契约、工作项与目标生命周期等框架流程机制。本文中相关描述已过时,仅保留仍在实现的通信、遥测与宿主接入部分;流程相关段落以 ADR 0004 与 [README](../README.md) 为准。
+
 状态：当前实现。基础接口契约为 `docs/host-telemetry-api-contract.md`（sha256 `a54a62…`，683 行）；本文的增量接口形状见 `docs/host-telemetry-manager-conversation-contract.md`，对应 Bus 查询、HTTP 路由和 Team 面板视图均已接入。
 
 ## 1. 背景与问题

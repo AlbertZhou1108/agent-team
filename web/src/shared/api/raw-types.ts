@@ -154,33 +154,6 @@ export interface PanelMessage {
   created: string;
 }
 
-export interface PanelPreparation {
-  id: string;
-  spec: {
-    name: string;
-    workspace: string;
-    panelAgentId: string;
-    members: Array<{ name: string; host: string }>;
-    modelMode?: 'smart' | 'user';
-    modelRules?: string;
-  };
-  contract: {
-    goal: string;
-    scope: string;
-    boundary: string;
-    confirmation: string;
-    delivery: string;
-    policy: string;
-    allowShell: boolean;
-    criteria: Array<{ id: string; text: string }>;
-  } | null;
-  revision: number;
-  hash: string | null;
-  group_id: string | null;
-  created: string;
-  rolePlan: { roles: Array<{ name: string; model_provider: string | null; model: string; reasoning_effort: string }> } | null;
-}
-
 export interface PanelAgentState {
   agent: PanelAgent | null;
   sessions: Array<{
@@ -194,7 +167,6 @@ export interface PanelAgentState {
   conversation: PanelMessage[];
   streaming?: PanelStream[];
   running: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
-  preparations: PanelPreparation[];
   actions: Array<{
     id: string;
     panel_agent_id: string;
@@ -229,6 +201,7 @@ export interface Snapshot {
   runningEndpoints: string[];
   panelRunning: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
   panelUnknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
+  groupStates: GroupStateRow[];
 }
 
 export interface SessionBinding {
@@ -238,77 +211,18 @@ export interface SessionBinding {
   updated: string;
 }
 
-export interface CollaborationState {
-  legacy: boolean;
-  contract: { version: number; hash: string; body: { goal: string; scope: string; boundary: string; confirmation: string; delivery: string; policy: string; allowShell: boolean; criteria: Array<{ id: string; text: string }> } } | null;
-  state: { revision: number; goal_version: number; phase: string; outcome: string | null; final: string | null; finish_reason: string | null } | null;
+export interface GroupStateRow {
+  id: string;
+  state: 'archived' | null;
+  charter: string | null;
+  policy: string;
+  allow_shell: number;
+}
+
+export interface GroupCommunicationSummary {
   communicationOpen: boolean;
-  items: Array<{ id: string; goalVersion: number; revision: number; state: string; title: string; purpose: string; standard: string; policy: string; allowShell: boolean; reviewRequired: boolean; participants: Array<{ memberId: string; role: string }>; artifact: string | null; evidence: string[]; reviews: Array<{ messageId: string; artifact: string }> }>;
-  requests: Array<{ id: string; kind: string; state: string; base_version: number; body: unknown }>;
-  records: Array<{ seq: number; work_item_id: string | null; type: string; body: unknown; created: string }>;
-  nextAfter?: number;
   unknown: Array<{ turn_id: string; endpoint_id: string; detail: string }>;
-  pendingMessages?: Array<{ id: string; text: string }>;
-  runningCount?: number;
-  outputs?: Array<{ id: string; goalVersion: number; body: string; created: string }>;
-}
-
-export type GoalState = 'queued' | 'active' | 'finalizing' | 'completed' | 'terminated' | 'cancelled';
-
-export interface GoalEligibility {
-  eligible: boolean;
-  blockers: Array<{ code: string; detail: string }>;
-}
-
-export interface GoalBody {
-  contract: NonNullable<PanelPreparation['contract']>;
-  requirements: { requiredMemberIds: string[] };
-}
-
-export interface GoalView {
-  id: string;
-  number: number;
-  state: GoalState;
-  queuePosition: number | null;
-  revision: number;
-  cutoffSeq: number | null;
-  unconsumedInboxCount: number | null;
-  outcome: string | null;
-  final: string | null;
-  finishReason: string | null;
-  originDraftId: string | null;
-  contract: GoalBody | null;
-  contractHash: string | null;
-  created: string;
-  started: string | null;
-  ended: string | null;
-  waitingForCurrent?: boolean;
-  eligibility?: GoalEligibility;
-}
-
-export interface GoalDraftView {
-  id: string;
-  revision: number;
-  body: GoalBody;
-  hash: string;
-  state: 'draft' | 'confirmed' | 'deleted';
-  goalId: string | null;
-  created: string;
-  updated: string;
-}
-
-export interface TeamGoalsState {
-  team: {
-    id: string;
-    name: string;
-    workspace: string;
-    state: 'open' | 'archived';
-    revision: number;
-  };
-  current: GoalView | null;
-  drafts: GoalDraftView[];
-  queue: GoalView[];
-  history: GoalView[];
+  runningCount: number;
 }
 
 export interface MessageRow {

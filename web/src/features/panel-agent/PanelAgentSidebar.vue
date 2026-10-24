@@ -6,7 +6,6 @@ import {
   Check,
   ChevronsUpDown,
   CircleAlert,
-  FileClock,
   MoreHorizontal,
   ShieldCheck,
   Users,
@@ -37,10 +36,8 @@ import {
 } from '@/components/ui/item';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import PanelConfirmationItem from './PanelConfirmationItem.vue';
-import { isPreparationApprovable } from './preparation';
 import type {
   PanelAction,
-  PanelPreparation,
   PanelTeam,
   PanelUnknownTurn,
 } from './types';
@@ -48,7 +45,6 @@ import type {
 const props = defineProps<{
   teams: PanelTeam[];
   pendingActions: PanelAction[];
-  pendingPreparations: PanelPreparation[];
   unknown: PanelUnknownTurn[];
 }>();
 const teamsOpen = ref(props.teams.length > 0);
@@ -64,7 +60,6 @@ const emit = defineEmits<{
   takeover: [team: PanelTeam];
   handback: [team: PanelTeam];
   decideAction: [id: string, approved: boolean];
-  approvePreparation: [preparation: PanelPreparation];
   resolveRuntime: [turnId: string];
 }>();
 
@@ -230,42 +225,6 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
         </ScrollArea>
       </CollapsibleContent>
     </Collapsible>
-
-    <Card v-if="pendingPreparations.length" class="panel agent-side-card">
-      <CardContent>
-        <h2 class="text-sm font-semibold">等待确认</h2>
-        <ItemGroup class="mt-3">
-          <PanelConfirmationItem
-            v-for="preparation in pendingPreparations"
-            :key="preparation.id"
-            :icon="FileClock"
-            :title="preparation.spec.name"
-            :description="preparation.contract?.goal"
-            actions-at-footer
-          >
-            <template #meta>
-              <div class="flex flex-wrap items-center gap-2">
-                <Badge variant="outline"
-                  >revision {{ preparation.revision }}</Badge
-                >
-                <span class="text-muted-foreground">
-                  {{ preparation.spec.members.length }} 名普通角色 ·
-                  {{ preparation.rolePlan?.roles.length ?? 0 }} 个模型计划
-                </span>
-              </div>
-            </template>
-            <Button
-              size="sm"
-              :disabled="!isPreparationApprovable(preparation)"
-              @click="emit('approvePreparation', preparation)"
-            >
-              <Check data-icon="inline-start" />
-              批准
-            </Button>
-          </PanelConfirmationItem>
-        </ItemGroup>
-      </CardContent>
-    </Card>
 
     <Card v-if="unknown.length" class="panel agent-side-card">
       <CardContent>

@@ -1,5 +1,7 @@
 # 宿主用量与会话统计设计
 
+> 注:ADR 0004([通信内核优先](./adr/0004-revert-to-communication-core.md))已移除契约、工作项与目标生命周期等框架流程机制。本文中相关描述已过时,仅保留仍在实现的通信、遥测与宿主接入部分;流程相关段落以 ADR 0004 与 [README](../README.md) 为准。
+
 本文定义当前产品使用的适配器采集与统计契约。Codex、Claude 和 DSH 通过 `context.onTelemetry()` 报告宿主观察，Bus 统一归属并写入 `telemetry_observations`；查询 API、团队页和全局概览读取同一份去重观测。查询响应字段与身份口径见[宿主遥测查询 API 契约](host-telemetry-api-contract.md)。
 
 ## 指标准入

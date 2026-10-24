@@ -1,5 +1,7 @@
 # Agent Team
 
+> 注:ADR 0004([通信内核优先](./adr/0004-revert-to-communication-core.md))已移除契约、工作项与目标生命周期等框架流程机制。本文中相关描述已过时,仅保留仍在实现的通信、遥测与宿主接入部分;流程相关段落以 ADR 0004 与 [README](../README.md) 为准。
+
 Local teams are persistent communication spaces in which Agents carry out one or more contract-bounded goals.
 
 ## Language

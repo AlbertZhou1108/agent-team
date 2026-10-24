@@ -1,7 +1,7 @@
 # 通信内核减负方案
 
 日期:2026-10-25
-状态:已采纳,执行中
+状态:已采纳,阶段 0-5 已实施(2026-10-25)
 决策记录:[ADR 0004 — Revert to a Communication-First Core](./adr/0004-revert-to-communication-core.md)
 
 ## 1. 背景与诊断
@@ -48,6 +48,13 @@
 | 3 | 删流程模块:team-goal-lifecycle、流程工具约 13 个、preparation 协议、模型规划三件套;`createGroup` 解禁,charter 随建群输入 | 后端减负完成 |
 | 4 | 前端:删 GoalLifecyclePanel,协作页改写为团队概览,API/类型瘦身 | 前端减负完成 |
 | 5 | 删 team-goal-* 测试;store 幂等迁移(DROP 流程表);重写 README/concept/collaboration-concept | 全部完成 |
+
+## 6. 实施记录
+
+- 后端:src 净删约 5400 行;agent 工具从约 25 个减到 12 个;CONTEXT_SCHEMA_VERSION 升为 2(旧会话走 legacy 原始输入路径)。
+- 迁移:Store.migrate() 幂等 DROP 流程表并清理渗入列;消息、成员、会话、遥测保留。
+- 验收:scripts/verify-collaboration.mjs 改为消息级验收(核对轮询 + ACCEPTANCE_DONE/ACCEPTANCE_BLOCKED 最终文本约定)。
+- 群执行策略:groups.policy(communication|read-only|workspace-write,默认 workspace-write)+ allow_shell;coordination/profile/private 恒为 communication。
 
 ## 5. 风险与回退
 

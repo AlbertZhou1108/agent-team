@@ -1,5 +1,7 @@
 # CLI 宿主适配器接口
 
+> 注:ADR 0004([通信内核优先](./adr/0004-revert-to-communication-core.md))已移除契约、工作项与目标生命周期等框架流程机制。本文中相关描述已过时,仅保留仍在实现的通信、遥测与宿主接入部分;流程相关段落以 ADR 0004 与 [README](../README.md) 为准。
+
 宿主用量、缓存、上下文与耗时的待实现采集契约见[宿主用量与会话统计设计](host-telemetry-design.md)。该设计定义统一指标准入、物理 session 归属、合并投递统计与累计去重；不代表当前接口已实现 `onTelemetry`。
 
 宿主注册位于 server.mjs 的装配层；Bus 不判断宿主品牌。用户配置的 module 导出：

@@ -138,6 +138,29 @@ export class Store {
       this.db.prepare("UPDATE panel_sessions SET session=NULL,policy_signature=NULL,updated=? WHERE context='private'")
         .run(new Date().toISOString());
     }
+    this.migrate();
+  }
+
+  // ADR 0004: task-flow persistence is gone. Old databases shed their process
+  // tables and columns; message history, host sessions and telemetry remain.
+  migrate() {
+    const flowTables = [
+      'preparations', 'preparation_policy', 'contract_versions', 'team_state',
+      'work_items', 'work_records', 'change_requests', 'collaboration_operations',
+      'message_context', 'message_dispositions', 'user_outputs',
+      'team_charter_versions', 'goal_drafts', 'goals', 'goal_contract_versions',
+      'goal_events', 'team_goal_operations',
+    ];
+    for (const table of flowTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`);
+    for (const [table, column] of [
+      ['members', 'joined_goal_version'], ['members', 'removed_goal_version'],
+      ['runtime_attempts', 'contract_version'], ['runtime_attempts', 'goal_id'],
+      ['groups', 'revision'],
+    ]) {
+      if (this.all(`PRAGMA table_info(${table})`).some(column_ => column_.name === column)) {
+        this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+      }
+    }
   }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }

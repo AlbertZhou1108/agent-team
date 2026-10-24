@@ -18,26 +18,20 @@ import type {
 const refreshInterval = 2000;
 
 export function useCollaborationQuery(groupId: MaybeRefOrGetter<string | undefined>) {
-  const query = useInfiniteQuery({
+  return useQuery({
     queryKey: computed(() => ['collaboration', toValue(groupId)] as const),
-    initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => api.collaboration(toValue(groupId)!, pageParam, signal),
-    getNextPageParam: last => last.records.length === 100 ? last.nextAfter : undefined,
+    queryFn: ({ signal }) => api.collaboration(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });
-  const state = computed(() => query.data.value?.pages[0]);
-  const records = computed(() => [...new Map((query.data.value?.pages.flatMap(p => p.records) ?? []).map(r => [r.seq, r])).values()].sort((a, b) => a.seq - b.seq));
-  return { ...query, state, records };
 }
 
-export function useTeamGoalsQuery(teamId: MaybeRefOrGetter<string | undefined>) {
+export function useCharterQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: computed(() => ['team-goals', toValue(teamId)] as const),
-    queryFn: ({ signal }) => api.teamGoals(toValue(teamId)!, signal),
-    enabled: computed(() => Boolean(toValue(teamId))),
-    refetchInterval: refreshInterval,
+    queryKey: computed(() => ['charter', toValue(groupId)] as const),
+    queryFn: ({ signal }) => api.charter(toValue(groupId)!, signal),
+    enabled: computed(() => Boolean(toValue(groupId))),
     refetchOnWindowFocus: false,
   });
 }

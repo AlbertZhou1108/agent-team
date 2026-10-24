@@ -21,12 +21,10 @@ import {
   Bot,
   MessagesSquare,
   PanelRightOpen,
-  Target,
 } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
-import GoalLifecyclePanel from '@/features/groups/GoalLifecyclePanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
@@ -78,7 +76,6 @@ const modelPolicyDefaults = computed(() => snapshot.value?.modelPolicyDefaults);
 const archiveConfirm = ref<{
   id: string;
   name: string;
-  revision: number;
 } | null>(null);
 
 function routeString(value: unknown) {
@@ -236,22 +233,20 @@ const activeTab = computed<InspectorTab>(() => {
     : 'trace';
 });
 type ContextPanel =
-  | 'goals'
+  | 'collaboration'
   | 'members'
   | 'sessions'
-  | 'details'
-  | 'collaboration';
+  | 'details';
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
   if (
-    value === 'goals' ||
+    value === 'collaboration' ||
     value === 'members' ||
     value === 'sessions' ||
-    value === 'details' ||
-    value === 'collaboration'
+    value === 'details'
   )
     return value;
-  return selectedSessionId.value ? 'details' : 'goals';
+  return selectedSessionId.value ? 'details' : 'collaboration';
 });
 
 const selectedEndpointIsManagerPair = computed(() => {
@@ -273,8 +268,7 @@ const contextTabs: Array<{
   label: string;
   icon: typeof Bot;
 }> = [
-  { value: 'goals', label: '目标', icon: Target },
-  { value: 'collaboration', label: '协作', icon: Activity },
+  { value: 'collaboration', label: '概览', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
   { value: 'sessions', label: '会话', icon: MessagesSquare },
   { value: 'details', label: '详情', icon: Activity },
@@ -591,12 +585,7 @@ async function modelPolicySaved() {
 
 async function restoreArchivedTeam(team: Group) {
   try {
-    await api.restoreTeamGoals(team.id, {
-      revision: team.revision ?? 1,
-      operationId:
-        globalThis.crypto?.randomUUID?.() ??
-        `restore-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    });
+    await api.restoreTeam(team.id);
     await snapshotQuery.refetch();
     toast.success(`已恢复 ${team.name}`);
   } catch (error) {
@@ -610,7 +599,6 @@ function archiveTeam(teamId: string) {
   archiveConfirm.value = {
     id: team.id,
     name: team.name,
-    revision: team.revision ?? 1,
   };
 }
 
@@ -619,12 +607,7 @@ async function runArchiveTeam() {
   if (!request) return;
   archiveConfirm.value = null;
   try {
-    await api.archiveTeamGoals(request.id, {
-      revision: request.revision,
-      operationId:
-        globalThis.crypto?.randomUUID?.() ??
-        `archive-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    });
+    await api.archiveTeam(request.id);
     await snapshotQuery.refetch();
     if (groupId.value === request.id) router.push({ name: 'group' });
     toast.success(`已归档 ${request.name}`);
@@ -993,14 +976,9 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               :value="contextPanel"
               class="context-scroll"
             >
-              <GoalLifecyclePanel
-                v-if="contextPanel === 'goals'"
-                :team-id="groupId"
-              />
               <CollaborationPanel
-                v-else-if="contextPanel === 'collaboration'"
+                v-if="contextPanel === 'collaboration'"
                 :group-id="groupId"
-                :members="members"
               />
               <div
                 v-else-if="contextPanel === 'members'"

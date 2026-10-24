@@ -1,5 +1,7 @@
 # 宿主遥测查询 API 契约（v1）
 
+> 注:ADR 0004([通信内核优先](./adr/0004-revert-to-communication-core.md))已移除契约、工作项与目标生命周期等框架流程机制。本文中相关描述已过时,仅保留仍在实现的通信、遥测与宿主接入部分;流程相关段落以 ADR 0004 与 [README](../README.md) 为准。
+
 状态：当前接口契约。本文件是 `src/` 查询实现与 `web/` 只读展示共同消费的接口形状与身份口径；不改变 [宿主用量与会话统计设计](host-telemetry-design.md) 已定义的指标采集与聚合语义。API 响应形状与字段命名以本契约为准，采集/聚合语义以设计文档为准；设计文档统一指标表已使用 `inputTokensTotal`，宿主原始字段名（Codex `inputTokens`、DSH `inputTokens`、Claude `input_tokens`）仅在适配器内部映射，不作为 API 字段。若语义仍有冲突，以设计文档语义为准并回退本契约修订。
 
 ## 1. 总则

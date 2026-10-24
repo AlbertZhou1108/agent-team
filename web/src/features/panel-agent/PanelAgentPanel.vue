@@ -11,7 +11,6 @@ import type {
   ModelCatalogResponse,
   PanelAgent,
   PanelStream,
-  PanelPreparation,
   PanelTeamView,
 } from '@/shared/api/raw-types';
 import { api } from '@/shared/api/client';
@@ -21,7 +20,6 @@ import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
 import PanelAgentSidebar from './PanelAgentSidebar.vue';
-import { isPreparationApprovable } from './preparation';
 import type { AvailableHost, PanelAction, PanelAgentForm } from './types';
 
 const router = useRouter();
@@ -182,9 +180,6 @@ const availableHosts = computed<AvailableHost[]>(
         host: host.host,
         catalog: host.catalog!,
       })) ?? [],
-);
-const pendingPreparations = computed(
-  () => panel.value?.preparations.filter(isPreparationApprovable) ?? [],
 );
 const pendingActions = computed<PanelAction[]>(
   () =>
@@ -351,31 +346,6 @@ async function stopTurn() {
   } finally {
     stopping.value = false;
   }
-}
-
-function approvePreparation(preparation: PanelPreparation) {
-  const hash = preparation.hash;
-  if (!hash) return;
-  askConfirm({
-    title: `批准团队“${preparation.spec.name}”？`,
-    description: `批准契约 revision ${preparation.revision} 后将创建团队。`,
-    confirmText: '批准并创建团队',
-    run: async () => {
-      actionError.value = '';
-      try {
-        const group = await api.approvePreparation(
-          preparation.id,
-          preparation.revision,
-          hash,
-        );
-        await panelQuery.refetch();
-        activeTeamId.value = group.id;
-        toast.success(`团队已创建并切换到 ${group.name}`);
-      } catch (error) {
-        actionError.value = error instanceof Error ? error.message : String(error);
-      }
-    },
-  });
 }
 
 function takeover(team: PanelTeamView) {
@@ -592,13 +562,11 @@ watch(
           v-model="activeTeamId"
           :teams="panel.teams"
           :pending-actions="pendingActions"
-          :pending-preparations="pendingPreparations"
           :unknown="panel.unknown"
           @open-team="openTeam"
           @takeover="takeover"
           @handback="handback"
           @decide-action="decideAction"
-          @approve-preparation="approvePreparation"
           @resolve-runtime="resolveRuntime"
         />
       </div>

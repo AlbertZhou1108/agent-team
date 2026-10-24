@@ -1,14 +1,6 @@
 import type {
-  CollaborationState,
-  TeamDirectiveReceipt,
-  TelemetryCapabilityResponse,
-  TelemetryConversationResponse,
-  TelemetryCoordinationResponse,
-  TelemetryMembersResponse,
-  TelemetryManagerConversationResponse,
-  GoalDraftView,
-  GoalView,
   Group,
+  GroupCommunicationSummary,
   HistoryRow,
   MessageTrace,
   ModelCatalogResponse,
@@ -18,7 +10,12 @@ import type {
   PanelAccess,
   PanelAgentState,
   Snapshot,
-  TeamGoalsState,
+  TeamDirectiveReceipt,
+  TelemetryCapabilityResponse,
+  TelemetryConversationResponse,
+  TelemetryCoordinationResponse,
+  TelemetryMembersResponse,
+  TelemetryManagerConversationResponse,
   TurnTrace,
 } from './raw-types';
 
@@ -71,11 +68,11 @@ export const api = {
   sendTeamDirective(groupId: string, body: { text: string; operationId: string; controllerId: string }) {
     return mutate<TeamDirectiveReceipt>(`/api/teams/${encodeURIComponent(groupId)}/directives`, body);
   },
-  collaboration(group: string, after = 0, signal?: AbortSignal) {
-    return request<CollaborationState>(query('/api/collaboration', { group, after }), signal);
+  collaboration(group: string, signal?: AbortSignal) {
+    return request<GroupCommunicationSummary>(query('/api/collaboration', { group }), signal);
   },
-  teamGoals(teamId: string, signal?: AbortSignal) {
-    return request<TeamGoalsState>('/api/teams/' + encodeURIComponent(teamId) + '/goals', signal);
+  charter(group: string, signal?: AbortSignal) {
+    return request<string | null>(query('/api/charter', { group }), signal);
   },
   snapshot(signal?: AbortSignal, group?: string) {
     return request<Snapshot>(query('/api/snapshot', { group, scoped: 1 }), signal);
@@ -120,89 +117,19 @@ export const api = {
   resolvePanelRuntime(turnId: string, reason: string) {
     return mutate<{ turnId: string; state: string }>('/api/panel-agent/resolve-runtime', { turnId, reason });
   },
-  approvePreparation(id: string, revision: number, hash: string) {
-    return mutate<Group>('/api/preparations/' + encodeURIComponent(id) + '/approve', { revision, hash });
+  archiveTeam(teamId: string) {
+    return mutate<Group>(`/api/teams/${encodeURIComponent(teamId)}/archive`, {});
   },
-  takeoverTeam(groupId: string, revision: number) {
-    return mutate('/api/teams/' + encodeURIComponent(groupId) + '/takeover', { revision });
+  restoreTeam(teamId: string) {
+    return mutate<Group>(`/api/teams/${encodeURIComponent(teamId)}/restore`, {});
+  },
+  takeoverTeam(groupId: string, revision: number) {    return mutate('/api/teams/' + encodeURIComponent(groupId) + '/takeover', { revision });
   },
   handbackTeam(groupId: string, revision: number) {
     return mutate('/api/teams/' + encodeURIComponent(groupId) + '/handback', { revision });
   },
   decidePanelAction(id: string, approved: boolean) {
     return mutate('/api/panel-actions/' + encodeURIComponent(id) + '/decide', { approved });
-  },
-  confirmGoalDraft(teamId: string, draftId: string, body: {
-    revision: number;
-    operationId: string;
-    draftRevision: number;
-    hash: string;
-  }) {
-    return mutate<{ draft: GoalDraftView; goal: GoalView; revision: number }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goal-drafts/${encodeURIComponent(draftId)}/confirm`,
-      body,
-    );
-  },
-  deleteGoalDraft(teamId: string, draftId: string, body: {
-    revision: number;
-    operationId: string;
-    draftRevision: number;
-  }) {
-    return mutate<{ draft: GoalDraftView; revision: number }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goal-drafts/${encodeURIComponent(draftId)}/delete`,
-      body,
-    );
-  },
-  reorderGoalQueue(teamId: string, body: {
-    revision: number;
-    operationId: string;
-    orderedGoalIds: string[];
-  }) {
-    return mutate<{ queue: GoalView[]; revision: number }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goal-queue/reorder`,
-      body,
-    );
-  },
-  cancelQueuedGoal(teamId: string, goalId: string, body: {
-    revision: number;
-    operationId: string;
-    reason: string;
-  }) {
-    return mutate<{ goal: GoalView; queue: GoalView[]; revision: number }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goals/${encodeURIComponent(goalId)}/cancel`,
-      body,
-    );
-  },
-  withdrawGoalFinish(teamId: string, goalId: string, body: {
-    revision: number;
-    operationId: string;
-    reason: string;
-  }) {
-    return mutate<{ current: GoalView; queue: GoalView[]; revision: number }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goals/${encodeURIComponent(goalId)}/withdraw-finish`,
-      body,
-    );
-  },
-  terminateGoal(teamId: string, goalId: string, body: {
-    revision: number;
-    operationId: string;
-    reason: string;
-  }) {
-    return mutate<{
-      goal: GoalView;
-      current: GoalView | null;
-      queue: GoalView[];
-      revision: number;
-    }>(
-      `/api/teams/${encodeURIComponent(teamId)}/goals/${encodeURIComponent(goalId)}/terminate`,
-      body,
-    );
-  },
-  archiveTeamGoals(teamId: string, body: { revision: number; operationId: string }) {
-    return mutate<TeamGoalsState>(`/api/teams/${encodeURIComponent(teamId)}/archive`, body);
-  },
-  restoreTeamGoals(teamId: string, body: { revision: number; operationId: string }) {
-    return mutate<TeamGoalsState>(`/api/teams/${encodeURIComponent(teamId)}/restore`, body);
   },
   messages(group: string, before: number | undefined, signal?: AbortSignal, endpoint?: string, after?: number) {
     return request<MessageRow[]>(query('/api/messages', { group, before, endpoint, after, latest: 1 }), signal);

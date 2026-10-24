@@ -315,7 +315,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">归档团队</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                归档团队不接收消息，也不启动 Goal；恢复后继续使用原队列。
+                归档团队不再接收消息；恢复后可继续沟通。
               </p>
             </div>
             <Empty v-if="!archivedTeams?.length">
