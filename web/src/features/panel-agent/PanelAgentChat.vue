@@ -91,15 +91,9 @@ const currentAccess = computed(() => panelAccessOption(props.agent.access));
 const workspaceName = computed(() =>
   panelWorkspaceBasename(props.agent.workspace),
 );
-const modelSummary = computed(() => {
-  const effort = props.agent.reasoning_effort
-    ? `（${props.agent.reasoning_effort}）`
-    : '';
-  const workspace = props.agent.workspace
-    ? ` · 工作区 ${workspaceName.value}`
-    : '';
-  return `${props.agent.host} · ${props.agent.model ?? '默认模型'}${effort}${workspace}`;
-});
+const workspaceLabel = computed(() =>
+  props.agent.workspace ? `工作区 ${workspaceName.value}` : '',
+);
 const legacyAgent = computed(
   () => currentAccess.value.value === 'read-only' && !props.agent.workspace,
 );
@@ -132,7 +126,8 @@ const suggestions = [
             class="mt-1 truncate text-muted-foreground"
             :title="agent.workspace ?? undefined"
           >
-            {{ modelSummary }} · {{ activeTeam?.name ?? '未附加团队上下文' }}
+            <template v-if="workspaceLabel">{{ workspaceLabel }} · </template
+            >{{ activeTeam?.name ?? '未附加团队上下文' }}
           </p>
           <p
             v-if="legacyAgent"
