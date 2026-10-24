@@ -92,6 +92,15 @@ const currentAccess = computed(() => panelAccessOption(props.agent.access));
 const workspaceName = computed(() =>
   panelWorkspaceBasename(props.agent.workspace),
 );
+const modelSummary = computed(() => {
+  const effort = props.agent.reasoning_effort
+    ? `（${props.agent.reasoning_effort}）`
+    : '';
+  const workspace = props.agent.workspace
+    ? ` · 工作区 ${workspaceName.value}`
+    : '';
+  return `${props.agent.host} · ${props.agent.model ?? '默认模型'}${effort}${workspace}`;
+});
 const legacyAgent = computed(
   () => currentAccess.value.value === 'read-only' && !props.agent.workspace,
 );
@@ -119,30 +128,18 @@ const suggestions = [
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
-            <Badge>{{ agent.host }}</Badge>
-            <Badge>{{ agent.model ?? '默认模型' }}</Badge>
-            <Badge v-if="agent.reasoning_effort">{{
-              agent.reasoning_effort
-            }}</Badge>
             <Badge
               :variant="currentAccess.badgeVariant"
               :title="currentAccess.description"
               >{{ currentAccess.label }}</Badge
             >
-            <Badge
-              v-if="agent.workspace"
-              variant="outline"
-              class="max-w-56"
-              :title="agent.workspace"
-            >
-              <span class="truncate">{{ workspaceName }}</span>
-            </Badge>
-            <span v-else class="text-xs text-muted-foreground"
-              >未设置工作区</span
-            >
           </div>
-          <p class="mt-1 text-muted-foreground">
-            全局私人会话 · {{ activeTeam?.name ?? '未附加团队上下文' }}
+          <p
+            class="mt-1 truncate text-muted-foreground"
+            :title="agent.workspace ?? undefined"
+          >
+            全局私人会话 · {{ modelSummary }} ·
+            {{ activeTeam?.name ?? '未附加团队上下文' }}
           </p>
           <p
             v-if="legacyAgent"
