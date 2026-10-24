@@ -158,6 +158,12 @@ export class Store {
       ['groups', 'revision'],
     ]) {
       if (this.all(`PRAGMA table_info(${table})`).some(column_ => column_.name === column)) {
+        // SQLite refuses DROP COLUMN while an index references the column; retired
+        // task-flow indexes (e.g. runtime_attempts_goal) must go first.
+        const referenced = new RegExp(`\\b${column}\\b`);
+        for (const index of this.all("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", table)) {
+          if (referenced.test(index.sql)) this.db.exec(`DROP INDEX IF EXISTS ${index.name}`);
+        }
         this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
       }
     }
