@@ -25,7 +25,6 @@ import type {
   PanelMessage,
   PanelStream,
 } from '@/shared/api/raw-types';
-import { panelAccessOption, panelWorkspaceBasename } from './access';
 import PanelAgentComposer from './PanelAgentComposer.vue';
 import PanelAgentMessage from './PanelAgentMessage.vue';
 import { filterPanelMessagesForContext } from './message-context';
@@ -87,16 +86,6 @@ const visibleMessageIds = computed(() => [
     ? ['panel-agent-running']
     : []),
 ]);
-const currentAccess = computed(() => panelAccessOption(props.agent.access));
-const workspaceName = computed(() =>
-  panelWorkspaceBasename(props.agent.workspace),
-);
-const workspaceLabel = computed(() =>
-  props.agent.workspace ? `工作区 ${workspaceName.value}` : '',
-);
-const legacyAgent = computed(
-  () => currentAccess.value.value === 'read-only' && !props.agent.workspace,
-);
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
   '有哪些团队正在等待我的确认？',
@@ -119,25 +108,7 @@ const suggestions = [
       <header class="agent-chat-header">
         <div class="agent-mark agent-mark-small"><Bot /></div>
         <div class="min-w-0 flex-1">
-          <div class="flex min-w-0 items-center gap-2">
-            <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
-          </div>
-          <p
-            class="mt-1 truncate text-muted-foreground"
-            :title="agent.workspace ?? undefined"
-          >
-            <template v-if="workspaceLabel">{{ workspaceLabel }} · </template
-            >{{ activeTeam?.name ?? '未附加团队上下文' }}
-          </p>
-          <p
-            v-if="legacyAgent"
-            class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
-          >
-            <span>尚未设置私人工作区，私人回合将使用数据目录。</span>
-            <Button variant="link" size="xs" @click="emit('edit')"
-              >设置私人工作区</Button
-            >
-          </p>
+          <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
         </div>
         <Button
           variant="ghost"
