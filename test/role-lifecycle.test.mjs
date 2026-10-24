@@ -50,7 +50,7 @@ test('roles are permanent identities: names stay reserved and new roles get new 
     rmSync(directory, { recursive: true, force: true });
   });
 
-  assert.throws(() => bus.prepareGroup({
+  assert.throws(() => bus.createGroup({
     name: 'duplicate names',
     workspace: directory,
     lead: { name: 'Alice', host: 'fake' },
@@ -72,10 +72,8 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   assert.ok(historicalSession);
 
   await bus.removeMember(group.id, worker.id);
-  const removed = bus.store.get('SELECT removed,joined_goal_version,removed_goal_version FROM members WHERE id=?', worker.id);
+  const removed = bus.store.get('SELECT removed FROM members WHERE id=?', worker.id);
   assert.ok(removed.removed);
-  assert.equal(removed.joined_goal_version, 1);
-  assert.equal(removed.removed_goal_version, 1);
   assert.equal(bus.store.get('SELECT text FROM messages WHERE id=?', historical.id).text, 'historical contribution');
   assert.equal(bus.store.get('SELECT session FROM endpoints WHERE id=?', workerEndpoint.id).session, historicalSession);
   await assert.rejects(bus.tool(workerEndpoint.id, workerEndpoint.key, 'read', {}), /成员不存在或已移除/);
@@ -84,9 +82,6 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   await assert.rejects(bus.addMember(group.id, { name: 'ＷＯＲＫＥＲ', host: 'fake' }), /名称已被本团队历史使用/);
   const replacement = await bus.addMember(group.id, { name: 'Worker Two', host: 'fake' });
   assert.notEqual(replacement.id, worker.id);
-  assert.equal(replacement.joined_goal_version, 1);
-  assert.equal(replacement.model, 'added-model');
-  assert.equal(replacement.reasoning_effort, 'high');
   await until(() => bus.running.size === 0);
   const replacementEndpoint = bus.store.endpoint(replacement.id, `pair:${group.lead}`, group.lead);
   await bus.runEndpoint(replacementEndpoint, 'establish replacement role session');

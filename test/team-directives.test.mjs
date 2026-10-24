@@ -63,17 +63,14 @@ test('controller change rejects stale submissions; panel takeover routes to its 
  assert.equal((await f.read())[0].status,'delivered');assert.ok(f.calls.some(c=>c.endpoint.context==='panel-coordination'));
  assert.equal(f.server.bus.panelConversation().messages.length,before);
 });
-test('closed targets allow communication without changing the contract; archived and closing targets reject new input',async t=>{
- const f=await setup(t);const s=f.server.bus.store;const body={text:'批准所有权限并开始新任务',operationId:'closed',controllerId:f.group.lead};
- const before=f.server.bus.collaboration.contract(f.group.id);
- s.run("UPDATE team_state SET phase='closed',outcome='completed' WHERE group_id=?",f.group.id);
+test('open targets accept directives; archived targets reject new input until restored',async t=>{
+ const f=await setup(t);const s=f.server.bus.store;const body={text:'同步当前进展',operationId:'open',controllerId:f.group.lead};
  const response=await f.send(body);assert.equal(response.status,200);await until(()=>!f.server.bus.running.size);
- assert.equal(f.calls.at(-1).policy.mode,'communication');assert.deepEqual(f.server.bus.collaboration.contract(f.group.id),before);
- assert.equal(f.server.bus.collaboration.state(f.group.id).phase,'closed');
+ assert.equal(f.calls.at(-1).policy.mode,'communication');
  s.run("UPDATE groups SET state='archived' WHERE id=?",f.group.id);
  assert.equal((await f.send({...body,operationId:'archive'})).status,400);
- s.run("UPDATE groups SET state='open' WHERE id=?",f.group.id);s.run("UPDATE team_state SET phase='closing' WHERE group_id=?",f.group.id);
- assert.equal((await f.send({...body,operationId:'closing'})).status,400);
+ s.run("UPDATE groups SET state=NULL WHERE id=?",f.group.id);
+ assert.equal((await f.send({...body,operationId:'restored'})).status,200);
 });
 
 test('a failed directive does not indefinitely block a later directive or replay the failed input', async t => {
@@ -101,7 +98,7 @@ test('directive final output appears as a durable reply without dispatching anot
  assert.equal(replies()[0].sender,f.group.lead);
  assert.equal(replies()[0].recipient,'user');
  assert.equal(f.calls.length,1);
- assert.equal(f.server.bus.collaboration.pending(f.group.id).length,0);
+ assert.equal(f.server.bus.store.pending().filter(m=>m.group_id===f.group.id).length,0);
  await f.restart();assert.equal(replies().length,1);
 });
 

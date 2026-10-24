@@ -34,7 +34,7 @@ export class Store {
     this.db = new DatabaseSync(resolve(directory, 'groups.sqlite'));
     chmodSync(resolve(directory, 'groups.sqlite'), 0o600);
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
-      CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL,charter TEXT,policy TEXT NOT NULL DEFAULT 'workspace-write',allow_shell INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS members(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,role TEXT NOT NULL,profile TEXT NOT NULL DEFAULT '',removed TEXT,UNIQUE(group_id,name));
       CREATE TABLE IF NOT EXISTS endpoints(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,context TEXT NOT NULL,peer TEXT,session TEXT,key TEXT NOT NULL,UNIQUE(member_id,context));
       CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,sender TEXT NOT NULL,recipient TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,reply_to TEXT,created TEXT NOT NULL);
@@ -127,6 +127,10 @@ export class Store {
     ensureColumn('panel_sessions', 'policy_signature', 'TEXT');
     ensureColumn('panel_messages', 'context', "TEXT NOT NULL DEFAULT 'private'");
     ensureColumn('panel_updates', 'kind', "TEXT NOT NULL DEFAULT 'update'");
+    ensureColumn('groups', 'charter', 'TEXT');
+    ensureColumn('groups', 'policy', "TEXT NOT NULL DEFAULT 'workspace-write'");
+    ensureColumn('groups', 'allow_shell', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn('groups', 'state', 'TEXT');
     ensureColumn('panel_agents', 'workspace', 'TEXT');
     const panelAccessAdded = ensureColumn('panel_agents', 'access', "TEXT NOT NULL DEFAULT 'read-only'");
     if (panelAccessAdded) {
@@ -208,13 +212,12 @@ export class Store {
     return this.get('SELECT * FROM messages WHERE id=?', id);
   }
   pending() {
-    return this.all(`SELECT m.* FROM messages m JOIN team_state s ON s.group_id=m.group_id
-      WHERE (s.phase='active' OR s.phase='closed') AND m.kind='send'
+    return this.all(`SELECT m.* FROM messages m JOIN groups g ON g.id=m.group_id
+      WHERE (g.state IS NULL OR g.state='open') AND m.kind='send'
       AND (
         EXISTS(SELECT 1 FROM members r WHERE r.id=m.recipient AND r.removed IS NULL)
         OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
       )
-      AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
       AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
       AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`);
   }
@@ -225,14 +228,12 @@ export class Store {
       const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, message.recipient);
       const candidates = this.all(`SELECT m.* FROM messages m WHERE ${endpoint.context === 'coordination' ? '' : 'm.sender=? AND '}m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, ...(endpoint.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
       const additional = [];
       for (const candidate of candidates) {
         if (canBatch([message, ...additional, candidate])) additional.push(candidate);
       }
-      const annotate = m => ({ ...m, workItemId: this.get('SELECT work_item_id FROM message_context WHERE message_id=?', m.id)?.work_item_id ?? null });
-      const payload = { groupId: message.group_id, conversation: endpoint.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message: annotate(message), ...(additional.length ? { additionalMessages: additional.map(annotate) } : {}), notes };
+      const payload = { groupId: message.group_id, conversation: endpoint.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
       const id = randomUUID();
       this.run('INSERT INTO outbox(id,endpoint_id,payload) VALUES(?,?,?)', id, endpoint.id, JSON.stringify(payload));
       for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO attached VALUES(?,?)', item.id, id);
@@ -246,17 +247,15 @@ export class Store {
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
         AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient);
       const candidates = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM message_dispositions d WHERE d.message_id=m.id)
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
         AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient, message.id);
       const additional = [];
       for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
-      const annotate = m => ({ ...m, workItemId: this.get('SELECT work_item_id FROM message_context WHERE message_id=?', m.id)?.work_item_id ?? null });
       const payload = {
         groupId: message.group_id,
         conversation: 'coordination',
-        message: annotate(message),
-        ...(additional.length ? { additionalMessages: additional.map(annotate) } : {}),
+        message,
+        ...(additional.length ? { additionalMessages: additional } : {}),
         notes,
       };
       const id = randomUUID();

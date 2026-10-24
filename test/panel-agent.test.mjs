@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
 import { panelToolsFor, validatePanelTool } from '../src/panel-tools.mjs';
-import { confirmedGroup, testContract } from './helpers.mjs';
+import { confirmedGroup } from './helpers.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) {
@@ -76,10 +76,8 @@ async function createAgent(bus) {
   });
 }
 
-test('Panel management tools expose structured commands and accept a nested cancellation', async t => {
+test('Panel coordination tools expose messaging and update publishing schemas', async t => {
   const tools = panelToolsFor('private');
-  const workItemTool = tools.find(tool => tool.name === 'work_item_update');
-  const finishTool = tools.find(tool => tool.name === 'team_finish');
   assert.equal(tools.some(tool => tool.name === 'panel_update_publish'), false);
   assert.equal(
     panelToolsFor('coordination').some(tool => tool.name === 'panel_update_publish'),
@@ -94,44 +92,19 @@ test('Panel management tools expose structured commands and accept a nested canc
     ),
     false,
   );
-  assert.equal(workItemTool.inputSchema.properties.command.type, 'object');
-  assert.match(workItemTool.description, /cancellation\.kind/);
-  assert.match(finishTool.description, /coverage/);
-  assert.doesNotThrow(() => validatePanelTool('private', 'work_item_update', {
+  const sendTool = panelToolsFor('coordination').find(tool => tool.name === 'team_send');
+  assert.deepEqual(sendTool.inputSchema.required, ['groupId', 'to', 'text']);
+  assert.throws(() => validatePanelTool('coordination', 'team_send', {
     groupId: 'group-1',
-    command: {
-      id: 'probe-1',
-      itemRevision: 1,
-      state: 'cancelled',
-      cancellation: {
-        kind: 'irrelevant',
-        reason: '临时探针与团队目标无关',
-      },
-    },
-    revision: 1,
-    operationId: 'cancel-probe',
+    to: 'worker',
+    text: 'hello',
+    workItemId: 'legacy-field',
+  }), /不允许的参数/);
+  assert.doesNotThrow(() => validatePanelTool('coordination', 'team_send', {
+    groupId: 'group-1',
+    to: 'worker',
+    text: 'hello',
   }));
-  assert.doesNotThrow(() => validatePanelTool('private', 'work_item_update', {
-    groupId: 'group-1',
-    command: JSON.stringify({
-      id: 'probe-1',
-      itemRevision: 1,
-      state: 'cancelled',
-      cancellation: { kind: 'irrelevant', reason: '临时探针与团队目标无关' },
-    }),
-    revision: 1,
-    operationId: 'cancel-probe-json',
-  }));
-  assert.throws(() => validatePanelTool('private', 'work_item_update', {
-    groupId: 'group-1',
-    command: {
-      id: 'probe-1',
-      itemRevision: 1,
-      reviews: ['not-a-review'],
-    },
-    revision: 1,
-    operationId: 'invalid-review',
-  }), /command\.reviews\[0\]类型无效/);
 
   const { bus, directory } = await fixture(t);
   const group = confirmedGroup(bus, {
@@ -143,51 +116,46 @@ test('Panel management tools expose structured commands and accept a nested canc
   await until(() => !bus.running.size);
   const state = await createAgent(bus);
   bus.takeoverTeam(group.id, 0);
-  const worker = bus.members(group.id).find(member => member.name === 'worker');
   const coordination = bus.store.panelSession(state.agent.id, 'coordination', group.id);
   const provenance = { activeTeamId: group.id };
-  let result = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      title: '状态机探针',
-      purpose: '验证结构化命令',
-      standard: '不派发、不交付',
-      participants: [{ memberId: worker.id, role: 'collaborator' }],
-      policy: 'communication',
-      note: '创建结构化命令探针',
-    },
-    revision: bus.collaboration.state(group.id).revision,
-    operationId: 'create-structured-probe',
-  }, provenance);
-  const probeId = result.item.id;
-  result = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: probeId,
-      itemRevision: result.item.revision,
-      state: 'in_progress',
-      note: '开始探针',
-    },
-    revision: result.revision,
-    operationId: 'start-structured-probe',
-  }, provenance);
-  result = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: probeId,
-      itemRevision: result.item.revision,
-      state: 'cancelled',
-      cancellation: {
-        kind: 'irrelevant',
-        reason: '临时探针与团队目标无关',
-      },
-      note: '取消探针',
-    },
-    revision: result.revision,
-    operationId: 'cancel-structured-probe',
-  }, provenance);
-  assert.equal(result.item.state, 'cancelled');
-  assert.equal(result.item.cancellation.kind, 'irrelevant');
+  const turnId = 'structured-panel-turn';
+  bus.store.run(
+    'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    turnId,
+    coordination.id,
+    state.agent.id,
+    'coordination',
+    group.id,
+    group.id,
+    'running',
+    new Date().toISOString(),
+  );
+  const live = {
+    endpoint: { ...coordination, context: 'panel-coordination' },
+    activeTeamId: group.id,
+    turnId,
+    abort: new AbortController(),
+    done: Promise.resolve(),
+  };
+  bus.running.set(coordination.id, live);
+  try {
+    const result = await bus.panelTool(coordination.id, coordination.key, 'team_send', {
+      groupId: group.id,
+      to: 'worker',
+      text: '直接向成员派发说明',
+    }, { ...provenance, turnId });
+    const message = bus.store.get('SELECT * FROM messages WHERE id=?', result.messageId);
+    assert.equal(message.sender, state.agent.id);
+    assert.equal(message.kind, 'send');
+    await assert.rejects(bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
+      groupId: group.id,
+      command: {},
+      revision: 1,
+      operationId: 'gone',
+    }, { ...provenance, turnId }), /当前上下文不能使用此工具/);
+  } finally {
+    bus.running.delete(coordination.id);
+  }
 });
 
 test('Panel instructions distinguish coordination and forbid schema-probing writes', async t => {
@@ -201,8 +169,8 @@ test('Panel instructions distinguish coordination and forbid schema-probing writ
   );
   assert.match(privateInstructions, /coordination 上下文/);
   assert.match(privateInstructions, /不是外部进程或另一个 Panel Agent/);
-  assert.match(privateInstructions, /不要为了探测工具 schema 创建临时工作项/);
-  assert.match(coordinationInstructions, /不要创建与当前目标无关的临时探针/);
+  assert.match(privateInstructions, /team_create/);
+  assert.match(coordinationInstructions, /panel_update_publish/);
   assert.match(coordinationInstructions, /不要穷举猜测字段/);
 });
 
@@ -333,12 +301,6 @@ test('coordination publishes natural-language updates that are automatically del
   bus.takeoverTeam(group.id, 0);
   const worker = bus.members(group.id).find(member => member.name === 'worker');
   const message = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'worker completed the assigned task');
-  bus.store.run(
-    'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
-    message.id,
-    null,
-    1,
-  );
   bus.pump();
   await until(() => bus.store.get('SELECT id FROM panel_updates WHERE group_id=?', group.id));
   const update = bus.store.get('SELECT * FROM panel_updates WHERE group_id=?', group.id);
@@ -430,32 +392,15 @@ test('published updates wait while the private session is busy', async t => {
   );
 });
 
-test('Panel Agent creates a team through existing revisioned preparation without becoming a member', async t => {
+test('Panel Agent creates a team directly without becoming a member', async t => {
   const { bus, directory } = await fixture(t);
   const state = await createAgent(bus);
   const session = bus.store.panelSession(state.agent.id, 'private');
-  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
+  const group = await bus.panelTool(session.id, session.key, 'team_create', {
     name: 'panel team',
     workspace: directory,
     members: 'worker=fake',
   });
-  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
-    preparationId: preparation.id,
-    contract: JSON.stringify(testContract),
-    revision: preparation.revision,
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
-    preparationId: preparation.id,
-    roles: JSON.stringify([{
-      name: 'worker',
-      model_provider: 'fake-provider',
-      model: 'fake-model',
-      reasoning_effort: 'low',
-    }]),
-    revision: preparation.revision,
-  });
-  assert.equal(preparation.groupId, null);
-  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
   await until(() => !bus.running.size);
 
   assert.equal(group.lead, null);
@@ -465,479 +410,11 @@ test('Panel Agent creates a team through existing revisioned preparation without
   const controller = bus.teamController(group.id);
   assert.equal(controller.kind, 'panel_agent');
   assert.equal(controller.id, state.agent.id);
-});
-
-test('approved Panel preparation resumes the private Agent exactly once', async t => {
-  const { bus, directory, calls } = await fixture(t);
-  const state = await createAgent(bus);
-  const session = bus.store.panelSession(state.agent.id, 'private');
-  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
-    name: 'continuation team',
+  const coordinationSession = bus.store.panelSession(state.agent.id, 'coordination', group.id);
+  await assert.rejects(bus.panelTool(coordinationSession.id, coordinationSession.key, 'team_create', {
+    name: 'coordination-only team',
     workspace: directory,
-    members: 'worker=fake',
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
-    preparationId: preparation.id,
-    contract: JSON.stringify(testContract),
-    revision: preparation.revision,
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
-    preparationId: preparation.id,
-    roles: JSON.stringify([{
-      name: 'worker',
-      model_provider: 'fake-provider',
-      model: 'fake-model',
-      reasoning_effort: 'low',
-    }]),
-    revision: preparation.revision,
-  });
-
-  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
-  const continuationId = `continuation:${preparation.id}:${preparation.revision}:${preparation.hash}`;
-  await until(() => calls.some(call => (
-    call.context === 'panel-private'
-    && call.prompt.includes('用户已经通过面板批准')
-  )));
-  await until(() => bus.store.get(
-    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
-    continuationId,
-  )?.delivered_turn_id);
-
-  const continuation = bus.store.get('SELECT * FROM panel_updates WHERE id=?', continuationId);
-  assert.equal(continuation.kind, 'continuation');
-  assert.equal(continuation.group_id, group.id);
-  assert.match(continuation.text, new RegExp(group.id));
-  assert.match(continuation.text, new RegExp(preparation.hash));
-  const continuationCalls = calls.filter(call => (
-    call.context === 'panel-private'
-    && call.prompt.includes('用户已经通过面板批准')
-  ));
-  assert.equal(continuationCalls.length, 1);
-  assert.match(continuationCalls[0].prompt, new RegExp(`activeTeamId=${group.id}`));
-  assert.ok(bus.store.get(
-    `SELECT id FROM panel_turns
-     WHERE context='private' AND active_team_id=? AND state='completed'`,
-    group.id,
-  ));
-
-  assert.equal(
-    bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash).id,
-    group.id,
-  );
-  await new Promise(resolve => setTimeout(resolve, 50));
-  assert.equal(
-    calls.filter(call => (
-      call.context === 'panel-private'
-      && call.prompt.includes('用户已经通过面板批准')
-    )).length,
-    1,
-  );
-  assert.equal(
-    bus.store.all('SELECT id FROM panel_updates WHERE kind=?', 'continuation').length,
-    1,
-  );
-});
-
-test('pending preparation continuation survives a service restart', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-continuation-restart-'));
-  const calls = [];
-  const hosts = new Map([['fake', hostFixture(calls)]]);
-  let bus = new Bus({ directory, hosts });
-  bus.start();
-  t.after(async () => {
-    await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-  const state = await createAgent(bus);
-  const session = bus.store.panelSession(state.agent.id, 'private');
-  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
-    name: 'restart continuation',
-    workspace: directory,
-    members: 'worker=fake',
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
-    preparationId: preparation.id,
-    contract: JSON.stringify(testContract),
-    revision: preparation.revision,
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
-    preparationId: preparation.id,
-    roles: JSON.stringify([{
-      name: 'worker',
-      model_provider: 'fake-provider',
-      model: 'fake-model',
-      reasoning_effort: 'low',
-    }]),
-    revision: preparation.revision,
-  });
-
-  bus.running.set(session.id, {
-    endpoint: { id: session.id, context: 'panel-private', group_id: null },
-    activeTeamId: null,
-    turnId: 'synthetic-private-busy',
-    abort: new AbortController(),
-    done: Promise.resolve(),
-  });
-  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
-  const continuationId = `continuation:${preparation.id}:${preparation.revision}:${preparation.hash}`;
-  assert.ok(bus.store.get(
-    'SELECT id FROM panel_updates WHERE id=? AND delivered_turn_id IS NULL',
-    continuationId,
-  ));
-  await bus.close();
-
-  bus = new Bus({ directory, hosts });
-  bus.start();
-  await until(() => calls.some(call => (
-    call.context === 'panel-private'
-    && call.prompt.includes('用户已经通过面板批准')
-  )));
-  await until(() => bus.store.get(
-    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
-    continuationId,
-  )?.delivered_turn_id);
-  assert.equal(bus.store.get(
-    'SELECT group_id,kind FROM panel_updates WHERE id=?',
-    continuationId,
-  ).group_id, group.id);
-  assert.ok(bus.store.get(
-    'SELECT id FROM panel_turns WHERE context=? AND active_team_id=? AND state=?',
-    'private',
-    group.id,
-    'completed',
-  ));
-});
-
-test('Panel main receives member reports and can write only in the bound team context', async t => {
-  const { bus, directory, calls } = await fixture(t);
-  const state = await createAgent(bus);
-  const session = bus.store.panelSession(state.agent.id, 'private');
-  let preparation = await bus.panelTool(session.id, session.key, 'team_preparation_create', {
-    name: 'panel coordination',
-    workspace: directory,
-    members: 'worker=fake',
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'contract_propose', {
-    preparationId: preparation.id,
-    contract: JSON.stringify(testContract),
-    revision: preparation.revision,
-  });
-  preparation = await bus.panelTool(session.id, session.key, 'team_plan_update', {
-    preparationId: preparation.id,
-    roles: JSON.stringify([{
-      name: 'worker',
-      model_provider: 'fake-provider',
-      model: 'fake-model',
-      reasoning_effort: 'low',
-    }]),
-    revision: preparation.revision,
-  });
-  const group = bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
-  await until(() => !bus.running.size);
-  const worker = bus.members(group.id)[0];
-
-  const report = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'work report');
-  bus.store.run(
-    'INSERT INTO message_context(message_id,work_item_id,contract_version) VALUES(?,?,?)',
-    report.id,
-    null,
-    bus.collaboration.state(group.id).contract_version,
-  );
-  bus.pump();
-  await until(() => calls.some(call => call.context === 'panel-coordination'));
-  await until(() => !bus.running.size);
-  assert.equal(bus.store.get('SELECT accepted FROM panel_outbox WHERE id=(SELECT outbox_id FROM panel_attached WHERE message_id=?)', report.id).accepted != null, true);
-  assert.ok(calls.some(call => call.context === 'panel-coordination' && call.groupId === group.id));
-  assert.equal(bus.collaboration.pending(group.id).length, 0);
-});
-
-test('a Panel coordination turn that finishes the Goal triggers final reconciliation', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-finish-'));
-  const calls = [];
-  let bus;
-  let reportId;
-  const host = hostFixture(calls);
-  const baseRun = host.run.bind(host);
-  host.run = async context => {
-    if (context.endpoint.context !== 'panel-coordination' || !context.prompt.includes('FINISH_PANEL_GOAL')) {
-      return baseRun(context);
-    }
-    calls.push({
-      endpoint: context.endpoint.id,
-      context: context.endpoint.context,
-      groupId: context.endpoint.group_id,
-      prompt: context.prompt,
-    });
-    context.onSession(context.endpoint.session ?? context.endpoint.id);
-    context.onAccepted();
-    const groupId = context.endpoint.group_id;
-    const item = bus.store.get(
-      'SELECT id FROM work_items WHERE group_id=? AND state=?',
-      groupId,
-      'accepted',
-    );
-    await context.onTool('team_finish', {
-      groupId,
-      command: {
-        outcome: 'completed',
-        final: 'Panel coordination completed',
-        note: 'accepted work covers the contract',
-        coverage: { c1: [item.id] },
-        dispositions: [{ messageId: reportId, reason: 'used as accepted evidence' }],
-      },
-      revision: bus.collaboration.state(groupId).revision,
-      operationId: 'panel-finish-goal',
-    });
-    return 'finished';
-  };
-  bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
-  bus.start();
-  t.after(async () => {
-    await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  const group = confirmedGroup(bus, {
-    name: 'panel finish',
-    workspace: directory,
-    lead: { name: 'lead', host: 'fake' },
-    members: [{ name: 'worker', host: 'fake' }],
-  });
-  await until(() => !bus.running.size);
-  const agent = await createAgent(bus);
-  bus.takeoverTeam(group.id, 0);
-  const worker = bus.members(group.id).find(member => member.name === 'worker');
-  const coordination = bus.store.panelSession(agent.agent.id, 'coordination', group.id);
-  const provenance = { activeTeamId: group.id };
-  const goalId = bus.lifecycle.read(group.id).current.id;
-  let item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      title: 'panel finish work',
-      purpose: 'complete the approved contract',
-      standard: 'accepted evidence',
-      participants: [{ memberId: worker.id, role: 'executor' }],
-      policy: 'communication',
-      note: 'create work',
-    },
-    revision: bus.collaboration.state(group.id).revision,
-    operationId: 'panel-finish-create',
-  }, provenance);
-  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'in_progress',
-      note: 'start work',
-    },
-    revision: item.revision,
-    operationId: 'panel-finish-start',
-  }, provenance);
-  const report = bus.store.append(group.id, worker.id, agent.agent.id, 'send', 'accepted result');
-  reportId = report.id;
-  bus.store.run(
-    'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
-    report.id,
-    item.item.id,
-    bus.collaboration.state(group.id).contract_version,
-    goalId,
-  );
-  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'pending_decision',
-      artifact: 'accepted-v1',
-      evidence: [report.id],
-      note: 'accepted evidence attached',
-    },
-    revision: item.revision,
-    operationId: 'panel-finish-decision',
-  }, provenance);
-  await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'accepted',
-      note: 'accept result',
-    },
-    revision: item.revision,
-    operationId: 'panel-finish-accept',
-  }, provenance);
-
-  await bus.runPanelTurn({
-    session: { ...coordination, group_id: group.id },
-    panelAgent: bus.panelAgent(),
-    prompt: 'FINISH_PANEL_GOAL',
-    activeTeamId: group.id,
-    inputs: [report],
-  });
-  assert.equal(bus.collaboration.state(group.id).phase, 'closed');
-  assert.equal(bus.lifecycle.read(group.id).current, null);
-  assert.equal(bus.lifecycle.read(group.id).history[0].state, 'completed');
-  assert.equal(bus.store.all('SELECT * FROM user_outputs WHERE group_id=?', group.id).length, 1);
-});
-
-test('a Panel finish waits for Goal Inbox messages that arrive during the finishing turn', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-race-'));
-  const calls = [];
-  let bus;
-  let reportId;
-  let lateId;
-  let finishError;
-  const host = hostFixture(calls);
-  const baseRun = host.run.bind(host);
-  const finishCommand = itemId => ({
-    outcome: 'completed',
-    final: 'finish after consuming all Goal Inbox messages',
-    note: 'all Goal Inbox messages are consumed or part of the finishing turn',
-    coverage: { c1: [itemId] },
-    dispositions: [
-      { messageId: reportId, reason: 'accepted evidence' },
-      ...(lateId ? [{ messageId: lateId, reason: 'late report handled' }] : []),
-    ],
-  });
-  host.run = async context => {
-    const groupId = context.endpoint.group_id;
-    if (context.endpoint.context === 'panel-coordination' && context.prompt.includes('RACE_LATE')) {
-      context.onSession(context.endpoint.session ?? context.endpoint.id);
-      context.onAccepted();
-      const item = bus.store.get('SELECT id FROM work_items WHERE group_id=? AND state=?', groupId, 'accepted');
-      await context.onTool('team_finish', {
-        groupId,
-        command: finishCommand(item.id),
-        revision: bus.collaboration.state(groupId).revision,
-        operationId: 'panel-race-finish-2',
-      });
-      return 'finished';
-    }
-    if (context.endpoint.context === 'panel-coordination' && context.prompt.includes('RACE_TRIGGER')) {
-      context.onSession(context.endpoint.session ?? context.endpoint.id);
-      context.onAccepted();
-      const goalId = bus.lifecycle.read(groupId).current.id;
-      const worker = bus.members(groupId).find(member => member.name === 'worker');
-      const late = bus.store.append(groupId, worker.id, bus.panelAgent().id, 'send', 'RACE_LATE late report');
-      lateId = late.id;
-      bus.store.run(
-        'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
-        late.id,
-        null,
-        bus.collaboration.state(groupId).contract_version,
-        goalId,
-      );
-      const item = bus.store.get('SELECT id FROM work_items WHERE group_id=? AND state=?', groupId, 'accepted');
-      try {
-        await context.onTool('team_finish', {
-          groupId,
-          command: finishCommand(item.id),
-          revision: bus.collaboration.state(groupId).revision,
-          operationId: 'panel-race-finish-1',
-        });
-      } catch (error) {
-        finishError = error;
-      }
-      return 'rejected';
-    }
-    return baseRun(context);
-  };
-  bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
-  bus.start();
-  t.after(async () => {
-    await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  const group = confirmedGroup(bus, {
-    name: 'panel race',
-    workspace: directory,
-    lead: { name: 'lead', host: 'fake' },
-    members: [{ name: 'worker', host: 'fake' }],
-  });
-  await until(() => !bus.running.size);
-  const agent = await createAgent(bus);
-  bus.takeoverTeam(group.id, 0);
-  const worker = bus.members(group.id).find(member => member.name === 'worker');
-  const coordination = bus.store.panelSession(agent.agent.id, 'coordination', group.id);
-  const provenance = { activeTeamId: group.id };
-  const goalId = bus.lifecycle.read(group.id).current.id;
-  let item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      title: 'panel race work',
-      purpose: 'verify Goal Inbox consumption before finish',
-      standard: 'accepted evidence',
-      participants: [{ memberId: worker.id, role: 'executor' }],
-      policy: 'communication',
-      note: 'create work',
-    },
-    revision: bus.collaboration.state(group.id).revision,
-    operationId: 'panel-race-create',
-  }, provenance);
-  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'in_progress',
-      note: 'start work',
-    },
-    revision: item.revision,
-    operationId: 'panel-race-start',
-  }, provenance);
-  const report = bus.store.append(group.id, worker.id, agent.agent.id, 'send', 'RACE_TRIGGER accepted result');
-  reportId = report.id;
-  bus.store.run(
-    'INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)',
-    report.id,
-    item.item.id,
-    bus.collaboration.state(group.id).contract_version,
-    goalId,
-  );
-  item = await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'pending_decision',
-      artifact: 'accepted-v1',
-      evidence: [report.id],
-      note: 'accepted evidence attached',
-    },
-    revision: item.revision,
-    operationId: 'panel-race-decision',
-  }, provenance);
-  await bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
-    groupId: group.id,
-    command: {
-      id: item.item.id,
-      itemRevision: item.item.revision,
-      state: 'accepted',
-      note: 'accept result',
-    },
-    revision: item.revision,
-    operationId: 'panel-race-accept',
-  }, provenance);
-
-  await bus.runPanelTurn({
-    session: { ...coordination, group_id: group.id },
-    panelAgent: bus.panelAgent(),
-    prompt: 'RACE_TRIGGER',
-    activeTeamId: group.id,
-    inputs: [report],
-  });
-
-  assert.ok(finishError, 'finish should be rejected while an unconsumed Goal Inbox message exists');
-  assert.match(finishError.message, /未消费的Goal Inbox消息/);
-  assert.ok(finishError.message.includes(lateId));
-  assert.notEqual(bus.collaboration.state(group.id).phase, 'closing');
-
-  await until(() => bus.collaboration.state(group.id).phase === 'closed');
-  assert.equal(bus.lifecycle.read(group.id).current, null);
-  assert.equal(bus.lifecycle.read(group.id).history[0].state, 'completed');
-  assert.equal(bus.store.all('SELECT * FROM user_outputs WHERE group_id=?', group.id).length, 1);
+  }), /当前上下文不能使用此工具/);
 });
 
 test('lead takeover and handback are revisioned and require an idle team', async t => {

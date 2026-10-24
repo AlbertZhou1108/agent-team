@@ -2,112 +2,15 @@ const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
 const groupId = { type: 'string', minLength: 1, maxLength: 200 };
 const readRange = {
-  itemId: string,
   messageId: string,
   hash: string,
   offset: { type: 'integer', minimum: 0 },
   bodyLimit: { type: 'integer', minimum: 1, maximum: 4096 },
 };
-const cancellation = {
-  type: 'object',
-  description: '取消工作项时必须提供。kind=covered 时 by 填当前目标下其他已接受工作项；kind=irrelevant 表示该工作项与目标无关。',
-  properties: {
-    kind: { type: 'string', enum: ['covered', 'irrelevant'] },
-    reason: string,
-    by: { type: 'array', items: string, minItems: 1 },
-  },
-  required: ['kind', 'reason'],
-  additionalProperties: false,
-};
-const workItemCommand = {
-  type: 'object',
-  description: [
-    '工作项命令对象，不要传扁平字段。',
-    '新建：省略 id，state 必须为 pending，并提供 title、purpose、standard、participants。',
-    '更新：提供 id、itemRevision 和要修改的字段；状态必须走 pending→in_progress→pending_decision→accepted。',
-    '取消：state=cancelled，且必须提供 cancellation:{kind:"irrelevant"|"covered",reason,by?}。',
-    '禁止为了探测参数而创建临时工作项或修改真实工作项。',
-  ].join(' '),
-  properties: {
-    id: string,
-    itemRevision: { type: 'integer', minimum: 1 },
-    state: {
-      type: 'string',
-      enum: ['pending', 'in_progress', 'blocked', 'pending_decision', 'accepted', 'cancelled'],
-    },
-    note: string,
-    title: string,
-    purpose: string,
-    standard: string,
-    participants: {
-      type: 'array',
-      minItems: 1,
-      items: {
-        type: 'object',
-        properties: {
-          memberId: string,
-          role: { type: 'string', enum: ['executor', 'collaborator', 'reviewer'] },
-        },
-        required: ['memberId', 'role'],
-        additionalProperties: false,
-      },
-    },
-    policy: { type: 'string', enum: ['communication', 'read-only', 'workspace-write'] },
-    allowShell: { type: 'boolean' },
-    reviewRequired: { type: 'boolean' },
-    artifact: { type: ['string', 'null'] },
-    evidence: { type: 'array', items: string },
-    reviews: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          messageId: string,
-          artifact: string,
-        },
-        required: ['messageId', 'artifact'],
-        additionalProperties: false,
-      },
-    },
-    cancellation,
-  },
-  additionalProperties: false,
-};
-const finishCommand = {
-  type: 'object',
-  description: [
-    '团队收尾命令对象。outcome 必须为 completed。',
-    'coverage 必须逐一列出契约中的每个 criterion id，并引用当前目标中已接受的工作项。',
-    'dispositions 必须覆盖所有未处理正式消息。',
-  ].join(' '),
-  properties: {
-    outcome: { type: 'string', enum: ['completed'] },
-    final: string,
-    note: string,
-    coverage: {
-      type: 'object',
-      additionalProperties: { type: 'array', items: string, minItems: 1 },
-    },
-    dispositions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          messageId: string,
-          reason: string,
-        },
-        required: ['messageId', 'reason'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['outcome', 'final', 'note', 'coverage'],
-  additionalProperties: false,
-};
 
 const observerDefinitions = [
   ['teams_list', '列出当前数据目录中的团队及 Panel Agent 与每个团队的关系。', {}, []],
-  ['team_snapshot', '读取一个团队的基础快照、成员、运行状态和协作摘要。', { groupId }, ['groupId']],
+  ['team_snapshot', '读取一个团队的基础快照、成员、运行状态和沟通状态。', { groupId }, ['groupId']],
   ['team_read', '读取当前团队共享消息；after 是消息序号游标。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
@@ -116,12 +19,6 @@ const observerDefinitions = [
     ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_collaboration_read', '读取当前团队的契约、目标、工作项、审查、接受和运行状态。新会话默认返回当前目标概况；传入 itemId 定向读取单个工作项。', {
-    groupId,
-    after: { type: 'integer', minimum: 0 },
-    itemId: string,
-  }, ['groupId']],
-  ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
   ['team_message_trace', '读取一条团队消息的真实来源和输入回合。', {
     groupId,
     messageId: string,
@@ -135,24 +32,11 @@ const observerDefinitions = [
 ];
 
 const preparationDefinitions = [
-  ['team_preparation_create', '基于用户明确需求创建团队准备记录，不创建团队。', {
+  ['team_create', '基于用户明确需求直接创建团队。名称、工作区必填；members 为逗号分隔的 名称=宿主 列表。用户在私人会话中要求建群时使用；创建后当前 Panel Agent 成为该团队主 Agent。', {
     name: string,
     workspace: string,
     members: string,
   }, ['name', 'workspace']],
-  ['preparation_read', '读取团队准备记录、契约草案和角色模型计划。', {
-    preparationId: string,
-  }, ['preparationId']],
-  ['contract_propose', '提交完整契约草案并生成新的 revision/hash。', {
-    preparationId: string,
-    contract: string,
-    revision: { type: 'integer', minimum: 0 },
-  }, ['preparationId', 'contract', 'revision']],
-  ['team_plan_update', '提交团队普通角色的完整模型计划。', {
-    preparationId: string,
-    roles: string,
-    revision: { type: 'integer', minimum: 0 },
-  }, ['preparationId', 'roles', 'revision']],
   ['request_team_takeover', '请求接管一个当前处于观察状态的团队；必须等待用户确认。', { groupId }, ['groupId']],
   ['request_team_handback', '请求将当前主控团队交还原主 Agent；必须等待用户确认。', { groupId }, ['groupId']],
 ];
@@ -166,64 +50,17 @@ const mainDefinitions = [
     ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_collaboration_read', '读取当前团队协作状态。新会话默认返回当前目标概况；传入 itemId 定向读取单个工作项。', {
-    groupId,
-    after: { type: 'integer', minimum: 0 },
-    itemId: string,
-  }, ['groupId']],
-  ['goal_draft_read', '读取Team状态、Goal Draft、Goal Queue、Current Goal和历史Goal。', { groupId }, ['groupId']],
-  ['goal_draft_create', '创建Goal Draft，等待用户确认。contract为完整契约JSON，requiredMemberIds为逗号分隔的成员ID。', {
-    groupId,
-    contract: string,
-    requiredMemberIds: string,
-    revision: { type: 'integer', minimum: 1 },
-    operationId: string,
-  }, ['groupId', 'contract', 'revision', 'operationId']],
-  ['goal_draft_update', '修改尚未确认的Goal Draft并生成新的revision/hash。', {
-    groupId,
-    draftId: string,
-    draftRevision: { type: 'integer', minimum: 1 },
-    contract: string,
-    requiredMemberIds: string,
-    revision: { type: 'integer', minimum: 1 },
-    operationId: string,
-  }, ['groupId', 'draftId', 'draftRevision', 'contract', 'revision', 'operationId']],
-  ['team_send', '以当前团队主 Agent 身份向成员发送正式任务、汇报或审查消息。', {
+  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。', {
     groupId,
     to: string,
     text: string,
-    workItemId: string,
   }, ['groupId', 'to', 'text']],
   ['team_note', '以当前团队主 Agent 身份向成员留下不唤醒的留言。', {
     groupId,
     to: string,
     text: string,
-    workItemId: string,
   }, ['groupId', 'to', 'text']],
-  ['work_item_update', '主 Agent 管理工作项。command 必须是结构化对象；取消时必须使用 cancellation.kind 和 cancellation.reason。', {
-    groupId,
-    command: workItemCommand,
-    revision: { type: 'integer', minimum: 1 },
-    operationId: string,
-  }, ['groupId', 'command', 'revision', 'operationId']],
-  ['contract_change_request', '提出当前团队的契约变更，等待用户批准。', {
-    groupId,
-    contract: string,
-    reason: string,
-  }, ['groupId', 'contract', 'reason']],
-  ['next_goal_request', '提出当前团队的下一版完整目标契约。', {
-    groupId,
-    contract: string,
-    reason: string,
-  }, ['groupId', 'contract', 'reason']],
-  ['team_finish', '请求完成当前团队目标。command 必须是含 outcome、final、note 和 coverage 的结构化对象。', {
-    groupId,
-    command: finishCommand,
-    revision: { type: 'integer', minimum: 1 },
-    operationId: string,
-  }, ['groupId', 'command', 'revision', 'operationId']],
-  ['finish_withdraw', '撤回尚未完成的团队收尾请求。', { groupId, reason: string }, ['groupId', 'reason']],
-  ['group_add', '主 Agent 提议添加普通成员，等待用户决定。', {
+  ['group_add', '主 Agent 直接添加普通成员。', {
     groupId,
     name: string,
     host: string,
@@ -252,26 +89,10 @@ function schema(source) {
 }
 
 export function panelToolsFor(context) {
-  if (context === 'preparation') return schema([...observerDefinitions, ...preparationDefinitions]);
   if (context === 'coordination') return schema([...mainDefinitions, ...coordinationUpdateDefinitions]);
   const all = new Map();
   for (const item of [...observerDefinitions, ...preparationDefinitions, ...mainDefinitions]) all.set(item[0], item);
   return schema([...all.values()]);
-}
-
-export function panelCommandObject(value, name = 'command') {
-  let parsed = value;
-  if (typeof value === 'string') {
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      throw new Error(`${name}必须是JSON对象或JSON对象字符串`);
-    }
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${name}必须是JSON对象`);
-  }
-  return parsed;
 }
 
 function validateValue(rule, value, path) {
@@ -323,10 +144,6 @@ export function validatePanelTool(context, name, args) {
   const properties = tool.inputSchema.properties;
   for (const key of Object.keys(args)) if (!Object.hasOwn(properties, key)) throw new Error(`不允许的参数: ${key}`);
   for (const key of tool.inputSchema.required) if (!Object.hasOwn(args, key)) throw new Error(`缺少参数: ${key}`);
-  for (const [key, value] of Object.entries(args)) {
-    const rule = properties[key];
-    const normalized = rule.type === 'object' ? panelCommandObject(value, key) : value;
-    validateValue(rule, normalized, key);
-  }
+  for (const [key, value] of Object.entries(args)) validateValue(properties[key], value, key);
   return args;
 }

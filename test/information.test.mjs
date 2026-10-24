@@ -13,11 +13,10 @@ import { toolsFor } from '../src/tools.mjs';
 import { panelToolsFor } from '../src/panel-tools.mjs';
 import {
   byteSize,
-  projectCollaboration,
-  projectFacts,
+  CONTEXT_SCHEMA_VERSION,
   projectTurnInput,
 } from '../src/information.mjs';
-import { confirmedGroup, testContract } from './helpers.mjs';
+import { confirmedGroup } from './helpers.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn, message = 'condition timed out') {
@@ -55,7 +54,7 @@ function fixture(t, run) {
     workspace: directory,
     lead: { name: 'lead', host: 'fake' },
     members: [{ name: 'one', host: 'fake' }],
-  }, testContract);
+  }, '测试团队说明：只做消息层面的协调。');
   t.after(async () => {
     if (!bus.closing) await bus.close();
     rmSync(directory, { recursive: true, force: true });
@@ -63,145 +62,37 @@ function fixture(t, run) {
   return { bus, group, calls, directory };
 }
 
-function collabFixture() {
-  const items = [
-    { id: 'current-1', goalVersion: 1, revision: 2, state: 'in_progress', title: 'current work' },
-    { id: 'blocked-old', goalVersion: 0, revision: 4, state: 'blocked', title: 'unresolved foreign' },
-    { id: 'accepted-old', goalVersion: 0, revision: 5, state: 'accepted', title: 'accepted history' },
-  ];
+test('turn input projection carries the charter, full messages and reports budget exhaustion explicitly', () => {
   const long = '日志🧪\n'.repeat(80) + 'MIDDLE' + '尾部';
-  return {
-    legacy: false,
-    contract: { version: 1, hash: 'contract-hash', body: testContract },
-    state: { goal_version: 1, contract_version: 1, phase: 'active', revision: 7, outcome: null, final: 'final delivery' },
-    communicationOpen: true,
-    items,
-    requests: [
-      { id: 'req-pending', state: 'pending', kind: 'contract', base_version: 1, body: { reason: 'needs decision' } },
-      { id: 'req-done', state: 'approved', kind: 'contract', base_version: 1, body: {} },
-    ],
-    records: [
-      { seq: 1, goal_version: 0, work_item_id: 'blocked-old', type: 'work_item', body: { title: 'unresolved foreign' } },
-      { seq: 2, goal_version: 0, work_item_id: 'accepted-old', type: 'work_item', body: { title: 'old' } },
-      { seq: 5, goal_version: 1, work_item_id: 'current-1', type: 'work_item', body: { title: 'current work' } },
-    ],
-    nextAfter: 5,
-    unknown: ['unknown-runtime'],
-    runningCount: 2,
-    pendingMessages: [{ id: 'pending-msg', seq: 9, sender: 'a', recipient: 'b', kind: 'send', text: long }],
-    outputs: [
-      { id: 'out-current', goalVersion: 1, body: 'current output', created: 'now' },
-      { id: 'out-old', goalVersion: 0, body: 'old output', created: 'before' },
-    ],
-    long,
-  };
-}
-
-test('deterministic projection keeps required facts and reports budget exhaustion explicitly', () => {
-  const input = {
-    goal: 'G2',
-    artifact: 'v3',
-    constraints: { policy: 'read-only', allowShell: false },
-    rows: [
-      { id: 'valid', goal: 'G2', artifact: 'v3' },
-      { id: 'unbound', goal: 'G2' },
-      { id: 'unknown' },
-      { id: 'old', goal: 'G1', artifact: 'v3' },
-    ],
-    pending: ['must-dispose'],
-    unknown: ['runtime-unknown'],
-  };
-  const facts = projectFacts(input);
-  assert.deepEqual(facts.relevant.map(row => row.id), ['valid']);
-  assert.deepEqual(facts.unresolved.map(row => row.id), ['unbound', 'unknown']);
-  assert.deepEqual(facts.constraints, input.constraints);
-  assert.deepEqual(facts.pending, input.pending);
-  assert.deepEqual(facts.unknown, input.unknown);
-  assert.throws(() => projectFacts(input, 10), /exceed budget/);
-  assert.throws(() => projectFacts({ ...input, goal: null }), /explicit identity/);
-
-  const full = collabFixture();
-  const view = projectCollaboration(full, { goalId: 'goal-1', budget: 1024 * 1024 });
-  assert.equal(view.schema, 1);
-  assert.equal(view.view, 'state');
-  assert.equal(view.goalVersion, 1);
-  assert.equal(view.contractVersion, 1);
-  assert.equal(view.stateRevision, 7);
-  assert.deepEqual(view.items.map(item => item.id), ['current-1']);
-  assert.deepEqual(view.unresolved.map(item => item.id), ['blocked-old']);
-  assert.deepEqual(view.pendingRequests.map(request => request.id), ['req-pending']);
-  assert.equal(view.pendingMessages[0].id, 'pending-msg');
-  assert.equal(view.pendingMessages[0].complete, false);
-  assert.match(view.pendingMessages[0].ref.hash, /^[0-9a-f]{64}$/);
-  assert.deepEqual(view.unknown, ['unknown-runtime']);
-  assert.equal(view.runningCount, 2);
-  assert.deepEqual(view.records.map(record => record.seq), [5]);
-  assert.deepEqual(view.outputs.map(output => output.id), ['out-current']);
-  assert.equal(view.complete, true);
-
-  const targeted = projectCollaboration(full, { itemId: 'blocked-old', budget: 1024 * 1024 });
-  assert.equal(targeted.view, 'item');
-  assert.equal(targeted.item.id, 'blocked-old');
-  assert.deepEqual(targeted.records.map(record => record.seq), [1]);
-  assert.throws(() => projectCollaboration(full, { itemId: 'missing' }), /工作项不存在/);
-
-  const budgetFull = {
-    legacy: false,
-    contract: { version: 1, body: { goal: 'budget' } },
-    state: { goal_version: 1, contract_version: 1, revision: 1, phase: 'active' },
-    communicationOpen: true,
-    items: [{ id: 'budget-item', goalVersion: 1, revision: 1, state: 'in_progress', title: 'budget item' }],
-    requests: [],
-    records: Array.from({ length: 50 }, (_, index) => ({
-      seq: index + 1,
-      goal_version: 1,
-      work_item_id: 'budget-item',
-      type: 'work_item',
-      body: { title: 'record '.repeat(20) },
-    })),
-    nextAfter: 50,
-    outputs: [{ id: 'budget-output', goalVersion: 1, body: 'delivery '.repeat(60), created: 'now' }],
-    pendingMessages: [],
-    unknown: [],
-    runningCount: 0,
-  };
-  const minimal = projectCollaboration({ ...budgetFull, records: [], outputs: [] }, { budget: 1024 * 1024 });
-  const tight = projectCollaboration(budgetFull, { budget: byteSize(minimal) + 500 });
-  assert.equal(tight.complete, false);
-  assert.ok(tight.omissions.some(omission => omission.field === 'records'));
-  assert.equal(tight.nextAfter, tight.records.length ? tight.records.at(-1).seq : 0);
-  assert.throws(() => projectCollaboration(budgetFull, { budget: 80 }), /超过预算/);
-
-  const turnInput = projectTurnInput({
-    full,
+  const view = projectTurnInput({
     group: { id: 'group-1', name: 'group' },
+    charter: '团队说明文本',
     policy: { mode: 'read-only', allowShell: false },
-    schema: 1,
-    goalId: 'goal-1',
-    budget: 1024 * 1024,
+    schema: CONTEXT_SCHEMA_VERSION,
     input: {
-      message: { id: 'm1', seq: 11, sender: 'a', recipient: 'b', kind: 'send', text: full.long, created: 'now' },
+      message: { id: 'm1', seq: 11, sender: 'a', recipient: 'b', kind: 'send', text: long, created: 'now' },
       additionalMessages: [],
       notes: [{ id: 'n1', seq: 12, sender: 'c', recipient: 'b', kind: 'note', text: 'note body', created: 'now' }],
     },
   });
-  assert.equal(turnInput.contextSchemaVersion, 1);
-  assert.equal(turnInput.input.message.text, full.long);
-  assert.equal(turnInput.input.message.complete, true);
-  assert.equal(turnInput.input.notes[0].text, 'note body');
-  assert.deepEqual(turnInput.workItems.map(item => item.id), ['current-1']);
-  assert.deepEqual(turnInput.pendingRequests.map(request => request.id), ['req-pending']);
-  assert.ok(turnInput.contract);
+  assert.equal(view.contextSchemaVersion, CONTEXT_SCHEMA_VERSION);
+  assert.equal(view.group.id, 'group-1');
+  assert.equal(view.charter, '团队说明文本');
+  assert.equal(view.policy.mode, 'read-only');
+  assert.equal(view.input.message.text, long);
+  assert.equal(view.input.message.complete, true);
+  assert.equal(view.input.notes[0].text, 'note body');
+  assert.match(view.input.message.ref.hash, /^[0-9a-f]{64}$/);
+  assert.equal(byteSize(view) > 0, true);
+
   assert.throws(() => projectTurnInput({
-    full,
     group: { id: 'group-1', name: 'group' },
     policy: { mode: 'read-only' },
-    input: { message: { id: 'm', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: 'x' } },
-    budget: 20,
+    input: { message: { id: 'm', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: 'x'.repeat(600000) } },
   }), /超过.*预算/);
 });
 
-test('new sessions use fixed rules with projected facts; legacy sessions keep their path and are never reset', async t => {
+test('new sessions use fixed rules with a compact dynamic view; legacy sessions keep their path and are never reset', async t => {
   const { bus, group, calls } = fixture(t);
   await until(() => bus.running.size === 0);
   const [lead, one] = bus.members(group.id);
@@ -211,49 +102,31 @@ test('new sessions use fixed rules with projected facts; legacy sessions keep th
   await until(() => calls.some(call => call.endpoint.context === 'pair:' + lead.id) && bus.running.size === 0);
   const first = calls.filter(call => call.endpoint.context === 'pair:' + lead.id).at(-1);
   const firstFacts = JSON.parse(first.prompt);
-  assert.equal(firstFacts.contextSchemaVersion, 1);
+  assert.equal(firstFacts.contextSchemaVersion, CONTEXT_SCHEMA_VERSION);
   assert.equal(firstFacts.input.message.text, 'first projected task');
-  assert.equal(firstFacts.stateRevision, bus.collaboration.state(group.id).revision);
-  assert.equal(firstFacts.contractVersion, 1);
-  assert.equal(firstFacts.goalVersion, 1);
-  assert.equal(firstFacts.policy.mode, 'communication');
-  assert.match(first.instructions, /当前有效契约与本轮权威状态见本轮输入/);
-  assert.match(first.instructions, /目标完成或失败终止后，群仍可继续沟通/);
-  assert.match(first.instructions, /独立审查必须由独立审查者完成/);
-  assert.match(first.instructions, /审查者只读/);
+  assert.equal(firstFacts.charter, '测试团队说明：只做消息层面的协调。');
+  assert.equal(firstFacts.policy.mode, 'workspace-write');
+  assert.match(first.instructions, /固定规则与本轮动态事实分离/);
+  assert.match(first.instructions, /send 只发给一个接收者/);
+  assert.match(first.instructions, /框架只负责投递消息，不检查工作流程/);
   assert.doesNotMatch(first.instructions, /当前有效契约与执行状态：/);
   const format = bus.store.get(
     'SELECT * FROM endpoint_context_formats WHERE endpoint_id=?',
     first.endpoint.id,
   );
-  assert.equal(format.schema_version, 1);
+  assert.equal(format.schema_version, CONTEXT_SCHEMA_VERSION);
   assert.equal(format.source, 'new-session');
 
-  // Change authoritative state, then deliver another turn to the same new session.
-  bus.collaboration.apply(
-    { role: 'lead', context: 'coordination', group_id: group.id },
-    {
-      title: 'second turn item',
-      purpose: 'prove dynamic facts update',
-      standard: 'revision visible',
-      participants: [{ memberId: one.id, role: 'executor' }],
-      note: 'create for dynamic facts',
-    },
-    bus.collaboration.state(group.id).revision,
-    'information-create-item',
-  );
-  const revisionAfterItem = bus.collaboration.state(group.id).revision;
+  // Another turn to the same session keeps identical fixed rules and only
+  // changes the dynamic input.
   await bus.tool(leadEndpoint.id, leadEndpoint.key, 'send', { to: one.id, text: 'second projected task' });
   await until(() => calls.filter(call => call.endpoint.context === 'pair:' + lead.id).length >= 2 && bus.running.size === 0);
   const second = calls.filter(call => call.endpoint.context === 'pair:' + lead.id).at(-1);
   const secondFacts = JSON.parse(second.prompt);
   assert.equal(second.instructions, first.instructions, 'fixed rules must not change per turn');
-  assert.equal(secondFacts.stateRevision, revisionAfterItem);
-  assert.ok(secondFacts.stateRevision > firstFacts.stateRevision);
-  assert.deepEqual(secondFacts.workItems.map(item => item.title), ['second turn item']);
   assert.equal(secondFacts.input.message.text, 'second projected task');
 
-  // A pre-existing native session stays legacy, keeps its id, and sees the old rules/read shape.
+  // A pre-existing native session stays legacy, keeps its id, and sees the old raw shape.
   const legacyEndpoint = bus.store.endpoint(lead.id, 'private');
   bus.store.run('UPDATE endpoints SET session=? WHERE id=?', 'legacy-native-session', legacyEndpoint.id);
   const legacy = bus.store.get('SELECT * FROM endpoints WHERE id=?', legacyEndpoint.id);
@@ -266,7 +139,7 @@ test('new sessions use fixed rules with projected facts; legacy sessions keep th
   assert.equal(legacyFormat.schema_version, 0);
   assert.equal(legacyFormat.source, 'legacy-detected');
   const legacyCall = calls.filter(call => call.endpoint.id === legacy.id).at(-1);
-  assert.match(legacyCall.instructions, /当前有效契约与执行状态：/);
+  assert.match(legacyCall.prompt, /legacy turn/);
   assert.equal(bus.store.get('SELECT session FROM endpoints WHERE id=?', legacy.id).session, 'legacy-native-session');
   const legacyRead = await bus.tool(legacy.id, legacy.key, 'read', {});
   assert.ok(legacyRead.messages.some(message => message.text === 'legacy body'));
@@ -275,44 +148,21 @@ test('new sessions use fixed rules with projected facts; legacy sessions keep th
   assert.ok(newRead.messages.every(message => !Object.hasOwn(message, 'text')));
 });
 
-test('authoritative event pagination reports exact 100-row boundaries correctly', async t => {
+test('message pagination reports the exact 200-row boundary with an explicit cursor', async t => {
   const { bus, group } = fixture(t);
   await until(() => bus.running.size === 0);
-  const [lead, one] = bus.members(group.id);
-  const actor = { role: 'lead', context: 'coordination', group_id: group.id };
-  const create = index => bus.collaboration.apply(
-    actor,
-    {
-      title: `record-${index}`,
-      purpose: 'paging boundary',
-      standard: 'exact cursor',
-      participants: [{ memberId: one.id, role: 'executor' }],
-      note: 'create for boundary test',
-    },
-    bus.collaboration.state(group.id).revision,
-    `record-op-${index}`,
-  );
-  for (let index = 0; index < 100; index += 1) create(index);
-  const exact = bus.collaboration.read(group.id);
-  assert.equal(exact.records.length, 100);
-  assert.equal(exact.recordsHasMore, false);
-  const exactView = projectCollaboration(exact, { budget: 1024 * 1024 });
-  assert.equal(exactView.recordsHasMore, false);
-  assert.equal(exactView.complete, true);
-
-  create(100);
-  const more = bus.collaboration.read(group.id);
-  assert.equal(more.records.length, 100);
-  assert.equal(more.recordsHasMore, true);
-  const moreView = projectCollaboration(more, { budget: 1024 * 1024 });
-  assert.equal(moreView.recordsHasMore, true);
-  assert.equal(moreView.complete, false);
-  assert.equal(moreView.nextAfter, more.records.at(-1).seq);
-
-  const next = bus.collaboration.read(group.id, more.nextAfter);
-  assert.equal(next.records.length, 1);
-  assert.equal(next.recordsHasMore, false);
-  assert.equal(projectCollaboration(next, { budget: 1024 * 1024 }).complete, true);
+  const [lead] = bus.members(group.id);
+  for (let index = 0; index < 201; index += 1) bus.store.append(group.id, 'system', lead.id, 'system', `notice-${index}`);
+  const endpoint = bus.store.endpoint(lead.id, 'coordination');
+  await bus.runEndpoint(endpoint, 'establish session');
+  await until(() => bus.running.size === 0);
+  const first = await bus.tool(endpoint.id, endpoint.key, 'read', { limit: 200 });
+  assert.equal(first.messages.length, 200);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.nextAfter, first.messages.at(-1).seq);
+  const second = await bus.tool(endpoint.id, endpoint.key, 'read', { after: first.nextAfter, limit: 200 });
+  assert.equal(second.messages.length, 1);
+  assert.equal(second.hasMore, false);
 });
 
 test('rules budget overrun fails explicitly before the host runs and is not silently clipped', async t => {
@@ -335,7 +185,7 @@ test('rules budget overrun fails explicitly before the host runs and is not sile
       groupId: group.id,
       endpointId: endpoint.id,
       turnId: 'rules-budget-diagnostic',
-      schemaVersion: 1,
+      schemaVersion: CONTEXT_SCHEMA_VERSION,
       instructions: 'x'.repeat(200),
       fixed: true,
     });
@@ -348,7 +198,7 @@ test('rules budget overrun fails explicitly before the host runs and is not sile
   }
 });
 
-test('bounded message list, database body references, targeted state and measurements work through the tool entry', async t => {
+test('bounded message list, database body references and measurements work through the tool entry', async t => {
   let captured = null;
   const { bus, group, calls } = fixture(t, async context => {
     if (!context.endpoint.context.startsWith('pair:') || captured?.done) {
@@ -373,8 +223,6 @@ test('bounded message list, database body references, targeted state and measure
       offset = page.next;
       if (!page.hasMore) break;
     }
-    const state = await context.onTool('collaboration_read', {});
-    const item = await context.onTool('collaboration_read', { itemId: captured.itemId });
     captured = {
       endpoint,
       turnId: context.turnId,
@@ -383,9 +231,6 @@ test('bounded message list, database body references, targeted state and measure
       second,
       trigger,
       restore,
-      state,
-      item,
-      itemRevision: bus.collaboration.item(captured.itemId, group.id).revision,
       done: true,
     };
     context.onAccepted();
@@ -396,23 +241,10 @@ test('bounded message list, database body references, targeted state and measure
   const leadEndpoint = bus.store.endpoint(lead.id, 'coordination');
   bus.store.append(group.id, lead.id, lead.id, 'note', 'first note');
   bus.store.append(group.id, lead.id, lead.id, 'note', 'second note');
-  const created = bus.collaboration.apply(
-    { role: 'lead', context: 'coordination', group_id: group.id },
-    {
-      title: 'targeted item',
-      purpose: 'targeted read',
-      standard: 'revision matches',
-      participants: [{ memberId: one.id, role: 'executor' }],
-      note: 'create targeted item',
-    },
-    bus.collaboration.state(group.id).revision,
-    'information-targeted-create',
-  ).item;
-  captured = { itemId: created.id };
   const secret = 'A🧪中\n'.repeat(300) + '尾部';
   await bus.tool(leadEndpoint.id, leadEndpoint.key, 'send', { to: one.id, text: secret });
   await until(() => captured?.restore, 'tool entry capture timed out');
-  assert.equal(captured.prompt.contextSchemaVersion, 1);
+  assert.equal(captured.prompt.contextSchemaVersion, CONTEXT_SCHEMA_VERSION);
   assert.equal(captured.first.view, 'bounded');
   assert.equal(captured.first.messages.length, 2);
   assert.equal(captured.first.hasMore, true);
@@ -423,22 +255,14 @@ test('bounded message list, database body references, targeted state and measure
   assert.equal(captured.restore.text, secret);
   assert.equal(captured.restore.pages, Math.ceil(Array.from(secret).length / 7));
   assert.ok(captured.restore.text.includes('🧪'));
-  assert.equal(captured.state.view, 'state');
-  assert.equal(captured.state.goalVersion, 1);
-  assert.ok(captured.state.contract);
-  assert.equal(captured.item.view, 'item');
-  assert.equal(captured.item.item.revision, captured.itemRevision);
-  assert.equal(captured.item.stateRevision, bus.collaboration.state(group.id).revision);
 
   const manifest = bus.informationManifest(captured.turnId);
   assert.ok(manifest.rulesBytes > 0);
   assert.ok(manifest.turnInputBytes > 0);
   assert.ok(manifest.toolResultBytes > 0);
-  assert.ok(manifest.toolCalls >= 4);
+  assert.ok(manifest.toolCalls >= 2);
   assert.equal(manifest.expandCount, captured.restore.pages);
-  assert.deepEqual(manifest.schemaVersions, [1]);
-  assert.ok(manifest.measurements.some(row => row.kind === 'rules' && row.goal_version === 1 && row.contract_version === 1));
-  assert.ok(manifest.measurements.some(row => row.kind === 'turn_input' && row.revision === captured.state.stateRevision));
+  assert.deepEqual(manifest.schemaVersions, [CONTEXT_SCHEMA_VERSION]);
   assert.doesNotMatch(JSON.stringify(manifest.measurements), /A🧪中|尾部/);
 
   // Stale, deleted, cross-team, removed and invalid-range references are explicit errors.
@@ -581,8 +405,8 @@ test('real RPC/MCP entry returns the same bounded projection and keeps authentic
     await server.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  const prep = await rpc(server.socketPath, {
-    op: 'prepare',
+  const group = await rpc(server.socketPath, {
+    op: 'new',
     args: {
       name: 'mcp team',
       workspace: directory,
@@ -590,8 +414,6 @@ test('real RPC/MCP entry returns the same bounded projection and keeps authentic
       members: [{ name: 'one', host: 'fake' }],
     },
   });
-  const proposed = await rpc(server.socketPath, { op: 'propose', id: prep.id, revision: prep.revision, contract: testContract });
-  const group = await rpc(server.socketPath, { op: 'approve_preparation', id: prep.id, revision: proposed.revision, hash: proposed.hash });
   await until(() => server.bus.running.size === 0);
   const [lead, one] = server.bus.members(group.id);
   const snapshot = server.bus.store.endpoint(lead.id, 'coordination');
@@ -599,7 +421,7 @@ test('real RPC/MCP entry returns the same bounded projection and keeps authentic
   await until(() => captures.done, 'MCP capture timed out');
   assert.equal(captures.exchange.call.result.isError, false);
   assert.deepEqual(captures.call, captures.direct);
-  assert.equal(captures.call.schema, 1);
+  assert.equal(captures.call.schema, CONTEXT_SCHEMA_VERSION);
   assert.equal(captures.call.view, 'bounded');
   assert.ok(captures.call.messages.some(message => message.preview.includes('MCP projection')));
   assert.ok(captures.call.messages.every(message => !Object.hasOwn(message, 'text')));
@@ -660,11 +482,9 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
           offset = page.next;
           if (!page.hasMore) break;
         }
-        const state = await context.onTool('team_collaboration_read', { groupId: captures.groupId });
         captures.read = read;
         captures.message = message;
         captures.restored = restored;
-        captures.state = state;
         captures.turnId = context.turnId;
         captures.done = true;
       }
@@ -682,7 +502,7 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
     workspace: directory,
     lead: { name: 'lead', host: 'fake' },
     members: [{ name: 'one', host: 'fake' }],
-  }, testContract);
+  });
   await until(() => bus.running.size === 0);
   await bus.createPanelAgent({
     name: 'Panel Agent',
@@ -704,17 +524,14 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
   });
   captures.messageId = sent.messageId;
   await until(() => captures.done, 'panel projection timed out');
-  assert.equal(captures.read.schema, 1);
+  assert.equal(captures.read.schema, CONTEXT_SCHEMA_VERSION);
   assert.equal(captures.read.view, 'bounded');
   assert.equal(captures.message.complete, false);
   assert.equal(captures.restored, secret);
-  assert.equal(captures.state.schema, 1);
-  assert.equal(captures.state.view, 'state');
-  assert.ok(captures.state.contract);
   const coordination = bus.store.panelSession(taken.controller.id, 'coordination', group.id);
   const panelTools = panelToolsFor('coordination');
   assert.ok(panelTools.find(tool => tool.name === 'team_read').inputSchema.properties.messageId);
-  assert.ok(panelTools.find(tool => tool.name === 'team_collaboration_read').inputSchema.properties.itemId);
+  assert.equal(panelTools.some(tool => tool.name === 'team_collaboration_read'), false);
   await assert.rejects(
     bus.panelTool(coordination.id, 'wrong-key', 'team_read', { groupId: group.id }),
     /来源无效/,
@@ -726,7 +543,7 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
   assert.ok(manifest.expandCount >= 1);
   await bus.runEndpoint(oneEndpoint, 'establish member session for comparison');
   const memberRead = await bus.tool(oneEndpoint.id, oneEndpoint.key, 'read', {});
-  assert.equal(memberRead.schema, 1);
+  assert.equal(memberRead.schema, CONTEXT_SCHEMA_VERSION);
   assert.equal(memberRead.view, 'bounded');
   const memberMessage = memberRead.messages.find(row => row.id === captures.message.id);
   assert.deepEqual(memberMessage, captures.message);
@@ -766,7 +583,7 @@ if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(
     workspace: directory,
     lead: { name: 'lead', host: 'fake' },
     members: [{ name: 'worker', host: 'codex' }],
-  }, testContract);
+  });
   await until(() => bus.running.size === 0);
   const [lead, worker] = bus.members(group.id);
   const leadEndpoint = bus.store.endpoint(lead.id, 'coordination');
@@ -776,7 +593,7 @@ if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(
     .flatMap(text => { try { return [JSON.parse(text)]; } catch { return []; } });
   await until(() => outputs().some(value => value?.view === 'bounded'), 'codex tool output missing');
   const projected = outputs().find(value => value?.view === 'bounded');
-  assert.equal(projected.schema, 1);
+  assert.equal(projected.schema, CONTEXT_SCHEMA_VERSION);
   assert.equal(projected.view, 'bounded');
   assert.ok(projected.messages.some(message => message.preview.includes('Codex dynamic tool')));
   assert.ok(projected.messages.every(message => !Object.hasOwn(message, 'text')));
@@ -787,6 +604,5 @@ if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(
   assert.ok(readTool.inputSchema.properties.messageId);
   assert.ok(readTool.inputSchema.properties.hash);
   assert.equal(readTool.inputSchema.properties.bodyLimit.maximum, 4096);
-  const tools = toolsFor('member');
-  assert.ok(tools.find(tool => tool.name === 'read').inputSchema.properties.itemId);
+  assert.equal(toolsFor('member').some(tool => tool.name === 'collaboration_read'), false);
 });

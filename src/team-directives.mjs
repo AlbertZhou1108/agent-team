@@ -26,10 +26,7 @@ export class TeamDirectives {
           input.group_id, input.recipient, input.id, turnId, text);
         if (existing) continue;
         const reply = s.append(input.group_id, input.recipient, 'user', 'send', text, input.id);
-        const context = s.get('SELECT * FROM message_context WHERE message_id=?', input.id);
-        if (context) s.run('INSERT INTO message_context(message_id,work_item_id,contract_version,goal_id) VALUES(?,?,?,?)', reply.id, context.work_item_id, context.contract_version, context.goal_id);
         s.run(`INSERT INTO ${originTable} VALUES(?,?,?,?,?)`, reply.id, turnId, null, 'framework.final_output', null);
-        s.run('INSERT INTO message_dispositions VALUES(?,?,?,?)', reply.id, 'handled', '最终输出已展示给用户，无需投递给 Agent', new Date().toISOString());
         published.push(reply);
       }
       return published;

@@ -544,8 +544,8 @@ test('manager conversation separates member and manager sides, covers output-onl
     'member-input-1', group.id, one.id, agentId, 'send', 'private input', null, memberCreated);
   bus.store.run('INSERT INTO turn_inputs(turn_id,message_id,ordinal) VALUES(?,?,?)',
     memberTurnId, 'member-input-1', 0);
-  bus.store.run("INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,contract_version,created,ended) VALUES(?,?,?,?,?,?,?,?)",
-    memberTurnId, group.id, memberEndpoint.id, 'completed', '{}', 1, memberCreated, memberCreated);
+  bus.store.run("INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created,ended) VALUES(?,?,?,?,?,?,?)",
+    memberTurnId, group.id, memberEndpoint.id, 'completed', '{}', memberCreated, memberCreated);
   bus.telemetry.record({
     groupId: group.id, executorKind: 'member', executorId: one.id, endpointId: memberEndpoint.id,
     sessionKey: 'member', turnId: memberTurnId, turnKind: 'member', host: 'fake',

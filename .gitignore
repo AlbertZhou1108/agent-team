@@ -9,3 +9,4 @@ research/
 
 # 本地 DSH 工作区指令，不入库
 /AGENTS.md
+.idea/

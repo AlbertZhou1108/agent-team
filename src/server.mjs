@@ -100,11 +100,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         const isDirectiveMutation = request.method === 'POST' && Boolean(directiveMatch);
         const isDirectoryMutation = request.method === 'POST' && url.pathname === '/api/local/directory-picker';
         const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
-        const goalMutation = request.method === 'POST' && (
-          /^\/api\/teams\/[^/]+\/goal-drafts\/[^/]+\/(?:confirm|delete)$/.test(url.pathname)
-          || /^\/api\/teams\/[^/]+\/goals\/[^/]+\/(?:cancel|withdraw-finish|terminate)$/.test(url.pathname)
-          || /^\/api\/teams\/[^/]+\/(?:archive|restore|goal-queue\/reorder)$/.test(url.pathname)
-        );
+        const teamStateMutation = request.method === 'POST' && /^\/api\/teams\/[^/]+\/(?:archive|restore)$/.test(url.pathname);
         const isPanelMutation = request.method === 'POST' && (
           url.pathname === '/api/panel-agent'
           || url.pathname === '/api/panel-agent/update'
@@ -112,10 +108,9 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           || url.pathname === '/api/panel-agent/stop'
           || url.pathname === '/api/panel-agent/resolve-runtime'
           || /^\/api\/panel-actions\/[^/]+\/decide$/.test(url.pathname)
-          || /^\/api\/preparations\/[^/]+\/approve$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
         );
-        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !goalMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !teamStateMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
         if (request.method !== 'GET' && request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
@@ -203,9 +198,12 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });
-          } else if (goalMutation) {
+          } else if (teamStateMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
-            value = await handleGoalMutation(bus, url.pathname, await readJsonBody(request));
+            await readJsonBody(request);
+            value = url.pathname.endsWith('/archive')
+              ? await bus.archiveGroup(decodeURIComponent(url.pathname.split('/')[3]))
+              : bus.restoreGroup(decodeURIComponent(url.pathname.split('/')[3]));
           } else if (isPanelMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
@@ -215,16 +213,9 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             else if (url.pathname === '/api/panel-agent/stop') value = await bus.stopPanel();
             else if (url.pathname === '/api/panel-agent/resolve-runtime') value = bus.resolvePanelRuntime(body.turnId, body.reason);
             else {
-              const preparationMatch = url.pathname.match(/^\/api\/preparations\/([^/]+)\/approve$/);
               const teamMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/(takeover|handback)$/);
               const actionMatch = url.pathname.match(/^\/api\/panel-actions\/([^/]+)\/decide$/);
-              if (preparationMatch) {
-                value = bus.confirmPreparation(
-                  decodeURIComponent(preparationMatch[1]),
-                  body.revision,
-                  body.hash,
-                );
-              } else if (teamMatch) {
+              if (teamMatch) {
                 const groupId = decodeURIComponent(teamMatch[1]);
                 value = teamMatch[2] === 'takeover'
                   ? bus.takeoverTeam(groupId, body.revision)
@@ -272,10 +263,8 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
           else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
-          else if (/^\/api\/teams\/[^/]+\/goals$/.test(url.pathname)) {
-            value = bus.teamGoals(decodeURIComponent(url.pathname.split('/')[3]));
-          }
-          else if (url.pathname === '/api/collaboration') value = bus.collaboration.read(url.searchParams.get('group'), cursor(url));
+          else if (url.pathname === '/api/collaboration') value = bus.groupSummary(url.searchParams.get('group'));
+          else if (url.pathname === '/api/charter') value = bus.store.group(url.searchParams.get('group')).charter ?? null;
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);
             if (url.searchParams.get('latest') === '1') {
@@ -339,57 +328,6 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
 
 function cursor(url) { const value = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(value) || value < 0) throw new Error('游标无效'); return value; }
 
-async function handleGoalMutation(bus, pathname, body) {
-  const draft = pathname.match(/^\/api\/teams\/([^/]+)\/goal-drafts\/([^/]+)\/(confirm|delete)$/);
-  if (draft) {
-    const teamId = decodeURIComponent(draft[1]);
-    const draftId = decodeURIComponent(draft[2]);
-    const type = draft[3] === 'confirm' ? 'draft.confirm' : 'draft.delete';
-    return bus.applyTeamGoalCommand(
-      teamId,
-      {
-        type,
-        draftId,
-        draftRevision: body.draftRevision,
-        ...(type === 'draft.confirm' ? { hash: body.hash } : {}),
-      },
-      body.revision,
-      body.operationId,
-    );
-  }
-  const goal = pathname.match(/^\/api\/teams\/([^/]+)\/goals\/([^/]+)\/(cancel|withdraw-finish|terminate)$/);
-  if (goal) {
-    const type = goal[3] === 'cancel'
-      ? 'queue.cancel'
-      : goal[3] === 'withdraw-finish'
-        ? 'goal.finish-withdraw'
-        : 'goal.terminate';
-    return bus.applyTeamGoalCommand(
-      decodeURIComponent(goal[1]),
-      { type, goalId: decodeURIComponent(goal[2]), reason: body.reason },
-      body.revision,
-      body.operationId,
-    );
-  }
-  const team = pathname.match(/^\/api\/teams\/([^/]+)\/(archive|restore|goal-queue\/reorder)$/);
-  if (team) {
-    const type = team[2] === 'archive'
-      ? 'team.archive'
-      : team[2] === 'restore'
-        ? 'team.restore'
-        : 'queue.reorder';
-    return bus.applyTeamGoalCommand(
-      decodeURIComponent(team[1]),
-      type === 'queue.reorder'
-        ? { type, orderedGoalIds: body.orderedGoalIds }
-        : { type },
-      body.revision,
-      body.operationId,
-    );
-  }
-  throw new Error('未知Goal操作');
-}
-
 function readJsonBody(request, limit = 65536) {
   return new Promise((resolve, reject) => {
     let size = 0, data = '';
@@ -435,30 +373,12 @@ export async function handleRpc(bus, request) {
   if (request.op === 'groups') return bus.store.all('SELECT * FROM groups ORDER BY created');
   if (request.op === 'model_catalog') return bus.modelCatalog({ refresh: request.refresh === true });
   if (request.op === 'new') return bus.createGroup(request.args);
-  if (request.op === 'prepare') return bus.prepareGroup(request.args);
-  if (request.op === 'preparation') return bus.collaboration.preparation(request.id);
-  if (request.op === 'propose') return bus.collaboration.propose(request.id, request.contract, request.revision);
-  if (request.op === 'preparation_chat') return bus.preparationTurn(request.id, request.text);
-  if (request.op === 'approve_preparation') return bus.confirmPreparation(request.id, request.revision, request.hash);
-  if (request.op === 'collaboration') return bus.collaboration.read(request.group, request.after ?? 0);
-  if (request.op === 'team_goals') return bus.teamGoals(request.group);
-  if (request.op === 'goal_command') {
-    return bus.applyTeamGoalCommand(
-      request.group,
-      request.command,
-      request.revision,
-      request.operationId,
-    );
-  }
-  if (request.op === 'decide') return bus.decideRequest(request.group, request.id, request.approved === true, request.version);
+  if (request.op === 'collaboration') return bus.groupSummary(request.group);
+  if (request.op === 'charter') return bus.store.group(request.group).charter ?? null;
   if (request.op === 'directive') return bus.directive(request.group, request.text);
-  if (request.op === 'terminate') return bus.terminate(request.group, request.reason);
-  if (request.op === 'reopen') {
-    bus.collaboration.reopen(request.group, request.reason);
-    bus.lifecycle.syncLegacyTeam(request.group);
-    return bus.collaboration.read(request.group);
-  }
-  if (request.op === 'resolve_runtime') { bus.collaboration.resolveRuntime(request.group, request.turn, request.reason); bus.reconcile(request.group); return bus.collaboration.read(request.group); }
+  if (request.op === 'archive') return bus.archiveGroup(request.group);
+  if (request.op === 'restore') return bus.restoreGroup(request.group);
+  if (request.op === 'resolve_runtime') { bus.collaboration.resolveRuntime(request.group, request.turn, request.reason); bus.pump(); return bus.groupSummary(request.group); }
   if (request.op === 'reset_session') return bus.resetSession(request.endpoint, request.reason);
   if (request.op === 'chat') {
     if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 48000) throw new Error('私聊输入无效');

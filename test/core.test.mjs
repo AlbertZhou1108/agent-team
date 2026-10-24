@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
 import { resolvePanelFile, startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
-import { confirmedGroup, testContract } from './helpers.mjs';
+import { confirmedGroup } from './helpers.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 2500; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
@@ -152,9 +152,7 @@ test('HTTP panel needs no key or cookie, rejects DNS rebinding and paginates rec
   assert.equal((await fetch(base + '/api/snapshot', { headers, method: 'POST' })).status, 403);
   const rebinding = await new Promise((resolve, reject) => { const request = http.get(base + '/api/snapshot', { headers: { ...headers, host: 'attacker.example' } }, response => { response.resume(); resolve(response.statusCode); }); request.on('error', reject); });
   assert.equal(rebinding, 403);
-  const prep = await rpc(server.socketPath, { op: 'prepare', args: { name: 'panel', workspace: directory, lead: { name: 'lead', host: 'fake' } } });
-  const proposed = await rpc(server.socketPath, { op: 'propose', id: prep.id, revision: 0, contract: testContract });
-  const group = await rpc(server.socketPath, { op: 'approve_preparation', id: prep.id, revision: proposed.revision, hash: proposed.hash });
+  const group = await rpc(server.socketPath, { op: 'new', args: { name: 'panel', workspace: directory, lead: { name: 'lead', host: 'fake' } } });
   for (let i = 0; i < 205; i++) server.bus.store.append(group.id, 'system', group.lead, 'system', `notice-${i}`);
   const first = await (await fetch(base + `/api/messages?group=${group.id}`, { headers })).json(); assert.equal(first.length, 200);
   const second = await (await fetch(base + `/api/messages?group=${group.id}&after=${first.at(-1).seq}`, { headers })).json(); assert.equal(second.length, 5);
@@ -295,7 +293,7 @@ test('legacy database migrates additively and remains unknown across reopen', as
   const directory = mkdtempSync(join(tmpdir(), 'agent-migration-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   let store = new Store(directory);
-  store.run('INSERT INTO groups VALUES(?,?,?,?,?)', 'g', 'legacy', directory, null, 'old');
+  store.run('INSERT INTO groups(id,name,workspace,lead,created) VALUES(?,?,?,?,?)', 'g', 'legacy', directory, null, 'old');
   store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', 'm', 'g', 'old', 'fake', 'lead');
   const endpoint = store.endpoint('m', 'profile');
   const message = store.append('g', 'm', 'm', 'note', 'legacy-text');

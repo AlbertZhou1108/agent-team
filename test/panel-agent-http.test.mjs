@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
-import { testContract } from './helpers.mjs';
 
 async function until(fn) {
   for (let index = 0; index < 400; index++) {
@@ -52,14 +51,12 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
     await server.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  let preparation = server.bus.prepareGroup({
+  const group = server.bus.createGroup({
     name: 'legacy team',
     workspace: directory,
     lead: { name: 'lead', host: 'fake' },
     members: [{ name: 'worker', host: 'fake' }],
   });
-  preparation = server.bus.collaboration.propose(preparation.id, testContract, preparation.revision);
-  const group = server.bus.confirmPreparation(preparation.id, preparation.revision, preparation.hash);
   const base = new URL(server.url).origin;
 
   const empty = await (await fetch(base + '/api/panel-agent')).json();
@@ -94,58 +91,18 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   assert.equal(server.bus.store.all('SELECT * FROM messages WHERE text=?', '总结当前团队').length, 0);
 
   const privateSession = server.bus.store.panelSession(created.agent.id, 'private');
-  let panelPreparation = await server.bus.panelTool(
+  const approvedTeam = await server.bus.panelTool(
     privateSession.id,
     privateSession.key,
-    'team_preparation_create',
+    'team_create',
     {
       name: 'panel-created over HTTP',
       workspace: directory,
       members: 'created-worker=fake',
     },
   );
-  panelPreparation = await server.bus.panelTool(
-    privateSession.id,
-    privateSession.key,
-    'contract_propose',
-    {
-      preparationId: panelPreparation.id,
-      contract: JSON.stringify(testContract),
-      revision: panelPreparation.revision,
-    },
-  );
-  panelPreparation = await server.bus.panelTool(
-    privateSession.id,
-    privateSession.key,
-    'team_plan_update',
-    {
-      preparationId: panelPreparation.id,
-      roles: JSON.stringify([{
-        name: 'created-worker',
-        model_provider: 'fake-provider',
-        model: 'fake-model',
-        reasoning_effort: 'low',
-      }]),
-      revision: panelPreparation.revision,
-    },
-  );
-  const approvedTeamResponse = await fetch(base + `/api/preparations/${panelPreparation.id}/approve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ revision: panelPreparation.revision, hash: panelPreparation.hash }),
-  });
-  assert.equal(approvedTeamResponse.status, 200);
-  const approvedTeam = await approvedTeamResponse.json();
   assert.equal(approvedTeam.lead, null);
   assert.equal(server.bus.panelTeamRelation(approvedTeam.id), 'main');
-  const continuationId = `continuation:${panelPreparation.id}:${panelPreparation.revision}:${panelPreparation.hash}`;
-  await until(() => server.bus.store.get(
-    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
-    continuationId,
-  )?.delivered_turn_id);
-  const afterApproval = await (await fetch(base + '/api/panel-agent')).json();
-  assert.equal(afterApproval.conversation.at(-1).role, 'assistant');
-  assert.equal(afterApproval.conversation.at(-1).active_team_id, approvedTeam.id);
 
   const takeoverRequest = await server.bus.panelTool(
     privateSession.id,

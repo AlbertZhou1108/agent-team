@@ -22,8 +22,7 @@ export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
     const tokenBatches=batches.filter(b=>b.metrics.totalTokens.value!==null).length;
     const unknown=bus.collaboration.unknown(group.id).length+bus.panelUnknown(group.id).length;
     const running=liveRuns.filter(r=>r.endpoint.group_id===group.id).length;
-    const state=bus.collaboration.read(group.id);
-    const status=group.state==='archived'?'archived':unknown||state.state.outcome==='blocked'?'blocked':running?'running':state.requests.some(r=>r.state==='pending')?'confirmation':state.state.phase==='closed'?'completed':'waiting';
+    const status=group.state==='archived'?'archived':unknown?'blocked':running?'running':'waiting';
     return {id:group.id,name:group.name,status,batchCount:batches.length,expectedTurns:expected,tokenBatches,metrics:bus.telemetry._sumBatches(batches)};
   });
   const expectedTurns=teams.reduce((n,t)=>n+t.expectedTurns,0);
