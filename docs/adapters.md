@@ -36,6 +36,7 @@ export function createHost(options) {
 | onNativeTurn(ref) | 记录宿主明确暴露的原生回合引用 |
 | onModel(observation) | 记录本轮请求、会话或消息报告的模型及可验证的思考强度；同一模型发生变化时再次调用 |
 | onSelection(selection) | 报告可复用的宿主选择名称和核实强度；用于主 Agent继承，不能使用代理实际模型覆盖选择名称 |
+| onReasoningDelta(text, metadata) | 可选；转发宿主已产生的思考过程增量（Claude `thinking_delta`、Codex `item/reasoning/textDelta`、DSH `llm/stream` 的 `reasoning-delta`）。只表示流式观察，不能替代历史中的思考记录；没有思考增量的宿主仍可正常完成回合 |
 | onPolicy(observation) | 记录请求策略、实际宿主机制、覆盖范围和验证状态 |
 | onEvent(event) | 观察到的真实宿主事件；用户私聊的事件会由总线排除 |
 | onAccepted() | 已验证宿主接受输入时调用；不表示工作或回合完成 |
@@ -54,6 +55,8 @@ Claude/DSH 使用框架生成的 MCP 启动配置。MCP 端点通过环境接收
 适配器必须报告宿主真实会话、回合结束和可核实的中断结果。内存中已无运行 Promise 不能证明进程停止；不确定状态应抛错并交由 Bus 标记为 `unknown`，不能伪造完成。
 
 文本输出使用可选 `onTextDelta(text, metadata)` 回调。它只表示宿主已经产生的可见文本增量，不能替代 `run()` 的最终返回值；Bus 以最终文本校准并持久化消息。Codex 映射 `item/agentMessage/delta`；Claude 在 `stream-json` 中启用 `--include-partial-messages` 并映射 `content_block_delta/text_delta`；DSH 通过 invocation-only observer 拦截 `llm/stream`，只转发普通对话的 `text-delta`，并过滤 `session-title` / `compaction`，最后对 committed `text` 只补发尚未转发的后缀。没有增量的适配器仍可正常完成回合。
+
+思考增量沿用同一 observer 通道：DSH observer 将 `llm/stream` 的 `reasoning-delta` 映射为 `framework.reasoning.delta` 帧并转发（2026-10 起的产品决定，覆盖早期"模型思考视为私有"的过滤；headless `thinking` 整块行不进 `onReasoningDelta`，只随原始事件落库供 trace 还原，避免与流式重复）。Bus 将思考增量累积进流记录的 `reasoning` 字段，经 panel/team 流以 `reasoning-delta` 事件实时发布，前端在流式气泡内以可折叠"思考过程"区展示。团队 reply 流覆盖协调会话响应用户输入的回合与全部双人会话回合（双人流的 `pairKey` 为双方成员、`recipientName` 为对端；最终文本不经 `publishOutput` 持久化，完成事件不带 messageId，由前端在消息落地后移除预览）。
 
 `sessionKey({policy})` 是可选能力，用于声明物理会话域。返回相同 key 表示同一宿主 session 可复用；不同 key 会持久绑定到不同 session/thread。Claude、DSH 默认复用 `default`，Codex 对 `communication` 与 `project` 返回不同 key。
 

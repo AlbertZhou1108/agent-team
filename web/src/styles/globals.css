@@ -1099,3 +1099,19 @@ button {
   align-items: center;
 }
 .record-panel-scroll .trace-step { padding: 0; }
+
+.loading-dots { display: inline-flex; align-items: center; gap: 4px; }
+.loading-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.25;
+  animation: loading-dot 1.2s ease-in-out infinite;
+}
+.loading-dots i:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes loading-dot {
+  0%, 70%, 100% { opacity: 0.25; }
+  35% { opacity: 1; }
+}

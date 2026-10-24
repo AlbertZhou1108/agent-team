@@ -43,6 +43,8 @@ function streamingHost(control) {
       context.onSession(context.endpoint.session ?? 'fake-session');
       context.onAccepted();
       if (context.endpoint.context === 'profile') return 'ready';
+      context.onReasoningDelta('想', { part: 'r1' });
+      context.onReasoningDelta('法', { part: 'r2' });
       context.onTextDelta('你', { part: 1 });
       context.onTextDelta('好', { part: 2 });
       await new Promise(resolve => {
@@ -87,11 +89,18 @@ test('Panel streaming state accumulates deltas and is replaced by the durable fi
   const active = bus.panelAgentState().streaming[0];
   assert.equal(active.context, 'private');
   assert.equal(active.text, '你好');
+  assert.equal(active.reasoning, '想法');
   assert.equal(events.filter(event => event.type === 'delta').length, 2);
   assert.ok(
     events
       .filter(event => event.type === 'delta')
       .every(event => event.stream.text === '' && event.delta.length > 0),
+  );
+  assert.equal(events.filter(event => event.type === 'reasoning-delta').length, 2);
+  assert.ok(
+    events
+      .filter(event => event.type === 'reasoning-delta')
+      .every(event => event.stream.reasoning === '' && event.delta.length > 0),
   );
 
   control.release();
@@ -102,6 +111,7 @@ test('Panel streaming state accumulates deltas and is replaced by the durable fi
   assert.equal(bus.panelAgentState().conversation.at(-1).text, '你好');
   const complete = events.find(event => event.type === 'complete');
   assert.equal(complete.stream.text, '你好');
+  assert.equal(complete.stream.reasoning, '想法');
 });
 
 test('Panel SSE sends live deltas and completion over the local event stream', async t => {
@@ -144,6 +154,7 @@ test('Panel SSE sends live deltas and completion over the local event stream', a
     body: JSON.stringify({ text: 'live reply' }),
     signal: abort.signal,
   });
+  await readUntil(/"type":"reasoning-delta".*"delta":"想"/);
   await readUntil(/"type":"delta".*"text":"".*"delta":"你"/);
   control.release();
   const response = await pending;
@@ -204,6 +215,7 @@ test('team SSE sends directive deltas before the durable team reply', async t =>
     }),
     signal: abort.signal,
   });
+  await readUntil(/"type":"reasoning-delta".*"delta":"想"/);
   await readUntil(/"type":"delta".*"delta":"你"/);
   const lateEvents = await fetch(
     `${base}/api/teams/${group.id}/events`,

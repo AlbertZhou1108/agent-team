@@ -6,6 +6,7 @@ import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
+import ReasoningBlock from '@/components/ai-elements/ReasoningBlock.vue';
 import { Badge } from '@/components/ui/badge';
 import type { TeamDirectiveReceipt, TeamStream } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
@@ -139,17 +140,18 @@ const messageIds = computed(() => [
       </template>
     </div>
     <div
-      v-for="{ message, pending } in streamingViews"
+      v-for="{ message, pending, reasoning } in streamingViews"
       :key="message.id"
       class="chat-message"
       :data-message-id="message.id"
       aria-live="polite"
     >
-      <AgentMessage :message="message" />
-      <p v-if="pending" class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-        <LoaderCircle class="size-3.5 animate-spin" />
-        正在生成
-      </p>
+      <ReasoningBlock
+        :reasoning="reasoning"
+        :running="pending && !message.text"
+        class="mb-2"
+      />
+      <AgentMessage :message="message" :pending="pending" />
     </div>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
     <PanelState v-else-if="!filtered.length && !streamingMessages.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />

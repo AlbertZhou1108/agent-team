@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/empty';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
+import ReasoningBlock from '@/components/ai-elements/ReasoningBlock.vue';
 import {
   Trace,
   TraceDescription,
@@ -64,7 +65,7 @@ const streamingMessage = computed<PanelMessage | null>(() => {
   const stream = props.streaming;
   if (
     !stream ||
-    !stream.text ||
+    (!stream.text && !stream.reasoning) ||
     stream.activeTeamId !== (activeTeamId.value || null)
   )
     return null;
@@ -86,6 +87,9 @@ const visibleMessageIds = computed(() => [
     ? ['panel-agent-running']
     : []),
 ]);
+const reasoningRunning = computed(
+  () => Boolean(props.streaming) && !props.streaming?.text,
+);
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
   '有哪些团队正在等待我的确认？',
@@ -166,7 +170,16 @@ const suggestions = [
       :data-message-id="streamingMessage.id"
       aria-live="polite"
     >
-      <PanelAgentMessage :message="streamingMessage" :teams="teams" />
+      <ReasoningBlock
+        :reasoning="streaming?.reasoning"
+        :running="reasoningRunning"
+        class="mb-2"
+      />
+      <PanelAgentMessage
+        :message="streamingMessage"
+        :teams="teams"
+        :pending="!streamingMessage.text"
+      />
     </div>
 
     <div

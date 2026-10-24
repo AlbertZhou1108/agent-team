@@ -950,6 +950,7 @@ export class Bus extends EventEmitter {
       context: session.context,
       activeTeamId,
       text: '',
+      reasoning: '',
       created: now,
       updatedAt: now,
     };
@@ -969,6 +970,7 @@ export class Bus extends EventEmitter {
           context: session.context,
           turnId,
           text: '',
+          reasoning: '',
           created: now,
           updatedAt: now,
         }
@@ -1102,6 +1104,32 @@ export class Bus extends EventEmitter {
         this.publishPanelStream({
           type: 'delta',
           stream: { ...current, text: '' },
+          delta,
+          metadata,
+        });
+      },
+      onReasoningDelta: (delta, metadata = {}) => {
+        if (typeof delta !== 'string' || !delta) return;
+        const current = this.panelStreams.get(turnId);
+        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
+        current.reasoning += delta;
+        current.updatedAt = new Date().toISOString();
+        if (teamStream) {
+          const teamCurrent = this.teamStreams.get(turnId);
+          if (teamCurrent) {
+            teamCurrent.reasoning = current.reasoning;
+            teamCurrent.updatedAt = current.updatedAt;
+            this.publishTeamStream({
+              type: 'reasoning-delta',
+              stream: { ...teamCurrent, text: '', reasoning: '' },
+              delta,
+              metadata,
+            });
+          }
+        }
+        this.publishPanelStream({
+          type: 'reasoning-delta',
+          stream: { ...current, text: '', reasoning: '' },
           delta,
           metadata,
         });
@@ -1934,20 +1962,25 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
       new Date().toISOString(),
     );
     const live = { endpoint: effectiveEndpoint, abort, turnId, done: null };
-    const teamStream = endpoint.context === 'coordination' && inputs.some(message => message.sender === 'user')
+    const pairPeerId = endpoint.context.startsWith('pair:') ? endpoint.context.slice(5) : null;
+    const pairPeerName = pairPeerId
+      ? this.store.get('SELECT name FROM members WHERE id=?', pairPeerId)?.name ?? pairPeerId
+      : null;
+    const teamStream = (endpoint.context === 'coordination' && inputs.some(message => message.sender === 'user')) || pairPeerId
       ? {
           id: turnId,
           groupId: group.id,
           endpointId: endpoint.id,
           memberId: member.id,
           memberName: member.name,
-          recipientName: '用户',
-          pairKey: '',
+          recipientName: pairPeerId ? pairPeerName : '用户',
+          pairKey: pairPeerId ? [member.id, pairPeerId].sort().join(':') : '',
           kind: 'reply',
           host: member.host,
           context: endpoint.context,
           turnId,
           text: '',
+          reasoning: '',
           created: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
@@ -2040,6 +2073,19 @@ send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补�
         this.publishTeamStream({
           type: 'delta',
           stream: { ...current, text: '' },
+          delta,
+          metadata,
+        });
+      },
+      onReasoningDelta: (delta, metadata = {}) => {
+        if (!teamStream || typeof delta !== 'string' || !delta) return;
+        const current = this.teamStreams.get(turnId);
+        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
+        current.reasoning += delta;
+        current.updatedAt = new Date().toISOString();
+        this.publishTeamStream({
+          type: 'reasoning-delta',
+          stream: { ...current, text: '', reasoning: '' },
           delta,
           metadata,
         });

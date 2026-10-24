@@ -63,6 +63,10 @@ export const usePreferencesStore = defineStore('preferences', {
       this.showReasoning = !this.showReasoning;
       this.persist();
     },
+    setShowReasoning(value: boolean) {
+      this.showReasoning = value;
+      this.persist();
+    },
     toggleRawPayloads() {
       this.showRawPayloads = !this.showRawPayloads;
       this.persist();

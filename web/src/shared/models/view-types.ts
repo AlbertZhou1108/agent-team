@@ -40,6 +40,7 @@ export interface MessageView {
   senderName: string;
   recipientName: string;
   senderIsLead: boolean;
+  senderIsUser: boolean;
   kind: 'send' | 'note' | 'system';
   text: string;
   createdAt: string;

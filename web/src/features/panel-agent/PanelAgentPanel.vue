@@ -89,7 +89,7 @@ const privateStreaming = computed(
 );
 
 function acceptPanelStream(payload: {
-  type: 'snapshot' | 'start' | 'delta' | 'complete' | 'cancelled' | 'error';
+  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'complete' | 'cancelled' | 'error';
   stream?: PanelStream;
   streams?: PanelStream[];
   delta?: string;
@@ -100,14 +100,21 @@ function acceptPanelStream(payload: {
     return;
   }
   if (payload.stream?.context !== 'private') return;
+  const sameTurn = streamedReply.value?.turnId === payload.stream.turnId;
   if (payload.type === 'delta' && typeof payload.delta === 'string') {
-    const previous =
-      streamedReply.value?.turnId === payload.stream.turnId
-        ? streamedReply.value.text
-        : '';
     streamedReply.value = {
       ...payload.stream,
-      text: previous + payload.delta,
+      text: (sameTurn ? streamedReply.value?.text ?? '' : '') + payload.delta,
+      reasoning: sameTurn ? streamedReply.value?.reasoning ?? '' : '',
+    };
+    return;
+  }
+  if (payload.type === 'reasoning-delta' && typeof payload.delta === 'string') {
+    streamedReply.value = {
+      ...payload.stream,
+      text: sameTurn ? streamedReply.value?.text ?? '' : '',
+      reasoning:
+        (sameTurn ? streamedReply.value?.reasoning ?? '' : '') + payload.delta,
     };
     return;
   }

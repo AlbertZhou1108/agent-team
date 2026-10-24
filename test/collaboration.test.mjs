@@ -40,3 +40,39 @@ test('main coordination serializes and batches reports from distinct members in 
   assert.deepEqual([input.message.sender, ...input.additionalMessages.map(m => m.sender)], [members[2].id, members[1].id]);
   releases.shift()(); await until(() => !bus.running.size); await tick();
 });
+
+test('pair turns stream reasoning and text under the pair key', async t => {
+  const { bus, members } = await fixture(t, async c => {
+    c.onAccepted();
+    c.onReasoningDelta('想', { part: 1 });
+    c.onReasoningDelta('法', { part: 2 });
+    c.onTextDelta('做', { part: 3 });
+    c.onTextDelta('完', { part: 4 });
+    return '做完';
+  });
+  const events = [];
+  bus.on('team-stream', event => events.push(event));
+  const sender = members[1];
+  const receiver = members[2];
+  const endpoint = bus.store.endpoint(sender.id, `pair:${receiver.id}`, receiver.id);
+  await bus.tool(endpoint.id, endpoint.key, 'send', { to: receiver.id, text: '你好' });
+  await until(() => !bus.running.size);
+
+  const start = events.find(event => event.type === 'start');
+  assert.equal(start.stream.memberName, receiver.name);
+  assert.equal(start.stream.context, `pair:${sender.id}`);
+  assert.equal(start.stream.recipientName, sender.name);
+  assert.equal(start.stream.pairKey, [sender.id, receiver.id].sort().join(':'));
+  assert.deepEqual(
+    events.filter(event => event.type === 'reasoning-delta').map(event => event.delta),
+    ['想', '法'],
+  );
+  assert.deepEqual(
+    events.filter(event => event.type === 'delta').map(event => event.delta),
+    ['做', '完'],
+  );
+  const complete = events.find(event => event.type === 'complete');
+  assert.equal(complete.stream.text, '做完');
+  assert.equal(complete.stream.reasoning, '想法');
+  assert.equal(complete.stream.messageId, undefined);
+});

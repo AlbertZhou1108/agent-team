@@ -29,6 +29,7 @@ export function toMessageViews(
     recipientName: memberName(members, row.recipient, actors),
     senderIsLead: row.sender === controllerId
       || members.find(member => member.id === row.sender)?.role === 'lead',
+    senderIsUser: row.sender === 'user',
     kind: row.kind,
     text: row.text,
     createdAt: row.created,
@@ -49,7 +50,7 @@ export function toStreamMessageViews(
   const persisted = new Set(messages.map(message => message.id));
   return streams
     .filter(stream => (
-      stream.text
+      (stream.text || stream.reasoning)
       && (!selectedPair || stream.pairKey === selectedPair)
       && (!stream.messageId || !persisted.has(stream.messageId))
     ))
@@ -63,10 +64,12 @@ export function toStreamMessageViews(
         senderName: stream.memberName,
         recipientName: stream.recipientName,
         senderIsLead: stream.memberId === controllerId,
+        senderIsUser: false,
         kind: stream.messageKind ?? ('send' as const),
         text: stream.text,
         createdAt: stream.created,
       } satisfies MessageView,
       pending: stream.phase !== 'complete' || !stream.messageId,
+      reasoning: stream.reasoning,
     }));
 }

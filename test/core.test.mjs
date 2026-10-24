@@ -368,6 +368,8 @@ const transcript = [
 ];
 writeFileSync(join(project, sessionId + '.jsonl'), transcript.map(JSON.stringify).join('\\n') + '\\n');
 console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId, model: 'claude-alias' }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '想' } } }));
+console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '法' } } }));
 console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'do' } } }));
 console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ne' } } }));
 console.log(JSON.stringify({ type: 'stream_event', session_id: sessionId, event: { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'tool-1', name: 'send', input: {} } } }));
@@ -379,7 +381,7 @@ console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: fa
   chmodSync(fake, 0o700);
   process.env.AGENT_TEST_CLAUDE_CONFIG = configDirectory;
   t.after(() => { delete process.env.AGENT_TEST_CLAUDE_CONFIG; rmSync(directory, { recursive: true, force: true }); });
-  const observations = [], sessions = [], deltas = [], toolDeltas = [];
+  const observations = [], sessions = [], deltas = [], toolDeltas = [], reasonings = [];
   const host = createClaudeHost({
     directory, socketPath: join(directory, 'bus.sock'), command: fake, model: 'opus',
     reasoningEffort: 'low', configDirectory,
@@ -391,11 +393,13 @@ console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: fa
     onSession: value => sessions.push(value), onAccepted: () => {},
     onModel: value => observations.push(value), onEvent: () => {},
     onTextDelta: text => deltas.push(text),
+    onReasoningDelta: text => reasonings.push(text),
     onToolCallDelta: delta => toolDeltas.push(delta),
     onNativeTurn: () => {}, onTool: async () => ({}),
   });
   assert.equal(result, 'done');
   assert.deepEqual(deltas, ['do', 'ne']);
+  assert.deepEqual(reasonings, ['想', '法']);
   assert.deepEqual(
     toolDeltas.map(delta => delta.argumentsDelta),
     ['', '{"to":"peer","text":"hel', 'lo"}'],

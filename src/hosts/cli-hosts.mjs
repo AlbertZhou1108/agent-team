@@ -196,6 +196,15 @@ export function createClaudeHost({
           });
         }
         if (row.type === 'stream_event'
+          && row.event?.type === 'content_block_delta'
+          && row.event?.delta?.type === 'thinking_delta'
+          && typeof row.event.delta.thinking === 'string') {
+          context.onReasoningDelta?.(row.event.delta.thinking, {
+            requestId: row.uuid ?? null,
+            blockIndex: row.event.index ?? null,
+          });
+        }
+        if (row.type === 'stream_event'
           && row.event?.type === 'content_block_start'
           && row.event?.content_block?.type === 'tool_use') {
           const index = row.event.index;
@@ -403,6 +412,12 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         if (typeof delta === 'string' && delta) {
           streamedText += delta;
           context.onTextDelta?.(delta, {
+            nativeTurnId: row.turn == null ? null : String(row.turn),
+            step: row.step == null ? null : String(row.step),
+          });
+        }
+        if (row.type === 'framework.reasoning.delta' && typeof row.text === 'string' && row.text) {
+          context.onReasoningDelta?.(row.text, {
             nativeTurnId: row.turn == null ? null : String(row.turn),
             step: row.step == null ? null : String(row.step),
           });

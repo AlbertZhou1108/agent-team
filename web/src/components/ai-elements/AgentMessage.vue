@@ -18,8 +18,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import ExpandableText from './ExpandableText.vue';
+import LoadingDots from './LoadingDots.vue';
 
-const props = defineProps<{ message: MessageView }>();
+const props = defineProps<{ message: MessageView; pending?: boolean }>();
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 
 const icon = computed(() => {
@@ -43,7 +44,7 @@ const time = computed(() =>
       cn(
         'message-row',
         message.kind === 'send'
-          ? message.senderIsLead
+          ? message.senderIsUser
             ? 'message-row-right'
             : 'message-row-left'
           : 'message-row-notice',
@@ -54,13 +55,13 @@ const time = computed(() =>
       <AvatarFallback>{{ message.senderName.slice(0, 1) }}</AvatarFallback>
     </Avatar>
     <Bubble
-      :align="message.kind === 'send' && message.senderIsLead ? 'end' : 'start'"
+      :align="message.kind === 'send' && message.senderIsUser ? 'end' : 'start'"
       :variant="
         message.kind === 'system'
           ? 'outline'
           : message.kind === 'note'
             ? 'outline'
-            : message.senderIsLead
+            : message.senderIsUser || message.senderIsLead
               ? 'secondary'
               : 'ghost'
       "
@@ -120,9 +121,11 @@ const time = computed(() =>
           </DropdownMenu>
         </div>
         <ExpandableText
+          v-if="message.text || !props.pending"
           class="message-body text-sm leading-7"
           :text="message.text"
         />
+        <LoadingDots v-else class="text-muted-foreground" />
       </BubbleContent>
     </Bubble>
   </div>

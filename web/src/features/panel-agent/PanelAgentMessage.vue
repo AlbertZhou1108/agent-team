@@ -17,6 +17,7 @@ import type { PanelTeam } from './types';
 const props = defineProps<{
   message: PanelMessage;
   teams: PanelTeam[];
+  pending?: boolean;
 }>();
 
 const { copy, copied } = useClipboard({ copiedDuring: 1500, legacy: true });
@@ -35,7 +36,7 @@ const time = computed(() =>
 </script>
 
 <template>
-  <ConversationMessage :role="message.role" :content="message.text">
+  <ConversationMessage :role="message.role" :content="message.text" :pending="props.pending">
     <template #footer>
       <MessageFooter class="agent-ai-message-footer flex-wrap gap-2">
         <time :datetime="message.created" :title="new Date(message.created).toLocaleString('zh-CN')">{{ time }}</time>

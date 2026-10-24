@@ -301,6 +301,7 @@ function mapClaude(row: ParsedRow, p: Payload, steps: Map<string, TraceStep>) {
     return true;
   }
 
+  if (type === 'stream_event') return true;
   if (type === 'user') return true;
   if (type === 'system') return true;
 
@@ -358,7 +359,8 @@ function mapDsh(row: ParsedRow, p: Payload, steps: Map<string, TraceStep>) {
     return true;
   }
 
-  if (['session', 'status', 'tool_call', 'tool_result', 'text', 'final'].includes(type ?? '')) {
+  if (['session', 'status', 'tool_call', 'tool_result', 'text', 'final',
+    'framework.text.delta', 'framework.tool.delta', 'framework.reasoning.delta'].includes(type ?? '')) {
     return true;
   }
 

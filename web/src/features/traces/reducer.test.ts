@@ -53,12 +53,16 @@ describe('buildTurns', () => {
   it('maps claude thinking and ignores token accounting noise', () => {
     const turns = buildTurns([
       row(1, 't1', {
+        type: 'stream_event',
+        event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'th' } },
+      }),
+      row(2, 't1', {
         type: 'assistant',
         message: { content: [{ type: 'thinking', thinking: 'inspect files' }] },
       }),
-      row(2, 't1', { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 5 }),
-      row(3, 't1', { type: 'result', subtype: 'success', is_error: false, result: 'done' }),
-      row(4, 't1', { type: 'framework.output', text: 'done' }),
+      row(3, 't1', { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 5 }),
+      row(4, 't1', { type: 'result', subtype: 'success', is_error: false, result: 'done' }),
+      row(5, 't1', { type: 'framework.output', text: 'done' }),
     ], { hosts: { endpoint: 'claude' } });
 
     expect(turns[0].steps.map(step => step.kind)).toEqual(['reasoning', 'checkpoint', 'output']);
@@ -67,19 +71,22 @@ describe('buildTurns', () => {
 
   it('maps dsh thinking, tool errors and turn completion', () => {
     const turns = buildTurns([
-      row(1, 't1', { type: 'thinking', text: 'try tool' }),
-      row(2, 't1', {
+      row(1, 't1', { type: 'framework.reasoning.delta', turn: 1, step: 1, text: 'th' }),
+      row(2, 't1', { type: 'framework.text.delta', turn: 1, step: 1, text: 'live' }),
+      row(3, 't1', { type: 'thinking', text: 'try tool' }),
+      row(4, 't1', {
         type: 'framework.tool_call',
         name: 'send',
         callId: 'call-1',
         args: { to: 'missing', text: 'x' },
       }),
-      row(3, 't1', { type: 'framework.tool_result', callId: 'call-1', error: 'not found' }),
-      row(4, 't1', { type: 'status', phase: 'turn_end', reason: { kind: 'completed' } }),
-      row(5, 't1', { type: 'framework.output', text: 'handled' }),
+      row(5, 't1', { type: 'framework.tool_result', callId: 'call-1', error: 'not found' }),
+      row(6, 't1', { type: 'status', phase: 'turn_end', reason: { kind: 'completed' } }),
+      row(7, 't1', { type: 'framework.output', text: 'handled' }),
     ], { hosts: { endpoint: 'dsh' } });
 
     expect(turns[0].status).toBe('completed');
+    expect(turns[0].steps.filter(step => step.kind === 'reasoning')).toHaveLength(1);
     expect(turns[0].steps.find(step => step.kind === 'tool')?.status).toBe('error');
     expect(turns[0].steps.find(step => step.kind === 'tool')?.detail).toBe('not found');
   });

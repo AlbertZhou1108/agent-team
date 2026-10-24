@@ -283,7 +283,7 @@ const teamStreaming = ref<Record<string, TeamStream>>({});
 let teamStreamSource: EventSource | null = null;
 
 function acceptTeamStream(payload: {
-  type: 'snapshot' | 'start' | 'delta' | 'complete' | 'cancelled' | 'error';
+  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'complete' | 'cancelled' | 'error';
   stream?: TeamStream;
   streams?: TeamStream[];
   delta?: string;
@@ -308,6 +308,18 @@ function acceptTeamStream(payload: {
         text: payload.replace
           ? payload.delta
           : (current?.text ?? '') + payload.delta,
+      },
+    };
+    return;
+  }
+  if (payload.type === 'reasoning-delta' && typeof payload.delta === 'string') {
+    const current = teamStreaming.value[stream.id];
+    teamStreaming.value = {
+      ...teamStreaming.value,
+      [stream.id]: {
+        ...stream,
+        text: current?.text ?? '',
+        reasoning: (current?.reasoning ?? '') + payload.delta,
       },
     };
     return;

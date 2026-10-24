@@ -279,6 +279,7 @@ export interface PanelStream {
   context: 'private' | 'coordination';
   activeTeamId: string | null;
   text: string;
+  reasoning?: string;
   created: string;
   updatedAt: string;
 }
@@ -301,6 +302,7 @@ export interface TeamStream {
   messageSeq?: number;
   phase?: 'streaming' | 'complete';
   text: string;
+  reasoning?: string;
   created: string;
   updatedAt: string;
 }

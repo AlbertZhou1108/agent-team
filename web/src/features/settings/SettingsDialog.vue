@@ -24,6 +24,7 @@ import {
   CollapsibleContent,
 } from '@/components/ui/collapsible';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { usePreferencesStore, type ColorMode } from '@/stores/preferences';
@@ -214,7 +215,22 @@ watch(
             </ToggleGroup>
           </section>
 
-
+          <section class="flex flex-col gap-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <h3 class="text-sm font-semibold">思考过程</h3>
+                <p class="mt-1 text-xs leading-5 text-muted-foreground">
+                  在会话和消息流中显示模型的实时思考与“宿主思考”步骤。
+                </p>
+              </div>
+              <Switch
+                :model-value="preferences.showReasoning"
+                class="shrink-0"
+                aria-label="显示思考过程"
+                @update:model-value="preferences.setShowReasoning(Boolean($event))"
+              />
+            </div>
+          </section>
 
           <section class="flex flex-col gap-3 pt-6">
             <div class="flex items-start justify-between gap-3">

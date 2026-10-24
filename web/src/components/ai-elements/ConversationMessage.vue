@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Bot } from '@lucide/vue';
 import ExpandableText from './ExpandableText.vue';
+import LoadingDots from './LoadingDots.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -15,6 +16,7 @@ const props = withDefaults(
     role: 'user' | 'assistant' | 'system';
     content: string;
     lines?: number;
+    pending?: boolean;
   }>(),
   {
     lines: undefined,
@@ -23,6 +25,7 @@ const props = withDefaults(
 
 const isUser = computed(() => props.role === 'user');
 const collapsedLines = computed(() => props.lines ?? (isUser.value ? 8 : 10));
+const showPending = computed(() => props.pending && !props.content);
 </script>
 
 <template>
@@ -45,7 +48,8 @@ const collapsedLines = computed(() => props.lines ?? (isUser.value ? 8 : 10));
         </BubbleContent>
       </Bubble>
       <div v-else class="conversation-message-body">
-        <ExpandableText v-if="lines" :text="content" :lines="lines">
+        <LoadingDots v-if="showPending" class="text-muted-foreground" />
+        <ExpandableText v-else-if="lines" :text="content" :lines="lines">
           <MarkdownRenderer :content="content" />
         </ExpandableText>
         <MarkdownRenderer v-else :content="content" />

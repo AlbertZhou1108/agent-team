@@ -40,6 +40,17 @@ export async function* observeTextStream(stream, onFrame = emit, options = {}) {
         model: options.model,
       });
     }
+    if (chunk.type === 'reasoning-delta' && chunk.text) {
+      // Product decision: reasoning is surfaced to the local team UI, overriding
+      // the earlier choice to treat model reasoning as private.
+      onFrame({
+        type: 'framework.reasoning.delta',
+        text: chunk.text,
+        index: chunk.index,
+        provider: options.provider,
+        model: options.model,
+      });
+    }
     if (chunk.type === 'tool-call-delta') {
       onFrame({
         type: 'framework.tool.delta',

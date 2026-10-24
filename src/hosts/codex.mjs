@@ -165,6 +165,12 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         nativeTurnId: row.params.turnId ?? null,
       });
     }
+    if (row.method === 'item/reasoning/textDelta' && context && typeof row.params?.delta === 'string') {
+      context.onReasoningDelta?.(row.params.delta, {
+        itemId: row.params.itemId ?? null,
+        nativeTurnId: row.params.turnId ?? null,
+      });
+    }
     if (row.method === 'turn/completed') {
       const turn = row.params.turn;
       const waiter = waits.get(turn.id);
