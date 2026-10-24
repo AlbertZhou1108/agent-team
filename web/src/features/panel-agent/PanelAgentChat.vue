@@ -2,7 +2,6 @@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { computed } from 'vue';
 import { Bot, LoaderCircle, Settings2 } from '@lucide/vue';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -126,20 +125,14 @@ const suggestions = [
       <header class="agent-chat-header">
         <div class="agent-mark agent-mark-small"><Bot /></div>
         <div class="min-w-0 flex-1">
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="flex min-w-0 items-center gap-2">
             <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
-            <Badge
-              :variant="currentAccess.badgeVariant"
-              :title="currentAccess.description"
-              >{{ currentAccess.label }}</Badge
-            >
           </div>
           <p
             class="mt-1 truncate text-muted-foreground"
             :title="agent.workspace ?? undefined"
           >
-            全局私人会话 · {{ modelSummary }} ·
-            {{ activeTeam?.name ?? '未附加团队上下文' }}
+            {{ modelSummary }} · {{ activeTeam?.name ?? '未附加团队上下文' }}
           </p>
           <p
             v-if="legacyAgent"
