@@ -127,7 +127,18 @@ function prettyEvent(value: string) {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col gap-5">
-    <PanelState v-if="!endpoint" :icon="Activity" title="选择一个会话" description="查看成员的执行过程、原始事件和模型观测。"><Button variant="outline" size="sm" @click="emit('chooseSession')">浏览会话</Button></PanelState>
+    <template v-if="!endpoint">
+      <header class="flex flex-col gap-2">
+        <h2 class="text-base font-semibold">团队详情</h2>
+        <p class="text-xs text-muted-foreground">
+          未选择会话：以下为团队级用量。执行轨迹、原始事件与模型观测按会话记录，选择会话后查看。
+        </p>
+        <Button variant="outline" size="sm" class="w-fit" @click="emit('chooseSession')">浏览会话</Button>
+      </header>
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <TelemetryCoordinationView :group-id="groupId" />
+      </div>
+    </template>
     <template v-else>
       <header class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2">

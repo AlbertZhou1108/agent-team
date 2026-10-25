@@ -10,8 +10,7 @@ const renderer = createRenderer<any, any>({
   parentNode: () => null, nextSibling: () => null,
 });
 async function settle() { await new Promise(resolve => setTimeout(resolve, 15)); }
-function mount(setup: () => void) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function mount(setup: () => void, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const app = renderer.createApp(defineComponent({ setup() { setup(); return () => null; } }));
   app.use(VueQueryPlugin, { queryClient: client }); app.mount({});
   return () => { app.unmount(); client.clear(); };
@@ -47,4 +46,21 @@ describe('panel loading boundaries', () => {
       expect(query.rows.value.at(-1)?.seq).toBe(101);
     } finally { dispose(); }
   });
+});
+
+it('normalizes a restored null endpoint before polling newer messages', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // JSON sessionStorage hydration converts the optional undefined key to null.
+  client.setQueryData(['messages', 'team', null], [{ seq: 471, id: 'user-message' }]);
+  vi.mocked(api.messages).mockReset().mockImplementation(async (_group, _before, _signal, endpoint) => {
+    if (endpoint === null) throw new Error('不存在的团队会话: endpoint=null');
+    return [{ seq: 474, id: 'interaction-anchor' }] as any;
+  });
+  let query!: ReturnType<typeof useMessagesQuery>;
+  const dispose = mount(() => { query = useMessagesQuery('team'); }, client);
+  try {
+    await settle();
+    expect(query.error.value).toBeNull();
+    expect(query.rows.value.map(row => row.id)).toContain('interaction-anchor');
+  } finally { dispose(); }
 });

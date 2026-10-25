@@ -30,6 +30,10 @@ import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
+import { frameBatch } from '@/features/messages/frame-batch';
+import { teamConversationAfterSend } from '@/features/messages/conversation-navigation';
+import { useTeamDirectiveStore } from '@/stores/team-directives';
+import { notifyInteraction } from '@/features/messages/interaction-notification';
 import MessageFeed from '@/features/messages/MessageFeed.vue';
 import TeamDirectiveComposer from '@/features/messages/TeamDirectiveComposer.vue';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
@@ -40,6 +44,7 @@ import { toMessageViews } from '@/features/messages/adapters';
 import { buildTurns } from '@/features/traces/reducer';
 import {
   useTeamDirectivesQuery,
+  useInteractionsQuery,
   useHistoryQuery,
   useMessagesQuery,
   useModelsQuery,
@@ -50,8 +55,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
 import {
-  countUnreadPanelMessages,
   usePanelAgentStore,
+  visiblePanelContext,
 } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
 import { api } from '@/shared/api/client';
@@ -108,31 +113,16 @@ const pageVisible = ref(
 const panelMessages = computed(
   () => panelAgentQuery.data.value?.conversation ?? [],
 );
-const latestPanelSeq = computed(() => panelMessages.value.at(-1)?.seq ?? 0);
-const agentUnreadCount = computed(() =>
-  isPanelAgentRoute.value && pageVisible.value
-    ? 0
-    : countUnreadPanelMessages(
-        panelMessages.value,
-        panelAgentState.lastReadSeq,
-      ),
-);
+const agentUnreadCount = computed(() => {
+  const contexts = new Set(panelMessages.value.map(message => message.active_team_id || ''));
+  return [...contexts].reduce((total, context) => total + panelAgentState.unreadForContext(panelMessages.value, context), 0);
+});
 
 function updatePageVisibility() {
   pageVisible.value =
     document.visibilityState === 'visible' && document.hasFocus();
 }
 
-watch(
-  [latestPanelSeq, isPanelAgentRoute, pageVisible],
-  ([seq, onAgent, visible]) => {
-    if (!seq) return;
-    if (panelAgentState.lastReadSeq == null || (onAgent && visible)) {
-      panelAgentState.markPanelRead(seq);
-    }
-  },
-  { immediate: true },
-);
 
 onMounted(() => {
   window.addEventListener('focus', updatePageVisibility);
@@ -209,6 +199,16 @@ const selectedEndpoint = computed(() =>
     (endpoint) => endpoint.id === selectedSessionId.value,
   ),
 );
+watch(
+  [panelMessages, isPanelAgentRoute, pageVisible, () => panelAgentState.activeTeamId, groupId, selectedSessionId, selectedEndpoint, currentControllerId],
+  ([messages, onPanel, visible, panelContext, teamId, sessionId, endpoint, controllerId]) => {
+    panelAgentState.syncReadContexts(messages, visiblePanelContext({
+      visible, onPanel, panelContext, groupId: teamId, sessionId, endpoint, controllerId,
+    }));
+  },
+  { immediate: true },
+);
+
 const selectedPair = computed(() => {
   const endpoint = selectedEndpoint.value;
   return endpoint?.peer
@@ -278,7 +278,53 @@ const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
 const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
 const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
+const interactionsQuery = useInteractionsQuery(() => groupId.value || undefined);
+const seenPendingInteractions = new Set<string>();
+let interactionsPrimed = false;
+watch(
+  interactionsQuery.data,
+  (rows) => {
+    const pending = (rows ?? []).filter((item) => item.state === 'pending');
+    if (!interactionsPrimed) {
+      interactionsPrimed = true;
+      for (const item of pending) seenPendingInteractions.add(item.id);
+      return;
+    }
+    for (const item of pending) {
+      if (seenPendingInteractions.has(item.id)) continue;
+      seenPendingInteractions.add(item.id);
+      const requester = item.member_id
+        ? members.value.find((member) => member.id === item.member_id)
+        : null;
+      const name = item.member_id
+        ? (requester?.name ?? item.member_id)
+        : 'Panel Agent';
+      notifyInteraction(name, item.payload.text, () => router.push({
+        name: 'group',
+        params: { groupId: item.group_id || groupId.value },
+        query: {
+          session: item.member_id
+            ? endpoints.value.find(endpoint => endpoint.group_id === item.group_id && endpoint.member_id === item.member_id && endpoint.context === (requester?.role === 'lead' ? 'coordination' : 'pair:user'))?.id
+            : undefined,
+          interaction: item.id,
+        },
+      }));
+    }
+  },
+);
 const messagesQuery = useMessagesQuery(() => groupId.value || undefined, () => selectedSessionId.value || undefined);
+// Load older history until the linked interaction's anchor can render.
+watch(
+  [() => route.query.interaction, messagesQuery.rows, interactionsQuery.data, messagesQuery.isPending, messagesQuery.isFetchingNextPage],
+  async () => {
+    const id = routeString(route.query.interaction);
+    const item = interactionsQuery.data.value?.find(row => row.id === id);
+    if (!item?.message_id || messagesQuery.isPending.value || messagesQuery.isFetchingNextPage.value) return;
+    if (messagesQuery.rows.value.some(row => row.id === item.message_id)) return;
+    if (messagesQuery.hasNextPage.value) await messagesQuery.fetchNextPage();
+  },
+  { immediate: true },
+);
 const teamStreaming = ref<Record<string, TeamStream>>({});
 let teamStreamSource: EventSource | null = null;
 
@@ -365,9 +411,11 @@ function acceptTeamStream(payload: {
   };
 }
 
+const teamStreamBatch = frameBatch(acceptTeamStream, requestAnimationFrame, cancelAnimationFrame);
 watch(
   groupId,
   (id) => {
+    teamStreamBatch.dispose();
     teamStreamSource?.close();
     teamStreamSource = null;
     teamStreaming.value = {};
@@ -377,7 +425,9 @@ watch(
     );
     teamStreamSource.addEventListener('team-stream', (event) => {
       try {
-        acceptTeamStream(JSON.parse((event as MessageEvent<string>).data));
+        const payload = JSON.parse((event as MessageEvent<string>).data);
+        teamStreamBatch.push(payload);
+        if (['complete', 'cancelled', 'error', 'snapshot'].includes(payload.type)) teamStreamBatch.flush();
       } catch {
         // The next state poll or stream event remains authoritative.
       }
@@ -405,6 +455,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  teamStreamBatch.dispose();
   teamStreamSource?.close();
   teamStreamSource = null;
 });
@@ -414,16 +465,21 @@ const historyQuery = useHistoryQuery(
 );
 const modelsQuery = useModelsQuery(() => detailsVisible.value && activeTab.value === 'models' ? selectedSessionId.value || undefined : undefined);
 
+const directiveState = useTeamDirectiveStore();
 const messageViews = computed(() => {
   const endpoint = selectedEndpoint.value;
+  const combined = [...new Map([
+    ...(directiveState.acceptedMessages[groupId.value] ?? []),
+    ...messagesQuery.rows.value,
+  ].map(row => [row.id, row])).values()].sort((a, b) => a.seq - b.seq);
   const rows =
     endpoint && !endpoint.peer
-      ? messagesQuery.rows.value.filter(
+      ? combined.filter(
           (row) =>
             row.sender === endpoint.member_id ||
             row.recipient === endpoint.member_id,
         )
-      : messagesQuery.rows.value;
+      : combined;
   return toMessageViews(
     rows,
     members.value,
@@ -881,12 +937,19 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               还没有群。请先在 CLI 中创建群，这里会自动显示。
             </div>
             <template v-else>
+              <Alert v-if="messagesQuery.isError.value" variant="destructive" class="m-3 w-auto">
+                <AlertDescription class="flex items-center justify-between gap-2">
+                  <span>消息同步失败，当前显示的是已缓存记录。</span>
+                  <Button variant="outline" size="sm" @click="messagesQuery.refetch()">重试同步</Button>
+                </AlertDescription>
+              </Alert>
               <MessageFeed
                 :key="`${groupId}:${selectedSessionId}`"
                 class="chat-feed"
                 :messages="messageViews"
                 :streaming="activeTeamStreaming"
                 :directives="directivesQuery.data.value ?? []"
+                :interactions="interactionsQuery.data.value ?? []"
                 :title="conversationTitle"
                 :selected-pair="selectedPair"
                 :controller-id="currentControllerId"
@@ -909,7 +972,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
               :controller-id="currentControllerId" :controller-name="currentController?.name"
               :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
-              @sent="replaceQuery({ session: undefined, pair: undefined })" />
+              @sent="router.replace({ query: teamConversationAfterSend(route.query) })" />
           </template>
         </ConversationFrame>
 

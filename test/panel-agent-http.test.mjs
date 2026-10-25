@@ -111,15 +111,18 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
     { groupId: group.id },
     { activeTeamId: group.id },
   );
-  const takeoverResponse = await fetch(base + `/api/panel-actions/${takeoverRequest.id}/decide`, {
+  assert.equal(takeoverRequest.kind, 'takeover');
+  assert.equal(takeoverRequest.state, 'pending');
+  const takeoverResponse = await fetch(base + `/api/interactions/${takeoverRequest.id}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ approved: true }),
+    body: JSON.stringify({ answer: { approved: true } }),
   });
   assert.equal(takeoverResponse.status, 200);
   const taken = await takeoverResponse.json();
-  assert.equal(taken.controller.kind, 'panel_agent');
-  assert.equal(taken.panelRelation, 'main');
+  assert.equal(taken.state, 'answered');
+  assert.equal(server.bus.controllerState(group.id).controller.kind, 'panel_agent');
+  assert.equal(server.bus.controllerState(group.id).panelRelation, 'main');
   const coordinationSession = server.bus.store.panelSession(created.agent.id, 'coordination', group.id);
   assert.equal((await fetch(base + `/api/history?endpoint=${coordinationSession.id}`)).status, 200);
   assert.equal((await fetch(base + `/api/models?endpoint=${coordinationSession.id}`)).status, 200);
@@ -139,16 +142,26 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   });
   assert.equal(staleHandback.status, 400);
 
-  const action = server.bus.requestPanelControllerAction(created.agent.id, group.id, 'handback');
-  const handback = await fetch(base + `/api/panel-actions/${action.id}/decide`, {
+  const action = server.bus.requestPanelControllerAction(
+    created.agent,
+    server.bus.store.panelSession(created.agent.id, 'private'),
+    { turnId: 'test-turn', callId: 'test-call', activeTeamId: group.id },
+    'handback',
+    group.id,
+  );
+  assert.equal(action.kind, 'handback');
+  assert.equal(action.state, 'pending');
+  const handback = await fetch(base + `/api/interactions/${action.id}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ approved: true }),
+    body: JSON.stringify({ answer: { approved: true } }),
   });
   assert.equal(handback.status, 200);
   const returned = await handback.json();
-  assert.equal(returned.controller.kind, 'member');
-  assert.equal(returned.panelRelation, 'observer');
+  assert.equal(returned.state, 'answered');
+  assert.equal(returned.answer.approved, true);
+  assert.equal(server.bus.controllerState(group.id).controller.kind, 'member');
+  assert.equal(server.bus.controllerState(group.id).panelRelation, 'observer');
 
   const plainText = await fetch(base + '/api/panel-agent/messages', {
     method: 'POST',

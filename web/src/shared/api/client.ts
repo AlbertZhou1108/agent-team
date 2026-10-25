@@ -2,6 +2,8 @@ import type {
   Group,
   GroupCommunicationSummary,
   HistoryRow,
+  Interaction,
+  InteractionAnswer,
   MessageTrace,
   ModelCatalogResponse,
   ModelPolicy,
@@ -55,7 +57,7 @@ async function mutate<T>(path: string, body: unknown): Promise<T> {
 function query(path: string, values: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
+    if (value != null && value !== '') params.set(key, String(value));
   }
   return `${path}?${params.toString()}`;
 }
@@ -128,8 +130,14 @@ export const api = {
   handbackTeam(groupId: string, revision: number) {
     return mutate('/api/teams/' + encodeURIComponent(groupId) + '/handback', { revision });
   },
-  decidePanelAction(id: string, approved: boolean) {
-    return mutate('/api/panel-actions/' + encodeURIComponent(id) + '/decide', { approved });
+  interactions(group: string, signal?: AbortSignal) {
+    return request<Interaction[]>(query('/api/interactions', { group }), signal);
+  },
+  panelInteractions(signal?: AbortSignal) {
+    return request<Interaction[]>(query('/api/interactions', { panel: 1 }), signal);
+  },
+  answerInteraction(id: string, answer: InteractionAnswer) {
+    return mutate<Interaction>('/api/interactions/' + encodeURIComponent(id) + '/answer', { answer });
   },
   messages(group: string, before: number | undefined, signal?: AbortSignal, endpoint?: string, after?: number) {
     return request<MessageRow[]>(query('/api/messages', { group, before, endpoint, after, latest: 1 }), signal);

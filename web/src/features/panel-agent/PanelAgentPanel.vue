@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
+import { notifyInteraction } from '@/features/messages/interaction-notification';
 import { LoaderCircle } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -14,18 +15,19 @@ import type {
   PanelTeamView,
 } from '@/shared/api/raw-types';
 import { api } from '@/shared/api/client';
-import { usePanelAgentQuery } from '@/features/queries';
+import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
 import PanelAgentSidebar from './PanelAgentSidebar.vue';
-import type { AvailableHost, PanelAction, PanelAgentForm } from './types';
+import type { AvailableHost, PanelAgentForm } from './types';
 
 const router = useRouter();
 const route = useRoute();
 const panelState = usePanelAgentStore();
 const panelQuery = usePanelAgentQuery();
+const interactionsQuery = usePanelInteractionsQuery();
 const panel = computed(() => panelQuery.data.value ?? null);
 const catalog = ref<ModelCatalogResponse | null>(null);
 const catalogLoading = ref(false);
@@ -187,10 +189,6 @@ const availableHosts = computed<AvailableHost[]>(
         host: host.host,
         catalog: host.catalog!,
       })) ?? [],
-);
-const pendingActions = computed<PanelAction[]>(
-  () =>
-    panel.value?.actions.filter((action) => action.state === 'pending') ?? [],
 );
 
 function formFromAgent(agent: PanelAgent): PanelAgentForm {
@@ -416,27 +414,30 @@ function resolveRuntime(turnId: string) {
   });
 }
 
-function decideAction(id: string, approved: boolean) {
-  const action = pendingActions.value.find((item) => item.id === id);
-  if (!action) return;
-  const team = panel.value?.teams.find((item) => item.id === action.group_id);
-  const label = action.action === 'takeover' ? '接管' : '交还';
-  askConfirm({
-    title: `${approved ? '确认' : '取消'}${label}“${team?.name ?? action.group_id}”？`,
-    description: approved ? '确认后将执行该操作。' : '取消后该操作请求将被拒绝。',
-    confirmText: approved ? '确认' : '确认取消',
-    run: async () => {
-      actionError.value = '';
-      try {
-        await api.decidePanelAction(id, approved);
-        await panelQuery.refetch();
-        toast.success(approved ? `${label}操作已完成` : '操作请求已取消');
-      } catch (error) {
-        actionError.value = error instanceof Error ? error.message : String(error);
-      }
-    },
-  });
-}
+// 新互动卡等待答复时提醒;点击跳到卡片所在视图,已在目标页则不跳转。
+const seenPendingInteractions = new Set<string>();
+let interactionsPrimed = false;
+watch(
+  interactionsQuery.data,
+  (rows) => {
+    const pending = (rows ?? []).filter((item) => item.state === 'pending');
+    if (!interactionsPrimed) {
+      interactionsPrimed = true;
+      for (const item of pending) seenPendingInteractions.add(item.id);
+      return;
+    }
+    for (const item of pending) {
+      if (seenPendingInteractions.has(item.id)) continue;
+      seenPendingInteractions.add(item.id);
+      // 协作发起(锚点是群消息)的卡在团队页;私聊发起(锚点是 panel 消息)的卡就在当前聊天。
+      const coordinationOrigin = !item.panel_message_id && Boolean(item.group_id);
+      const target = coordinationOrigin && item.group_id
+        ? { name: 'group', params: { groupId: item.group_id }, query: { session: item.endpoint_id || undefined, interaction: item.id } }
+        : { name: 'panel-agent', query: { team: item.group_id || undefined, interaction: item.id } };
+      notifyInteraction(panel.value?.agent?.name ?? 'Panel Agent', item.payload.text, () => router.push(target));
+    }
+  },
+);
 
 function openTeam(teamId: string) {
   router.push({ name: 'group', params: { groupId: teamId } });
@@ -558,6 +559,7 @@ watch(
           :messages="panel.conversation"
           :streaming="privateStreaming"
           :teams="panel.teams"
+          :interactions="interactionsQuery.data.value ?? []"
           :sending="sending"
           :context-running="contextRunning"
           :stopping="stopping"
@@ -573,12 +575,11 @@ watch(
         <PanelAgentSidebar
           v-model="activeTeamId"
           :teams="panel.teams"
-          :pending-actions="pendingActions"
+          :messages="panel.conversation"
           :unknown="panel.unknown"
           @open-team="openTeam"
           @takeover="takeover"
           @handback="handback"
-          @decide-action="decideAction"
           @resolve-runtime="resolveRuntime"
         />
       </div>

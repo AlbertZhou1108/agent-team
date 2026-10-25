@@ -6,6 +6,7 @@ import PanelState from '@/components/panel/PanelState.vue';
 import { Button } from '@/components/ui/button';
 import { api } from '@/shared/api/client';
 import { buildTurns } from '@/features/traces/reducer';
+import { useMessageTraceQuery } from '@/features/messages/trace-query';
 import TraceTimeline from './TraceTimeline.vue';
 
 type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
@@ -16,18 +17,15 @@ const props = defineProps<{
 }>();
 
 const expanded = ref(false);
-const traceQuery = useQuery({
-  queryKey: computed(() => ['message-trace', props.messageId] as const),
-  queryFn: ({ signal }) => api.messageTrace(props.messageId, signal),
-  staleTime: 60_000,
-  retry: 0,
-});
+const traceQuery = useMessageTraceQuery(() => props.messageId, expanded);
 
-const turnId = computed(() =>
-  traceQuery.data.value?.source.kind === 'group'
-    ? traceQuery.data.value.source.turnId
-    : undefined,
-);
+const turnId = computed(() => {
+  const kind = traceQuery.data.value?.source.kind;
+  // panel 来源是主控 coordination 回合(私人会话回合后端暂不提供 turnTrace)。
+  return kind === 'group' || kind === 'panel'
+    ? traceQuery.data.value?.source.turnId
+    : undefined;
+});
 
 const turnQuery = useQuery({
   queryKey: computed(() => ['turn', turnId.value] as const),
@@ -65,13 +63,14 @@ const stepCount = computed(() =>
 </script>
 
 <template>
-  <details v-if="turnId && (!turnQuery.isSuccess.value || turns.length)" class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
+  <details class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
     <summary><Clock3 class="size-3.5" />执行轨迹</summary>
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value || (turnId && turnQuery.isPending.value)" loading title="正在读取执行轨迹" />
       <PanelState v-else-if="traceQuery.isError.value || turnQuery.isError.value" title="轨迹加载失败">
         <Button variant="outline" size="sm" @click="traceQuery.refetch(); turnId && turnQuery.refetch()">重试</Button>
       </PanelState>
+      <PanelState v-else-if="!turnId" title="此消息没有可用的执行轨迹" />
       <div v-else-if="turns.length" class="inline-trace-content">
         <p>用时 {{ duration }} · {{ stepCount }} 步</p>
         <TraceTimeline :turns="turns" />

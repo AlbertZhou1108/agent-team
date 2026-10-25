@@ -8,23 +8,58 @@ import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import ReasoningBlock from '@/components/ai-elements/ReasoningBlock.vue';
 import { Badge } from '@/components/ui/badge';
-import type { TeamDirectiveReceipt, TeamStream } from '@/shared/api/raw-types';
+import type { Interaction, TeamDirectiveReceipt, TeamStream } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
 import { toStreamMessageViews } from './adapters';
+import type { StreamView } from './adapters';
 import { Button } from '@/components/ui/button';
+import InteractionCard from './InteractionCard.vue';
 
-const props = defineProps<{
-  messages: MessageView[];
-  streaming?: TeamStream[];
-  directives?: TeamDirectiveReceipt[];
-  title?: string;
-  selectedPair: string;
-  controllerId?: string;
-  hosts?: Record<string, string>;
-  loading?: boolean;
-  hasNextPage?: boolean;
-  fetchingNextPage?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    messages: MessageView[];
+    streaming?: TeamStream[];
+    /** 预转换的流视图;提供时优先于 streaming 的内部转换(Panel 等非 TeamStream 数据源使用)。 */
+    streamViews?: StreamView[];
+    directives?: TeamDirectiveReceipt[];
+    interactions?: Interaction[];
+    title?: string;
+    selectedPair: string;
+    controllerId?: string;
+    hosts?: Record<string, string>;
+    loading?: boolean;
+    hasNextPage?: boolean;
+    fetchingNextPage?: boolean;
+    /** 连续 system 消息是否折叠为通知堆栈;Panel 的自动进度消息不折叠。 */
+    groupSystemMessages?: boolean;
+    /** 助手/系统正文按 Markdown 渲染。 */
+    markdown?: boolean;
+    ariaLabel?: string;
+    resetKey?: string | number;
+    viewportClass?: string;
+    streamClass?: string;
+    contentClass?: string;
+  }>(),
+  {
+    streaming: () => [],
+    streamViews: undefined,
+    directives: () => [],
+    interactions: () => [],
+    title: undefined,
+    controllerId: undefined,
+    hosts: () => ({}),
+    loading: false,
+    hasNextPage: false,
+    fetchingNextPage: false,
+    groupSystemMessages: true,
+    markdown: false,
+    ariaLabel: '团队消息',
+    resetKey: undefined,
+    viewportClass: 'message-viewport',
+    streamClass: 'message-stream',
+    contentClass: 'message-content',
+  },
+);
 
 const emit = defineEmits<{
   loadMore: [];
@@ -35,13 +70,14 @@ const filtered = computed(() =>
     ? props.messages.filter((message) => message.pairKey === props.selectedPair)
     : props.messages,
 );
-const streamingViews = computed(() =>
-  toStreamMessageViews(
-    props.messages,
-    props.streaming ?? [],
-    props.selectedPair,
-    props.controllerId,
-  ),
+const streamingViews = computed<StreamView[]>(() =>
+  props.streamViews
+    ?? toStreamMessageViews(
+      props.messages,
+      props.streaming ?? [],
+      props.selectedPair,
+      props.controllerId,
+    ),
 );
 const streamingMessages = computed(() =>
   streamingViews.value.map(item => item.message),
@@ -56,18 +92,30 @@ const messageGroups = computed(() => {
   }[] = [];
   for (const message of filtered.value) {
     const previous = groups.at(-1);
-    if (message.kind === 'system' && previous?.notifications)
+    if (
+      props.groupSystemMessages
+      && message.kind === 'system'
+      && previous?.notifications
+    )
       previous.messages.push(message);
     else
       groups.push({
         id: message.id,
-        notifications: message.kind === 'system',
+        notifications: props.groupSystemMessages && message.kind === 'system',
         messages: [message],
       });
   }
   return groups;
 });
 const receipts = computed(() => Object.fromEntries((props.directives ?? []).map(r => [r.messageId, r])));
+const messageInteractions = computed(() => {
+  const map: Record<string, Interaction[]> = {};
+  for (const item of props.interactions ?? []) {
+    if (!item.message_id) continue;
+    (map[item.message_id] ??= []).push(item);
+  }
+  return map;
+});
 const messageIds = computed(() => [
   ...filtered.value.map((message) => message.id),
   ...streamingMessages.value.map((message) => message.id),
@@ -78,13 +126,16 @@ const messageIds = computed(() => [
   <ConversationPanel
     class="message-feed min-w-0"
     :ids="messageIds"
-    :reset-key="selectedPair"
-    aria-label="团队消息"
-    viewport-class="message-viewport"
-    stream-class="message-stream"
-    content-class="message-content"
+    :reset-key="resetKey ?? selectedPair"
+    :aria-label="ariaLabel"
+    :viewport-class="viewportClass"
+    :stream-class="streamClass"
+    :content-class="contentClass"
   >
-    <template #header>
+    <template v-if="$slots.header" #header>
+      <slot name="header" />
+    </template>
+    <template v-else #header>
       <div class="message-toolbar justify-between">
         <h3 class="truncate text-sm font-medium">
           {{ title ?? '全部群消息' }}
@@ -129,10 +180,21 @@ const messageIds = computed(() => [
       </details>
       <template v-else>
         <MessageTrace
+          v-if="!group.messages[0]!.senderIsUser"
           :message-id="group.messages[0]!.id"
           :hosts="hosts ?? {}"
         />
-        <AgentMessage :message="group.messages[0]!" />
+        <AgentMessage :message="group.messages[0]!" :markdown="markdown">
+          <template v-if="$slots.footer" #footer="{ message }">
+            <slot name="footer" :message="message" />
+          </template>
+        </AgentMessage>
+        <InteractionCard
+          v-for="interaction in messageInteractions[group.messages[0]!.id] ?? []"
+          :key="interaction.id"
+          :interaction="interaction"
+          class="mt-2"
+        />
         <p v-if="receipts[group.id]" class="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
           <Badge variant="outline">{{ directiveStatus(receipts[group.id]!) }}</Badge>
           <span v-if="receipts[group.id]!.error">{{ receipts[group.id]!.error }}</span>
@@ -151,10 +213,16 @@ const messageIds = computed(() => [
         :running="pending && !message.text"
         class="mb-2"
       />
-      <AgentMessage :message="message" :pending="pending" />
+      <AgentMessage :message="message" :pending="pending" :markdown="markdown">
+        <template v-if="$slots.footer" #footer="{ message: footerMessage }">
+          <slot name="footer" :message="footerMessage" />
+        </template>
+      </AgentMessage>
     </div>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
-    <PanelState v-else-if="!filtered.length && !streamingMessages.length" :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
+    <slot v-else-if="!filtered.length && !streamingMessages.length" name="empty">
+      <PanelState :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
+    </slot>
 
   </ConversationPanel>
 </template>

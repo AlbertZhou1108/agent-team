@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { ArrowDown } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,23 @@ const stream = ref<HTMLElement>();
 const content = ref<HTMLElement>();
 const atBottom = ref(true);
 let observer: ResizeObserver | undefined;
+
+const route = useRoute();
+let revealedInteraction: unknown;
+async function revealLinkedInteraction() {
+  const id = route.query.interaction;
+  if (typeof id !== 'string' || revealedInteraction === id) return;
+  await nextTick();
+  requestAnimationFrame(() => {
+    const element = document.getElementById(`interaction-${id}`);
+    if (!element || !content.value?.contains(element)) return;
+    revealedInteraction = id;
+    atBottom.value = false;
+    element.scrollIntoView({ block: 'center' });
+    element.focus({ preventScroll: true });
+  });
+}
+watch([() => route.query.interaction, () => props.ids], revealLinkedInteraction, { flush: 'post' });
 
 function updatePosition() {
   const element = stream.value;
@@ -76,7 +94,9 @@ watch(
 
 onMounted(() => {
   scrollToBottom();
+  void revealLinkedInteraction();
   observer = new ResizeObserver(() => {
+    void revealLinkedInteraction();
     if (atBottom.value) scrollToBottom();
     else updatePosition();
   });

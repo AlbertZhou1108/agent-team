@@ -82,15 +82,7 @@ async function main() {
   }
   let readline;
   if (command === 'start') readline = createInterface({ input: stdin, output: stdout });
-  let confirming = false;
-  const confirm = async text => {
-    // An idle readline prompt already owns input. Background pairs must not steal it.
-    if (!readline?.agentTeamBusy || confirming) return false;
-    confirming = true;
-    try { return /^y(es)?$/i.test((await readline.question(`${text} [y/N] `)).trim()); }
-    finally { confirming = false; }
-  };
-  const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts, confirm });
+  const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts });
   console.log(`Agent Team 0.1.0\n面板：${server.url}\n数据目录：${directory}`);
   server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
   let shuttingDown;

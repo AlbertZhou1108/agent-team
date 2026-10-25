@@ -22,5 +22,4 @@ export interface AvailableHost {
 }
 
 export type PanelTeam = PanelAgentState['teams'][number];
-export type PanelAction = PanelAgentState['actions'][number];
 export type PanelUnknownTurn = PanelAgentState['unknown'][number];

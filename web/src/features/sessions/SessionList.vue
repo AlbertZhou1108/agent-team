@@ -61,6 +61,7 @@ function selected(endpoint: SessionEndpoint) {
 }
 
 function memberName(id: string) {
+  if (id === 'user') return '用户';
   return (
     props.members.find((member) => member.id === id)?.name ??
     props.actors?.find((actor) => actor.id === id)?.name ??

@@ -19,9 +19,20 @@ import {
 import { cn } from '@/lib/utils';
 import ExpandableText from './ExpandableText.vue';
 import LoadingDots from './LoadingDots.vue';
+import MarkdownRenderer from './MarkdownRenderer.vue';
 
-const props = defineProps<{ message: MessageView; pending?: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    message: MessageView;
+    pending?: boolean;
+    /** 助手/系统正文按 Markdown 渲染(用户消息始终纯文本);团队消息流默认关闭。 */
+    markdown?: boolean;
+  }>(),
+  { markdown: false },
+);
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
+
+const useMarkdown = computed(() => props.markdown && !(props.message.kind === 'send' && props.message.senderIsUser));
 
 const icon = computed(() => {
   if (props.message.kind === 'system') return Megaphone;
@@ -124,8 +135,11 @@ const time = computed(() =>
           v-if="message.text || !props.pending"
           class="message-body text-sm leading-7"
           :text="message.text"
-        />
+        >
+          <MarkdownRenderer v-if="useMarkdown" :content="message.text" />
+        </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
+        <slot name="footer" :message="message" />
       </BubbleContent>
     </Bubble>
   </div>

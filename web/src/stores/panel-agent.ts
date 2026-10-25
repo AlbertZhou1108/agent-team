@@ -8,17 +8,37 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     return {
+      readByContext: (saved.readByContext && typeof saved.readByContext === 'object' ? saved.readByContext : {}) as Record<string, number>,
       activeTeamId: typeof saved.activeTeamId === 'string' ? saved.activeTeamId : '',
       lastReadSeq: Number.isInteger(saved.lastReadSeq) ? saved.lastReadSeq : null,
     };
   } catch {
-    return { activeTeamId: '', lastReadSeq: null };
+    return { activeTeamId: '', lastReadSeq: null, readByContext: {} as Record<string, number> };
   }
 }
 
 export function countUnreadPanelMessages(messages: PanelMessage[], lastReadSeq: number | null) {
   if (lastReadSeq == null) return 0;
   return messages.filter(message => message.role !== 'user' && message.seq > lastReadSeq).length;
+}
+
+export function visiblePanelContext(options: {
+  visible: boolean;
+  onPanel: boolean;
+  panelContext: string;
+  groupId: string;
+  sessionId: string;
+  endpoint?: { member_id: string; peer?: string | null };
+  controllerId?: string;
+}): string | undefined {
+  if (!options.visible) return undefined;
+  if (options.onPanel) return options.panelContext;
+  if (!options.groupId) return undefined;
+  if (!options.sessionId) return options.groupId;
+  const endpoint = options.endpoint;
+  return endpoint && endpoint.member_id === options.controllerId && (!endpoint.peer || endpoint.peer === 'user')
+    ? options.groupId
+    : undefined;
 }
 
 export const usePanelAgentStore = defineStore('panel-agent', {
@@ -31,6 +51,7 @@ export const usePanelAgentStore = defineStore('panel-agent', {
   actions: {
     persist() {
       localStorage.setItem(storageKey, JSON.stringify({
+        readByContext: this.readByContext,
         activeTeamId: this.activeTeamId,
         lastReadSeq: this.lastReadSeq,
       }));
@@ -43,6 +64,31 @@ export const usePanelAgentStore = defineStore('panel-agent', {
     setDraft(value: string) {
       this.draft = value;
       if (this.sendError) this.sendError = '';
+    },
+    unreadForContext(messages: PanelMessage[], teamId: string) {
+      const baseline = this.readByContext[teamId || '__global__'] ?? this.lastReadSeq;
+      return countUnreadPanelMessages(messages.filter(message => (message.active_team_id || '') === teamId), baseline);
+    },
+    syncReadContexts(messages: PanelMessage[], visibleContext?: string) {
+      if (!messages.length) return;
+      if (this.lastReadSeq == null) this.lastReadSeq = Math.max(...messages.map(message => message.seq));
+      for (const message of messages) {
+        const key = message.active_team_id || '__global__';
+        if (!Number.isInteger(this.readByContext[key])) {
+          this.readByContext[key] = this.lastReadSeq ?? Math.max(0, ...messages.filter(row => row.active_team_id === message.active_team_id).map(row => row.seq));
+        }
+        if (visibleContext !== undefined && (message.active_team_id || '') === visibleContext) {
+          this.readByContext[key] = Math.max(this.readByContext[key]!, message.seq);
+        }
+      }
+      this.persist();
+    },
+    markAllPanelRead(messages: PanelMessage[]) {
+      for (const message of messages) {
+        const key = message.active_team_id || '__global__';
+        this.readByContext[key] = Math.max(this.readByContext[key] ?? 0, message.seq);
+      }
+      this.persist();
     },
     markPanelRead(seq: number) {
       if (this.lastReadSeq != null && seq <= this.lastReadSeq) return;

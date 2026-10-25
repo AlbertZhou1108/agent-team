@@ -58,7 +58,7 @@ export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
 
 export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, endpoint: MaybeRefOrGetter<string | undefined> = undefined) {
   const client = useQueryClient();
-  const key = computed(() => ['messages', toValue(groupId), toValue(endpoint)] as const);
+  const key = computed(() => ['messages', toValue(groupId), toValue(endpoint) ?? null] as const);
   const head = useQuery({
     queryKey: key,
     queryFn: async ({ signal, queryKey }) => {
@@ -67,7 +67,7 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
       let after = previous.at(-1)?.seq;
       // Drain new records independently of the frozen history pages.
       while (true) {
-        const batch = await api.messages(queryKey[1]!, undefined, signal, queryKey[2], after);
+        const batch = await api.messages(queryKey[1]!, undefined, signal, queryKey[2] ?? undefined, after);
         rows.push(...batch);
         if (after === undefined || batch.length < 200) break;
         after = batch.at(-1)!.seq;
@@ -79,9 +79,9 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
     refetchOnWindowFocus: false,
   });
   const history = useInfiniteQuery({
-    queryKey: computed(() => ['message-history', toValue(groupId), toValue(endpoint)] as const),
+    queryKey: computed(() => ['message-history', toValue(groupId), toValue(endpoint) ?? null] as const),
     initialPageParam: undefined as number | undefined,
-    queryFn: ({ pageParam, signal, queryKey }) => api.messages(queryKey[1]!, pageParam ?? head.data.value?.[0]?.seq, signal, queryKey[2]),
+    queryFn: ({ pageParam, signal, queryKey }) => api.messages(queryKey[1]!, pageParam ?? head.data.value?.[0]?.seq, signal, queryKey[2] ?? undefined),
     getNextPageParam: (last: MessageRow[]) => last.length === 50 ? last[0]?.seq : undefined,
     enabled: false,
     staleTime: Infinity,
@@ -316,6 +316,25 @@ export function useTeamDirectivesQuery(groupId: MaybeRefOrGetter<string | undefi
     queryKey: computed(() => ['team-directives', toValue(groupId)]),
     queryFn: ({ signal }) => api.teamDirectives(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useInteractionsQuery(groupId: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: computed(() => ['interactions', toValue(groupId)]),
+    queryFn: ({ signal }) => api.interactions(toValue(groupId)!, signal),
+    enabled: computed(() => Boolean(toValue(groupId))),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePanelInteractionsQuery() {
+  return useQuery({
+    queryKey: ['interactions', 'panel'] as const,
+    queryFn: ({ signal }) => api.panelInteractions(signal),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });

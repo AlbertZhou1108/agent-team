@@ -13,13 +13,18 @@ const definitions = [
   }, []],
   ['members', '读取本群成员与能力自述。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
-  ['group_add', '主 Agent 请求添加成员；交互式终端会向用户确认，无人值守时被拒绝，请让用户用 /add 添加。', {
+  ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。kind=choice 须提供 options（2-8 个选项，确认类事项用 同意/拒绝）；kind=input 请用户填写一段文本。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息（sender=user）自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', {
+    kind: { type: 'string', enum: ['choice', 'input'] },
+    text: string,
+    options: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 200 }, minItems: 2, maxItems: 8 },
+  }, ['kind', 'text']],
+  ['group_add', '主 Agent 请求添加成员；创建互动卡等待用户在面板上确认，同意后生效。', {
     name: string,
     host: string,
   }, ['name', 'host']],
   ['group_remove', '主 Agent 移除成员；立即撤销框架访问并尽力停止相关会话。', { member: string }, ['member']],
-  ['group_delete', '主 Agent 删除本群；框架会先请求用户确认。宿主历史与用户私聊保留。', {}, []],
-  ['group_create', '主 Agent 创建一个新团队并担任其主 Agent；交互式终端会向用户确认。members 可选，格式 名称=宿主,名称=宿主。', {
+  ['group_delete', '主 Agent 删除本群；框架会创建互动卡请求用户确认，同意后生效。宿主历史与用户私聊保留。', {}, []],
+  ['group_create', '主 Agent 创建一个新团队并担任其主 Agent；创建互动卡等待用户在面板上确认，同意后生效。members 可选，格式 名称=宿主,名称=宿主。', {
     name: string,
     workspace: string,
     members: string,
@@ -31,7 +36,7 @@ export function toolsFor(role, context = 'coordination') {
   const source = definitions.filter(([name], i) => {
     if (context === 'profile') return ['members', 'profile_set'].includes(name);
     if (context === 'private') return ['members', 'read', 'model_catalog', ...(role === 'lead' ? ['group_create'] : [])].includes(name);
-    return role === 'lead' || i < 5;
+    return role === 'lead' || i < 5 || name === 'ask';
   });
   return source.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } }));
 }
@@ -45,7 +50,15 @@ export function validateTool(role, name, args, context) {
   for (const [key, value] of Object.entries(args)) {
     const rule = schema.properties[key];
     if (rule.type === 'string' && (typeof value !== 'string' || !value.trim() || value.length > rule.maxLength)) throw new Error(`无效文本: ${key}`);
+    if (rule.type === 'string' && rule.enum && !rule.enum.includes(value)) throw new Error(`无效取值: ${key}`);
     if (rule.type === 'integer' && (!Number.isInteger(value) || value < rule.minimum || value > (rule.maximum ?? Number.MAX_SAFE_INTEGER))) throw new Error(`无效整数: ${key}`);
+    if (rule.type === 'array') {
+      if (!Array.isArray(value) || value.length < (rule.minItems ?? 0) || value.length > (rule.maxItems ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表: ${key}`);
+      if (new Set(value).size !== value.length) throw new Error(`列表项重复: ${key}`);
+      for (const item of value) {
+        if (typeof item !== 'string' || !item.trim() || item.length > (rule.items?.maxLength ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表项: ${key}`);
+      }
+    }
   }
   return args;
 }

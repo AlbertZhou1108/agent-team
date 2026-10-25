@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { Card, CardContent } from '@/components/ui/card';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { usePanelAgentStore } from '@/stores/panel-agent';
+import type { PanelMessage } from '@/shared/api/raw-types';
 import {
   ArrowUpRight,
-  Check,
   ChevronsUpDown,
+  CheckCheck,
   CircleAlert,
   MoreHorizontal,
   ShieldCheck,
   Users,
-  X,
 } from '@lucide/vue';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,16 +37,18 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import PanelConfirmationItem from './PanelConfirmationItem.vue';
 import type {
-  PanelAction,
   PanelTeam,
   PanelUnknownTurn,
 } from './types';
 
 const props = defineProps<{
   teams: PanelTeam[];
-  pendingActions: PanelAction[];
+  messages: PanelMessage[];
   unknown: PanelUnknownTurn[];
 }>();
+const panelState = usePanelAgentStore();
+const unread = (teamId: string) => panelState.unreadForContext(props.messages, teamId);
+const hasUnread = computed(() => [...new Set(props.messages.map(message => message.active_team_id || ''))].some(context => unread(context) > 0));
 const teamsOpen = ref(props.teams.length > 0);
 watch(
   () => props.teams.length,
@@ -59,7 +61,6 @@ const emit = defineEmits<{
   openTeam: [teamId: string];
   takeover: [team: PanelTeam];
   handback: [team: PanelTeam];
-  decideAction: [id: string, approved: boolean];
   resolveRuntime: [turnId: string];
 }>();
 
@@ -75,46 +76,26 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
 
 <template>
   <aside class="agent-side">
-    <Card v-if="pendingActions.length" class="panel agent-side-card">
-      <CardContent>
-        <h2 class="text-sm font-semibold">操作确认</h2>
-        <ItemGroup class="mt-3">
-          <PanelConfirmationItem
-            v-for="action in pendingActions"
-            :key="action.id"
-            :icon="ShieldCheck"
-            :title="`${action.action === 'takeover' ? '接管' : '交还'}${teams.find((team) => team.id === action.group_id)?.name ?? action.group_id}`"
-            :description="`控制者 revision ${action.base_revision}`"
-          >
-            <template #meta>
-              <Badge variant="outline" class="mt-1 w-fit">待确认</Badge>
-            </template>
-            <Button size="sm" @click="emit('decideAction', action.id, true)">
-              <Check data-icon="inline-start" />
-              确认
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              @click="emit('decideAction', action.id, false)"
-            >
-              <X data-icon="inline-start" />
-              取消
-            </Button>
-          </PanelConfirmationItem>
-        </ItemGroup>
-      </CardContent>
-    </Card>
-
     <Collapsible
       v-model:open="teamsOpen"
-      class="panel agent-side-card flex flex-col"
+      class="panel agent-side-card flex flex-col gap-4"
     >
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
           <h2 class="text-sm font-semibold">团队关系</h2>
           <Badge>{{ teams.length }}</Badge>
         </div>
+        <div class="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <span class="inline-flex" :tabindex="hasUnread ? undefined : 0" :aria-label="hasUnread ? undefined : '全部已读，当前没有未读消息'">
+                <Button variant="ghost" size="icon" :disabled="!hasUnread" aria-label="全部已读" @click="panelState.markAllPanelRead(messages)">
+                  <CheckCheck />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>将全局和所有团队会话标为已读</TooltipContent>
+          </Tooltip>
         <CollapsibleTrigger as-child>
           <Button variant="ghost" size="icon">
             <ChevronsUpDown />
@@ -123,9 +104,10 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
             }}</span>
           </Button>
         </CollapsibleTrigger>
+        </div>
       </div>
-      <CollapsibleContent>
-        <p class="px-1 pb-2 text-muted-foreground leading-4">
+      <CollapsibleContent class="flex min-h-0 flex-col gap-4">
+        <p class="px-1 text-sm text-muted-foreground leading-5">
           选中团队即切换上下文；选择“全部团队”返回全局。
         </p>
         <ScrollArea
@@ -154,6 +136,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
                   <ItemTitle class="w-full">全部团队</ItemTitle>
                 </button>
               </ItemContent>
+              <Badge v-if="unread('')" :aria-label="`${unread('')} 条未读消息`">{{ unread('') }}</Badge>
               <Badge
                 :variant="activeTeamId ? 'default' : 'secondary'"
                 class="shrink-0 whitespace-nowrap"
@@ -191,6 +174,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
                 </button>
                 <ItemDescription>{{ team.relation === 'main' ? '担任主 Agent' : '观察共享记录' }}</ItemDescription>
               </ItemContent>
+              <Badge v-if="unread(team.id)" class="shrink-0" :aria-label="`${unread(team.id)} 条未读消息`">{{ unread(team.id) }}</Badge>
               <DropdownMenu>
                 <DropdownMenuTrigger as-child>
                   <Button variant="ghost" size="icon-xs" title="团队操作">

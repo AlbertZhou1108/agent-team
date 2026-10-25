@@ -26,6 +26,7 @@ npm start -- --lead codex --members 配色=dsh,质感=claude --workspace /你的
 - `send(to,text)`：发给一位成员并唤醒对应上下文。所有成员发给主 Agent 的正式汇报进入该群唯一的调度会话，串行处理；忙碌期间的输入按顺序合并。
 - `note(to,text)`：不唤醒，随接收者下一条正式消息合并交付。
 - `read`：按需分页读取群记录；`members()` 查看成员；`profile_set` 只能写自己的能力自述。
+- `ask(kind,text,…)`：向用户发出互动卡，需要用户明确选择、确认或补充信息时使用。工具立即返回，发出后成员结束当前回合；用户在面板卡片上作答，答复以用户消息（sender=user）送达：主 Agent 进调度会话，普通成员进入独立的 用户↔成员 会话。当前支持 `choice`（2-8 个选项按钮，确认类事项即 同意/拒绝）与 `input`（一段文本）。互动卡是结构化征询，不是授权门禁；权限仍由群策略与宿主沙箱控制。挂起的互动在成员被移除时自动取消。
 - 普通成员之间是独立双人上下文，不同双人会话可并行。
 - 主 Agent 需要等待新信息时结束当前回合；框架在新消息到达后用同一会话开启新回合。原生子 Agent 和阻塞等待工具被宿主侧裁剪。
 - 输入重发保留原消息编号；普通发送失败不自动重试，可用 `/retry` 明确重试。
@@ -79,6 +80,8 @@ npm start -- chat --group 群编号 --text '读取群记录并汇总' --data wor
 ### Panel Agent
 
 面板根路径 `/agent` 提供独立 Panel Agent：一条全局私人会话观察全部团队，可在用户确认后接管某团队的 coordination（原主 Agent 暂停，可交还）。Panel Agent 的私人会话支持只读 / 工作区写入 / 完全权限三档；coordination 仍只协调、不读写项目文件。团队创建在私人会话中直接完成（`team_create`），没有契约确认协议。
+
+Panel Agent 与成员共用同一套互动卡：它可用 `ask` 向用户发出选择/填写卡（私聊发起的卡片显示在 Panel 聊天，coordination 发起的显示在团队页），答复会送达发起会话并唤醒下一回合；接管/交还请求（`request_team_takeover/handback`）也以互动卡形式等待确认，同意即生效、拒绝即结束，结果会通知回 Panel Agent。
 
 团队页通过 SSE 显示主 Agent 回复与 `send/note/team_send/team_note` 的工具参数增量；事件只携带新增片段，重连时由完整草稿快照恢复。
 

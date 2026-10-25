@@ -635,3 +635,19 @@ test('Panel Agent identity, private conversation and session survive restart', a
   assert.deepEqual(after.conversation.map(message => message.role), ['user', 'assistant']);
   assert.equal(bus.store.panelSession(after.agent.id, 'private').session, sessionBefore);
 });
+
+test('summary preserves conversation team attribution for unread counts', async t => {
+  const { bus, directory } = await fixture(t);
+  const group = confirmedGroup(bus, {
+    name: 'unread attribution', workspace: directory,
+    lead: { name: 'lead', host: 'fake' }, members: [],
+  });
+  await until(() => !bus.running.size);
+  const state = await createAgent(bus);
+  bus.store.panelAppend(state.agent.id, 'private', 'assistant', 'team reply', group.id);
+  bus.store.panelAppend(state.agent.id, 'private', 'assistant', 'global reply', null);
+  const summary = bus.panelAgentState(true).conversation;
+  assert.equal(summary.at(-2).active_team_id, group.id);
+  assert.equal(summary.at(-1).active_team_id, null);
+  assert.equal('text' in summary.at(-2), false);
+});

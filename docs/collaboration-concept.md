@@ -28,4 +28,4 @@
 
 ## 5. 可信入口
 
-建群(交互式 CLI / Panel Agent 私人会话)、归档、恢复、删群、成员增删来自用户入口;主 Agent 通过 group_create/group_add 工具动作时,交互式终端会请求用户确认,无人值守的 serve 会拒绝这些确认。
+建群(交互式 CLI / Panel Agent 私人会话)、归档、恢复、删群、成员增删来自用户入口;主 Agent 通过 group_create/group_add/group_delete 工具动作时,框架创建互动卡等待用户在面板上确认,同意后生效。

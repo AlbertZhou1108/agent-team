@@ -37,8 +37,8 @@ const preparationDefinitions = [
     workspace: string,
     members: string,
   }, ['name', 'workspace']],
-  ['request_team_takeover', '请求接管一个当前处于观察状态的团队；必须等待用户确认。', { groupId }, ['groupId']],
-  ['request_team_handback', '请求将当前主控团队交还原主 Agent；必须等待用户确认。', { groupId }, ['groupId']],
+  ['request_team_takeover', '请求接管一个当前处于观察状态的团队；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
+  ['request_team_handback', '请求将当前主控团队交还原主 Agent；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
 ];
 
 const mainDefinitions = [
@@ -66,6 +66,11 @@ const mainDefinitions = [
     host: string,
   }, ['groupId', 'name', 'host']],
   ['group_remove', '主 Agent 移除普通成员。', { groupId, member: string }, ['groupId', 'member']],
+  ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。kind=choice 须提供 options（2-8 个选项，确认类事项用 同意/拒绝）；kind=input 请用户填写一段文本。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', {
+    kind: { type: 'string', enum: ['choice', 'input'] },
+    text: string,
+    options: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 200 }, minItems: 2, maxItems: 8 },
+  }, ['kind', 'text']],
   ['model_catalog', '读取当前实时模型目录。', {}, []],
 ];
 

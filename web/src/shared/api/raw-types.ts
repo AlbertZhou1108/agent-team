@@ -167,17 +167,6 @@ export interface PanelAgentState {
   conversation: PanelMessage[];
   streaming?: PanelStream[];
   running: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
-  actions: Array<{
-    id: string;
-    panel_agent_id: string;
-    group_id: string;
-    action: 'takeover' | 'handback';
-    base_revision: number;
-    state: 'pending' | 'confirmed' | 'dismissed' | 'failed';
-    detail: string | null;
-    created: string;
-    updated: string;
-  }>;
   unknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
 }
 
@@ -235,6 +224,59 @@ export interface MessageRow {
   text: string;
   reply_to: string | null;
   created: string;
+}
+
+export type InteractionKind =
+  | 'choice'
+  | 'input'
+  | 'takeover'
+  | 'handback'
+  | 'group_create'
+  | 'group_add'
+  | 'group_delete';
+
+export interface InteractionChoicePayload {
+  kind: 'choice';
+  text: string;
+  options: string[];
+}
+
+export interface InteractionInputPayload {
+  kind: 'input';
+  text: string;
+}
+
+export interface InteractionActionPayload {
+  kind: 'takeover' | 'handback' | 'group_create' | 'group_add' | 'group_delete';
+  text: string;
+  groupId?: string;
+  baseRevision?: number;
+}
+
+export type InteractionPayload = InteractionChoicePayload | InteractionInputPayload | InteractionActionPayload;
+
+export type InteractionAnswer = { selected: string } | { value: string } | { approved: boolean };
+
+export interface Interaction {
+  id: string;
+  group_id: string | null;
+  member_id: string | null;
+  panel_agent_id: string | null;
+  endpoint_id: string | null;
+  context: string;
+  turn_id: string;
+  call_id: string;
+  /** 卡片锚点消息:成员/协作互动为群消息 id,Panel 私聊互动为 panel_messages id。 */
+  message_id: string | null;
+  panel_message_id: string | null;
+  kind: InteractionKind;
+  payload: InteractionPayload;
+  state: 'pending' | 'answered' | 'cancelled' | 'failed';
+  answer: InteractionAnswer | null;
+  detail: string | null;
+  answer_message_id: string | null;
+  created: string;
+  answered: string | null;
 }
 
 export interface HistoryRow {

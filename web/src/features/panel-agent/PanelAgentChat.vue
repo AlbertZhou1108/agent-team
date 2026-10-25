@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { computed } from 'vue';
-import { Bot, LoaderCircle, Settings2 } from '@lucide/vue';
+import { Bot, Settings2 } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -11,24 +11,18 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
+import { Badge } from '@/components/ui/badge';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
-import ReasoningBlock from '@/components/ai-elements/ReasoningBlock.vue';
-import {
-  Trace,
-  TraceDescription,
-  TraceIcon,
-  TraceLine,
-  TraceTitle,
-} from '@/components/ui/trace';
+import MessageFeed from '@/features/messages/MessageFeed.vue';
 import type {
+  Interaction,
   PanelAgent,
   PanelMessage,
   PanelStream,
 } from '@/shared/api/raw-types';
 import PanelAgentComposer from './PanelAgentComposer.vue';
-import PanelAgentMessage from './PanelAgentMessage.vue';
 import { filterPanelMessagesForContext } from './message-context';
+import { toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
 import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 
 const props = defineProps<{
@@ -36,6 +30,7 @@ const props = defineProps<{
   messages: PanelMessage[];
   streaming?: PanelStream | null;
   teams: PanelTeam[];
+  interactions?: Interaction[];
   sending: boolean;
   contextRunning: boolean;
   stopping: boolean;
@@ -61,34 +56,15 @@ const activeTeam = computed(() =>
 const visibleMessages = computed(() =>
   filterPanelMessagesForContext(props.messages, activeTeamId.value),
 );
-const streamingMessage = computed<PanelMessage | null>(() => {
-  const stream = props.streaming;
-  if (
-    !stream ||
-    (!stream.text && !stream.reasoning) ||
-    stream.activeTeamId !== (activeTeamId.value || null)
-  )
-    return null;
-  return {
-    seq: -1,
-    id: `stream:${stream.turnId}`,
-    panel_agent_id: stream.agentId,
-    context: 'private',
-    role: 'assistant',
-    text: stream.text,
-    active_team_id: stream.activeTeamId,
-    created: stream.created,
-  };
-});
-const visibleMessageIds = computed(() => [
-  ...visibleMessages.value.map((message) => message.id),
-  ...(streamingMessage.value ? [streamingMessage.value.id] : []),
-  ...(props.contextRunning && !streamingMessage.value
-    ? ['panel-agent-running']
-    : []),
-]);
-const reasoningRunning = computed(
-  () => Boolean(props.streaming) && !props.streaming?.text,
+const visibleViews = computed(() =>
+  toPanelMessageViews(visibleMessages.value, props.agent.name),
+);
+const panelStreamViews = computed(() =>
+  toPanelStreamViews([props.streaming], {
+    agentName: props.agent.name,
+    activeTeamId: activeTeamId.value || null,
+    running: props.contextRunning,
+  }),
 );
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
@@ -99,11 +75,16 @@ const suggestions = [
 
 <template>
   <ConversationFrame :readonly="false" class="agent-chat">
-  <ConversationPanel
-    :ids="visibleMessageIds"
+  <MessageFeed
+    :messages="visibleViews"
+    :stream-views="panelStreamViews"
+    :interactions="interactions ?? []"
+    :group-system-messages="false"
+    :markdown="true"
+    :hosts="{}"
+    selected-pair=""
     :reset-key="activeTeamId || globalContextKey"
-    :readonly="false"
-    aria-label="Panel Agent 私人会话"
+    :aria-label="'Panel Agent 私人会话'"
     viewport-class="size-full min-h-0"
     stream-class="size-full overflow-y-auto scroll-fade-b scrollbar-thin scrollbar-gutter-stable overscroll-contain contain-content"
     content-class="flex min-h-full flex-col gap-5 px-4 py-5"
@@ -125,79 +106,48 @@ const suggestions = [
       </header>
     </template>
 
-    <Empty v-if="!visibleMessages.length" class="min-h-[360px]">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Bot />
-        </EmptyMedia>
-        <EmptyTitle>
-          {{ activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
-        </EmptyTitle>
-        <EmptyDescription>
-          {{
-            activeTeam
-              ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
-              : '可以询问团队状态、解释阻塞，或者让我准备一个新团队。'
-          }}
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent v-if="!activeTeam">
-        <div class="flex flex-wrap justify-center gap-2">
-          <Button
-            v-for="suggestion in suggestions"
-            :key="suggestion"
-            variant="outline"
-            size="sm"
-            @click="draft = suggestion"
-          >
-            {{ suggestion }}
-          </Button>
-        </div>
-      </EmptyContent>
-    </Empty>
+    <template #empty>
+      <Empty class="min-h-[360px]">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Bot />
+          </EmptyMedia>
+          <EmptyTitle>
+            {{ activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
+          </EmptyTitle>
+          <EmptyDescription>
+            {{
+              activeTeam
+                ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
+                : '可以询问团队状态、解释阻塞，或者让我准备一个新团队。'
+            }}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent v-if="!activeTeam">
+          <div class="flex flex-wrap justify-center gap-2">
+            <Button
+              v-for="suggestion in suggestions"
+              :key="suggestion"
+              variant="outline"
+              size="sm"
+              @click="draft = suggestion"
+            >
+              {{ suggestion }}
+            </Button>
+          </div>
+        </EmptyContent>
+      </Empty>
+    </template>
 
-    <div
-      v-for="message in visibleMessages"
-      :key="message.id"
-      :data-message-id="message.id"
-    >
-      <PanelAgentMessage :message="message" :teams="teams" />
-    </div>
-
-    <div
-      v-if="streamingMessage"
-      :key="streamingMessage.id"
-      :data-message-id="streamingMessage.id"
-      aria-live="polite"
-    >
-      <ReasoningBlock
-        :reasoning="streaming?.reasoning"
-        :running="reasoningRunning"
-        class="mb-2"
-      />
-      <PanelAgentMessage
-        :message="streamingMessage"
-        :teams="teams"
-        :pending="!streamingMessage.text"
-      />
-    </div>
-
-    <div
-      v-else-if="contextRunning"
-      data-message-id="panel-agent-running"
-    >
-      <Trace>
-        <TraceLine status="running">
-          <TraceIcon>
-            <LoaderCircle class="animate-spin" />
-          </TraceIcon>
-          <TraceTitle>Panel Agent 正在处理</TraceTitle>
-          <TraceDescription>{{ agent.model ?? agent.host }}</TraceDescription>
-        </TraceLine>
-      </Trace>
-    </div>
-
-  </ConversationPanel>
+    <template #footer="{ message }">
+      <Badge
+        v-if="message.kind === 'system'"
+        variant="default"
+        class="mt-1 w-fit"
+        >自动进度</Badge
+      >
+    </template>
+  </MessageFeed>
     <template #composer>
       <Alert
         variant="destructive"

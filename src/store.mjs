@@ -55,7 +55,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES panel_outbox(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS panel_turn_inputs(turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
       CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
-      CREATE TABLE IF NOT EXISTS panel_action_requests(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,action TEXT NOT NULL CHECK(action IN ('takeover','handback')),base_revision INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','confirmed','dismissed','failed')),detail TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+      CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
       CREATE INDEX IF NOT EXISTS messages_group ON messages(group_id,seq);
       CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
@@ -149,9 +150,10 @@ export class Store {
       'work_items', 'work_records', 'change_requests', 'collaboration_operations',
       'message_context', 'message_dispositions', 'user_outputs',
       'team_charter_versions', 'goal_drafts', 'goals', 'goal_contract_versions',
-      'goal_events', 'team_goal_operations',
+      'goal_events', 'team_goal_operations', 'panel_action_requests',
     ];
     for (const table of flowTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`);
+    this.migrateInteractions();
     for (const [table, column] of [
       ['members', 'joined_goal_version'], ['members', 'removed_goal_version'],
       ['runtime_attempts', 'contract_version'], ['runtime_attempts', 'goal_id'],
@@ -167,6 +169,31 @@ export class Store {
         this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
       }
     }
+  }
+  // interactions 结构演进统一走重建:请求方泛化(v2)、动作类 kind 扩展(v3)。
+  // 用 sqlite_master 里的 CHECK 文本探测当前表是否包含全部所需 kind。
+  migrateInteractions() {
+    const info = this.all('PRAGMA table_info(interactions)');
+    if (!info.length) return;
+    const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'")?.sql ?? '';
+    const neededKinds = ['choice', 'input', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete'];
+    const missingKinds = neededKinds.filter(kind => !tableSql.includes(`'${kind}'`));
+    const needsRebuild = missingKinds.length > 0 || !info.some(column => column.name === 'panel_agent_id');
+    if (needsRebuild) {
+      const cols = new Set(info.map(column => column.name));
+      const pick = (name, fallback = 'NULL') => (cols.has(name) ? name : fallback);
+      this.transaction(() => {
+        this.db.exec(`ALTER TABLE interactions RENAME TO interactions_legacy;
+          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
+            SELECT id,group_id,member_id,${pick('panel_agent_id')},${pick('endpoint_id')},context,turn_id,call_id,message_id,${pick('panel_message_id')},kind,payload,state,answer,${pick('detail')},answer_message_id,created,answered FROM interactions_legacy;
+          DROP TABLE interactions_legacy;
+          CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);`);
+      });
+    }
+    // v1/v2 库重建后与新建库统一补齐 panel 索引;不能放进 schema 块,
+    // 否则对未迁移的旧表建索引会在 migrate 之前失败。
+    this.db.exec('CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created)');
   }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }
@@ -249,6 +276,33 @@ export class Store {
       )
       AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
       AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`);
+  }
+  createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {
+    this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, groupId, memberId, panelAgentId, endpointId, context, turnId, callId, messageId, panelMessageId, kind, JSON.stringify(payload), 'pending', detail, new Date().toISOString());
+    return this.interaction(id);
+  }
+  interaction(id) {
+    return this.get('SELECT * FROM interactions WHERE id=?', id) ?? null;
+  }
+  setInteractionState(id, state, answer = null, answerMessageId = null, detail = null) {
+    this.run('UPDATE interactions SET state=?,answer=?,detail=?,answer_message_id=?,answered=? WHERE id=?',
+      state,
+      answer === null ? null : JSON.stringify(answer),
+      detail,
+      answerMessageId,
+      state === 'answered' || state === 'failed' ? new Date().toISOString() : null,
+      id);
+    return this.interaction(id);
+  }
+  interactions(groupId) {
+    return this.all('SELECT * FROM interactions WHERE group_id=? ORDER BY created DESC, rowid DESC LIMIT 100', groupId);
+  }
+  panelInteractions() {
+    return this.all('SELECT * FROM interactions WHERE panel_agent_id IS NOT NULL ORDER BY created DESC, rowid DESC LIMIT 100');
+  }
+  pendingMemberInteractions(groupId, memberId) {
+    return this.all("SELECT * FROM interactions WHERE group_id=? AND member_id=? AND state='pending'", groupId, memberId);
   }
   prepare(message, endpoint, canBatch = () => true) {
     return this.transaction(() => {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api, ApiError } from '@/shared/api/client';
-import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
+import type { MessageRow, TeamDirectiveReceipt } from '@/shared/api/raw-types';
 
 type Attempt = { text: string; operationId: string; controllerId: string };
 type Entry = { draft: string; sending: boolean; error: string; attempt?: Attempt; receipt?: TeamDirectiveReceipt };
@@ -18,7 +18,7 @@ function load(): Record<string, Entry> {
   } catch { return {}; }
 }
 export const useTeamDirectiveStore = defineStore('team-directives', {
-  state: () => ({ entries: load() }),
+  state: () => ({ entries: load(), acceptedMessages: {} as Record<string, MessageRow[]> }),
   actions: {
     entry(groupId: string): Entry {
       return this.entries[groupId] ??= { draft: '', sending: false, error: '' };
@@ -45,6 +45,12 @@ export const useTeamDirectiveStore = defineStore('team-directives', {
       try {
         const receipt = await api.sendTeamDirective(groupId, attempt);
         entry.receipt = receipt;
+        const rows = this.acceptedMessages[groupId] ?? [];
+        this.acceptedMessages[groupId] = [...rows.filter(row => row.id !== receipt.messageId), {
+          id: receipt.messageId, seq: receipt.seq, group_id: groupId,
+          sender: 'user', recipient: receipt.recipient, kind: 'send',
+          text: attempt.text, reply_to: null, created: receipt.created,
+        }].slice(-50) as MessageRow[];
         entry.attempt = undefined;
         if (entry.draft.trim() === text) entry.draft = '';
         this.persist();

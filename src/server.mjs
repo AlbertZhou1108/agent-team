@@ -4,10 +4,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Bus } from './bus.mjs';
+import { Bus, interactionView } from './bus.mjs';
 import { telemetryOverview } from './telemetry-overview.mjs';
 import { chooseDirectory } from './directory-picker.mjs';
-import { toolsFor } from './tools.mjs';
 import { rpc } from './rpc.mjs';
 import { createCodexHost } from './hosts/codex.mjs';
 import { createClaudeHost, createDshHost } from './hosts/cli-hosts.mjs';
@@ -32,7 +31,7 @@ export async function loadHosts({ directory, socketPath, configFile }) {
   return hosts;
 }
 
-export async function startServer({ directory, port = 0, hosts, configFile, confirm }) {
+export async function startServer({ directory, port = 0, hosts, configFile }) {
   directory = resolve(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
@@ -68,7 +67,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
         unlinkSync(socketPath);
       } else throw new Error('socket 路径被其他文件占用');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    bus = new Bus({ directory, hosts: hosts ?? await loadHosts({ directory, socketPath, configFile }), confirm });
+    bus = new Bus({ directory, hosts: hosts ?? await loadHosts({ directory, socketPath, configFile }) });
     ipc = net.createServer(socket => {
       let data = '', handled = false;
       socket.setTimeout(960000, () => socket.destroy());
@@ -107,7 +106,7 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           || url.pathname === '/api/panel-agent/messages'
           || url.pathname === '/api/panel-agent/stop'
           || url.pathname === '/api/panel-agent/resolve-runtime'
-          || /^\/api\/panel-actions\/[^/]+\/decide$/.test(url.pathname)
+          || /^\/api\/interactions\/[^/]+\/answer$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
         );
         if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !teamStateMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
@@ -214,14 +213,14 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
             else if (url.pathname === '/api/panel-agent/resolve-runtime') value = bus.resolvePanelRuntime(body.turnId, body.reason);
             else {
               const teamMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/(takeover|handback)$/);
-              const actionMatch = url.pathname.match(/^\/api\/panel-actions\/([^/]+)\/decide$/);
+              const interactionMatch = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/);
               if (teamMatch) {
                 const groupId = decodeURIComponent(teamMatch[1]);
                 value = teamMatch[2] === 'takeover'
                   ? bus.takeoverTeam(groupId, body.revision)
                   : bus.handbackTeam(groupId, body.revision);
-              } else if (actionMatch) {
-                value = bus.decidePanelControllerAction(decodeURIComponent(actionMatch[1]), body.approved === true);
+              } else if (interactionMatch) {
+                value = bus.decideInteraction(decodeURIComponent(interactionMatch[1]), body.answer);
               } else return fail(404, 'Not found');
             }
           } else if (url.pathname === '/api/telemetry/overview') {
@@ -264,6 +263,11 @@ export async function startServer({ directory, port = 0, hosts, configFile, conf
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
           else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
           else if (url.pathname === '/api/collaboration') value = bus.groupSummary(url.searchParams.get('group'));
+          else if (url.pathname === '/api/interactions') {
+            value = url.searchParams.get('panel') === '1'
+              ? bus.store.panelInteractions().map(row => interactionView(row))
+              : bus.store.interactions(bus.store.group(url.searchParams.get('group')).id).map(row => interactionView(row));
+          }
           else if (url.pathname === '/api/charter') value = bus.store.group(url.searchParams.get('group')).charter ?? null;
           else if (url.pathname === '/api/messages') {
             const group = url.searchParams.get('group'); bus.store.group(group);

@@ -447,6 +447,7 @@ function createFolder() {
           </p>
         </div>
       </section>
+      <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
       <div
         class="team-root-drop"
         @dragover.prevent.stop="
@@ -456,7 +457,17 @@ function createFolder() {
         @drop.stop="drop($event)"
         :class="{ 'team-drop-target': dropTarget === 'root' }"
       >
-        <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
+        <SidebarEntry
+          v-if="rootTeams.length"
+          title="未分组"
+          :expanded="!org.sections.ungrouped"
+          :active="org.sections.ungrouped && rootTeams.some(g => g.id === currentGroupId)"
+          @activate="org.toggleSection('ungrouped')"
+        >
+          未分组
+          <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
+        </SidebarEntry>
+        <template v-if="!org.sections.ungrouped">
         <TeamRow
           v-for="group in rootTeams"
           :key="group.id"
@@ -472,6 +483,7 @@ function createFolder() {
           @archive="emit('archive', group.id)"
           :class="insertionClass(group.id, 'team')"
         />
+        </template>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"

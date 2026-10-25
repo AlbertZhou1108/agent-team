@@ -43,6 +43,7 @@ describe('team directive drafts and retries', () => {
     expect(mocks.send).toHaveBeenCalledTimes(1);
     expect(store.entry('A').draft).toBe('second');
     expect(store.entry('A').sending).toBe(false);
+    expect(store.acceptedMessages.A).toEqual([expect.objectContaining({ id: 'm', text: 'first', sender: 'user', recipient: 'lead' })]);
   });
   it('editing an ambiguously failed request creates a distinct operation', async () => {
     mocks.send.mockRejectedValue(new Error('network'));

@@ -34,21 +34,6 @@ export function clampInt(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
-export function fixedRules(member, { modelPolicy = null } = {}) {
-  return `你是本机 Agent 群成员 ${member.name}，成员编号 ${member.id}，角色 ${member.role}。群编号 ${member.group_id}。
-本轮上下文使用 contextSchemaVersion ${CONTEXT_SCHEMA_VERSION}：固定规则与本轮动态事实分离；旧轮事实可能过期，不得把旧轮状态当作当前状态。
-使用 send/note 在群里发言，正文是自然语言。最终文本只属于宿主会话，不会自动进入群。
-send 只发给一个接收者；note 不唤醒，用于涉及自己的对话补充或轻通知，随接收者下一条正式消息一起交付。
-不要介入与自己无关的对话。需要上下文时自行 read，members 可查成员与能力自述。profile_set 只能写自己的能力自述。
-同一消息编号出现两次表示同一条消息重发；先查本会话上下文，避免重复操作。
-普通成员之间的对话上下文独立；用户私聊不进群。成员发给主 Agent的正式汇报统一进入coordination会话，由主 Agent串行处理。
-成员要由用户确认后加入；不要自行扩充团队。不需要回复时可以沉默，避免无意义的相互致谢。
-任务分工、进度和完成标准由你们在群消息里自行协商与记录；框架只负责投递消息，不检查工作流程。需要授权范围说明时读取本轮输入中的团队说明（charter）。
-团队唤醒由框架负责。不得创建、等待、打断或管理宿主原生子 Agent；不要调用 spawn/wait/agent 类原生协同工具。需要等待新信息时只结束当前回合，不要阻塞等待；框架会把下一条群消息作为同一个会话的新回合投递。
-工具权限、回合来源、私聊隔离和审计由框架校验；不得尝试绕过，也不要读取认证秘密。
-${modelPolicy ? `全局模型策略（仅用于有模型规划职责的上下文）：${json(modelPolicy)}。只能从 model_catalog 实时目录选择。` : ''}`.trim();
-}
-
 export function messageRef(row) {
   return { id: row.id, hash: contentHash(row.text), length: codePointLength(row.text), unit: MESSAGE_REF_UNIT };
 }
