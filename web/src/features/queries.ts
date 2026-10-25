@@ -59,21 +59,46 @@ export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
 export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, endpoint: MaybeRefOrGetter<string | undefined> = undefined) {
   const client = useQueryClient();
   const key = computed(() => ['messages', toValue(groupId), toValue(endpoint) ?? null] as const);
+  // Head and history caches are written independently and restored separately
+  // by the tab cache, so a mounted view verifies their seam against a fresh
+  // server page once before either is trusted for incremental polling.
+  const verifiedSeams = new Set<string>();
   const head = useQuery({
     queryKey: key,
     queryFn: async ({ signal, queryKey }) => {
+      const identity = JSON.stringify(queryKey);
       const previous = client.getQueryData<MessageRow[]>(queryKey) ?? [];
-      const rows = [...previous];
-      let after = previous.at(-1)?.seq;
-      // Drain new records independently of the frozen history pages.
-      while (true) {
-        const batch = await api.messages(queryKey[1]!, undefined, signal, queryKey[2] ?? undefined, after);
-        rows.push(...batch);
-        if (after === undefined || batch.length < 200) break;
-        after = batch.at(-1)!.seq;
+      const older = client.getQueryData<{ pages: MessageRow[][] }>(['message-history', queryKey[1], queryKey[2]])?.pages.flat() ?? [];
+      const rows = [...new Map([...previous, ...older].map(row => [row.seq, row])).values()].sort((a, b) => a.seq - b.seq);
+      if (rows.length && !verifiedSeams.has(identity)) {
+        const fresh = await api.messages(queryKey[1]!, undefined, signal, queryKey[2] ?? undefined);
+        const cachedFloor = rows[0]!.seq;
+        rows.push(...fresh);
+        // Page backwards from the fresh window down to the cached floor,
+        // bridging every gap a partial restore left inside the caches — the
+        // cache may hold several disconnected islands, not just one seam.
+        let floor = fresh[0]?.seq;
+        for (let guard = 0; guard < 40 && floor !== undefined && floor > cachedFloor; guard += 1) {
+          const page = await api.messages(queryKey[1]!, floor, signal, queryKey[2] ?? undefined);
+          if (!page.length || page[0]!.seq >= floor) break;
+          rows.push(...page);
+          floor = page[0]!.seq;
+        }
+      } else {
+        // Drain new records independently of the frozen history pages.
+        let after = rows.at(-1)?.seq;
+        while (true) {
+          const batch = await api.messages(queryKey[1]!, undefined, signal, queryKey[2] ?? undefined, after);
+          rows.push(...batch);
+          if (after === undefined || batch.length < 200) break;
+          after = batch.at(-1)!.seq;
+        }
       }
+      verifiedSeams.add(identity);
       return [...new Map(rows.map(row => [row.seq, row])).values()].sort((a, b) => a.seq - b.seq);
     },
+    staleTime: 0,
+    refetchOnMount: 'always',
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,

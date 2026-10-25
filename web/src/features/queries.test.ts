@@ -64,3 +64,66 @@ it('normalizes a restored null endpoint before polling newer messages', async ()
     expect(query.rows.value.map(row => row.id)).toContain('interaction-anchor');
   } finally { dispose(); }
 });
+
+it('repairs the gap between restored history pages and a newer cached head', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['messages', 'team', null], [{ seq: 439, id: 'later-card' }]);
+  client.setQueryData(['message-history', 'team', null], { pages: [[{ seq: 376, id: 'older' }]], pageParams: [null] });
+  vi.mocked(api.messages).mockReset().mockImplementation((async (_group: string, before: number | undefined, _signal: AbortSignal, _endpoint: string | undefined, after: number | undefined) => {
+    if (before === 439) return [{ seq: 376, id: 'older' }, { seq: 436, id: 'missing-card' }] as any;
+    if (after === undefined) return [{ seq: 439, id: 'later-card' }] as any;
+    return [];
+  }) as any);
+  let query!: ReturnType<typeof useMessagesQuery>;
+  const dispose = mount(() => { query = useMessagesQuery('team'); }, client);
+  try {
+    await settle();
+    expect(query.rows.value.map(row => row.id)).toEqual(['older', 'missing-card', 'later-card']);
+    await query.refetch();
+    expect(vi.mocked(api.messages).mock.calls.at(-1)?.[4]).toBe(439);
+  } finally { dispose(); }
+});
+
+it('bridges a gap inside a restored head cache without history pages', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['messages', 'team', null], [
+    { seq: 372, id: 'old-tail' },
+    { seq: 439, id: 'later-card' },
+  ]);
+  vi.mocked(api.messages).mockReset().mockImplementation((async (_group: string, before: number | undefined, _signal: AbortSignal, _endpoint: string | undefined, after: number | undefined) => {
+    if (before === 439) return [{ seq: 372, id: 'old-tail' }, { seq: 436, id: 'missing-card' }] as any;
+    if (after === undefined) return [{ seq: 439, id: 'later-card' }] as any;
+    return [];
+  }) as any);
+  let query!: ReturnType<typeof useMessagesQuery>;
+  const dispose = mount(() => { query = useMessagesQuery('team'); }, client);
+  try {
+    await settle();
+    expect(query.rows.value.map(row => row.id)).toEqual(['old-tail', 'missing-card', 'later-card']);
+    expect(query.hasNextPage.value).toBe(false);
+  } finally { dispose(); }
+});
+
+it('pages through several cached islands until the whole window is contiguous', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['messages', 'team', null], [
+    { seq: 332, id: 'oldest' },
+    { seq: 372, id: 'old-tail' },
+    { seq: 439, id: 'later-card' },
+  ]);
+  vi.mocked(api.messages).mockReset().mockImplementation((async (_group: string, before: number | undefined, _signal: AbortSignal, _endpoint: string | undefined, after: number | undefined) => {
+    if (before === 439) return [{ seq: 436, id: 'missing-card' }, { seq: 438, id: 'fill-438' }] as any;
+    if (before === 436) return [{ seq: 332, id: 'oldest' }, { seq: 372, id: 'old-tail' }, { seq: 380, id: 'fill-380' }] as any;
+    if (after === undefined) return [{ seq: 439, id: 'later-card' }] as any;
+    return [];
+  }) as any);
+  let query!: ReturnType<typeof useMessagesQuery>;
+  const dispose = mount(() => { query = useMessagesQuery('team'); }, client);
+  try {
+    await settle();
+    expect(query.rows.value.map(row => row.id)).toEqual([
+      'oldest', 'old-tail', 'fill-380', 'missing-card', 'fill-438', 'later-card',
+    ]);
+    expect(vi.mocked(api.messages).mock.calls.filter(call => call[1] !== undefined)).toHaveLength(2);
+  } finally { dispose(); }
+});
