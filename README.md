@@ -138,3 +138,9 @@ node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 ## 从旧版本升级
 
 早期版本数据库中的契约、工作项、目标生命周期表会在启动时自动清除（见 `Store.migrate()`）；消息历史、成员、会话与遥测全部保留。`closing/closed` 相位、`team_finish`、`next_goal_request` 等概念不再存在；旧群一律回到 open 状态。
+
+### 全局助手与团队会话
+
+Panel Agent 的私人会话用于全局咨询、团队创建与请求转交；它可以继续担任多个团队的主 Agent。团队执行统一进入该团队的协作会话，用户也可以直接在团队页面与主 Agent 沟通。私人线程使用 `team_request_submit` 转交，团队线程使用 `team_receipt_publish` 返回来源引用回执；团队直接对话不自动复制到私人线程。
+
+团队关系列表导航到团队页面。旧团队私人会话保留为只读历史；`/agent?team=…` 链接进入对应团队。团队来源通知不会自动唤醒私人模型，待答复互动独立于消息未读。实现与验收规则见 [统一会话方案](docs/panel-team-conversation-plan.md)。

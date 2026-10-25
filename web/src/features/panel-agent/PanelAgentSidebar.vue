@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { usePanelAgentStore } from '@/stores/panel-agent';
-import type { PanelMessage } from '@/shared/api/raw-types';
+import type { PanelMessage, TeamRequest, PanelAgentState } from '@/shared/api/raw-types';
 import {
   ArrowUpRight,
   ChevronsUpDown,
@@ -44,11 +45,15 @@ import type {
 const props = defineProps<{
   teams: PanelTeam[];
   messages: PanelMessage[];
+  requests: TeamRequest[];
+  notifications: NonNullable<PanelAgentState['notifications']>;
+  pendingInteractions: Record<string, number>;
   unknown: PanelUnknownTurn[];
 }>();
+const router = useRouter();
 const panelState = usePanelAgentStore();
 const unread = (teamId: string) => panelState.unreadForContext(props.messages, teamId);
-const hasUnread = computed(() => [...new Set(props.messages.map(message => message.active_team_id || ''))].some(context => unread(context) > 0));
+const hasUnread = computed(() => unread('') > 0 || panelState.unreadReceipts(props.requests) > 0);
 const teamsOpen = ref(props.teams.length > 0);
 watch(
   () => props.teams.length,
@@ -65,7 +70,7 @@ const emit = defineEmits<{
 }>();
 
 function selectTeam(teamId: string) {
-  activeTeamId.value = teamId;
+  void router.push({ name: 'group', params: { groupId: teamId } });
 }
 
 function onTeamCardClick(teamId: string, event: MouseEvent) {
@@ -89,12 +94,12 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
           <Tooltip>
             <TooltipTrigger as-child>
               <span class="inline-flex" :tabindex="hasUnread ? undefined : 0" :aria-label="hasUnread ? undefined : '全部已读，当前没有未读消息'">
-                <Button variant="ghost" size="icon" :disabled="!hasUnread" aria-label="全部已读" @click="panelState.markAllPanelRead(messages)">
+                <Button variant="ghost" size="icon" :disabled="!hasUnread" aria-label="全部已读" @click="panelState.markAllPanelRead(messages.filter(message => message.active_team_id == null)); panelState.syncReceiptReads(requests, true)">
                   <CheckCheck />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent>将全局和所有团队会话标为已读</TooltipContent>
+            <TooltipContent>将全局私人会话和请求回执标为已读</TooltipContent>
           </Tooltip>
         <CollapsibleTrigger as-child>
           <Button variant="ghost" size="icon">
@@ -108,7 +113,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
       </div>
       <CollapsibleContent class="flex min-h-0 flex-col gap-4">
         <p class="px-1 text-sm text-muted-foreground leading-5">
-          选中团队即切换上下文；选择“全部团队”返回全局。
+          点击团队进入团队协作会话，与该团队主 Agent 继续沟通。
         </p>
         <ScrollArea
           class="w-full"
@@ -133,7 +138,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
                   :aria-pressed="!activeTeamId"
                   @click="activeTeamId = ''"
                 >
-                  <ItemTitle class="w-full">全部团队</ItemTitle>
+                  <ItemTitle class="w-full">全局助手</ItemTitle>
                 </button>
               </ItemContent>
               <Badge v-if="unread('')" :aria-label="`${unread('')} 条未读消息`">{{ unread('') }}</Badge>
@@ -174,7 +179,8 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
                 </button>
                 <ItemDescription>{{ team.relation === 'main' ? '担任主 Agent' : '观察共享记录' }}</ItemDescription>
               </ItemContent>
-              <Badge v-if="unread(team.id)" class="shrink-0" :aria-label="`${unread(team.id)} 条未读消息`">{{ unread(team.id) }}</Badge>
+
+              <Badge v-if="pendingInteractions[team.id]" variant="secondary" class="shrink-0" :aria-label="`${pendingInteractions[team.id]} 项待答复互动`">待答复 {{ pendingInteractions[team.id] }}</Badge>
               <DropdownMenu>
                 <DropdownMenuTrigger as-child>
                   <Button variant="ghost" size="icon-xs" title="团队操作">
@@ -209,6 +215,16 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
         </ScrollArea>
       </CollapsibleContent>
     </Collapsible>
+
+    <details v-if="notifications.length" class="flex min-w-0 flex-col gap-3">
+      <summary class="cursor-pointer text-sm font-medium">团队来源通知（{{ notifications.length }}）</summary>
+      <div class="mt-3 flex max-h-64 flex-col gap-3 overflow-y-auto">
+        <div v-for="notification in notifications" :key="notification.id" class="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+          <p class="whitespace-pre-wrap">{{ notification.text }}</p>
+          <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
+        </div>
+      </div>
+    </details>
 
     <Card v-if="unknown.length" class="panel agent-side-card">
       <CardContent>

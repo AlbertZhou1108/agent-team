@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
+import { TeamRequests } from './team-requests.mjs';
 import { TeamDirectives } from './team-directives.mjs';
 import { Telemetry, telemetryObservation } from './telemetry.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
@@ -21,6 +22,7 @@ import {
   legacyGroupDeliveryPrompt,
 } from './prompts.mjs';
 import {
+  BUILTIN_PRESET_ID,
   DEFAULT_USER_MODEL_RULES,
   SMART_COST_RULES,
   SMART_PERFORMANCE_RULES,
@@ -28,7 +30,13 @@ import {
 } from './model-policy.mjs';
 
 const messageToolNames = new Set(['send', 'note', 'team_send', 'team_note']);
-const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete']);
+const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
+
+function memberModelSummary(selection) {
+  return selection
+    ? `${selection.model_provider ? `${selection.model_provider}/` : ''}${selection.model}（强度 ${selection.reasoning_effort}）`
+    : '宿主默认模型';
+}
 
 function questionPreview(text) {
   const points = Array.from(typeof text === 'string' ? text : '');
@@ -128,6 +136,7 @@ export class Bus extends EventEmitter {
     this.collaboration = new Collaboration(this.store);
     this.information = new Information(this.store);
     this.teamDirectives = new TeamDirectives(this);
+    this.teamRequests = new TeamRequests(this);
     this.hosts = hosts;
     this.running = new Map();
     this.panelStreams = new Map();
@@ -271,6 +280,9 @@ export class Bus extends EventEmitter {
     this.ensurePanelBindings();
     return {
       agent,
+      requests: this.teamRequests.list(agent.id),
+      teamPendingInteractions: Object.fromEntries(this.store.all("SELECT group_id,COUNT(*) AS count FROM interactions WHERE state='pending' AND group_id IS NOT NULL GROUP BY group_id").map(row => [row.group_id, row.count])),
+      notifications: this.store.all('SELECT * FROM panel_updates WHERE panel_agent_id=? ORDER BY created DESC LIMIT 100', agent.id).map(row => this.panelUpdate(row)),
       sessions: this.store.all('SELECT id,context,group_id,session,updated FROM panel_sessions WHERE panel_agent_id=? ORDER BY created', agent.id),
       teams: this.panelTeamViews(),
       conversation: this.store.all(
@@ -652,19 +664,18 @@ export class Bus extends EventEmitter {
     }
   }
   async executePanelTool(session, panelAgent, name, args, origin) {
+    if (name === 'team_request_submit') return this.teamRequests.submit(session, panelAgent, origin, args);
+    if (name === 'team_receipt_publish') return this.teamRequests.publish(session, panelAgent, origin, args);
+    if (name === 'team_requests') {
+      const requests = this.teamRequests.list(panelAgent.id, session.context === 'coordination' ? session.group_id : args.groupId);
+      return session.context === 'coordination' ? requests.map(({ original_text, source_user_message_id, ...request }) => request) : requests;
+    }
     if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
     if (name === 'teams_list') return this.panelTeamViews();
     if (name === 'team_create') {
       if (session.context !== 'private') throw new Error('团队创建只能在 Panel Agent 私人会话中执行');
       const group = this.createPanelTeam(panelAgent, args);
-      if (origin.turnId) {
-        // The created team becomes this turn's active context so follow-up
-        // team writes in the same turn pass the activeTeamId guard.
-        this.store.run('UPDATE panel_turns SET active_team_id=? WHERE id=?', group.id, origin.turnId);
-        const live = this.running.get(session.id);
-        if (live) live.activeTeamId = group.id;
-      }
-      return { ...group, activeTeamId: group.id };
+      return group;
     }
     if (name === 'ask') {
       if (args.kind === 'choice' && !Array.isArray(args.options)) throw new Error('choice 必须提供 options');
@@ -686,7 +697,7 @@ export class Bus extends EventEmitter {
       return { interaction: interaction.id, state: interaction.state };
     }
     if (name === 'request_team_takeover' || name === 'request_team_handback') {
-      if (origin.activeTeamId !== args.groupId) {
+      if (session.context !== 'private' && origin.activeTeamId !== args.groupId) {
         throw new Error('控制动作请求必须与当前 activeTeamId 一致，请先切换团队上下文');
       }
       return this.requestPanelControllerAction(
@@ -797,6 +808,17 @@ export class Bus extends EventEmitter {
       return this.addMember(group.id, args);
     }
     if (name === 'group_remove') return this.removeMember(group.id, args.member);
+    if (name === 'group_member_model') {
+      const target = this.resolveMember(group.id, args.member);
+      if (target.role !== 'member') throw new Error('group_member_model 只能调整普通成员');
+      const selection = await this.validateMemberModelSelection(target, args);
+      return this.requestPanelMemberModel(panelAgent, session, origin, group,
+        `请求将成员 ${target.name} 的模型调整为 ${memberModelSummary(selection)}`,
+        { member: args.member, ...(selection ?? {}) });
+    }
+    if (name === 'group_tasks_set') {
+      return this.setAgentTasks({ groupId: group.id, ownerId: panelAgent.id, tasks: args.tasks });
+    }
     throw new Error('Panel Agent 工具不存在');
   }
   panelInstructions(session, panelAgent, activeTeamId = null) {
@@ -873,50 +895,12 @@ export class Bus extends EventEmitter {
   }
 
   async pumpPanelUpdates() {
-    if (this.closing || this.pumpingPanelUpdates) return;
-    const agent = this.panelAgent();
-    if (!agent) return;
-    const session = this.store.panelSession(agent.id, 'private');
-    if (this.running.has(session.id)
-      || this.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) {
-      return;
-    }
+    // Only explicit user answers may resume the private host. Legacy updates never do.
     this.flushPanelPrivateDeliveries();
-    const next = this.store.get(
-      `SELECT group_id FROM panel_updates
-       WHERE panel_agent_id=? AND delivered_turn_id IS NULL
-       ORDER BY created LIMIT 1`,
-      agent.id,
-    );
-    if (!next) return;
-    const updates = this.pendingPanelUpdates(next.group_id);
-    if (!updates.length) return;
-    this.pumpingPanelUpdates = true;
-    let acceptedTurnId = null;
-    let reported = false;
-    try {
-      const result = await this.runPanelTurn({
-        session,
-        panelAgent: agent,
-        prompt: panelUpdatesDispatchPrompt(updates, id => this.store.group(id).name),
-        activeTeamId: next.group_id,
-        onAccepted: turnId => {
-          acceptedTurnId = turnId;
-        },
-      });
-      if (result && acceptedTurnId) {
-        this.markPanelUpdatesDelivered(updates.map(update => update.id), acceptedTurnId);
-        reported = true;
-      }
-    } catch {
-      // The failed turn is recorded; leave updates pending for a later trigger.
-    } finally {
-      this.pumpingPanelUpdates = false;
-      if (reported) setImmediate(() => this.pumpPanelUpdates());
-    }
   }
 
   async runPanelTurn({
+    sourceUserMessageId = null,
     session,
     panelAgent,
     prompt,
@@ -960,6 +944,7 @@ export class Bus extends EventEmitter {
       'running',
       now,
     );
+    if (sourceUserMessageId) this.store.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, turnId);
     this.information.rememberTurnSchema(turnId, 'panel', schema);
     inputs.forEach((message, ordinal) => this.store.run(
       'INSERT INTO panel_turn_inputs VALUES(?,?,?)',
@@ -1212,7 +1197,7 @@ export class Bus extends EventEmitter {
       const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
         ? this.teamDirectives.publishOutput(turnId, result, true)
         : [];
-      const persistedReply = publishedReplies?.[0] ?? null;
+      const persistedReply = publishedReplies?.[0] ?? this.store.get("SELECT m.* FROM messages m JOIN panel_message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
       this.panelStreams.delete(turnId);
       this.publishPanelStream({
         type: 'complete',
@@ -1224,7 +1209,7 @@ export class Bus extends EventEmitter {
           type: 'complete',
           stream: {
             ...teamStream,
-            text: String(result ?? teamStream.text),
+            text: String(persistedReply?.text ?? result ?? teamStream.text),
             updatedAt: new Date().toISOString(),
             ...(persistedReply
               ? { messageId: persistedReply.id, messageSeq: persistedReply.seq }
@@ -1294,22 +1279,20 @@ export class Bus extends EventEmitter {
     const panelAgent = this.panelAgent();
     if (!panelAgent) throw new Error('Panel Agent 尚未创建');
     if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('Panel Agent 输入无效');
-    if (activeTeamId) {
-      this.store.group(activeTeamId);
-      this.panelTeamRelation(activeTeamId);
-    }
-    const user = this.store.panelAppend(panelAgent.id, 'private', 'user', text.trim(), activeTeamId ?? null);
+    if (activeTeamId) throw new Error('团队对话已迁移到团队协作会话，请从团队页面发送');
+    const user = this.store.panelAppend(panelAgent.id, 'private', 'user', text.trim(), null);
     const session = this.store.panelSession(panelAgent.id, 'private');
-    const updates = this.pendingPanelUpdates(activeTeamId);
-    const prompt = panelPrivateTurnPrompt(updates, id => this.store.group(id).name, text.trim());
+    const updates = [];
+    const prompt = text.trim();
     let accepted = false;
     let acceptedTurnId = null;
     try {
       const result = await this.runPanelTurn({
         session,
         panelAgent,
+        sourceUserMessageId: user.id,
         prompt,
-        activeTeamId: activeTeamId ?? null,
+        activeTeamId: null,
         onAccepted: turnId => {
           accepted = true;
           acceptedTurnId = turnId;
@@ -1339,7 +1322,7 @@ export class Bus extends EventEmitter {
   async stopPanel() {
     const agent = this.panelAgent();
     if (!agent) return { stopped: [] };
-    const active = [...this.running.values()].filter(item => item.endpoint.context === 'panel-private' || item.endpoint.context === 'panel-coordination');
+    const active = [...this.running.values()].filter(item => item.endpoint.context === 'panel-private');
     for (const item of active) item.abort.abort();
     await Promise.allSettled(active.map(item => item.done));
     return { stopped: active.map(item => item.turnId) };
@@ -1364,7 +1347,7 @@ export class Bus extends EventEmitter {
       this.emit('message', message);
       return { groupId, messageId: message.id, panelMessageId: null };
     }
-    const row = this.store.panelAppend(panelAgent.id, 'private', 'assistant', text, origin.activeTeamId ?? null);
+    const row = this.store.panelAppend(panelAgent.id, 'private', 'assistant', text, null);
     return { groupId: null, messageId: null, panelMessageId: row.id };
   }
   requestPanelControllerAction(panelAgent, session, origin, action, groupId) {
@@ -1400,6 +1383,32 @@ export class Bus extends EventEmitter {
       panelMessageId: anchor.panelMessageId,
       kind: action,
       payload: { kind: action, text, groupId, baseRevision: revision },
+    });
+    return interactionView(row);
+  }
+  requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
+    const existing = this.store.get(
+      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC LIMIT 1",
+      panelAgent.id,
+      group.id,
+    );
+    if (existing) {
+      if (JSON.parse(existing.payload).text === text) return interactionView(existing);
+      this.store.setInteractionState(existing.id, 'cancelled', null, null, '请求内容已变化');
+    }
+    const anchor = this.panelInteractionAnchor(session, panelAgent, origin, text);
+    const row = this.store.createInteraction({
+      id: randomUUID(),
+      groupId: group.id,
+      panelAgentId: panelAgent.id,
+      endpointId: session.id,
+      context: session.context,
+      turnId: origin.turnId ?? '',
+      callId: origin.callId,
+      messageId: anchor.messageId,
+      panelMessageId: anchor.panelMessageId,
+      kind: 'member_model',
+      payload: { kind: 'member_model', text, args },
     });
     return interactionView(row);
   }
@@ -1456,6 +1465,11 @@ export class Bus extends EventEmitter {
       handback: () => this.handbackTeam(payload.groupId, payload.baseRevision),
       group_create: () => this.createGroup(payload.args),
       group_add: () => this.addMember(row.group_id, payload.args),
+      member_model: () => this.applyMemberModel(row.group_id, payload.args.member, payload.args.model ? {
+        model_provider: payload.args.model_provider ?? null,
+        model: payload.args.model,
+        reasoning_effort: payload.args.reasoning_effort ?? null,
+      } : null),
       // 群删除会级联清除本行,结果不再回送发起会话。
       group_delete: () => this.deleteGroup(row.group_id),
     };
@@ -1499,16 +1513,19 @@ export class Bus extends EventEmitter {
       this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
       return;
     }
-    void this.panelPrivateTurn(text, row.group_id ?? undefined).catch(() => {});
+    void this.panelPrivateTurn(text, null).catch(() => {});
   }
   // 私人会话忙碌期间积压的互动答复/动作结果,在会话空闲后按序补投。
   flushPanelPrivateDeliveries() {
     if (this.closing || !this.panelPrivateDeliveries.length) return;
-    const queue = this.panelPrivateDeliveries.splice(0);
-    for (const item of queue) {
-      void this.panelPrivateTurn(item.text, item.groupId ?? undefined).catch(() => {});
-    }
+    const agent = this.panelAgent();
+    if (!agent) return;
+    const session = this.store.panelSession(agent.id, 'private');
+    if (this.running.has(session.id) || this.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
+    const item = this.panelPrivateDeliveries.shift();
+    void this.panelPrivateTurn(item.text, null).catch(() => {});
   }
+
   panelUnknown(groupId = null) {
     return this.store.all(
       `SELECT t.*,s.context AS session_context FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
@@ -1614,17 +1631,79 @@ export class Bus extends EventEmitter {
     return this.controllerState(groupId);
   }
   modelPolicy() {
-    return this.store.get('SELECT mode,rules,created,updated FROM global_model_policy WHERE singleton=1');
+    return this.store.get('SELECT mode,rules,preset_id,created,updated FROM global_model_policy WHERE singleton=1');
   }
   updateModelPolicy(value) {
     const policy = normalizeModelPolicy(value);
+    // presetId 只由调用方显式给出:内容相同的多份配置无法靠文本区分。
+    // 内置默认规则用固定哨兵值,让它也能被精确回指(否则保存后无法高亮)。
+    let presetId = null;
+    if (value?.presetId === BUILTIN_PRESET_ID) {
+      presetId = BUILTIN_PRESET_ID;
+    } else if (typeof value?.presetId === 'string' && value.presetId) {
+      const preset = this.store.get('SELECT id FROM model_policy_presets WHERE id=?', value.presetId);
+      if (!preset) throw new Error('配置不存在');
+      presetId = preset.id;
+    }
     this.store.run(
-      'UPDATE global_model_policy SET mode=?,rules=?,updated=? WHERE singleton=1',
+      'UPDATE global_model_policy SET mode=?,rules=?,preset_id=?,updated=? WHERE singleton=1',
       policy.mode,
       policy.rules,
+      presetId,
       new Date().toISOString(),
     );
     return this.modelPolicy();
+  }
+  // 自定义策略配置:编辑辅助层,不参与运行时;激活策略仍是 global_model_policy 单行。
+  modelPolicyPresets() {
+    return this.store.all('SELECT id,name,mode,rules,created,updated FROM model_policy_presets ORDER BY updated DESC');
+  }
+  normalizePresetName(name) {
+    const value = typeof name === 'string' ? name.trim() : '';
+    if (!value || value.length > 60) throw new Error('配置名称需要 1-60 字符');
+    return value;
+  }
+  // 自定义配置只属于「用户配置」模式:智能策略的两个模板是代码内置的,不可自建。
+  createModelPolicyPreset({ name, rules }) {
+    const normalized = this.normalizePresetName(name);
+    if (this.store.get('SELECT 1 FROM model_policy_presets WHERE name=?', normalized)) throw new Error('配置名称已存在');
+    const policy = normalizeModelPolicy({ mode: 'user', rules });
+    const now = new Date().toISOString();
+    this.store.run(
+      'INSERT INTO model_policy_presets(id,name,mode,rules,created,updated) VALUES(?,?,?,?,?,?)',
+      randomUUID(),
+      normalized,
+      'user',
+      policy.rules,
+      now,
+      now,
+    );
+    return this.modelPolicyPresets().find(row => row.name === normalized);
+  }
+  renameModelPolicyPreset(id, name) {
+    const normalized = this.normalizePresetName(name);
+    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    if (!existing) throw new Error('配置不存在');
+    const conflict = this.store.get('SELECT 1 FROM model_policy_presets WHERE name=? AND id<>?', normalized, id);
+    if (conflict) throw new Error('配置名称已存在');
+    this.store.run('UPDATE model_policy_presets SET name=?,updated=? WHERE id=?', normalized, new Date().toISOString(), id);
+    return this.modelPolicyPresets().find(row => row.id === id);
+  }
+  saveModelPolicyPreset(id, { mode, rules }) {
+    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    if (!existing) throw new Error('配置不存在');
+    const policy = normalizeModelPolicy({ mode, rules });
+    this.store.run('UPDATE model_policy_presets SET mode=?,rules=?,updated=? WHERE id=?', policy.mode, policy.rules, new Date().toISOString(), id);
+    return this.modelPolicyPresets().find(row => row.id === id);
+  }
+  deleteModelPolicyPreset(id) {
+    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    if (!existing) throw new Error('配置不存在');
+    // 正在使用的配置不允许删除:先切到其他策略再删,避免生效策略失去来源或被静默改写。
+    const active = this.store.get('SELECT preset_id FROM global_model_policy WHERE singleton=1');
+    if (active?.preset_id === id) throw new Error('该配置正在使用中，请先切换到其他配置再删除');
+    this.store.run('DELETE FROM model_policy_presets WHERE id=?', id);
+    return { deleted: id };
   }
   defaultModelSelection(hostName) {
     const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
@@ -1639,6 +1718,77 @@ export class Bus extends EventEmitter {
       model: model.id,
       reasoning_effort: model.defaultReasoningEffort ?? null,
     };
+  }
+  async validateMemberModelSelection(member, { model_provider, model, reasoning_effort } = {}) {
+    if (model === undefined || model === null || String(model).trim() === '') return null;
+    const catalog = await this.modelCatalog({ refresh: true });
+    const hostCatalog = catalog.hosts.find(item => item.host === member.host && item.ok && item.catalog);
+    if (!hostCatalog) throw new Error(`宿主 ${member.host} 没有可用模型目录`);
+    const provider = typeof model_provider === 'string' && model_provider.trim() ? model_provider.trim() : null;
+    const selected = hostCatalog.catalog.models.find(item => item.id === model && (!provider || item.provider === provider));
+    if (!selected) throw new Error('选择的模型不在该成员宿主目录中');
+    const supported = selected.reasoningEfforts.length ? selected.reasoningEfforts : hostCatalog.catalog.reasoningEfforts;
+    const effort = reasoning_effort ?? selected.defaultReasoningEffort;
+    if (!effort || (supported.length && !supported.some(item => item.id === effort))) throw new Error('模型思考强度不受支持');
+    return { model_provider: selected.provider ?? provider ?? null, model: selected.id, reasoning_effort: effort };
+  }
+  // 互动卡执行器走同步应用:卡创建时已完成目录校验,这里只落库;
+  // 若目录此后变化,由成员下一回合的宿主错误暴露,可再次调整。
+  applyMemberModel(groupId, memberId, selection) {
+    const member = this.resolveMember(groupId, memberId);
+    this.store.run(
+      'UPDATE members SET model_provider=?,model=?,reasoning_effort=? WHERE id=?',
+      selection?.model_provider ?? null,
+      selection?.model ?? null,
+      selection?.reasoning_effort ?? null,
+      member.id,
+    );
+    this.notify(groupId, member.id, `你的模型配置已调整为 ${memberModelSummary(selection)}`);
+    return this.store.member(member.id);
+  }
+  async setMemberModel(groupId, memberId, selection) {
+    const member = this.resolveMember(groupId, memberId);
+    const validated = await this.validateMemberModelSelection(member, selection);
+    return this.applyMemberModel(groupId, member.id, validated);
+  }
+  // 任务面板:模型自述当前任务,整体替换自己的列表;无阻塞语义,进度由模型控制。
+  normalizeAgentTasks(value) {
+    if (!Array.isArray(value)) throw new Error('任务列表必须是数组');
+    if (value.length > 20) throw new Error('任务列表最多 20 条');
+    return value.map(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('任务必须是对象');
+      if (typeof item.text !== 'string' || !item.text.trim() || item.text.length > 500) throw new Error('任务文本需要 1-500 字符');
+      if (!['doing', 'done', 'dropped'].includes(item.state)) throw new Error('任务状态必须是 doing、done 或 dropped');
+      return { text: item.text.trim(), state: item.state };
+    });
+  }
+  setAgentTasks({ groupId, ownerId, tasks }) {
+    this.store.group(groupId);
+    const normalized = this.normalizeAgentTasks(tasks);
+    const updated = new Date().toISOString();
+    if (normalized.length) {
+      this.store.run(
+        'INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) VALUES(?,?,?,?) ON CONFLICT(owner_id,group_id) DO UPDATE SET tasks=excluded.tasks,updated=excluded.updated',
+        ownerId,
+        groupId,
+        JSON.stringify(normalized),
+        updated,
+      );
+    } else {
+      this.store.run('DELETE FROM agent_tasks WHERE owner_id=? AND group_id=?', ownerId, groupId);
+    }
+    return { owner: ownerId, updated };
+  }
+  agentTasksView(groupId) {
+    const panelAgent = this.panelAgent();
+    return this.store.all('SELECT owner_id,group_id,tasks,updated FROM agent_tasks WHERE group_id=? ORDER BY updated DESC', groupId)
+      .map(row => ({
+        owner_id: row.owner_id,
+        group_id: row.group_id,
+        owner_kind: panelAgent && row.owner_id === panelAgent.id ? 'panel_agent' : 'member',
+        tasks: JSON.parse(row.tasks),
+        updated: row.updated,
+      }));
   }
   // Group creation is direct: the requester (CLI user, Panel Agent on behalf of
   // its user, or a confirmed group_create tool call) supplies the people and an
@@ -1928,6 +2078,9 @@ export class Bus extends EventEmitter {
       });
       return { interaction: interaction.id, state: interaction.state };
     }
+    if (name === 'tasks_set') {
+      return this.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
+    }
     if (name === 'groups') return this.store.all('SELECT * FROM groups ORDER BY created');
     if (name === 'group_create') {
       const people = (args.members ?? '').split(',').filter(Boolean).map(item => {
@@ -1952,6 +2105,14 @@ export class Bus extends EventEmitter {
       return this.requestGroupAction(member, endpoint, origin, 'group_delete',
         `请求删除群 ${this.store.group(groupId).name} 的配置与消息记录`,
         {});
+    }
+    if (name === 'member_model') {
+      const target = this.resolveMember(groupId, args.member);
+      if (target.role !== 'member') throw new Error('member_model 只能调整普通成员');
+      const selection = await this.validateMemberModelSelection(target, args);
+      return this.requestGroupAction(member, endpoint, origin, 'member_model',
+        `请求将成员 ${target.name} 的模型调整为 ${memberModelSummary(selection)}`,
+        { member: args.member, ...(selection ?? {}) });
     }
     throw new Error('工具不存在');
   }
@@ -2358,7 +2519,7 @@ export class Bus extends EventEmitter {
   async privateTurn(groupId, text) {
     this.store.group(groupId);
     const controller = this.teamController(groupId);
-    if (controller.kind === 'panel_agent') return this.panelPrivateTurn(text, groupId);
+    if (controller.kind === 'panel_agent') return this.teamDirectives.submit(groupId, { text, controllerId: controller.id, operationId: randomUUID() });
     return this.runEndpoint(this.store.endpoint(controller.id, 'private'), text);
   }
   async stopWhere(predicate) {
@@ -2491,6 +2652,7 @@ export class Bus extends EventEmitter {
         .filter(({ endpoint }) => String(endpoint.context).startsWith('panel-'))
         .map(({ endpoint, turnId, activeTeamId }) => ({ endpoint: endpoint.id, groupId: activeTeamId ?? endpoint.group_id ?? null, turnId })),
       panelUnknown: panelAgent ? this.panelUnknown() : [],
+      agentTasks: groupId ? this.agentTasksView(groupId) : [],
       groupStates: this.store.all('SELECT id,state,charter,policy,allow_shell FROM groups'),
     };
   }

@@ -68,7 +68,7 @@ const draft = computed({
   set: (value) => panelState.setDraft(value),
 });
 const activeTeamId = computed({
-  get: () => panelState.activeTeamId,
+  get: () => '',
   set: (value) => panelState.setActiveTeamId(value),
 });
 const privateSessionId = computed(
@@ -329,17 +329,13 @@ async function sendMessage() {
   if (!text || sending.value || !panel.value?.agent) return;
   actionError.value = '';
   try {
-    const pending = panelState.sendMessage(text, activeTeamId.value || null);
+    const pending = panelState.sendMessage(text, null);
     // The user message is persisted before the host starts. Refresh now so it
     // appears alongside the first SSE delta instead of waiting for completion.
     await panelQuery.refetch();
     const response = await pending;
     await panelQuery.refetch();
-    // Creating a team rebinds the turn context server-side; follow it so the
-    // next message continues inside the new team without a manual switch.
-    if (response?.activeTeamId && response.activeTeamId !== activeTeamId.value) {
-      activeTeamId.value = response.activeTeamId;
-    }
+
   } catch {
     /* The store keeps the error and restores the draft when needed. */
   }
@@ -459,45 +455,11 @@ watch(
   { immediate: true },
 );
 
-function syncTeamQuery(id: string) {
-  const current = typeof route.query.team === 'string' ? route.query.team : '';
-  if (current === id) return;
-  const query = { ...route.query };
-  if (id) query.team = id;
-  else delete query.team;
-  router.replace({ query });
-}
-
-watch(
-  () => route.query.team,
-  (value) => {
-    const teamId = typeof value === 'string' ? value : '';
-    if (teamId && teamId !== panelState.activeTeamId)
-      panelState.setActiveTeamId(teamId);
-  },
-  { immediate: true },
-);
-
-watch(activeTeamId, (id) => {
-  if (!panel.value) return;
-  if (id && !panel.value.teams.some((team) => team.id === id)) {
-    panelState.setActiveTeamId('');
-    return;
+watch(() => route.query.team, value => {
+  if (typeof value === 'string' && value) {
+    router.replace({ name: 'group', params: { groupId: value }, query: { interaction: typeof route.query.interaction === 'string' ? route.query.interaction : undefined } });
   }
-  syncTeamQuery(id);
-});
-
-watch(
-  () => panel.value?.teams,
-  (teams) => {
-    if (!teams) return;
-    const id = panelState.activeTeamId;
-    if (id && !teams.some((team) => team.id === id))
-      panelState.setActiveTeamId('');
-    else if (id) syncTeamQuery(id);
-  },
-  { immediate: true },
-);
+}, { immediate: true });
 
 watch(
   [() => panelQuery.isPending.value, () => panel.value?.agent],
@@ -557,6 +519,7 @@ watch(
           v-model:form="form"
           :agent="panel.agent"
           :messages="panel.conversation"
+          :requests="panel.requests ?? []"
           :streaming="privateStreaming"
           :teams="panel.teams"
           :interactions="interactionsQuery.data.value ?? []"
@@ -576,6 +539,9 @@ watch(
           v-model="activeTeamId"
           :teams="panel.teams"
           :messages="panel.conversation"
+          :requests="panel.requests ?? []"
+          :notifications="panel.notifications ?? []"
+          :pending-interactions="panel.teamPendingInteractions ?? {}"
           :unknown="panel.unknown"
           @open-team="openTeam"
           @takeover="takeover"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Archive, Ellipsis, Pin, FolderMinus } from '@lucide/vue';
+import { Archive, Ellipsis, PenLine, Pin, FolderMinus } from '@lucide/vue';
 import {
   DropdownMenu as DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -18,7 +18,7 @@ const props = defineProps<{
   name: string;
   archived?: boolean;
 }>();
-const emit = defineEmits<{ archive: [] }>();
+const emit = defineEmits<{ archive: []; rename: [] }>();
 const org = useTeamOrganization();
 const selectedColor = computed(() =>
   props.folder
@@ -78,6 +78,12 @@ const colors = [
           <Archive data-icon="inline-start" />
           归档团队
         </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="folder"
+          class="team-menu-item"
+          @select="emit('rename')"
+          ><PenLine />重命名文件夹</DropdownMenuItem
+        >
         <DropdownMenuItem
           v-if="folder"
           class="team-menu-item"

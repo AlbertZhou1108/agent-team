@@ -35,6 +35,12 @@ export const useTeamOrganization = defineStore('team-organization', {
       this.persist();
       return id;
     },
+    renameFolder(id: string, name: string) {
+      const folder = this.folders.find(item => item.id === id);
+      if (!folder || !name.trim() || folder.name === name.trim()) return;
+      folder.name = name.trim();
+      this.persist();
+    },
     dissolve(id: string) {
       for (const team of Object.values(this.teams)) if (team.folder === id) delete team.folder;
       this.folders = this.folders.filter(folder => folder.id !== id);

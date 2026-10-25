@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { identityColor } from '@/features/messages/identity';
 import ExpandableText from './ExpandableText.vue';
 import LoadingDots from './LoadingDots.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
@@ -25,14 +26,21 @@ const props = withDefaults(
   defineProps<{
     message: MessageView;
     pending?: boolean;
+    /** 同发送者连续消息的后续条:隐藏头像与身份行,只保留正文与时间。 */
+    compact?: boolean;
+    /** 群发指令展示:正文渲染一次,头部改为完整接收者列表。 */
+    fanoutRecipients?: string[];
     /** 助手/系统正文按 Markdown 渲染(用户消息始终纯文本);团队消息流默认关闭。 */
     markdown?: boolean;
   }>(),
-  { markdown: false },
+  { compact: false, fanoutRecipients: undefined, markdown: false },
 );
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 
 const useMarkdown = computed(() => props.markdown && !(props.message.kind === 'send' && props.message.senderIsUser));
+
+// 身份色以显示名为 key(群内唯一),让并发发言的成员一眼可辨。
+const identity = computed(() => identityColor(props.message.senderName));
 
 const icon = computed(() => {
   if (props.message.kind === 'system') return Megaphone;
@@ -62,9 +70,16 @@ const time = computed(() =>
       )
     "
   >
-    <Avatar v-if="message.kind === 'send'" aria-hidden="true">
-      <AvatarFallback>{{ message.senderName.slice(0, 1) }}</AvatarFallback>
+    <Avatar v-if="message.kind === 'send' && !compact" aria-hidden="true">
+      <AvatarFallback
+        :style="{ backgroundColor: identity, color: 'white' }"
+      >{{ message.senderName.slice(0, 1) }}</AvatarFallback>
     </Avatar>
+    <div
+      v-else-if="message.kind === 'send'"
+      class="message-avatar-gap"
+      aria-hidden="true"
+    />
     <Bubble
       :align="message.kind === 'send' && message.senderIsUser ? 'end' : 'start'"
       :variant="
@@ -78,18 +93,27 @@ const time = computed(() =>
       "
     >
       <BubbleContent>
-        <div class="message-head">
+        <div :class="cn('message-head', compact && 'message-head-compact')">
           <span v-if="message.kind !== 'send'" class="message-icon">
             <component :is="icon" />
           </span>
-          <p class="min-w-0 flex-1 truncate text-xs">
-            <span class="message-sender font-medium">{{
+          <p v-if="!compact" class="min-w-0 flex-1 truncate text-xs">
+            <span
+              class="message-sender font-medium"
+              :style="{ color: identity }"
+            >{{
               message.senderName
             }}</span>
-            <span class="message-route text-muted-foreground"
-              >→ {{ message.recipientName }}</span
+            <span class="message-route text-muted-foreground">
+              →
+              {{
+                fanoutRecipients?.length
+                  ? `${fanoutRecipients.join('、')}（${fanoutRecipients.length} 位成员）`
+                  : message.recipientName
+              }}</span
             >
           </p>
+          <p v-else class="min-w-0 flex-1" aria-hidden="true" />
           <Badge
             v-if="message.kind !== 'send'"
             :variant="message.kind === 'system' ? 'secondary' : 'outline'"

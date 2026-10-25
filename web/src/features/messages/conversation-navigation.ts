@@ -5,5 +5,6 @@ export function teamConversationAfterSend(query: LocationQuery): LocationQuery {
   delete next.session;
   delete next.pair;
   delete next.interaction;
+  delete next.message;
   return next;
 }

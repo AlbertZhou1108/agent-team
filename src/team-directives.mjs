@@ -49,7 +49,7 @@ export class TeamDirectives {
       for (const row of rows) this.publishOutput(row.turn_id, JSON.parse(row.event).text, panel);
     }
   }
-  submit(groupId, body) {
+  submit(groupId, body, { transaction = true } = {}) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).some(k => !['text', 'operationId', 'controllerId'].includes(k))) throw new Error('指令参数无效');
     const { operationId, controllerId } = body;
@@ -57,7 +57,7 @@ export class TeamDirectives {
     if (!text || text.length > 48000) throw new Error('消息须为 1–48000 字符');
     if (typeof operationId !== 'string' || !/^[\w-]{1,128}$/.test(operationId)) throw new Error('请求编号无效');
     if (typeof controllerId !== 'string' || !controllerId) throw new Error('缺少主 Agent 身份');
-    return this.bus.store.transaction(() => {
+    const write = () => {
       this.bus.store.group(groupId);
       const previous = this.bus.store.get(`SELECT m.* FROM team_directive_requests d JOIN messages m ON m.id=d.message_id
         WHERE d.group_id=? AND d.operation_id=?`, groupId, operationId);
@@ -69,7 +69,8 @@ export class TeamDirectives {
       const { messageId } = this.bus.directive(groupId, text);
       this.bus.store.run('INSERT INTO team_directive_requests VALUES(?,?,?)', groupId, operationId, messageId);
       return this.receipt(groupId, messageId, operationId);
-    });
+    };
+    return transaction ? this.bus.store.transaction(write) : write();
   }
   receipt(groupId, messageId, operationId) {
     const s = this.bus.store;

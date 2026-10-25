@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Brain, ChevronRight } from '@lucide/vue';
 import {
   Collapsible,
@@ -6,13 +7,20 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { usePreferencesStore } from '@/stores/preferences';
+import { identityColor } from '@/features/messages/identity';
 import LoadingDots from './LoadingDots.vue';
 
-defineProps<{
-  reasoning?: string | null;
-  running?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    reasoning?: string | null;
+    running?: boolean;
+    /** 归属成员名;并发思考时区分谁在思考。 */
+    sender?: string | null;
+  }>(),
+  { sender: null },
+);
 const preferences = usePreferencesStore();
+const senderColor = computed(() => (props.sender ? identityColor(props.sender) : undefined));
 </script>
 
 <template>
@@ -25,6 +33,14 @@ const preferences = usePreferencesStore();
     >
       <Brain class="size-3.5 shrink-0" />
       <span class="min-w-0 flex-1 truncate text-left">
+        <template v-if="sender"
+          ><span
+            class="font-medium"
+            :style="{ color: senderColor }"
+            >{{ sender }}</span
+          >
+          ·
+        </template>
         {{ running ? '思考中' : '思考过程' }}
       </span>
       <LoadingDots v-if="running" />

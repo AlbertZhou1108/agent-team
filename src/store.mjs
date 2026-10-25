@@ -55,8 +55,11 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES panel_outbox(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS panel_turn_inputs(turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
       CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
-      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+      CREATE TABLE IF NOT EXISTS agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(owner_id,group_id));
+      CREATE TABLE IF NOT EXISTS model_policy_presets(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
+      CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
       CREATE INDEX IF NOT EXISTS messages_group ON messages(group_id,seq);
       CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
@@ -126,6 +129,7 @@ export class Store {
       return false;
     };
     ensureColumn('panel_sessions', 'policy_signature', 'TEXT');
+    ensureColumn('panel_turns', 'source_user_message_id', 'TEXT');
     ensureColumn('panel_messages', 'context', "TEXT NOT NULL DEFAULT 'private'");
     ensureColumn('panel_updates', 'kind', "TEXT NOT NULL DEFAULT 'update'");
     ensureColumn('groups', 'charter', 'TEXT');
@@ -154,6 +158,7 @@ export class Store {
     ];
     for (const table of flowTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`);
     this.migrateInteractions();
+    this.migrateAgentTasks();
     for (const [table, column] of [
       ['members', 'joined_goal_version'], ['members', 'removed_goal_version'],
       ['runtime_attempts', 'contract_version'], ['runtime_attempts', 'goal_id'],
@@ -170,13 +175,27 @@ export class Store {
       }
     }
   }
+  // agent_tasks 主键从 owner_id 演进为 (owner_id,group_id):
+  // Panel Agent 在多个团队各有一份任务列表,单列主键会让跨团队写入互相覆盖。
+  migrateAgentTasks() {
+    const info = this.all('PRAGMA table_info(agent_tasks)');
+    if (!info.length) return;
+    const pkColumns = info.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name);
+    if (pkColumns.length === 2) return;
+    this.transaction(() => {
+      this.db.exec(`ALTER TABLE agent_tasks RENAME TO agent_tasks_legacy;
+        CREATE TABLE agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(owner_id,group_id));
+        INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) SELECT owner_id,group_id,tasks,updated FROM agent_tasks_legacy;
+        DROP TABLE agent_tasks_legacy;
+        CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);`);
+    });
+  }
   // interactions 结构演进统一走重建:请求方泛化(v2)、动作类 kind 扩展(v3)。
   // 用 sqlite_master 里的 CHECK 文本探测当前表是否包含全部所需 kind。
-  migrateInteractions() {
-    const info = this.all('PRAGMA table_info(interactions)');
+  migrateInteractions() {    const info = this.all('PRAGMA table_info(interactions)');
     if (!info.length) return;
     const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'")?.sql ?? '';
-    const neededKinds = ['choice', 'input', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete'];
+    const neededKinds = ['choice', 'input', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model'];
     const missingKinds = neededKinds.filter(kind => !tableSql.includes(`'${kind}'`));
     const needsRebuild = missingKinds.length > 0 || !info.some(column => column.name === 'panel_agent_id');
     if (needsRebuild) {
@@ -184,7 +203,7 @@ export class Store {
       const pick = (name, fallback = 'NULL') => (cols.has(name) ? name : fallback);
       this.transaction(() => {
         this.db.exec(`ALTER TABLE interactions RENAME TO interactions_legacy;
-          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
           INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
             SELECT id,group_id,member_id,${pick('panel_agent_id')},${pick('endpoint_id')},context,turn_id,call_id,message_id,${pick('panel_message_id')},kind,payload,state,answer,${pick('detail')},answer_message_id,created,answered FROM interactions_legacy;
           DROP TABLE interactions_legacy;

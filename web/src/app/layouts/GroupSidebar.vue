@@ -259,6 +259,15 @@ function createFolder() {
   folderName.value = '';
   creating.value = false;
 }
+const renamingFolder = ref<{ id: string; name: string }>();
+function beginRenameFolder(id: string, name: string) {
+  renamingFolder.value = { id, name };
+}
+function submitRenameFolder() {
+  if (!renamingFolder.value) return;
+  org.renameFolder(renamingFolder.value.id, renamingFolder.value.name);
+  renamingFolder.value = undefined;
+}
 </script>
 
 <template>
@@ -368,7 +377,7 @@ function createFolder() {
     </form>
     <nav
       v-if="!ui.sidebarCollapsed"
-      class="team-navigation mt-2 min-h-0 flex-1 overflow-y-auto"
+      class="team-navigation mt-2 min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
       aria-label="团队列表"
       @dragover.prevent
       @drop="drop($event)"
@@ -379,7 +388,7 @@ function createFolder() {
         置顶
         <template #indicator><component :is="org.sections.pinned ? ChevronRight : ChevronDown" /></template>
       </SidebarEntry>
-      <template v-if="!org.sections.pinned">
+      <div v-if="!org.sections.pinned && pinned.length" class="team-pinned-scroll">
       <TeamRow
         v-for="group in pinned"
         :key="group.id"
@@ -395,13 +404,13 @@ function createFolder() {
         @archive="emit('archive', group.id)"
         :class="insertionClass(group.id, 'team')"
       />
-      </template>
+      </div>
       <section
         v-for="folder in org.folders"
         :key="folder.id"
         class="team-folder"
         :class="[
-          { 'team-drop-target': dropTarget === folder.id },
+          { 'team-drop-target': dropTarget === folder.id, 'team-folder-collapsed': folder.collapsed },
           insertionClass(folder.id, 'folder'),
         ]"
         @dragover.prevent.stop="overFolder(folder.id, $event)"
@@ -417,9 +426,28 @@ function createFolder() {
             {{ folder.name }}
             <template #icon><Folder /></template>
             <template #indicator><component :is="folder.collapsed ? ChevronRight : ChevronDown" /></template>
-            <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder /></template>
+            <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder @rename="beginRenameFolder(folder.id, folder.name)" /></template>
           </SidebarEntry>
         </div>
+        <form
+          v-if="renamingFolder?.id === folder.id"
+          class="mb-1 ml-4 flex flex-col gap-2"
+          @submit.prevent="submitRenameFolder"
+        >
+          <Input
+            v-model="renamingFolder.name"
+            class="field-select w-full"
+            :aria-label="`重命名文件夹 ${folder.name}`"
+            maxlength="60"
+            @keydown.esc="renamingFolder = undefined"
+          />
+          <div class="flex gap-2">
+            <Button size="sm" type="submit">保存</Button
+            ><Button size="sm" variant="ghost" @click="renamingFolder = undefined"
+              >取消</Button
+            >
+          </div>
+        </form>
         <div
           v-if="!folder.collapsed"
           :class="{ 'team-folder-children': !ui.sidebarCollapsed }"
@@ -449,6 +477,7 @@ function createFolder() {
       </section>
       <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
       <div
+        v-if="rootTeams.length"
         class="team-root-drop"
         @dragover.prevent.stop="
           dropTarget = dragging === 'team' ? 'root' : undefined;
@@ -467,7 +496,7 @@ function createFolder() {
           未分组
           <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
         </SidebarEntry>
-        <template v-if="!org.sections.ungrouped">
+        <div v-if="!org.sections.ungrouped && rootTeams.length" class="team-root-children">
         <TeamRow
           v-for="group in rootTeams"
           :key="group.id"
@@ -483,7 +512,7 @@ function createFolder() {
           @archive="emit('archive', group.id)"
           :class="insertionClass(group.id, 'team')"
         />
-        </template>
+        </div>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"

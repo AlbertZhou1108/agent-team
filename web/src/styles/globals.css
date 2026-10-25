@@ -675,6 +675,62 @@ button {
   gap: 4px;
 }
 
+/* 同发送者连续消息的后续条:占位与头像等宽,正文保持缩进对齐。 */
+.message-avatar-gap {
+  flex: none;
+  width: 2rem;
+}
+
+.message-head-compact {
+  margin-bottom: 2px;
+  gap: 4px;
+}
+
+/* 正在发言面板:粘底悬浮,与定稿消息分离。 */
+.speaking-strip {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-top: 8px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--background) / 92%);
+  backdrop-filter: blur(6px);
+}
+
+.speaking-chip {
+  display: inline-flex;
+  max-width: 15rem;
+  flex: 1 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.speaking-chip-active {
+  background: hsl(var(--secondary));
+}
+
+.speaking-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
 .message-system {
   width: 100%;
   max-width: none;
@@ -1066,16 +1122,44 @@ button {
 
 .team-folder {
   margin: 6px 0;
+  /* 分区独立滚动:内容自适应高度,超过份额上限后子列表内部滚动,互不影响;
+     不用均分拉伸,避免内容少的分区被撑出大片空白。 */
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  max-height: 60%;
+  min-height: 0;
+}
+.team-folder-collapsed {
+  flex: 0 0 auto;
+  max-height: none;
+  min-height: 0;
 }
 .team-folder-children {
   margin-left: 10px;
   padding-left: 5px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .team-section-label {
   padding: 8px 6px;
 }
 .team-root-drop {
-  min-height: 50px;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  max-height: 60%;
+  min-height: 0;
+}
+.team-root-children {
+  min-height: 0;
+  overflow-y: auto;
+}
+.team-pinned-scroll {
+  flex: 0 1 auto;
+  max-height: 30%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .team-root-separator {
@@ -1155,4 +1239,18 @@ button {
 @keyframes loading-dot {
   0%, 70%, 100% { opacity: 0.25; }
   35% { opacity: 1; }
+}
+
+/* 思考强度滑块:整条轨道为渐变刻度,滑块位置表达档位(参考设计稿)。 */
+.model-effort-slider [data-slot='slider-track'] {
+  height: 0.5rem;
+  background: linear-gradient(90deg, #22c55e 0%, #10b981 25%, #06b6d4 55%, #3b82f6 100%);
+}
+.model-effort-slider [data-slot='slider-range'] {
+  background: transparent;
+}
+.model-effort-slider [data-slot='slider-thumb'] {
+  border: 0;
+  background: white;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
 }

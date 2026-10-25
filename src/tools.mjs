@@ -31,12 +31,32 @@ const definitions = [
   }, ['name', 'workspace']],
   ['groups', '主 Agent 列出自己可见的群。', {}, []],
   ['model_catalog', '读取当前实时模型目录。', {}, []],
+  ['tasks_set', '把自己当前的任务列表整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {text, state}，state 为 doing（进行中）/done（已完成）/dropped（已放弃）；开始、推进或完成工作时更新，空数组清空自己的任务。', {
+    tasks: {
+      type: 'array',
+      minItems: 0,
+      maxItems: 20,
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', minLength: 1, maxLength: 500 },
+          state: { type: 'string', enum: ['doing', 'done', 'dropped'] },
+        },
+      },
+    },
+  }, ['tasks']],
+  ['member_model', '主 Agent 为普通成员申请调整模型配置；只能选 model_catalog 实时目录中真实存在的模型与受支持的思考强度，model 留空表示恢复宿主默认。创建互动卡等待用户在面板上确认，同意后生效，成员下一回合起使用新配置。', {
+    member: string,
+    model_provider: string,
+    model: string,
+    reasoning_effort: string,
+  }, ['member']],
 ];
 export function toolsFor(role, context = 'coordination') {
   const source = definitions.filter(([name], i) => {
     if (context === 'profile') return ['members', 'profile_set'].includes(name);
     if (context === 'private') return ['members', 'read', 'model_catalog', ...(role === 'lead' ? ['group_create'] : [])].includes(name);
-    return role === 'lead' || i < 5 || name === 'ask';
+    return role === 'lead' || i < 5 || name === 'ask' || name === 'tasks_set';
   });
   return source.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } }));
 }
@@ -54,9 +74,20 @@ export function validateTool(role, name, args, context) {
     if (rule.type === 'integer' && (!Number.isInteger(value) || value < rule.minimum || value > (rule.maximum ?? Number.MAX_SAFE_INTEGER))) throw new Error(`无效整数: ${key}`);
     if (rule.type === 'array') {
       if (!Array.isArray(value) || value.length < (rule.minItems ?? 0) || value.length > (rule.maxItems ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表: ${key}`);
-      if (new Set(value).size !== value.length) throw new Error(`列表项重复: ${key}`);
-      for (const item of value) {
-        if (typeof item !== 'string' || !item.trim() || item.length > (rule.items?.maxLength ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表项: ${key}`);
+      if (rule.items?.type === 'object') {
+        for (const item of value) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`无效列表项: ${key}`);
+          for (const [field, fieldRule] of Object.entries(rule.items.properties ?? {})) {
+            const fieldValue = item[field];
+            if (fieldRule.type === 'string' && (typeof fieldValue !== 'string' || !fieldValue.trim() || fieldValue.length > (fieldRule.maxLength ?? 500))) throw new Error(`无效列表项: ${key}`);
+            if (fieldRule.enum && !fieldRule.enum.includes(fieldValue)) throw new Error(`无效列表项: ${key}`);
+          }
+        }
+      } else {
+        if (new Set(value).size !== value.length) throw new Error(`列表项重复: ${key}`);
+        for (const item of value) {
+          if (typeof item !== 'string' || !item.trim() || item.length > (rule.items?.maxLength ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表项: ${key}`);
+        }
       }
     }
   }

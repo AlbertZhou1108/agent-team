@@ -82,12 +82,12 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const chatResponse = await fetch(base + '/api/panel-agent/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ text: '总结当前团队', activeTeamId: group.id }),
+    body: JSON.stringify({ text: '总结当前团队' }),
   });
   assert.equal(chatResponse.status, 200);
   const conversation = await (await fetch(base + '/api/panel-agent')).json();
   assert.deepEqual(conversation.conversation.map(message => message.role), ['user', 'assistant']);
-  assert.equal(conversation.conversation[0].active_team_id, group.id);
+  assert.equal(conversation.conversation[0].active_team_id, null);
   assert.equal(server.bus.store.all('SELECT * FROM messages WHERE text=?', '总结当前团队').length, 0);
 
   const privateSession = server.bus.store.panelSession(created.agent.id, 'private');
@@ -126,14 +126,19 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const coordinationSession = server.bus.store.panelSession(created.agent.id, 'coordination', group.id);
   assert.equal((await fetch(base + `/api/history?endpoint=${coordinationSession.id}`)).status, 200);
   assert.equal((await fetch(base + `/api/models?endpoint=${coordinationSession.id}`)).status, 200);
+  await until(() => !server.bus.running.size);
+  const beforeTeamChat = server.bus.panelAgentState().conversation.length;
   const teamFirstChat = await rpc(server.socketPath, {
     op: 'chat',
     group: group.id,
     text: '从团队入口发起的私人消息',
   });
-  assert.equal(teamFirstChat.result, 'panel reply');
+  assert.equal(teamFirstChat.status, 'queued');
+  await until(() => !server.bus.running.size);
   const afterTeamChat = await (await fetch(base + '/api/panel-agent')).json();
-  assert.equal(afterTeamChat.conversation.at(-1).active_team_id, group.id);
+  assert.equal(afterTeamChat.conversation.at(-1).active_team_id, null);
+  assert.equal(afterTeamChat.conversation.length, beforeTeamChat);
+  assert.equal(server.bus.store.get('SELECT recipient FROM messages WHERE id=?', teamFirstChat.messageId).recipient, created.agent.id);
 
   const staleHandback = await fetch(base + `/api/teams/${group.id}/handback`, {
     method: 'POST',

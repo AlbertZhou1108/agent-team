@@ -92,6 +92,17 @@ export interface ModelCatalogResponse {
 export interface ModelPolicy {
   mode: 'smart' | 'user';
   rules: string;
+  /** 激活策略的来源配置 id;手动编辑规则时为 null。 */
+  preset_id?: string | null;
+  created: string;
+  updated: string;
+}
+
+export interface ModelPolicyPreset {
+  id: string;
+  name: string;
+  mode: 'smart' | 'user';
+  rules: string;
   created: string;
   updated: string;
 }
@@ -154,7 +165,18 @@ export interface PanelMessage {
   created: string;
 }
 
+export interface TeamRequestReceipt {
+  seq: number; id: string; text: string; sourceMessageIds: string[]; created: string; isSourceCopy?: boolean;
+}
+export interface TeamRequest {
+  id: string; group_id: string; source_user_message_id: string; message_id: string; text: string;
+  delivery: TeamDirectiveReceipt; receipts: TeamRequestReceipt[];
+}
+
 export interface PanelAgentState {
+  requests?: TeamRequest[];
+  teamPendingInteractions?: Record<string, number>;
+  notifications?: Array<{ id: string; group_id: string; text: string; sourceMessageIds: string[] }>;
   agent: PanelAgent | null;
   sessions: Array<{
     id: string;
@@ -190,7 +212,23 @@ export interface Snapshot {
   runningEndpoints: string[];
   panelRunning: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
   panelUnknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
+  agentTasks: AgentTaskEntry[];
   groupStates: GroupStateRow[];
+}
+
+export type AgentTaskState = 'doing' | 'done' | 'dropped';
+
+export interface AgentTask {
+  text: string;
+  state: AgentTaskState;
+}
+
+export interface AgentTaskEntry {
+  owner_id: string;
+  group_id: string;
+  owner_kind: 'member' | 'panel_agent';
+  tasks: AgentTask[];
+  updated: string;
 }
 
 export interface SessionBinding {
@@ -233,7 +271,8 @@ export type InteractionKind =
   | 'handback'
   | 'group_create'
   | 'group_add'
-  | 'group_delete';
+  | 'group_delete'
+  | 'member_model';
 
 export interface InteractionChoicePayload {
   kind: 'choice';

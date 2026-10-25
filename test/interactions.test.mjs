@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../src/server.mjs';
+import { Store } from '../src/store.mjs';
 import { confirmedGroup } from './helpers.mjs';
 import { validateTool } from '../src/tools.mjs';
 
@@ -274,4 +275,139 @@ test('takeover and handback requests become interaction cards and decide control
   assert.equal(returned.state, 'answered');
   assert.equal(f.server.bus.controllerState(f.group.id).controller.kind, 'member');
   assert.equal(f.server.bus.panelTeamRelation(f.group.id), 'observer');
+});
+
+test('member_model becomes an interaction card and approval updates the member model', async t => {
+  let requested = 0;
+  const f = await setup(t, async c => {
+    if (c.endpoint.context === 'coordination' && requested < 3) {
+      requested += 1;
+      if (requested === 1) {
+        await c.onTool('member_model', { member: '助手', model: 'test', reasoning_effort: 'low' });
+        await c.onTool('member_model', { member: '助手', model: 'test', reasoning_effort: 'low' });
+      } else {
+        await c.onTool('member_model', { member: '助手' });
+      }
+      c.onAccepted(); return 'requested';
+    }
+    c.onAccepted(); return 'done';
+  }, { members: [{ name: '助手', host: 'fake' }] });
+  f.server.bus.directive(f.group.id, '调整模型');
+  await until(() => f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model'", f.group.id));
+  // 同参数重复申请复用同一张卡
+  assert.equal(f.server.bus.store.get(
+    "SELECT COUNT(*) n FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'",
+    f.group.id,
+  ).n, 1);
+  const row = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'", f.group.id);
+  const payload = JSON.parse(row.payload);
+  assert.equal(payload.args.member, '助手');
+  assert.equal(payload.args.model, 'test');
+  assert.equal(payload.args.reasoning_effort, 'low');
+  assert.equal(row.state, 'pending');
+  assert.equal(f.server.bus.store.member(f.member.id).model, null);
+
+  // 拒绝 → 模型不变,结果回送主 Agent
+  const rejected = f.server.bus.decideInteraction(row.id, { approved: false });
+  assert.equal(rejected.state, 'answered');
+  assert.equal(f.server.bus.store.member(f.member.id).model, null);
+  await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND text LIKE '%用户已拒绝%'", f.group.id));
+
+  // 再次申请(恢复宿主默认) → 新卡;同意 → 三列写 NULL,成员收到系统通知
+  await f.server.bus.directive(f.group.id, '恢复默认');
+  await until(() => f.server.bus.store.get("SELECT 1 FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'", f.group.id));
+  f.server.bus.store.run("UPDATE members SET model='test',reasoning_effort='low' WHERE id=?", f.member.id);
+  const second = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'", f.group.id);
+  assert.ok(JSON.parse(second.payload).text.includes('宿主默认模型'));
+  const approved = f.server.bus.decideInteraction(second.id, { approved: true });
+  assert.equal(approved.state, 'answered');
+  const memberRow = f.server.bus.store.member(f.member.id);
+  assert.equal(memberRow.model, null);
+  assert.equal(memberRow.reasoning_effort, null);
+  await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND recipient=? AND sender='system' AND text LIKE '%模型配置%'", f.group.id, f.member.id));
+  await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND text LIKE '%已生效%'", f.group.id));
+
+  // 工具侧校验:目录外模型、不受支持的强度、非普通成员均直接报错
+  const leadEndpoint = f.server.bus.store.get("SELECT * FROM endpoints WHERE member_id=? AND context='coordination'", f.lead);
+  await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: '助手', model: 'nope', reasoning_effort: 'low' }), /不在该成员宿主目录/);
+  await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: '助手', model: 'test', reasoning_effort: 'high' }), /思考强度不受支持/);
+  await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: 'Lead', model: 'test', reasoning_effort: 'low' }), /只能调整普通成员/);
+  await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: 'ghost', model: 'test', reasoning_effort: 'low' }), /找不到成员/);
+});
+
+test('panel coordination group_member_model creates a card and approval updates the member', async t => {
+  const f = await setup(t, async c => { c.onAccepted(); return 'done'; }, { members: [{ name: '助手', host: 'fake' }] });
+  await f.server.bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
+  const agent = f.server.bus.panelAgent();
+  const session = f.server.bus.store.panelSession(agent.id, 'private');
+  const takeover = await f.server.bus.panelTool(session.id, session.key, 'request_team_takeover', { groupId: f.group.id }, { activeTeamId: f.group.id });
+  f.server.bus.decideInteraction(takeover.id, { approved: true });
+  await until(() => !f.server.bus.running.size);
+
+  const coordination = f.server.bus.store.panelSession(agent.id, 'coordination', f.group.id);
+  const card = await f.server.bus.panelTool(
+    coordination.id, coordination.key, 'group_member_model',
+    { groupId: f.group.id, member: f.member.id, model: 'test', reasoning_effort: 'low' },
+    { activeTeamId: f.group.id },
+  );
+  assert.equal(card.kind, 'member_model');
+  assert.equal(card.state, 'pending');
+  // 幂等:同文本重复请求复用同一张卡
+  const again = await f.server.bus.panelTool(
+    coordination.id, coordination.key, 'group_member_model',
+    { groupId: f.group.id, member: f.member.id, model: 'test', reasoning_effort: 'low' },
+    { activeTeamId: f.group.id },
+  );
+  assert.equal(again.id, card.id);
+
+  const approved = f.server.bus.decideInteraction(card.id, { approved: true });
+  assert.equal(approved.state, 'answered');
+  const memberRow = f.server.bus.store.member(f.member.id);
+  assert.equal(memberRow.model, 'test');
+  assert.equal(memberRow.reasoning_effort, 'low');
+  await until(() => !f.server.bus.running.size);
+});
+
+test('member model HTTP route applies directly with catalog validation', async t => {
+  const f = await setup(t, async c => { c.onAccepted(); return 'done'; }, { members: [{ name: '助手', host: 'fake' }] });
+  const good = await fetch(new URL(`/api/teams/${f.group.id}/members/${f.member.id}/model`, f.server.url), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'test', reasoning_effort: 'low' }),
+  });
+  assert.equal(good.status, 200);
+  const updated = await good.json();
+  assert.equal(updated.model, 'test');
+  assert.equal(updated.reasoning_effort, 'low');
+
+  const bad = await fetch(new URL(`/api/teams/${f.group.id}/members/${f.member.id}/model`, f.server.url), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'nope' }),
+  });
+  assert.equal(bad.status, 400);
+
+  const reset = await fetch(new URL(`/api/teams/${f.group.id}/members/${f.member.id}/model`, f.server.url), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(reset.status, 200);
+  assert.equal((await reset.json()).model, null);
+});
+
+test('legacy interactions table rebuilds to accept member_model kind', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'interactions-migrate-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  {
+    const store = new Store(directory);
+    store.db.exec(`ALTER TABLE interactions RENAME TO interactions_new;
+      CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+      INSERT INTO interactions SELECT * FROM interactions_new;
+      DROP TABLE interactions_new;`);
+    store.close();
+  }
+  const store = new Store(directory);
+  const sql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql;
+  assert.ok(sql.includes("'member_model'"));
+  store.run("INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES('m1',NULL,NULL,NULL,NULL,'coordination','t','c',NULL,NULL,'member_model','{}','pending',NULL,'2026-01-01T00:00:00.000Z')");
+  assert.equal(store.interaction('m1').kind, 'member_model');
+  store.close();
 });

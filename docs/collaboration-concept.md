@@ -28,4 +28,4 @@
 
 ## 5. 可信入口
 
-建群(交互式 CLI / Panel Agent 私人会话)、归档、恢复、删群、成员增删来自用户入口;主 Agent 通过 group_create/group_add/group_delete 工具动作时,框架创建互动卡等待用户在面板上确认,同意后生效。
+建群(交互式 CLI / Panel Agent 私人会话)、归档、恢复、删群、成员增删来自用户入口;主 Agent 通过 group_create/group_add/group_delete 工具动作时,框架创建互动卡等待用户在面板上确认,同意后生效。成员模型配置同理:主 Agent(member_model/group_member_model)的调整申请一律走互动卡确认;用户在团队面板成员列表可直接调整,自身操作即确认。模型与思考强度按回合生效,宿主会话与上下文保持连续。

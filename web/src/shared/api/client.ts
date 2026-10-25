@@ -4,9 +4,11 @@ import type {
   HistoryRow,
   Interaction,
   InteractionAnswer,
+  Member,
   MessageTrace,
   ModelCatalogResponse,
   ModelPolicy,
+  ModelPolicyPreset,
   MessageRow,
   ModelsPage,
   PanelAccess,
@@ -82,8 +84,23 @@ export const api = {
   modelCatalog(refresh = false, signal?: AbortSignal) {
     return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined }), signal);
   },
-  updateModelPolicy(mode: ModelPolicy['mode'], rules: string) {
-    return mutate<ModelPolicy>('/api/model-policy', { mode, rules });
+  updateModelPolicy(mode: ModelPolicy['mode'], rules: string, presetId?: string | null) {
+    return mutate<ModelPolicy>('/api/model-policy', { mode, rules, ...(presetId ? { presetId } : {}) });
+  },
+  modelPolicyPresets(signal?: AbortSignal) {
+    return request<ModelPolicyPreset[]>('/api/model-policy/presets', signal);
+  },
+  createModelPolicyPreset(body: { name: string; mode: ModelPolicy['mode']; rules: string }) {
+    return mutate<ModelPolicyPreset>('/api/model-policy/presets', body);
+  },
+  renameModelPolicyPreset(id: string, name: string) {
+    return mutate<ModelPolicyPreset>(`/api/model-policy/presets/${encodeURIComponent(id)}/rename`, { name });
+  },
+  saveModelPolicyPreset(id: string, body: { mode: ModelPolicy['mode']; rules: string }) {
+    return mutate<ModelPolicyPreset>(`/api/model-policy/presets/${encodeURIComponent(id)}/save`, body);
+  },
+  deleteModelPolicyPreset(id: string) {
+    return mutate<{ deleted: string }>(`/api/model-policy/presets/${encodeURIComponent(id)}/delete`, {});
   },
   panelAgent(signal?: AbortSignal, summary = false) {
     return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined }), signal);
@@ -132,6 +149,9 @@ export const api = {
   },
   interactions(group: string, signal?: AbortSignal) {
     return request<Interaction[]>(query('/api/interactions', { group }), signal);
+  },
+  updateMemberModel(groupId: string, memberId: string, body: { model_provider?: string | null; model?: string | null; reasoning_effort?: string | null }) {
+    return mutate<Member>(`/api/teams/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/model`, body);
   },
   panelInteractions(signal?: AbortSignal) {
     return request<Interaction[]>(query('/api/interactions', { panel: 1 }), signal);

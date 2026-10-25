@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import {
   countUnreadPanelMessages,
-  visiblePanelContext,
   usePanelAgentStore,
 } from './panel-agent';
 
@@ -33,7 +32,7 @@ describe('Panel Agent UI state', () => {
     const store = usePanelAgentStore();
     store.setActiveTeamId('team-1');
     expect(store.activeTeamId).toBe('team-1');
-    expect(JSON.parse(saved ?? '{}')).toEqual({ activeTeamId: 'team-1', lastReadSeq: null, readByContext: {} });
+    expect(JSON.parse(saved ?? '{}')).toMatchObject({ version: 2, activeTeamId: 'team-1', lastReadSeq: null, readByContext: {} });
   });
 
   it('keeps draft and submission state while a message request is pending', async () => {
@@ -108,20 +107,27 @@ it('marks all contexts read persistently and still counts later arrivals', () =>
   expect(restored.unreadForContext(updated, 'a')).toBe(1);
 });
 
-it('marks the visible team conversation read without clearing other contexts', () => {
+it('keeps legacy tagged private history outside the global unread conversation', () => {
   saved = JSON.stringify({ lastReadSeq: 1 });
   const store = usePanelAgentStore();
   const messages = [
-    { seq: 2, role: 'assistant', active_team_id: 'team-a' },
-    { seq: 3, role: 'assistant', active_team_id: 'team-b' },
-    { seq: 4, role: 'assistant', active_team_id: null },
+    { seq: 2, role: 'assistant', active_team_id: 'legacy-team' },
+    { seq: 3, role: 'assistant', active_team_id: null },
   ] as unknown as import('@/shared/api/raw-types').PanelMessage[];
-  const options = { visible: true, onPanel: false, panelContext: '', groupId: 'team-a', sessionId: '', controllerId: 'main' };
-  store.syncReadContexts(messages, visiblePanelContext(options));
-  expect(store.unreadForContext(messages, 'team-a')).toBe(0);
-  expect(store.unreadForContext(messages, 'team-b')).toBe(1);
   expect(store.unreadForContext(messages, '')).toBe(1);
-  expect(visiblePanelContext({ ...options, visible: false })).toBeUndefined();
-  expect(visiblePanelContext({ ...options, sessionId: 'other', endpoint: { member_id: 'member', peer: 'user' } })).toBeUndefined();
-  expect(visiblePanelContext({ ...options, sessionId: 'main-user', endpoint: { member_id: 'main', peer: 'user' } })).toBe('team-a');
+  store.syncReadContexts(messages, '');
+  expect(store.unreadForContext(messages, '')).toBe(0);
+  expect(store.unreadForContext(messages, 'legacy-team')).toBe(1);
+});
+
+it('counts new receipts once and deduplicates a source copy already read in its team', () => {
+  const store = usePanelAgentStore();
+  store.syncReceiptReads([], false);
+  const requests = [{ receipts: [{ id: 'copy', text: 'reply', sourceMessageIds: ['team-message'], isSourceCopy: true }, { id: 'new-summary', text: 'new detail', sourceMessageIds: ['team-message'], isSourceCopy: false }] }] as unknown as import('@/shared/api/raw-types').TeamRequest[];
+  store.syncReceiptReads(requests, false, ['team-message']);
+  expect(store.unreadReceipts(requests)).toBe(1);
+  store.syncReceiptReads(requests, true);
+  expect(store.unreadReceipts(requests)).toBe(0);
+  setActivePinia(createPinia());
+  expect(usePanelAgentStore().unreadReceipts(requests)).toBe(0);
 });

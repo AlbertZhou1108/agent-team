@@ -28,10 +28,14 @@ export class Collaboration {
       CREATE TABLE IF NOT EXISTS endpoint_session_policies(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
       CREATE TABLE IF NOT EXISTS role_names(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name_key TEXT NOT NULL,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,PRIMARY KEY(group_id,name_key));
     `);
+    // 激活策略记录来源配置 id:内容相同的多份配置也能区分。
+    if (!store.all('PRAGMA table_info(global_model_policy)').some(column => column.name === 'preset_id')) {
+      store.db.exec('ALTER TABLE global_model_policy ADD COLUMN preset_id TEXT');
+    }
     if (!store.get('SELECT 1 FROM global_model_policy WHERE singleton=1')) {
       const legacy = store.get('SELECT mode,rules,created,updated FROM team_model_policy ORDER BY updated DESC LIMIT 1');
       store.run(
-        'INSERT INTO global_model_policy VALUES(1,?,?,?,?)',
+        'INSERT INTO global_model_policy(singleton,mode,rules,created,updated) VALUES(1,?,?,?,?)',
         legacy?.mode ?? 'user',
         legacy?.rules ?? DEFAULT_USER_MODEL_RULES,
         legacy?.created ?? now(),

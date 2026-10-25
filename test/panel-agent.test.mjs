@@ -205,62 +205,18 @@ test('Panel Agent is a global non-member identity and automatically observes exi
       to: 'worker',
       text: 'observer must not write',
     }),
-    /不是该团队的主 Agent/,
+    /不是该团队的主 Agent|当前上下文不能使用此工具/,
   );
 });
 
-test('Panel MCP tools recover the active team from the recorded turn', async t => {
-  const { bus, directory } = await fixture(t);
-  const group = confirmedGroup(bus, {
-    name: 'recorded turn context',
-    workspace: directory,
-    lead: { name: 'lead', host: 'fake' },
-    members: [{ name: 'worker', host: 'fake' }],
-  });
-  await until(() => !bus.running.size);
-  const state = await createAgent(bus);
-  bus.takeoverTeam(group.id, 0);
-  const session = bus.store.panelSession(state.agent.id, 'private');
-  const turnId = 'recorded-panel-turn';
-  bus.store.run(
-    'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
-    turnId,
-    session.id,
-    state.agent.id,
-    'private',
-    null,
-    group.id,
-    'running',
-    new Date().toISOString(),
-  );
-  bus.running.set(session.id, {
-    endpoint: { group_id: null, context: 'panel-private' },
-    activeTeamId: group.id,
-    turnId,
-    abort: new AbortController(),
-    done: Promise.resolve(),
-  });
-  try {
-    await bus.panelTool(session.id, session.key, 'team_send', {
-      groupId: group.id,
-      to: 'worker',
-      text: 'MCP scoped write',
-    }, { turnId });
-  } finally {
-    bus.running.delete(session.id);
-  }
-  assert.equal(
-    bus.store.get('SELECT sender FROM messages WHERE text=?', 'MCP scoped write').sender,
-    state.agent.id,
-  );
-  const toolCall = bus.store.all(
-    "SELECT event FROM panel_history WHERE turn_id=? AND event LIKE '%framework.tool_call%'",
-    turnId,
-  ).map(row => JSON.parse(row.event)).find(event => event.name === 'team_send');
-  assert.equal(toolCall.activeTeamId, group.id);
+test('private tools reject direct coordination and unbound delegation', async t => {
+ const { bus } = await fixture(t); const state = await createAgent(bus);
+ const session = bus.store.panelSession(state.agent.id, 'private');
+ await assert.rejects(bus.panelTool(session.id, session.key, 'team_send', {groupId:'any',to:'worker',text:'forbidden'}), /当前上下文不能使用此工具/);
+ await assert.rejects(bus.panelTool(session.id, session.key, 'team_request_submit', {groupId:'any',text:'forged',operationId:'forged'}), /当前私人用户回合/);
 });
 
-test('coordination publishes natural-language updates that are automatically delivered', async t => {
+test('coordination updates remain source notifications without waking the private host', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-update-'));
   const calls = [];
   const base = hostFixture(calls);
@@ -306,29 +262,14 @@ test('coordination publishes natural-language updates that are automatically del
   const update = bus.store.get('SELECT * FROM panel_updates WHERE group_id=?', group.id);
   assert.equal(update.text, '成员已完成本轮任务，当前等待主 Agent 验收。');
   assert.deepEqual(JSON.parse(update.source_message_ids), [message.id]);
-  await until(() => calls.some(call => (
-    call.context === 'panel-private'
-    && call.prompt.includes('成员已完成本轮任务')
-  )));
-  const privateCall = calls.find(call => (
-    call.context === 'panel-private'
-    && call.prompt.includes('成员已完成本轮任务')
-  ));
-  assert.ok(privateCall);
-  assert.match(privateCall.prompt, /team update channel/);
-  assert.match(privateCall.prompt, new RegExp(message.id));
-  assert.ok(
-    bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id,
-  );
-  assert.equal(
-    bus.store.all(
-      "SELECT id FROM panel_messages WHERE context='private' AND role='system'",
-    ).length,
-    0,
-  );
+  await until(() => !bus.running.size);
+  await bus.pumpPanelUpdates();
+  assert.equal(calls.filter(call => call.context === 'panel-private').length, 0);
+  assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
+  assert.ok(bus.panelAgentState().notifications.some(row => row.id === update.id));
 });
 
-test('published updates wait while the private session is busy', async t => {
+test('legacy notifications do not wake an idle private host', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-update-queue-'));
   const calls = [];
   let releasePrivate;
@@ -366,7 +307,7 @@ test('published updates wait while the private session is busy', async t => {
   await createAgent(bus);
   bus.takeoverTeam(group.id, 0);
 
-  const privateTurn = bus.panelPrivateTurn('BUSY', group.id);
+  const privateTurn = bus.panelPrivateTurn('BUSY', null);
   await until(() => typeof releasePrivate === 'function');
   const update = bus.publishPanelUpdate({
     panelAgentId: bus.panelAgent().id,
@@ -380,16 +321,9 @@ test('published updates wait while the private session is busy', async t => {
 
   releasePrivate();
   await privateTurn;
-  await until(() => calls.filter(call => call.context === 'panel-private').length >= 2);
-  const progressCall = calls.filter(call => call.context === 'panel-private')[1];
-  assert.match(progressCall.prompt, /需要用户立即确认下一步/);
-  await until(() => bus.store.get(
-    'SELECT delivered_turn_id FROM panel_updates WHERE id=?',
-    update.id,
-  ).delivered_turn_id);
-  assert.ok(
-    bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id,
-  );
+  await bus.pumpPanelUpdates();
+  assert.equal(calls.filter(call => call.context === 'panel-private').length, 1);
+  assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
 });
 
 test('Panel Agent creates a team directly without becoming a member', async t => {
@@ -438,51 +372,49 @@ test('Panel main receives member reports and can write only in the bound team co
   assert.equal(bus.store.pending().filter(m => m.group_id === group.id).length, 0);
 });
 
-test('team_create binds the created team as the private turn context and follow-up writes pass', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-ctx-'));
-  const calls = [];
-  const base = hostFixture(calls);
-  let createdGroupId = null;
-  const host = {
-    ...base,
-    async run(context) {
-      if (context.endpoint.context === 'panel-private') {
-        context.onSession(context.endpoint.session ?? context.endpoint.id);
-        const group = await context.onTool('team_create', {
-          name: 'context team',
-          workspace: directory,
-          members: 'worker=fake',
-        });
-        createdGroupId = group.activeTeamId;
-        await context.onTool('team_send', { groupId: createdGroupId, to: 'worker', text: 'context-bound write' });
-        context.onAccepted();
-        return 'created and dispatched';
-      }
-      return base.run(context);
-    },
-  };
-  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
-  bus.start();
-  t.after(async () => {
-    await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-  const state = await createAgent(bus);
-  await until(() => !bus.running.size);
-  const result = await bus.panelPrivateTurn('创建团队并直接派发', null);
-  assert.ok(createdGroupId);
-  assert.equal(result.activeTeamId, createdGroupId);
-  assert.equal(result.message.active_team_id, createdGroupId);
-  const reply = bus.store.get("SELECT active_team_id FROM panel_messages WHERE panel_agent_id=? AND context='private' AND role='assistant' ORDER BY seq DESC LIMIT 1", state.agent.id);
-  assert.equal(reply.active_team_id, createdGroupId);
-  const turnRow = bus.store.get(
-    'SELECT active_team_id FROM panel_turns WHERE session_id=? ORDER BY created DESC LIMIT 1',
-    bus.store.panelSession(state.agent.id, 'private').id,
-  );
-  assert.equal(turnRow.active_team_id, createdGroupId);
-  const message = bus.store.get('SELECT * FROM messages WHERE text=?', 'context-bound write');
-  assert.equal(message.sender, state.agent.id);
-  await until(() => !bus.running.size);
+test('private creation forwards to its team coordination and receives an explicit receipt', async t => {
+ const directory = mkdtempSync(join(tmpdir(), 'agent-team-request-')); const base = hostFixture([]);
+ let bus; let created; let privateCalls=0;
+ const host={...base, async run(context) {
+   if(context.endpoint.context==='panel-private') {
+     privateCalls++; context.onAccepted();
+     created=await context.onTool('team_create',{name:'request team',workspace:directory,members:'worker=fake'});
+     const args={groupId:created.id,text:'do team work',operationId:'one'};
+     const before=bus.store.all("SELECT id FROM messages WHERE text='atomic rollback'").length;
+     const originalRun=bus.store.run.bind(bus.store);
+     bus.store.run=(sql,...values)=>{if(sql.startsWith('INSERT INTO team_requests')) throw new Error('injected link failure');return originalRun(sql,...values);};
+     try { await assert.rejects(context.onTool('team_request_submit',{...args,text:'atomic rollback',operationId:'rollback'}),/injected link failure/); }
+     finally { bus.store.run=originalRun; }
+     assert.equal(bus.store.all("SELECT id FROM messages WHERE text='atomic rollback'").length,before);
+     const first=await context.onTool('team_request_submit',args);
+     const second=await context.onTool('team_request_submit',args); assert.equal(first.id,second.id);
+     const observer=confirmedGroup(bus,{name:'observer team',workspace:directory,lead:{name:'other-lead',host:'fake'}});
+     await assert.rejects(context.onTool('team_request_submit',{groupId:observer.id,text:'must reject',operationId:'observer'}),/不是该团队的主 Agent/);
+     return 'transferred';
+   }
+   if(context.endpoint.context==='panel-coordination') {
+     context.onAccepted(); const requests=await context.onTool('team_requests',{}); const request=requests[0];
+     assert.ok(request);
+     assert.equal('original_text' in request,false);
+     await assert.rejects(context.onTool('team_receipt_publish',{requestId:'foreign-request',operationId:'bad',text:'forged',sourceMessageIds:[request.message_id]}),/请求不属于当前团队/);
+     await assert.rejects(context.onTool('team_receipt_publish',{requestId:request.id,operationId:'bad-source',text:'forged',sourceMessageIds:['foreign-message']}),/来源消息不属于当前团队/);
+     const args={requestId:request.id,operationId:'receipt',text:'received',sourceMessageIds:[request.message_id]};
+     await context.onTool('team_receipt_publish',args); await context.onTool('team_receipt_publish',args);
+     return 'team reply';
+   }
+   return base.run(context);
+ }};
+ bus=new Bus({directory,hosts:new Map([['fake',host]])}); bus.start();
+ t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true});});
+ const state=await createAgent(bus); const response=await bus.panelPrivateTurn('create and run',null);
+ await until(()=>!bus.running.size);
+ const requests=bus.panelAgentState().requests; assert.equal(requests.length,1);
+ assert.equal(requests[0].source_user_message_id,response.message.id);
+ assert.equal(requests[0].original_text,'create and run'); assert.equal(requests[0].receipts.length,1);
+ assert.equal(requests[0].receipts[0].text,'received'); assert.equal(privateCalls,1);
+ assert.equal(response.message.active_team_id,null);
+ const message=bus.store.get('SELECT * FROM messages WHERE id=?',requests[0].message_id);
+ assert.equal(message.sender,'user'); assert.equal(message.recipient,state.agent.id);
 });
 
 test('lead takeover and handback are revisioned and require an idle team', async t => {
@@ -545,51 +477,12 @@ test('one Panel Agent can hold main control for multiple teams independently', a
   );
 });
 
-test('private Panel context writes only to the selected team with main relation', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-scope-'));
-  const host = hostFixture([]);
-  const plainRun = host.run.bind(host);
-  host.run = async context => {
-    if (context.endpoint.context === 'panel-private' && context.prompt.startsWith('WRITE:')) {
-      const groupId = /^WRITE:([^ ]+)/.exec(context.prompt)?.[1];
-      const worker = context.prompt.includes('second-worker') ? 'second-worker' : 'first-worker';
-      await context.onTool('team_send', { groupId, to: worker, text: 'scoped write' });
-    }
-    return plainRun(context);
-  };
-  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
-  bus.start();
-  t.after(async () => {
-    await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-  const first = confirmedGroup(bus, {
-    name: 'first scope',
-    workspace: directory,
-    lead: { name: 'first-lead', host: 'fake' },
-    members: [{ name: 'first-worker', host: 'fake' }],
-  });
-  const second = confirmedGroup(bus, {
-    name: 'second scope',
-    workspace: directory,
-    lead: { name: 'second-lead', host: 'fake' },
-    members: [{ name: 'second-worker', host: 'fake' }],
-  });
-  await until(() => !bus.running.size);
-  await createAgent(bus);
-  bus.takeoverTeam(first.id, 0);
-
-  await bus.panelPrivateTurn(`WRITE:${first.id}`, first.id);
-  assert.equal(
-    bus.store.get('SELECT sender FROM messages WHERE text=?', 'scoped write').sender,
-    bus.panelAgent().id,
-  );
-
-  await assert.rejects(
-    bus.panelPrivateTurn(`WRITE:${second.id} second-worker`, second.id),
-    /不是该团队的主 Agent/,
-  );
-  assert.equal(bus.store.all('SELECT id FROM messages WHERE group_id=? AND text=?', second.id, 'scoped write').length, 0);
+test('private team-context input is rejected rather than opening a second team conversation',async t=>{
+ const {bus,directory}=await fixture(t); await createAgent(bus);
+ const group=confirmedGroup(bus,{name:'legacy',workspace:directory,lead:{name:'lead',host:'fake'}});
+ await until(()=>!bus.running.size);
+ await assert.rejects(bus.panelPrivateTurn('legacy write',group.id),/团队对话已迁移/);
+ assert.equal(bus.store.all("SELECT * FROM panel_messages WHERE active_team_id=?",group.id).length,0);
 });
 
 test('unknown Panel Agent runtime blocks the session until the user verifies it stopped', async t => {
@@ -650,4 +543,19 @@ test('summary preserves conversation team attribution for unread counts', async 
   assert.equal(summary.at(-2).active_team_id, group.id);
   assert.equal(summary.at(-1).active_team_id, null);
   assert.equal('text' in summary.at(-2), false);
+});
+
+
+test('stopping the global assistant does not stop its team coordination', async t => {
+  const { bus } = await fixture(t);
+  await createAgent(bus);
+  const privateAbort = new AbortController();
+  const teamAbort = new AbortController();
+  bus.running.set('test-private', { endpoint: { context: 'panel-private' }, turnId: 'private', abort: privateAbort, done: Promise.resolve() });
+  bus.running.set('test-team', { endpoint: { context: 'panel-coordination' }, turnId: 'team', abort: teamAbort, done: Promise.resolve() });
+  try {
+    assert.deepEqual(await bus.stopPanel(), { stopped: ['private'] });
+    assert.equal(privateAbort.signal.aborted, true);
+    assert.equal(teamAbort.signal.aborted, false);
+  } finally { bus.running.delete('test-private'); bus.running.delete('test-team'); }
 });

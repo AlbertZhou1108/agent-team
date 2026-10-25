@@ -241,13 +241,19 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       const policy = executionPolicy(context);
       if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要允许沙箱命令；请调整群策略或成员安排');
       const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace);
-      const config = { ...codexPolicyConfig(policy, serverNames), ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) };
+      // 模型与思考强度走 turn/start 的逐回合覆盖（协议语义：对本回合及后续回合生效），
+      // 不进 config/签名：会话中途调整配置不再要求 reset-session。
+      const config = codexPolicyConfig(policy, serverNames);
       const signature = JSON.stringify({ config, tools: context.tools.map(t => t.name) });
       if (endpoint.session && !sameSessionConfiguration(context.previousPolicy?.signature, signature)) throw new Error('Codex会话工具配置已变更或尚未验证；请由用户reset-session后重新建立，不会静默切换会话');
       const options = {
         cwd: context.workspace, approvalPolicy: 'never', sandbox, developerInstructions: instructions,
         ...(selectedModel ? { model: selectedModel } : {}),
         config,
+      };
+      const turnOverrides = {
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(selectedEffort ? { effort: selectedEffort } : {}),
       };
       if (selectedModel || selectedEffort) context.onModel({ phase: 'requested', model: selectedModel ?? null, reasoningEffort: selectedEffort ?? null, source: context.modelSelection ? 'member.selection' : 'adapter.config' });
       const result = endpoint.session
@@ -274,7 +280,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       signal.addEventListener('abort', interrupt, { once: true });
       try {
         if (signal.aborted) throw new Error('回合已中断');
-        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: turnSandboxPolicy })).turn;
+        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: turnSandboxPolicy, ...turnOverrides })).turn;
         context.onNativeTurn(turn.id);
         live.currentNativeTurnId = turn.id;
         onAccepted();

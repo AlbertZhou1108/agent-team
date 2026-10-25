@@ -66,6 +66,30 @@ const mainDefinitions = [
     host: string,
   }, ['groupId', 'name', 'host']],
   ['group_remove', '主 Agent 移除普通成员。', { groupId, member: string }, ['groupId', 'member']],
+  ['group_tasks_set', '把你（主控）自己在当前团队的任务列表整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {text, state}，state 为 doing/done/dropped；开始、推进或完成工作时更新，空数组清空。', {
+    groupId,
+    tasks: {
+      type: 'array',
+      minItems: 0,
+      maxItems: 20,
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', minLength: 1, maxLength: 500 },
+          state: { type: 'string', enum: ['doing', 'done', 'dropped'] },
+        },
+        required: ['text', 'state'],
+        additionalProperties: false,
+      },
+    },
+  }, ['groupId', 'tasks']],
+  ['group_member_model', '为当前团队的普通成员申请调整模型配置；只能选 model_catalog 实时目录中真实存在的模型与受支持的思考强度，model 留空表示恢复宿主默认。创建互动卡等待用户在面板上确认，同意后生效，下一回合起使用新配置。', {
+    groupId,
+    member: string,
+    model_provider: string,
+    model: string,
+    reasoning_effort: string,
+  }, ['groupId', 'member']],
   ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。kind=choice 须提供 options（2-8 个选项，确认类事项用 同意/拒绝）；kind=input 请用户填写一段文本。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', {
     kind: { type: 'string', enum: ['choice', 'input'] },
     text: string,
@@ -74,12 +98,26 @@ const mainDefinitions = [
   ['model_catalog', '读取当前实时模型目录。', {}, []],
 ];
 
+const requestDefinitions = [
+  ['team_request_submit', '将当前用户要求转交给你担任主 Agent 的团队协作会话。只投递一次；等待结果时结束私人回合，不直接协调成员。operationId 在当前用户消息内保持稳定，重试复用原编号。', {
+    groupId, text: string, operationId: { type: 'string', minLength: 1, maxLength: 128, pattern: '^[\\w-]+$' },
+  }, ['groupId', 'text', 'operationId']],
+  ['team_requests', '读取来自全局私人会话的团队请求及关联回执；协作上下文只返回当前团队。', { groupId }, []],
+];
+const receiptDefinitions = [
+  ['team_receipt_publish', '向指定全局请求发布关联回执，同时保存一条团队内回复；私人入口显示该回复的引用，不唤醒私人线程。先用 team_requests 查询 requestId；来源消息必须来自当前团队。不要将不相关的回合输出广播给所有请求。', {
+    requestId: string, text: updateText,
+    operationId: { type: 'string', minLength: 1, maxLength: 128, pattern: '^[\\w-]+$' },
+    sourceMessageIds: { type: 'array', minItems: 1, maxItems: 20, items: string },
+  }, ['requestId', 'text', 'operationId', 'sourceMessageIds']],
+];
+
 const coordinationUpdateDefinitions = [
   ['panel_update_publish', [
-    '向 Panel Agent 私人会话发布一条团队更新。',
+    '发布一条带团队来源的通知，不创建私人聊天消息。',
     'text 由 Agent 自由填写自然语言，应自包含地说明团队成员或事件、当前状态，以及是否需要用户操作。',
     '只在本回合确实有值得用户知道的信息时调用；无需用户知道的内部交流可以不调用。',
-    '发布后由框架持久化，并在 coordination 回合结束后自动交给私人会话；私人会话忙碌时排队。',
+    '持久化后可在面板查看；不会自动唤醒私人会话。需要回应全局请求时使用 team_receipt_publish。',
   ].join(' '), {
     text: updateText,
   }, ['text']],
@@ -94,9 +132,9 @@ function schema(source) {
 }
 
 export function panelToolsFor(context) {
-  if (context === 'coordination') return schema([...mainDefinitions, ...coordinationUpdateDefinitions]);
+  if (context === 'coordination') return schema([...mainDefinitions, ...coordinationUpdateDefinitions, ...receiptDefinitions, requestDefinitions[1]]);
   const all = new Map();
-  for (const item of [...observerDefinitions, ...preparationDefinitions, ...mainDefinitions]) all.set(item[0], item);
+  for (const item of [...observerDefinitions, ...preparationDefinitions, ...requestDefinitions, mainDefinitions.find(item => item[0] === 'ask')]) all.set(item[0], item);
   return schema([...all.values()]);
 }
 

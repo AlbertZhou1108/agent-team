@@ -2,20 +2,33 @@
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
-import { Undo2 } from '@lucide/vue';
+import { ChevronRight, Undo2 } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import PanelState from '@/components/panel/PanelState.vue';
+import TasksPanel from './TasksPanel.vue';
 import { api } from '@/shared/api/client';
 import { useCharterQuery, useCollaborationQuery } from '@/features/queries';
+import type { AgentTaskEntry, Member, PanelAgent } from '@/shared/api/raw-types';
 
-const props = defineProps<{ groupId: string }>();
+const props = defineProps<{
+  groupId: string;
+  tasks?: AgentTaskEntry[];
+  members?: Member[];
+  panelAgent?: PanelAgent | null;
+}>();
 const queryClient = useQueryClient();
 const summaryQuery = useCollaborationQuery(() => props.groupId || undefined);
 const charterQuery = useCharterQuery(() => props.groupId || undefined);
 const summary = computed(() => summaryQuery.data.value);
 const charter = computed(() => charterQuery.data.value ?? null);
+const doingCount = computed(() =>
+  (props.tasks ?? []).reduce(
+    (total, entry) => total + entry.tasks.filter(task => task.state === 'doing').length,
+    0,
+  ),
+);
 const archived = computed(() =>
   summary.value ? !summary.value.communicationOpen : false,
 );
@@ -83,6 +96,26 @@ async function restoreTeam() {
           </Button>
         </div>
       </section>
+
+      <details class="overview-tasks group">
+        <summary class="flex cursor-pointer list-none items-center gap-2">
+          <ChevronRight class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+          <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
+            任务面板
+          </h3>
+          <Badge v-if="doingCount" variant="secondary">{{ doingCount }} 进行中</Badge>
+          <span v-else class="text-xs font-normal text-muted-foreground">
+            {{ (props.tasks ?? []).length ? '暂无进行中任务' : '未使用' }}
+          </span>
+        </summary>
+        <div class="scrollbar-thin mt-3 max-h-[45vh] overflow-y-auto pr-1">
+          <TasksPanel
+            :tasks="props.tasks ?? []"
+            :members="props.members ?? []"
+            :panel-agent="props.panelAgent ?? null"
+          />
+        </div>
+      </details>
 
       <section v-if="summary.unknown.length" class="flex flex-col gap-2">
         <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">

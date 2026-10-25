@@ -9,15 +9,19 @@ import {
 } from '@/components/ui/item';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
-import { Radio, Users } from '@lucide/vue';
+import { Radio, SlidersVertical, Users } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import type { Member } from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 defineProps<{
   members: Member[];
   runningMemberIds: Set<string>;
   pausedMemberIds?: Set<string>;
+}>();
+const emit = defineEmits<{
+  editModel: [member: Member];
 }>();
 </script>
 
@@ -55,10 +59,10 @@ defineProps<{
         />
       </ItemContent>
       <div
+        class="flex flex-col items-end gap-2"
         v-if="
           pausedMemberIds?.has(member.id) || runningMemberIds.has(member.id)
         "
-        class="w-full"
       >
         <Badge v-if="pausedMemberIds?.has(member.id)" variant="outline"
           >原主 Agent · 暂停</Badge
@@ -67,6 +71,16 @@ defineProps<{
           ><Radio />运行中</Badge
         >
       </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="self-start"
+        :aria-label="`调整 ${member.name} 的模型`"
+        title="调整模型与思考强度"
+        @click="emit('editModel', member)"
+      >
+        <SlidersVertical />
+      </Button>
     </Item>
   </ItemGroup>
 </template>

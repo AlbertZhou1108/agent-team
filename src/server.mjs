@@ -98,7 +98,11 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
         const isDirectiveMutation = request.method === 'POST' && Boolean(directiveMatch);
         const isDirectoryMutation = request.method === 'POST' && url.pathname === '/api/local/directory-picker';
-        const isPolicyMutation = request.method === 'POST' && url.pathname === '/api/model-policy';
+        const isPolicyMutation = request.method === 'POST' && (
+          url.pathname === '/api/model-policy'
+          || url.pathname === '/api/model-policy/presets'
+          || /^\/api\/model-policy\/presets\/[^/]+\/(?:rename|save|delete)$/.test(url.pathname)
+        );
         const teamStateMutation = request.method === 'POST' && /^\/api\/teams\/[^/]+\/(?:archive|restore)$/.test(url.pathname);
         const isPanelMutation = request.method === 'POST' && (
           url.pathname === '/api/panel-agent'
@@ -108,6 +112,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
           || url.pathname === '/api/panel-agent/resolve-runtime'
           || /^\/api\/interactions\/[^/]+\/answer$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
+          || /^\/api\/teams\/[^/]+\/members\/[^/]+\/model$/.test(url.pathname)
         );
         if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !teamStateMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
         if (request.method !== 'GET' && request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
@@ -196,7 +201,19 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
           } else if (isPolicyMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
-            value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules });
+            const presetMatch = url.pathname.match(/^\/api\/model-policy\/presets\/([^/]+)\/(rename|save|delete)$/);
+            if (url.pathname === '/api/model-policy') {
+              value = bus.updateModelPolicy({ mode: body.mode, rules: body.rules, presetId: body.presetId });
+            } else if (url.pathname === '/api/model-policy/presets') {
+              value = bus.createModelPolicyPreset(body);
+            } else if (presetMatch) {
+              const id = decodeURIComponent(presetMatch[1]);
+              value = presetMatch[2] === 'rename'
+                ? bus.renameModelPolicyPreset(id, body.name)
+                : presetMatch[2] === 'save'
+                  ? bus.saveModelPolicyPreset(id, body)
+                  : bus.deleteModelPolicyPreset(id);
+            }
           } else if (teamStateMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             await readJsonBody(request);
@@ -214,6 +231,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
             else {
               const teamMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/(takeover|handback)$/);
               const interactionMatch = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/);
+              const memberModelMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/members\/([^/]+)\/model$/);
               if (teamMatch) {
                 const groupId = decodeURIComponent(teamMatch[1]);
                 value = teamMatch[2] === 'takeover'
@@ -221,6 +239,8 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
                   : bus.handbackTeam(groupId, body.revision);
               } else if (interactionMatch) {
                 value = bus.decideInteraction(decodeURIComponent(interactionMatch[1]), body.answer);
+              } else if (memberModelMatch) {
+                value = await bus.setMemberModel(decodeURIComponent(memberModelMatch[1]), decodeURIComponent(memberModelMatch[2]), body);
               } else return fail(404, 'Not found');
             }
           } else if (url.pathname === '/api/telemetry/overview') {
@@ -261,6 +281,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
           else if (url.pathname === '/api/panel-agent/conversation') value = bus.panelConversation(cursor(url));
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
+          else if (url.pathname === '/api/model-policy/presets') value = bus.modelPolicyPresets();
           else if (url.pathname === '/api/model-catalog') value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' });
           else if (url.pathname === '/api/collaboration') value = bus.groupSummary(url.searchParams.get('group'));
           else if (url.pathname === '/api/interactions') {

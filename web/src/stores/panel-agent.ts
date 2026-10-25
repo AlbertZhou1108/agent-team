@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '@/shared/api/client';
-import type { PanelMessage } from '@/shared/api/raw-types';
+import type { PanelMessage, TeamRequest } from '@/shared/api/raw-types';
 
 const storageKey = 'agent-team:panel-agent';
 
@@ -8,12 +8,15 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     return {
+      receiptInitialized: saved.version === 2 && saved.receiptInitialized === true,
+      readReceiptIds: (Array.isArray(saved.readReceiptIds) ? saved.readReceiptIds.filter((id: unknown) => typeof id === 'string') : []) as string[],
+      readTeamMessageIds: (Array.isArray(saved.readTeamMessageIds) ? saved.readTeamMessageIds.filter((id: unknown) => typeof id === 'string') : []) as string[],
       readByContext: (saved.readByContext && typeof saved.readByContext === 'object' ? saved.readByContext : {}) as Record<string, number>,
       activeTeamId: typeof saved.activeTeamId === 'string' ? saved.activeTeamId : '',
       lastReadSeq: Number.isInteger(saved.lastReadSeq) ? saved.lastReadSeq : null,
     };
   } catch {
-    return { activeTeamId: '', lastReadSeq: null, readByContext: {} as Record<string, number> };
+    return { activeTeamId: '', lastReadSeq: null, readByContext: {} as Record<string, number>, receiptInitialized: false, readReceiptIds: [] as string[], readTeamMessageIds: [] as string[] };
   }
 }
 
@@ -22,28 +25,10 @@ export function countUnreadPanelMessages(messages: PanelMessage[], lastReadSeq: 
   return messages.filter(message => message.role !== 'user' && message.seq > lastReadSeq).length;
 }
 
-export function visiblePanelContext(options: {
-  visible: boolean;
-  onPanel: boolean;
-  panelContext: string;
-  groupId: string;
-  sessionId: string;
-  endpoint?: { member_id: string; peer?: string | null };
-  controllerId?: string;
-}): string | undefined {
-  if (!options.visible) return undefined;
-  if (options.onPanel) return options.panelContext;
-  if (!options.groupId) return undefined;
-  if (!options.sessionId) return options.groupId;
-  const endpoint = options.endpoint;
-  return endpoint && endpoint.member_id === options.controllerId && (!endpoint.peer || endpoint.peer === 'user')
-    ? options.groupId
-    : undefined;
-}
-
 export const usePanelAgentStore = defineStore('panel-agent', {
   state: () => ({
     ...loadState(),
+    historyVisible: false,
     draft: '',
     submitting: false,
     sendError: '',
@@ -51,6 +36,10 @@ export const usePanelAgentStore = defineStore('panel-agent', {
   actions: {
     persist() {
       localStorage.setItem(storageKey, JSON.stringify({
+        version: 2,
+        receiptInitialized: this.receiptInitialized,
+        readReceiptIds: this.readReceiptIds,
+        readTeamMessageIds: this.readTeamMessageIds,
         readByContext: this.readByContext,
         activeTeamId: this.activeTeamId,
         lastReadSeq: this.lastReadSeq,
@@ -64,6 +53,20 @@ export const usePanelAgentStore = defineStore('panel-agent', {
     setDraft(value: string) {
       this.draft = value;
       if (this.sendError) this.sendError = '';
+    },
+    unreadReceipts(requests: TeamRequest[]) {
+      return requests.flatMap(request => request.receipts).filter(receipt => !this.readReceiptIds.includes(receipt.id)).length;
+    },
+    syncReceiptReads(requests: TeamRequest[], onGlobal: boolean, visibleSourceIds: string[] = []) {
+      const knownSources = new Set([...this.readTeamMessageIds, ...visibleSourceIds]);
+      this.readTeamMessageIds = [...knownSources].slice(-5000);
+      const read = new Set(this.readReceiptIds);
+      for (const receipt of requests.flatMap(request => request.receipts)) {
+        if (!this.receiptInitialized || onGlobal || (receipt.isSourceCopy && receipt.sourceMessageIds.every(id => knownSources.has(id)))) read.add(receipt.id);
+      }
+      this.receiptInitialized = true;
+      this.readReceiptIds = [...read];
+      this.persist();
     },
     unreadForContext(messages: PanelMessage[], teamId: string) {
       const baseline = this.readByContext[teamId || '__global__'] ?? this.lastReadSeq;

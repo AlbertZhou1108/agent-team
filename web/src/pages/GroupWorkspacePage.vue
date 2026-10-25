@@ -24,6 +24,7 @@ import {
 } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
+import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
@@ -56,11 +57,10 @@ import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
 import {
   usePanelAgentStore,
-  visiblePanelContext,
 } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
 import { api } from '@/shared/api/client';
-import type { Group, TeamStream } from '@/shared/api/raw-types';
+import type { Group, Member, TeamStream } from '@/shared/api/raw-types';
 
 const route = useRoute();
 const router = useRouter();
@@ -78,6 +78,18 @@ const endpoints = computed(() => snapshot.value?.endpoints ?? []);
 const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
 const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
 const modelPolicyDefaults = computed(() => snapshot.value?.modelPolicyDefaults);
+const modelDialogMember = ref<Member | null>(null);
+const modelDialogOpen = ref(false);
+
+function openMemberModelDialog(member: Member) {
+  modelDialogMember.value = member;
+  modelDialogOpen.value = true;
+}
+
+function onMemberModelSaved() {
+  void snapshotQuery.refetch();
+}
+
 const archiveConfirm = ref<{
   id: string;
   name: string;
@@ -113,10 +125,9 @@ const pageVisible = ref(
 const panelMessages = computed(
   () => panelAgentQuery.data.value?.conversation ?? [],
 );
-const agentUnreadCount = computed(() => {
-  const contexts = new Set(panelMessages.value.map(message => message.active_team_id || ''));
-  return [...contexts].reduce((total, context) => total + panelAgentState.unreadForContext(panelMessages.value, context), 0);
-});
+const agentUnreadCount = computed(() =>
+  panelAgentState.unreadForContext(panelMessages.value, '') + panelAgentState.unreadReceipts(panelAgentQuery.data.value?.requests ?? []),
+);
 
 function updatePageVisibility() {
   pageVisible.value =
@@ -200,13 +211,10 @@ const selectedEndpoint = computed(() =>
   ),
 );
 watch(
-  [panelMessages, isPanelAgentRoute, pageVisible, () => panelAgentState.activeTeamId, groupId, selectedSessionId, selectedEndpoint, currentControllerId],
-  ([messages, onPanel, visible, panelContext, teamId, sessionId, endpoint, controllerId]) => {
-    panelAgentState.syncReadContexts(messages, visiblePanelContext({
-      visible, onPanel, panelContext, groupId: teamId, sessionId, endpoint, controllerId,
-    }));
-  },
-  { immediate: true },
+  [panelMessages, isPanelAgentRoute, pageVisible, () => panelAgentState.historyVisible],
+  ([messages, onGlobal, visible, history]) => {
+    panelAgentState.syncReadContexts(messages, onGlobal && visible && !history ? '' : undefined);
+  }, { immediate: true },
 );
 
 const selectedPair = computed(() => {
@@ -315,12 +323,13 @@ watch(
 const messagesQuery = useMessagesQuery(() => groupId.value || undefined, () => selectedSessionId.value || undefined);
 // Load older history until the linked interaction's anchor can render.
 watch(
-  [() => route.query.interaction, messagesQuery.rows, interactionsQuery.data, messagesQuery.isPending, messagesQuery.isFetchingNextPage],
+  [() => route.query.interaction, () => route.query.message, messagesQuery.rows, interactionsQuery.data, messagesQuery.isPending, messagesQuery.isFetchingNextPage],
   async () => {
     const id = routeString(route.query.interaction);
     const item = interactionsQuery.data.value?.find(row => row.id === id);
-    if (!item?.message_id || messagesQuery.isPending.value || messagesQuery.isFetchingNextPage.value) return;
-    if (messagesQuery.rows.value.some(row => row.id === item.message_id)) return;
+    const anchorId = item?.message_id ?? routeString(route.query.message);
+    if (!anchorId || messagesQuery.isPending.value || messagesQuery.isFetchingNextPage.value) return;
+    if (messagesQuery.rows.value.some(row => row.id === anchorId)) return;
     if (messagesQuery.hasNextPage.value) await messagesQuery.fetchNextPage();
   },
   { immediate: true },
@@ -460,6 +469,7 @@ onBeforeUnmount(() => {
   teamStreamSource = null;
 });
 const activeTeamStreaming = computed(() => Object.values(teamStreaming.value));
+// 消息过滤只由右侧会话列表驱动(session 查询参数),不设第二套入口。
 const historyQuery = useHistoryQuery(
   () => detailsVisible.value && ['trace', 'events'].includes(activeTab.value) ? selectedSessionId.value || undefined : undefined,
 );
@@ -487,6 +497,15 @@ const messageViews = computed(() => {
     currentControllerId.value,
   );
 });
+watch(
+  [() => panelAgentQuery.data.value?.requests, messageViews, pageVisible, isPanelAgentRoute, () => panelAgentState.historyVisible],
+  ([requests, views, visible, onPanel]) => {
+    if (!requests) return;
+    const pair = selectedPair.value;
+    const displayed = !onPanel && visible ? views.filter(message => !pair || message.pairKey === pair).map(message => message.id) : [];
+    panelAgentState.syncReceiptReads(requests, visible && onPanel && !panelAgentState.historyVisible, displayed);
+  }, { immediate: true },
+);
 const endpointHosts = computed(
   () =>
     Object.fromEntries(
@@ -1054,6 +1073,9 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               <CollaborationPanel
                 v-if="contextPanel === 'collaboration'"
                 :group-id="groupId"
+                :tasks="snapshot?.agentTasks ?? []"
+                :members="members"
+                :panel-agent="snapshot?.panelAgent ?? null"
               />
               <div
                 v-else-if="contextPanel === 'members'"
@@ -1067,10 +1089,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   :members="currentMembers"
                   :running-member-ids="runningMemberIds"
                   :paused-member-ids="pausedMemberIds"
+                  @edit-model="openMemberModelDialog"
                 />
+                      </div>
+                    </details>
                   </div>
-                </details>
-              </div>
               <SessionList
                 v-else-if="contextPanel === 'sessions'"
                 :endpoints="currentEndpoints"
@@ -1131,6 +1154,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       destructive
       @confirm="runArchiveTeam"
       @cancel="archiveConfirm = null"
+    />
+    <MemberModelDialog
+      v-model:open="modelDialogOpen"
+      :member="modelDialogMember"
+      @saved="onMemberModelSaved"
     />
   </div>
 </template>

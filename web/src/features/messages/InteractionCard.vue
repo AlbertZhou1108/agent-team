@@ -17,7 +17,7 @@ import type { Interaction, InteractionAnswer, InteractionChoicePayload, Interact
 
 const props = defineProps<{ interaction: Interaction }>();
 
-const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete']);
+const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
 
 const queryClient = useQueryClient();
 const busy = ref(false);
@@ -43,6 +43,7 @@ const actionLabel = computed(
       group_create: '建群',
       group_add: '加人',
       group_delete: '删群',
+      member_model: '调模',
     } as Partial<Record<InteractionKind, string>>)[kind.value] ?? '',
 );
 const options = computed(() =>
