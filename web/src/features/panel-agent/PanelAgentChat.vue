@@ -25,7 +25,8 @@ import PanelAgentComposer from './PanelAgentComposer.vue';
 import TeamRequestCard from './TeamRequestCard.vue';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import { filterPanelMessagesForContext } from './message-context';
-import { toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
+import { reuseMessageViews, toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
+import type { MessageView } from '@/shared/models/view-types';
 import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 
 const props = defineProps<{
@@ -62,16 +63,24 @@ const activeTeam = computed(() =>
 const visibleMessages = computed(() =>
   showHistory.value ? props.messages.filter(message => message.active_team_id != null) : filterPanelMessagesForContext(props.messages, ''),
 );
-const visibleViews = computed(() =>
-  toPanelMessageViews(visibleMessages.value, props.agent.name),
-);
-const panelStreamViews = computed(() =>
+// 视图对象按内容复用:2 秒轮询会让 conversation 每轮都是新数组,若每次都产出新对象,
+// 历史消息的 props 比较永远判为变化,整表随流式输出一起重渲染。
+let cachedViews: MessageView[] = [];
+const visibleViews = computed(() => {
+  cachedViews = reuseMessageViews(
+    cachedViews,
+    toPanelMessageViews(visibleMessages.value, props.agent.name),
+  );
+  return cachedViews;
+});
+// 流视图以取值函数交给消息流:每个 token 的重渲染只发生在流式组件内部,
+// 本组件与已定稿消息都不参与。
+const readPanelStreamViews = () =>
   showHistory.value ? [] : toPanelStreamViews([props.streaming], {
     agentName: props.agent.name,
     activeTeamId: activeTeamId.value || null,
     running: props.contextRunning,
-  }),
-);
+  });
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
   '有哪些团队正在等待我的确认？',
@@ -83,7 +92,7 @@ const suggestions = [
   <ConversationFrame :readonly="false" class="agent-chat">
   <MessageFeed
     :messages="visibleViews"
-    :stream-views="panelStreamViews"
+    :stream-source="readPanelStreamViews"
     :interactions="interactions ?? []"
     :group-system-messages="false"
     :markdown="true"

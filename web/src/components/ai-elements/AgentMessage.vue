@@ -37,6 +37,13 @@ const props = withDefaults(
 );
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 
+// 构造 Intl.DateTimeFormat 的成本远高于格式化本身;消息行大列表要反复渲染,提到模块级复用。
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
 const useMarkdown = computed(() => props.markdown && !(props.message.kind === 'send' && props.message.senderIsUser));
 
 // 身份色以显示名为 key(群内唯一),让并发发言的成员一眼可辨。
@@ -48,13 +55,9 @@ const icon = computed(() => {
   return Bot;
 });
 
-const time = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date(props.message.createdAt)),
-);
+const timestamp = computed(() => new Date(props.message.createdAt));
+const time = computed(() => timeFormatter.format(timestamp.value));
+const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
 </script>
 
 <template>
@@ -122,7 +125,7 @@ const time = computed(() =>
           </Badge>
           <time
             :datetime="message.createdAt"
-            :title="new Date(message.createdAt).toLocaleString('zh-CN')"
+            :title="timeTitle"
             class="message-time text-xs text-muted-foreground tabular-nums"
             >{{ time }}</time
           >
@@ -160,7 +163,7 @@ const time = computed(() =>
           class="message-body text-sm leading-7"
           :text="message.text"
         >
-          <MarkdownRenderer v-if="useMarkdown" :content="message.text" />
+          <MarkdownRenderer v-if="useMarkdown" :content="message.text" :defer="Boolean(pending)" />
         </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
         <slot name="footer" :message="message" />

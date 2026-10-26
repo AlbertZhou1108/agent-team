@@ -100,6 +100,40 @@ export function toPanelMessageViews(rows: PanelMessage[], agentName: string): Me
   }));
 }
 
+function sameView(left: MessageView, right: MessageView) {
+  return left.id === right.id
+    && left.seq === right.seq
+    && left.pairKey === right.pairKey
+    && left.senderName === right.senderName
+    && left.recipientName === right.recipientName
+    && left.senderIsLead === right.senderIsLead
+    && left.senderIsUser === right.senderIsUser
+    && left.kind === right.kind
+    && left.text === right.text
+    && left.createdAt === right.createdAt;
+}
+
+/**
+ * 复用内容未变的消息视图对象。列表每轮都会重建(轮询返回新数组、过滤器产出新数组),
+ * 而消息 vnode 的 props 比较按引用短路:引用稳定时历史消息不会跟着流式输出重渲染。
+ * 返回的数组在没有变化时保持原引用,连下游 v-for 的重建也一并省掉。
+ */
+export function reuseMessageViews(previous: MessageView[], next: MessageView[]): MessageView[] {
+  if (!previous.length) return next;
+  const existing = new Map(previous.map(view => [view.id, view]));
+  let changed = previous.length !== next.length;
+  const views = next.map((view, index) => {
+    const old = existing.get(view.id);
+    if (old && sameView(old, view)) {
+      if (previous[index] !== old) changed = true;
+      return old;
+    }
+    changed = true;
+    return view;
+  });
+  return changed ? views : previous;
+}
+
 export function toPanelStreamViews(
   streams: Array<PanelStream | null | undefined>,
   { agentName, activeTeamId, running = false }: { agentName: string; activeTeamId: string | null; running?: boolean },

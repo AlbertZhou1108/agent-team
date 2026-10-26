@@ -16,6 +16,7 @@ import type {
 } from '@/shared/api/raw-types';
 import { api } from '@/shared/api/client';
 import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
+import { frameBatch } from '@/features/messages/frame-batch';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
@@ -90,12 +91,14 @@ const privateStreaming = computed(
     null,
 );
 
-function acceptPanelStream(payload: {
+type PanelStreamEvent = {
   type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'complete' | 'cancelled' | 'error';
   stream?: PanelStream;
   streams?: PanelStream[];
   delta?: string;
-}) {
+};
+
+function acceptPanelStream(payload: PanelStreamEvent) {
   if (payload.type === 'snapshot') {
     streamedReply.value =
       payload.streams?.find((stream) => stream.context === 'private') ?? null;
@@ -133,18 +136,33 @@ function acceptPanelStream(payload: {
   }
 }
 
+// 宿主以 token 级频率推送增量（实测思考 ~108/s、正文 ~230/s），逐个增量落状态
+// 会让组件树每 token 重渲染一次并压死主线程。按帧合并后每个渲染帧最多更新一次，
+// 与团队页共用同一套 frameBatch。
+const streamEvents = frameBatch<PanelStreamEvent>(
+  (payload) => acceptPanelStream(payload),
+  requestAnimationFrame,
+  cancelAnimationFrame,
+);
+
+function onPanelStreamEvent(event: Event) {
+  try {
+    const payload = JSON.parse((event as MessageEvent<string>).data) as PanelStreamEvent;
+    streamEvents.push(payload);
+    // 增量之外的事件携带状态转换，立即生效以免顺序与终态被延迟。
+    if (payload.type !== 'delta' && payload.type !== 'reasoning-delta') streamEvents.flush();
+  } catch {
+    // A malformed event is ignored; the next delta or state poll is authoritative.
+  }
+}
+
 onMounted(() => {
   streamSource = new EventSource('/api/panel-agent/events');
-  streamSource.addEventListener('panel-stream', (event) => {
-    try {
-      acceptPanelStream(JSON.parse((event as MessageEvent<string>).data));
-    } catch {
-      // A malformed event is ignored; the next delta or state poll is authoritative.
-    }
-  });
+  streamSource.addEventListener('panel-stream', onPanelStreamEvent);
 });
 
 onBeforeUnmount(() => {
+  streamEvents.dispose();
   streamSource?.close();
   streamSource = null;
 });

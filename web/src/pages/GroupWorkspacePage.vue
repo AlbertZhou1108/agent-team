@@ -41,7 +41,7 @@ import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
 import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
 import type { InspectorTab } from '@/features/sessions/types';
-import { toMessageViews } from '@/features/messages/adapters';
+import { reuseMessageViews, toMessageViews, toStreamMessageViews } from '@/features/messages/adapters';
 import { buildTurns } from '@/features/traces/reducer';
 import {
   useTeamDirectivesQuery,
@@ -469,6 +469,13 @@ onBeforeUnmount(() => {
   teamStreamSource = null;
 });
 const activeTeamStreaming = computed(() => Object.values(teamStreaming.value));
+// 流视图以取值函数交给消息流:token 级更新只重渲染流式子组件,不波及已定稿消息。
+const readTeamStreamViews = () => toStreamMessageViews(
+  messageViews.value,
+  activeTeamStreaming.value,
+  selectedPair.value,
+  currentControllerId.value,
+);
 // 消息过滤只由右侧会话列表驱动(session 查询参数),不设第二套入口。
 const historyQuery = useHistoryQuery(
   () => detailsVisible.value && ['trace', 'events'].includes(activeTab.value) ? selectedSessionId.value || undefined : undefined,
@@ -476,6 +483,9 @@ const historyQuery = useHistoryQuery(
 const modelsQuery = useModelsQuery(() => detailsVisible.value && activeTab.value === 'models' ? selectedSessionId.value || undefined : undefined);
 
 const directiveState = useTeamDirectiveStore();
+// 2 秒轮询每次都会重建 rows 与视图数组;按内容复用视图对象,让未变化的历史消息
+// 在流式输出或轮询时跳过重渲染(消息 vnode 的 props 比较按引用短路)。
+let cachedMessageViews: ReturnType<typeof toMessageViews> = [];
 const messageViews = computed(() => {
   const endpoint = selectedEndpoint.value;
   const combined = [...new Map([
@@ -490,12 +500,11 @@ const messageViews = computed(() => {
             row.recipient === endpoint.member_id,
         )
       : combined;
-  return toMessageViews(
-    rows,
-    members.value,
-    actors.value,
-    currentControllerId.value,
+  cachedMessageViews = reuseMessageViews(
+    cachedMessageViews,
+    toMessageViews(rows, members.value, actors.value, currentControllerId.value),
   );
+  return cachedMessageViews;
 });
 watch(
   [() => panelAgentQuery.data.value?.requests, messageViews, pageVisible, isPanelAgentRoute, () => panelAgentState.historyVisible],
@@ -966,12 +975,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :key="`${groupId}:${selectedSessionId}`"
                 class="chat-feed"
                 :messages="messageViews"
-                :streaming="activeTeamStreaming"
+                :stream-source="readTeamStreamViews"
                 :directives="directivesQuery.data.value ?? []"
                 :interactions="interactionsQuery.data.value ?? []"
                 :title="conversationTitle"
                 :selected-pair="selectedPair"
-                :controller-id="currentControllerId"
                 :hosts="endpointHosts"
                 :loading="messagesQuery.isPending.value"
                 :has-next-page="messagesQuery.hasNextPage.value"

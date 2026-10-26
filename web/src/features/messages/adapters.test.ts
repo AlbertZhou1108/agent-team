@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MessageView, } from '@/shared/models/view-types';
 import type { PanelMessage, PanelStream, TeamStream } from '@/shared/api/raw-types';
-import { PANEL_PAIR_KEY, toPanelMessageViews, toPanelStreamViews, toStreamMessageViews } from './adapters';
+import { PANEL_PAIR_KEY, reuseMessageViews, toPanelMessageViews, toPanelStreamViews, toStreamMessageViews } from './adapters';
 
 const message: MessageView = {
   id: 'message-1',
@@ -146,5 +146,37 @@ describe('panel message views', () => {
       }),
     ]);
     expect(toPanelStreamViews([panelStream], { agentName: '欧鲸鲸', activeTeamId: null, running: true })).toHaveLength(1);
+  });
+});
+
+describe('reuseMessageViews', () => {
+  it('keeps object and array identity when nothing changed', () => {
+    const first = toPanelMessageViews([panelRow()], '欧鲸鲸');
+    const again = toPanelMessageViews([panelRow()], '欧鲸鲸');
+    const reused = reuseMessageViews(first, again);
+    expect(reused).toBe(first);
+    expect(reused[0]).toBe(first[0]);
+  });
+
+  it('only replaces the rows whose content changed', () => {
+    const rows = [panelRow(), panelRow({ id: 'panel-2', seq: 8, text: 'second' })];
+    const first = toPanelMessageViews(rows, '欧鲸鲸');
+    const next = toPanelMessageViews([
+      rows[0]!,
+      { ...rows[1]!, text: 'second revised' },
+    ], '欧鲸鲸');
+    const reused = reuseMessageViews(first, next);
+    expect(reused).not.toBe(first);
+    expect(reused[0]).toBe(first[0]);
+    expect(reused[1]).not.toBe(first[1]);
+    expect(reused[1]!.text).toBe('second revised');
+  });
+
+  it('appends new rows without disturbing the cached ones', () => {
+    const first = toPanelMessageViews([panelRow()], '欧鲸鲸');
+    const next = toPanelMessageViews([panelRow(), panelRow({ id: 'panel-2', seq: 8 })], '欧鲸鲸');
+    const reused = reuseMessageViews(first, next);
+    expect(reused).toHaveLength(2);
+    expect(reused[0]).toBe(first[0]);
   });
 });

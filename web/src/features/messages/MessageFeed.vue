@@ -1,34 +1,33 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
 import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
-import ReasoningBlock from '@/components/ai-elements/ReasoningBlock.vue';
-import LoadingDots from '@/components/ai-elements/LoadingDots.vue';
 import { Badge } from '@/components/ui/badge';
-import type { Interaction, TeamDirectiveReceipt, TeamStream } from '@/shared/api/raw-types';
-import { identityColor } from './identity';
+import type { Interaction, TeamDirectiveReceipt } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
-import { toStreamMessageViews } from './adapters';
 import type { StreamView } from './adapters';
 import { buildMessageGroups, isSystemStack } from './message-groups';
 import { Button } from '@/components/ui/button';
 import InteractionCard from './InteractionCard.vue';
+import StreamingMessages from './StreamingMessages.vue';
 
 const props = withDefaults(
   defineProps<{
     messages: MessageView[];
-    streaming?: TeamStream[];
-    /** 预转换的流视图;提供时优先于 streaming 的内部转换(Panel 等非 TeamStream 数据源使用)。 */
-    streamViews?: StreamView[];
+    /**
+     * 流视图的取值函数,是流数据的唯一入口。高频更新必须走取值函数而不是数组
+     * props:函数只在 StreamingMessages 内部被调用,响应式依赖登记在流式子组件上,
+     * 本组件不会随每个增量重渲染。
+     */
+    streamSource?: () => StreamView[];
     directives?: TeamDirectiveReceipt[];
     interactions?: Interaction[];
     title?: string;
     selectedPair: string;
-    controllerId?: string;
     hosts?: Record<string, string>;
     loading?: boolean;
     hasNextPage?: boolean;
@@ -44,12 +43,10 @@ const props = withDefaults(
     contentClass?: string;
   }>(),
   {
-    streaming: () => [],
-    streamViews: undefined,
+    streamSource: undefined,
     directives: () => [],
     interactions: () => [],
     title: undefined,
-    controllerId: undefined,
     hosts: () => ({}),
     loading: false,
     hasNextPage: false,
@@ -73,18 +70,12 @@ const filtered = computed(() =>
     ? props.messages.filter((message) => message.pairKey === props.selectedPair)
     : props.messages,
 );
-const streamingViews = computed<StreamView[]>(() =>
-  props.streamViews
-    ?? toStreamMessageViews(
-      props.messages,
-      props.streaming ?? [],
-      props.selectedPair,
-      props.controllerId,
-    ),
-);
-const streamingMessages = computed(() =>
-  streamingViews.value.map(item => item.message),
-);
+// 稳定取值函数:setup 内定义一次,子组件拿到的一直是同一引用。
+const readStreamViews = (): StreamView[] => props.streamSource?.() ?? [];
+const streamingViews = computed(readStreamViews);
+// 只统计条数而不在模板里读取数组本身:数组每个增量都换新引用,而 computed 只在
+// 数值真正变化时才通知依赖,本组件因此不会随每个 token 进入渲染。
+const streamingCount = computed(() => streamingViews.value.length);
 
 const messageGroups = computed(() =>
   buildMessageGroups(filtered.value, { groupSystemMessages: props.groupSystemMessages }),
@@ -107,27 +98,23 @@ const messageInteractions = computed(() => {
   }
   return map;
 });
-const messageIds = computed(() => [
-  ...filtered.value.map((message) => message.id),
-  ...streamingMessages.value.map((message) => message.id),
-]);
-
-// 正在发言面板:单流自动展开(保持单人场景的既有体验),多流时只显示
-// 紧凑 chips,由用户点选关注哪一路,避免多路输出在底部交替增长。
-const selectedStreamId = ref<string | null>(null);
-const speakingStrip = computed(() => streamingViews.value.filter(item => item.pending));
-const expandedStream = computed<StreamView | null>(() => {
-  if (!streamingViews.value.length) return null;
-  const selected = streamingViews.value.find(item => item.message.id === selectedStreamId.value);
-  if (selected) return selected;
-  return streamingViews.value.length === 1 ? streamingViews.value[0]! : null;
+// ids 身份保持:元素集合没变时不产出新数组,避免滚动容器在每个增量
+// 都重跑跟底逻辑(每次都要读 scrollHeight,强制同步布局)。
+let previousIds: string[] = [];
+const messageIds = computed(() => {
+  const next = [
+    ...filtered.value.map((message) => message.id),
+    ...streamingViews.value.map((item) => item.message.id),
+  ];
+  if (
+    previousIds.length === next.length &&
+    previousIds.every((id, index) => id === next[index])
+  ) {
+    return previousIds;
+  }
+  previousIds = next;
+  return next;
 });
-function selectStream(id: string) {
-  selectedStreamId.value = selectedStreamId.value === id ? null : id;
-}
-function stripStatus(item: StreamView) {
-  return item.message.text ? '输出中' : '思考中';
-}
 </script>
 
 <template>
@@ -149,7 +136,7 @@ function stripStatus(item: StreamView) {
           {{ title ?? '全部群消息' }}
         </h3>
         <span class="text-xs text-muted-foreground tabular-nums"
-          >{{ filtered.length + streamingMessages.length }} 条消息</span
+          >{{ filtered.length + streamingCount }} 条消息</span
         >
       </div>
     </template>
@@ -251,45 +238,14 @@ function stripStatus(item: StreamView) {
         </div>
       </template>
     </div>
-    <!-- 正在发言面板:选中的流展开显示,其余以 chips 呈现,粘底不与定稿消息混排 -->
-    <div v-if="speakingStrip.length" class="speaking-strip" aria-live="polite" data-testid="speaking-strip">
-      <span class="text-xs font-medium text-muted-foreground">正在发言</span>
-      <button
-        v-for="item in speakingStrip"
-        :key="item.message.id"
-        type="button"
-        class="speaking-chip"
-        :class="{ 'speaking-chip-active': expandedStream?.message.id === item.message.id }"
-        :aria-pressed="expandedStream?.message.id === item.message.id"
-        @click="selectStream(item.message.id)"
-      >
-        <span class="speaking-dot" :style="{ backgroundColor: identityColor(item.message.senderName) }" />
-        <span class="max-w-32 truncate">{{ item.message.senderName }}</span>
-        <span class="text-muted-foreground">{{ stripStatus(item) }}</span>
-        <LoadingDots v-if="item.pending && !item.message.text" />
-      </button>
-    </div>
-    <div
-      v-if="expandedStream"
-      :key="expandedStream.message.id"
-      class="chat-message"
-      :data-message-id="expandedStream.message.id"
-      aria-live="polite"
-    >
-      <ReasoningBlock
-        :reasoning="expandedStream.reasoning"
-        :running="expandedStream.pending && !expandedStream.message.text"
-        :sender="expandedStream.message.senderName"
-        class="mb-2"
-      />
-      <AgentMessage :message="expandedStream.message" :pending="expandedStream.pending" :markdown="markdown">
-        <template v-if="$slots.footer" #footer="{ message: footerMessage }">
-          <slot name="footer" :message="footerMessage" />
-        </template>
-      </AgentMessage>
-    </div>
+    <!-- 正在发言:独立组件读取流数据,已定稿消息不随每个增量重渲染。 -->
+    <StreamingMessages :source="readStreamViews" :markdown="markdown">
+      <template v-if="$slots.footer" #footer="{ message }">
+        <slot name="footer" :message="message" />
+      </template>
+    </StreamingMessages>
     <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
-    <slot v-else-if="!filtered.length && !streamingMessages.length" name="empty">
+    <slot v-else-if="!filtered.length && !streamingCount" name="empty">
       <PanelState :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
     </slot>
 
