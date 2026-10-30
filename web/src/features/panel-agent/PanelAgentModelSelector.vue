@@ -137,7 +137,7 @@ function modalityLabel(model: CatalogModel) {
       >
         <Bot data-icon="inline-start" />
         <span class="truncate">{{ selectedModel?.label ?? (form.model || '选择模型') }}</span>
-        <ChevronRight data-icon="inline-end" class="composer-control-trailing text-muted-foreground" />
+        <ChevronRight data-icon="inline-end" class="text-muted-foreground" />
       </Button>
     </PopoverTrigger>
     <PopoverContent align="start" class="w-80 p-0">

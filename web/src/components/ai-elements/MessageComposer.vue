@@ -86,26 +86,24 @@ function keyboardResize(event: KeyboardEvent) {
 </script>
 
 <template>
-  <!-- 容器查询按输入区自身宽度决定控件密度:侧栏展开时聊天列可能远窄于视口。 -->
-  <div class="agent-composer-shell">
-    <button
-      v-if="collapsed"
-      type="button"
-      class="agent-composer-collapsed"
-      :aria-label="`展开输入区${draft.trim() ? '，草稿：' + draftPreview : ''}`"
-      :aria-expanded="false"
-      :disabled="disabled"
-      @click="expand"
-    >
-      <span class="min-w-0 flex-1 truncate" :class="{ 'text-muted-foreground': !draft.trim() }">{{ draftPreview }}</span>
-      <ChevronUp class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-    </button>
-    <form
-      v-else
-      :class="cn('agent-ai-composer', resizing && 'is-resizing')"
-      :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
-      @submit.prevent="submit"
-    >
+  <button
+    v-if="collapsed"
+    type="button"
+    class="agent-composer-collapsed"
+    :aria-label="`展开输入区${draft.trim() ? '，草稿：' + draftPreview : ''}`"
+    :aria-expanded="false"
+    :disabled="disabled"
+    @click="expand"
+  >
+    <span class="min-w-0 flex-1 truncate" :class="{ 'text-muted-foreground': !draft.trim() }">{{ draftPreview }}</span>
+    <ChevronUp class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+  </button>
+  <form
+    v-else
+    :class="cn('agent-ai-composer', resizing && 'is-resizing')"
+    :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
+    @submit.prevent="submit"
+  >
       <div
         class="agent-composer-resize-handle"
         role="separator"
@@ -165,14 +163,9 @@ function keyboardResize(event: KeyboardEvent) {
         </InputGroupAddon>
       </InputGroup>
     </form>
-  </div>
 </template>
 
 <style scoped>
-.agent-composer-shell {
-  container-type: inline-size;
-}
-
 .agent-composer-collapsed {
   display: flex;
   width: 100%;

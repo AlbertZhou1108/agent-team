@@ -36,7 +36,7 @@ const emit = defineEmits<{
           <InputGroupButton size="sm" variant="ghost" :disabled="sending || modelSaving"
             :aria-label="`访问级别：${panelAccessOption(agent.access).label}`"
             :title="`访问级别：${panelAccessOption(agent.access).label}`">
-            <ShieldCheck /><span class="composer-control-label">{{ panelAccessOption(agent.access).label }}</span>
+            <ShieldCheck />{{ panelAccessOption(agent.access).label }}
           </InputGroupButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent>

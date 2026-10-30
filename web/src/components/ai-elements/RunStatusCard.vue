@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Brain, ChevronRight } from '@lucide/vue';
+import { Brain, ChevronDown } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useUiStore } from '@/stores/ui';
 import { identityColor } from '@/features/messages/identity';
@@ -53,14 +53,13 @@ const headerPhase = computed(() => (single.value ? runPhaseLabel(single.value.ph
 const headerElapsed = computed(() =>
   elapsedLabel(single.value?.startedAt ?? rows.value[0]?.startedAt, now.value),
 );
-// 折叠时保留判断所需的最少信息,而不是只剩一个空条。
+// 折叠后只在还有额外信息时补一行:单路有工具动作时说明动作,多路时列出各路阶段;
+// 单路无工具时阶段已在表头,不再重复一行。
 const headerSummary = computed(() => {
   if (!single.value) {
     return rows.value.map(row => `${row.name} ${runPhaseLabel(row.phase)}`).join('，');
   }
-  return single.value.tool
-    ? toolActionLabel(single.value.tool, props.groupNames)
-    : runPhaseLabel(single.value.phase);
+  return single.value.tool ? toolActionLabel(single.value.tool, props.groupNames) : '';
 });
 const canShowReasoning = computed(() => preferences.showReasoning && Boolean(single.value?.reasoning));
 const reasoningOpen = computed(() => Boolean(single.value && openReasoning.value === single.value.key));
@@ -91,7 +90,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         aria-hidden="true"
       />
       <span class="min-w-0 flex-1 truncate font-medium">{{ headerName }}</span>
-      <span v-if="headerPhase && !collapsed" class="run-phase">{{ headerPhase }}</span>
+      <span v-if="headerPhase" class="run-phase">{{ headerPhase }}</span>
       <span v-if="headerElapsed" class="run-time tabular-nums">{{ headerElapsed }}</span>
       <button
         v-if="canShowReasoning && !collapsed"
@@ -101,7 +100,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         @click="toggleReasoning"
       >
         思考过程
-        <ChevronRight class="size-3.5 transition-transform" :class="reasoningOpen && 'rotate-90'" />
+        <ChevronDown class="size-3.5 transition-transform" :class="reasoningOpen && 'rotate-180'" />
       </button>
       <button
         type="button"
@@ -111,14 +110,14 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         @click="collapsed = !collapsed"
       >
         {{ collapsed ? '展开' : '收起' }}
-        <ChevronRight class="size-3.5 transition-transform" :class="collapsed ? '' : 'rotate-90'" />
+        <ChevronDown class="size-3.5 transition-transform" :class="!collapsed && 'rotate-180'" />
       </button>
     </div>
 
-    <!-- 折叠态用一行摘要交代进展,不展开任何明细。 -->
-    <p v-if="collapsed" class="run-card-summary">{{ headerSummary }}</p>
+    <!-- 折叠态仅在还有补充信息时占第二行。 -->
+    <p v-if="collapsed && headerSummary" class="run-card-summary">{{ headerSummary }}</p>
 
-    <template v-else>
+    <template v-if="!collapsed">
       <p v-if="single?.tool" class="run-card-tool">{{ toolActionLabel(single.tool, groupNames) }}</p>
       <div v-if="single" class="run-card-list">
         <div
