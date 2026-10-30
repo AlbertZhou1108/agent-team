@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
 import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
+import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
 import { Badge } from '@/components/ui/badge';
 import type { Interaction, TeamDirectiveReceipt } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
@@ -29,6 +30,8 @@ const props = withDefaults(
     title?: string;
     selectedPair: string;
     hosts?: Record<string, string>;
+    /** 团队 id → 名称,仅用于运行卡里的工具动作说明。 */
+    groupNames?: Record<string, string>;
     loading?: boolean;
     hasNextPage?: boolean;
     fetchingNextPage?: boolean;
@@ -48,6 +51,7 @@ const props = withDefaults(
     interactions: () => [],
     title: undefined,
     hosts: () => ({}),
+    groupNames: () => ({}),
     loading: false,
     hasNextPage: false,
     fetchingNextPage: false,
@@ -64,6 +68,13 @@ const props = withDefaults(
 const emit = defineEmits<{
   loadMore: [];
 }>();
+
+// 多路并发时由运行卡决定展示哪一路正文;切换会话时清空选择。
+const selectedRunKey = ref<string | null>(null);
+watch(
+  () => props.resetKey ?? props.selectedPair,
+  () => { selectedRunKey.value = null; },
+);
 
 const filtered = computed(() =>
   props.selectedPair
@@ -239,7 +250,7 @@ const messageIds = computed(() => {
       </template>
     </div>
     <!-- 正在发言:独立组件读取流数据,已定稿消息不随每个增量重渲染。 -->
-    <StreamingMessages :source="readStreamViews" :markdown="markdown">
+    <StreamingMessages :source="readStreamViews" :markdown="markdown" :selected-turn-key="selectedRunKey">
       <template v-if="$slots.footer" #footer="{ message }">
         <slot name="footer" :message="message" />
       </template>
@@ -249,5 +260,14 @@ const messageIds = computed(() => {
       <PanelState :icon="MessagesSquare" title="暂无消息" />
     </slot>
 
+    <!-- 运行状态固定在手风琴之外:它汇总过程,不参与消息滚动。 -->
+    <template #footer>
+      <RunStatusCard
+        :source="readStreamViews"
+        :selected-key="selectedRunKey"
+        :group-names="groupNames"
+        @select="selectedRunKey = $event"
+      />
+    </template>
   </ConversationPanel>
 </template>

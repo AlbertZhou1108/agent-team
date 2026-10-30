@@ -166,6 +166,59 @@ test('Panel SSE sends live deltas and completion over the local event stream', a
   abort.abort();
 });
 
+test('Panel stream exposes the run phase and clears it after a tool call', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-panel-phase-'));
+  const workspace = mkdtempSync(join(tmpdir(), 'agent-panel-phase-work-'));
+  const control = {};
+  const toolHost = {
+    async listModels() {
+      return catalog();
+    },
+    async run(context) {
+      context.onSession(context.endpoint.session ?? 'fake-session');
+      context.onAccepted();
+      if (context.endpoint.context === 'profile') return 'ready';
+      context.onReasoningDelta('看', { part: 'r1' });
+      await context.onTool('teams_list', {});
+      context.onTextDelta('好', { part: 1 });
+      await new Promise(resolve => {
+        control.release = resolve;
+      });
+      return '好';
+    },
+  };
+  const bus = new Bus({ directory, hosts: new Map([['fake', toolHost]]) });
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  await createPanel(bus, workspace);
+  const events = [];
+  bus.on('panel-stream', event => events.push(event));
+
+  const pending = bus.panelPrivateTurn('check phase');
+  await until(() => bus.panelAgentState().streaming?.[0]?.text === '好');
+  // 先放行并等回合收尾,再做断言:断言失败时不会把宿主的等待 promise 永久悬空。
+  const livePhase = bus.panelAgentState().streaming[0].runPhase;
+  const phaseEvents = events.filter(event => event.type === 'phase');
+  control.release();
+  await pending;
+
+  const start = events.find(event => event.type === 'start');
+  assert.equal(start.stream.runPhase, 'accepted');
+  // 思考增量自带新阶段,无需额外 phase 事件。
+  assert.equal(events.find(event => event.type === 'reasoning-delta').stream.runPhase, 'thinking');
+  assert.equal(phaseEvents[0].stream.runPhase, 'tool');
+  assert.equal(phaseEvents[0].stream.tool.name, 'teams_list');
+  // 工具结束后回到内容阶段,并清掉工具名。
+  assert.deepEqual(phaseEvents.at(-1).stream.tool, null);
+  // 正文增量把阶段推进到输出中,该信息随 delta 事件下发。
+  assert.equal(events.filter(event => event.type === 'delta').at(-1).stream.runPhase, 'writing');
+  assert.equal(livePhase, 'writing');
+  assert.deepEqual(bus.panelAgentState().streaming, []);
+});
+
 test('team SSE sends directive deltas before the durable team reply', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-sse-'));
   const control = {};

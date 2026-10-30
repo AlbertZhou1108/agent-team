@@ -92,7 +92,7 @@ const privateStreaming = computed(
 );
 
 type PanelStreamEvent = {
-  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'complete' | 'cancelled' | 'error';
+  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'phase' | 'complete' | 'cancelled' | 'error';
   stream?: PanelStream;
   streams?: PanelStream[];
   delta?: string;
@@ -111,6 +111,7 @@ function acceptPanelStream(payload: PanelStreamEvent) {
       ...payload.stream,
       text: (sameTurn ? streamedReply.value?.text ?? '' : '') + payload.delta,
       reasoning: sameTurn ? streamedReply.value?.reasoning ?? '' : '',
+      runPhase: 'writing',
     };
     return;
   }
@@ -120,7 +121,15 @@ function acceptPanelStream(payload: PanelStreamEvent) {
       text: sameTurn ? streamedReply.value?.text ?? '' : '',
       reasoning:
         (sameTurn ? streamedReply.value?.reasoning ?? '' : '') + payload.delta,
+      runPhase: 'thinking',
     };
+    return;
+  }
+  // 阶段事件只更新阶段与工具,不改动已累积的正文和思考。
+  if (payload.type === 'phase') {
+    streamedReply.value = sameTurn
+      ? { ...payload.stream, text: streamedReply.value?.text ?? '', reasoning: streamedReply.value?.reasoning ?? '' }
+      : payload.stream;
     return;
   }
   if (payload.type === 'complete') {
@@ -184,6 +193,13 @@ const contextRunning = computed(
           (item) => item.endpoint === privateSessionId.value,
         ),
     ) && privateRunningContext.value === (activeTeamId.value || null),
+);
+// 运行卡计时锚点取自服务端记录的回合创建时间,刷新或重连不会归零。
+const runningSince = computed(
+  () =>
+    panel.value?.running.find(
+      (item) => item.endpoint === privateSessionId.value,
+    )?.created ?? null,
 );
 const conversationError = computed(
   () => actionError.value || panelState.sendError,
@@ -543,6 +559,7 @@ watch(
           :interactions="interactionsQuery.data.value ?? []"
           :sending="sending"
           :context-running="contextRunning"
+          :running-since="runningSince"
           :stopping="stopping"
           :action-error="conversationError"
           :hosts="availableHosts"

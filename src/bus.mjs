@@ -293,7 +293,7 @@ export class Bus extends EventEmitter {
       ),
       running: [...this.running.values()]
         .filter(item => item.endpoint.context === 'panel-private' || item.endpoint.context === 'panel-coordination')
-        .map(item => ({ endpoint: item.endpoint.id, groupId: item.activeTeamId ?? item.endpoint.group_id ?? null, turnId: item.turnId })),
+        .map(item => ({ endpoint: item.endpoint.id, groupId: item.activeTeamId ?? item.endpoint.group_id ?? null, turnId: item.turnId, created: item.created ?? null })),
       unknown: this.panelUnknown(),
       streaming: this.panelStreaming(agent.id),
     };
@@ -958,6 +958,7 @@ export class Bus extends EventEmitter {
       abort,
       turnId,
       done: null,
+      created: now,
     };
     const stream = {
       agentId: panelAgent.id,
@@ -967,6 +968,9 @@ export class Bus extends EventEmitter {
       activeTeamId,
       text: '',
       reasoning: '',
+      // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
+      runPhase: 'accepted',
+      tool: null,
       created: now,
       updatedAt: now,
     };
@@ -987,6 +991,8 @@ export class Bus extends EventEmitter {
           turnId,
           text: '',
           reasoning: '',
+          runPhase: 'accepted',
+          tool: null,
           created: now,
           updatedAt: now,
         }
@@ -995,6 +1001,22 @@ export class Bus extends EventEmitter {
       this.teamStreams.set(turnId, teamStream);
       this.publishTeamStream({ type: 'start', stream: { ...teamStream } });
     }
+    // `publish: false` 用于增量路径:该事件本身已携带新阶段,无需再补一条 phase。
+    const setPhase = (phase, tool = null, publish = true) => {
+      const current = this.panelStreams.get(turnId);
+      if (!current || (current.runPhase === phase && current.tool === tool)) return;
+      current.runPhase = phase;
+      current.tool = tool;
+      current.updatedAt = new Date().toISOString();
+      if (!publish) return;
+      this.publishPanelStream({ type: 'phase', stream: { ...current } });
+      const teamCurrent = teamStream ? this.teamStreams.get(turnId) : null;
+      if (teamCurrent) {
+        teamCurrent.runPhase = phase;
+        teamCurrent.tool = tool;
+        this.publishTeamStream({ type: 'phase', stream: { ...teamCurrent } });
+      }
+    };
     const toolStreamRun = session.context === 'coordination'
       ? this.createToolStreamRun({
           groupId: session.group_id,
@@ -1059,6 +1081,7 @@ export class Bus extends EventEmitter {
         this.store.panelHistory(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
       },
       onTool: async (name, args, metadata = {}) => {
+        setPhase('tool', { name, groupId: activeTeamId ?? null });
         try {
           return await this.panelTool(session.id, session.key, name, args, {
             ...metadata,
@@ -1074,6 +1097,10 @@ export class Bus extends EventEmitter {
             metadata.nativeCallId ?? null,
           );
           throw error;
+        } finally {
+          // 工具结束后回到内容阶段:有正文即输出中,否则回到思考中。
+          const settled = this.panelStreams.get(turnId);
+          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
         }
       },
       onSession: value => {
@@ -1103,11 +1130,15 @@ export class Bus extends EventEmitter {
         const current = this.panelStreams.get(turnId);
         if (!current || current.text.length + delta.length > 2_000_000) return;
         current.text += delta;
+        current.runPhase = 'writing';
+        current.tool = null;
         current.updatedAt = new Date().toISOString();
         if (teamStream) {
           const teamCurrent = this.teamStreams.get(turnId);
           if (teamCurrent) {
             teamCurrent.text = current.text;
+            teamCurrent.runPhase = 'writing';
+            teamCurrent.tool = null;
             teamCurrent.updatedAt = current.updatedAt;
             this.publishTeamStream({
               type: 'delta',
@@ -1129,11 +1160,15 @@ export class Bus extends EventEmitter {
         const current = this.panelStreams.get(turnId);
         if (!current || current.reasoning.length + delta.length > 2_000_000) return;
         current.reasoning += delta;
+        current.runPhase = 'thinking';
+        current.tool = null;
         current.updatedAt = new Date().toISOString();
         if (teamStream) {
           const teamCurrent = this.teamStreams.get(turnId);
           if (teamCurrent) {
             teamCurrent.reasoning = current.reasoning;
+            teamCurrent.runPhase = 'thinking';
+            teamCurrent.tool = null;
             teamCurrent.updatedAt = current.updatedAt;
             this.publishTeamStream({
               type: 'reasoning-delta',
@@ -2293,7 +2328,7 @@ export class Bus extends EventEmitter {
       JSON.stringify(policy),
       new Date().toISOString(),
     );
-    const live = { endpoint: effectiveEndpoint, abort, turnId, done: null };
+    const live = { endpoint: effectiveEndpoint, abort, turnId, done: null, created: new Date().toISOString() };
     const pairPeerId = endpoint.context.startsWith('pair:') ? endpoint.context.slice(5) : null;
     const pairPeerName = pairPeerId
       ? (pairPeerId === 'user' ? '用户' : this.store.get('SELECT name FROM members WHERE id=?', pairPeerId)?.name ?? pairPeerId)
@@ -2313,6 +2348,9 @@ export class Bus extends EventEmitter {
           turnId,
           text: '',
           reasoning: '',
+          // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
+          runPhase: 'accepted',
+          tool: null,
           created: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
@@ -2333,6 +2371,16 @@ export class Bus extends EventEmitter {
       this.teamStreams.set(turnId, teamStream);
       this.publishTeamStream({ type: 'start', stream: { ...teamStream } });
     }
+    // 成员的阶段只作用于团队流;工具名即公开信息,不附带参数。
+    const setPhase = (phase, tool = null, publish = true) => {
+      if (!teamStream) return;
+      const current = this.teamStreams.get(turnId);
+      if (!current || (current.runPhase === phase && current.tool === tool)) return;
+      current.runPhase = phase;
+      current.tool = tool;
+      current.updatedAt = new Date().toISOString();
+      if (publish) this.publishTeamStream({ type: 'phase', stream: { ...current } });
+    };
     this.store.history(endpoint.id, { type: 'input', text: prompt }, turnId);
     try {
       this.information.measureRules({
@@ -2366,6 +2414,7 @@ export class Bus extends EventEmitter {
       onAccepted: () => { onAccepted(); this.store.history(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
       onNativeTurn: ref => { this.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
       onTool: async (name, args, metadata = {}) => {
+        setPhase('tool', { name, groupId: group.id });
         try {
           return await this.tool(endpoint.id, endpoint.key, name, args, {
             ...metadata,
@@ -2380,6 +2429,9 @@ export class Bus extends EventEmitter {
             metadata.nativeCallId ?? null,
           );
           throw error;
+        } finally {
+          const settled = this.teamStreams.get(turnId);
+          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
         }
       },
       onSession: session => {
@@ -2401,6 +2453,8 @@ export class Bus extends EventEmitter {
         const current = this.teamStreams.get(turnId);
         if (!current || current.text.length + delta.length > 2_000_000) return;
         current.text += delta;
+        current.runPhase = 'writing';
+        current.tool = null;
         current.updatedAt = new Date().toISOString();
         this.publishTeamStream({
           type: 'delta',
@@ -2414,6 +2468,8 @@ export class Bus extends EventEmitter {
         const current = this.teamStreams.get(turnId);
         if (!current || current.reasoning.length + delta.length > 2_000_000) return;
         current.reasoning += delta;
+        current.runPhase = 'thinking';
+        current.tool = null;
         current.updatedAt = new Date().toISOString();
         this.publishTeamStream({
           type: 'reasoning-delta',

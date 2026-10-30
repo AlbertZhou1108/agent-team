@@ -188,7 +188,7 @@ export interface PanelAgentState {
   teams: PanelTeamView[];
   conversation: PanelMessage[];
   streaming?: PanelStream[];
-  running: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
+  running: Array<{ endpoint: string; groupId: string | null; turnId: string; created?: string | null }>;
   unknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
 }
 
@@ -361,8 +361,18 @@ export interface PanelStream {
   activeTeamId: string | null;
   text: string;
   reasoning?: string;
+  /** 服务端维护的回合阶段;旧服务端缺失时前端回落到内容判断。 */
+  runPhase?: StreamPhase;
+  tool?: StreamTool | null;
   created: string;
   updatedAt: string;
+}
+
+export type StreamPhase = 'accepted' | 'thinking' | 'writing' | 'tool';
+
+export interface StreamTool {
+  name: string;
+  groupId?: string | null;
 }
 
 export interface TeamStream {
@@ -382,6 +392,9 @@ export interface TeamStream {
   messageId?: string;
   messageSeq?: number;
   phase?: 'streaming' | 'complete';
+  /** 回合阶段(思考/输出/工具);与上面的 streaming/complete 生命周期独立。 */
+  runPhase?: StreamPhase;
+  tool?: StreamTool | null;
   text: string;
   reasoning?: string;
   created: string;

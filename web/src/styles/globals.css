@@ -356,6 +356,13 @@
   padding: 10px 14px 12px;
 }
 
+/* 输入区控件随容器宽度收敛:窄列下只留图标,名称仍可通过 tooltip/可访问名获取。 */
+@container (max-width: 560px) {
+  .composer-control-label {
+    display: none;
+  }
+}
+
 .agent-composer-resize-handle {
   position: absolute;
   top: 0;
@@ -686,49 +693,154 @@ button {
   gap: 4px;
 }
 
-/* 正在发言面板:粘底悬浮,与定稿消息分离。 */
-.speaking-strip {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
+/* 运行状态卡:固定在消息滚动区与输入区之间,汇总当前会话的运行过程。
+   高度有上限并在卡内滚动,保证消息区始终留有阅读空间。 */
+.run-card {
   display: flex;
-  width: 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  margin-top: 8px;
+  min-width: 0;
+  max-height: min(40vh, 45%);
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  margin: 0 14px 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in oklch, var(--background) 92%, transparent);
-  backdrop-filter: blur(6px);
 }
 
-.speaking-chip {
-  display: inline-flex;
-  max-width: 15rem;
-  flex: 1 0 auto;
+.run-card-head {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  gap: 8px;
   font-size: 0.75rem;
-  line-height: 1.2;
-  background: transparent;
-  color: var(--foreground);
+}
+
+.run-card-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
-.speaking-chip-active {
+.run-card-toggle:hover {
+  color: var(--foreground);
+}
+
+.run-card-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.run-row-wrap {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.run-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-row:hover {
+  background: var(--accent);
+}
+
+.run-row-active {
   background: var(--secondary);
 }
 
-.speaking-dot {
+.run-row-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-row-tool {
+  padding-left: 14px;
+  color: var(--muted-foreground);
+}
+
+.run-dot {
   flex: none;
   width: 8px;
   height: 8px;
   border-radius: 999px;
+}
+
+.run-phase,
+.run-time {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.run-card-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-card-tool {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-reasoning-hint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted-foreground);
+}
+
+.run-reasoning-icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.run-reasoning {
+  padding: 0 6px 4px 20px;
+}
+
+.run-reasoning-text {
+  max-height: 10rem;
+  overflow-y: auto;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .message-system {

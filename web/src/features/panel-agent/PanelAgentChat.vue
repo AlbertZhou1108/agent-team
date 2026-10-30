@@ -38,6 +38,8 @@ const props = defineProps<{
   interactions?: Interaction[];
   sending: boolean;
   contextRunning: boolean;
+  /** 服务端记录的回合开始时间,用于运行卡计时;缺失时不显示时长。 */
+  runningSince?: string | null;
   stopping: boolean;
   actionError: string;
   hosts: AvailableHost[];
@@ -80,6 +82,7 @@ const readPanelStreamViews = () =>
     agentName: props.agent.name,
     activeTeamId: activeTeamId.value || null,
     running: props.contextRunning,
+    runningSince: props.runningSince ?? null,
   });
 const suggestions = [
   '帮我总结当前所有团队的运行状态',
@@ -97,6 +100,7 @@ const suggestions = [
     :group-system-messages="false"
     :markdown="true"
     :hosts="{}"
+    :group-names="Object.fromEntries(teams.map(team => [team.id, team.name]))"
     selected-pair=""
     :reset-key="activeTeamId || globalContextKey"
     :aria-label="'Panel Agent 私人会话'"

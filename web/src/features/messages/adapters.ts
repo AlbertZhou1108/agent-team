@@ -1,4 +1,4 @@
-import type { Member, MessageRow, PanelMessage, PanelStream, TeamStream } from '@/shared/api/raw-types';
+import type { Member, MessageRow, PanelMessage, PanelStream, StreamPhase, StreamTool, TeamStream } from '@/shared/api/raw-types';
 import type { MessageView } from '@/shared/models/view-types';
 
 type ActorName = { id: string; name: string };
@@ -7,6 +7,12 @@ export type StreamView = {
   message: MessageView;
   pending: boolean;
   reasoning?: string;
+  /** 回合标识:多条流(正文 + 工具草稿)按它汇总为一行运行状态。 */
+  turnId?: string;
+  toolCallId?: string;
+  startedAt?: string | null;
+  runPhase?: StreamPhase;
+  tool?: StreamTool | null;
 };
 
 export function memberName(members: Member[], id: string, actors: ActorName[] = []) {
@@ -59,7 +65,8 @@ export function toStreamMessageViews(
   const persisted = new Set(messages.map(message => message.id));
   return streams
     .filter(stream => (
-      (stream.text || stream.reasoning)
+      // 运行中的空流也要保留:状态卡需要在首个 token 之前就说明有人正在处理。
+      (stream.text || stream.reasoning || stream.phase !== 'complete')
       && (!selectedPair || stream.pairKey === selectedPair)
       && (!stream.messageId || !persisted.has(stream.messageId))
     ))
@@ -80,6 +87,11 @@ export function toStreamMessageViews(
       } satisfies MessageView,
       pending: stream.phase !== 'complete' || !stream.messageId,
       reasoning: stream.reasoning,
+      turnId: stream.turnId,
+      toolCallId: stream.toolCallId,
+      startedAt: stream.created,
+      runPhase: stream.runPhase,
+      tool: stream.tool ?? null,
     }));
 }
 
@@ -136,11 +148,21 @@ export function reuseMessageViews(previous: MessageView[], next: MessageView[]):
 
 export function toPanelStreamViews(
   streams: Array<PanelStream | null | undefined>,
-  { agentName, activeTeamId, running = false }: { agentName: string; activeTeamId: string | null; running?: boolean },
+  {
+    agentName,
+    activeTeamId,
+    running = false,
+    runningSince = null,
+  }: {
+    agentName: string;
+    activeTeamId: string | null;
+    running?: boolean;
+    runningSince?: string | null;
+  },
 ): StreamView[] {
   const views: StreamView[] = [];
   for (const stream of streams) {
-    if (!stream || (!stream.text && !stream.reasoning)) continue;
+    if (!stream) continue;
     if (stream.activeTeamId !== (activeTeamId || null)) continue;
     views.push({
       message: {
@@ -157,8 +179,13 @@ export function toPanelStreamViews(
       },
       pending: true,
       reasoning: stream.reasoning,
+      turnId: stream.turnId,
+      startedAt: stream.created,
+      runPhase: stream.runPhase,
+      tool: stream.tool ?? null,
     });
   }
+  // 宿主已受理但还没有任何流事件时补一条占位,时间锚点用服务端的回合创建时间。
   if (!views.length && running) {
     views.push({
       message: {
@@ -171,9 +198,12 @@ export function toPanelStreamViews(
         senderIsUser: false,
         kind: 'send',
         text: '',
-        createdAt: new Date().toISOString(),
+        createdAt: runningSince ?? new Date().toISOString(),
       },
       pending: true,
+      turnId: 'panel-agent-running',
+      startedAt: runningSince ?? null,
+      runPhase: 'accepted',
     });
   }
   return views;

@@ -33,8 +33,10 @@ const emit = defineEmits<{
         :disabled="sending || catalogLoading || modelSaving" @change="emit('updateModel', $event)" />
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <InputGroupButton size="sm" variant="ghost" :disabled="sending || modelSaving" aria-label="Panel Agent 访问级别">
-            <ShieldCheck />{{ panelAccessOption(agent.access).label }}
+          <InputGroupButton size="sm" variant="ghost" :disabled="sending || modelSaving"
+            :aria-label="`访问级别：${panelAccessOption(agent.access).label}`"
+            :title="`访问级别：${panelAccessOption(agent.access).label}`">
+            <ShieldCheck /><span class="composer-control-label">{{ panelAccessOption(agent.access).label }}</span>
           </InputGroupButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent>

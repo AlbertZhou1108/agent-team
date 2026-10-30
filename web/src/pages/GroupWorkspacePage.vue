@@ -338,7 +338,7 @@ const teamStreaming = ref<Record<string, TeamStream>>({});
 let teamStreamSource: EventSource | null = null;
 
 function acceptTeamStream(payload: {
-  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'complete' | 'cancelled' | 'error';
+  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'phase' | 'complete' | 'cancelled' | 'error';
   stream?: TeamStream;
   streams?: TeamStream[];
   delta?: string;
@@ -375,6 +375,19 @@ function acceptTeamStream(payload: {
         ...stream,
         text: current?.text ?? '',
         reasoning: (current?.reasoning ?? '') + payload.delta,
+      },
+    };
+    return;
+  }
+  // 阶段事件只替换阶段与工具,已累积的正文和思考保持原值。
+  if (payload.type === 'phase') {
+    const current = teamStreaming.value[stream.id];
+    teamStreaming.value = {
+      ...teamStreaming.value,
+      [stream.id]: {
+        ...stream,
+        text: current?.text ?? '',
+        reasoning: current?.reasoning ?? '',
       },
     };
     return;
@@ -980,6 +993,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :title="conversationTitle"
                 :selected-pair="selectedPair"
                 :hosts="endpointHosts"
+                :group-names="Object.fromEntries(groups.map(group => [group.id, group.name]))"
                 :loading="messagesQuery.isPending.value"
                 :has-next-page="messagesQuery.hasNextPage.value"
                 :fetching-next-page="messagesQuery.isFetchingNextPage.value"
