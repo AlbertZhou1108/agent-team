@@ -34,27 +34,36 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' },
-    signal,
-  });
-  if (!response.ok) {
-    throw new ApiError(response.status, await response.text());
+async function jsonRequest<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+  const timeoutMs = path.includes('/install') || path.includes('/directory-picker') ? 330000
+    : path.includes('/model-catalog') ? 60000 : init.method === 'POST' ? 60000 : 15000;
+  const controller = new AbortController();
+  let timedOut = false;
+  const cancel = () => controller.abort(signal?.reason);
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener('abort', cancel, { once: true });
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    const response = await fetch(path, { credentials: 'same-origin', ...init, signal: controller.signal });
+    if (!response.ok) throw new ApiError(response.status, await response.text());
+    return await response.json() as T;
+  } catch (error) {
+    if (timedOut) throw new Error(init.method === 'POST'
+      ? '请求超时，操作可能仍在执行。请刷新状态确认结果，避免重复提交。'
+      : '读取超时，请检查本机服务连接后重试。');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
   }
-  return response.json() as Promise<T>;
+}
+
+async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return jsonRequest<T>(path, { headers: { Accept: 'application/json' } }, signal);
 }
 
 async function mutate<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new ApiError(response.status, await response.text());
-  return response.json() as Promise<T>;
+  return jsonRequest<T>(path, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 
 function query(path: string, values: Record<string, string | number | undefined>) {

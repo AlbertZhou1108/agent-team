@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { observeResponsiveness } from './responsiveness.mjs';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
@@ -53,9 +54,10 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     lock = openSync(lockPath, 'wx', 0o600);
   }
   writeFileSync(lock, JSON.stringify({ pid: process.pid })); closeSync(lock);
-  let bus, ipc, panel, socketOwned = false;
+  let bus, ipc, panel, diagnostics, socketOwned = false;
   const panelEventStreams = new Set();
   const close = async () => {
+    diagnostics?.close();
     if (bus && !bus.closing) await bus.close();
     for (const response of panelEventStreams) response.end();
     panelEventStreams.clear();
@@ -91,7 +93,9 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     await new Promise((resolve, reject) => { ipc.once('error', reject); ipc.listen(socketPath, resolve); });
     socketOwned = true;
     if (process.platform !== 'win32') chmodSync(socketPath, 0o600);
+    diagnostics = observeResponsiveness(directory);
     panel = http.createServer(async (request, response) => {
+      diagnostics.request(request, response);
       const fail = (status, text) => { response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); response.end(text); };
       const failJson = (status, error) => {
         response.writeHead(status, { 'Content-Type': 'application/json' });
