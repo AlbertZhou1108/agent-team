@@ -61,16 +61,16 @@ const headerSummary = computed(() => {
   }
   return single.value.tool ? toolActionLabel(single.value.tool, props.groupNames) : '';
 });
-const canShowReasoning = computed(() => preferences.showReasoning && Boolean(single.value?.reasoning));
-const reasoningOpen = computed(() => Boolean(single.value && openReasoning.value === single.value.key));
+// 单路展开后就是完整明细,不再需要第二层开关;有可展示内容时才给开关,
+// 避免点开一个空面板。多路每行各有自己的思考开关,卡片开关始终有意义。
+const singleHasDetail = computed(() => Boolean(
+  single.value && (single.value.tool || (preferences.showReasoning && single.value.reasoning)),
+));
+const canToggle = computed(() => !single.value || singleHasDetail.value);
 const liveSummary = computed(() =>
   rows.value.map(row => `${row.name} ${runPhaseLabel(row.phase)}`).join('，'),
 );
 
-function toggleReasoning() {
-  if (!single.value) return;
-  openReasoning.value = reasoningOpen.value ? null : single.value.key;
-}
 function onRowClick(rowKey: string, rowHasReasoning: boolean) {
   emit('select', rowKey);
   if (!rowHasReasoning) return;
@@ -93,16 +93,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
       <span v-if="headerPhase" class="run-phase">{{ headerPhase }}</span>
       <span v-if="headerElapsed" class="run-time tabular-nums">{{ headerElapsed }}</span>
       <button
-        v-if="canShowReasoning && !collapsed"
-        type="button"
-        class="run-card-toggle"
-        :aria-expanded="reasoningOpen"
-        @click="toggleReasoning"
-      >
-        思考过程
-        <ChevronDown class="size-3.5 transition-transform" :class="reasoningOpen && 'rotate-180'" />
-      </button>
-      <button
+        v-if="canToggle"
         type="button"
         class="run-card-toggle"
         :aria-label="collapsed ? '展开运行状态' : '收起运行状态'"
@@ -119,9 +110,10 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
 
     <template v-if="!collapsed">
       <p v-if="single?.tool" class="run-card-tool">{{ toolActionLabel(single.tool, groupNames) }}</p>
+      <!-- 单路:展开即完整明细,思考直接跟随当前动作显示。 -->
       <div v-if="single" class="run-card-list">
         <div
-          v-if="canShowReasoning && reasoningOpen && single.reasoning"
+          v-if="preferences.showReasoning && single.reasoning"
           class="run-reasoning"
         >
           <p class="run-reasoning-text scrollbar-thin">{{ single.reasoning }}</p>
