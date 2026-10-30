@@ -604,14 +604,6 @@ button {
   margin-top: 20px;
 }
 
-.chat-footer {
-  display: flex;
-  min-height: 46px;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 16px;
-}
-
 .context-panel {
   display: flex;
   min-width: 0;

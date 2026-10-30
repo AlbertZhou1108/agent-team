@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
 import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
-const props = defineProps<{ groupId: string; controllerId?: string; controllerName?: string; archived?: boolean; receipts: TeamDirectiveReceipt[] }>();
+const props = defineProps<{ groupId: string; controllerId?: string; archived?: boolean; receipts: TeamDirectiveReceipt[] }>();
 let mounted = true;
 onBeforeUnmount(() => { mounted = false; });
 const emit = defineEmits<{ sent: [] }>();
@@ -29,8 +29,12 @@ async function send() {
 </script>
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex flex-wrap items-center gap-2 px-4 text-xs text-muted-foreground" aria-live="polite">
-      <span>发送给 {{ controllerName || '主 Agent' }}</span>
+    <!-- 输入区占位符已说明发送对象,这里只保留需要处理的状态。 -->
+    <div
+      v-if="latest || archived"
+      class="flex flex-wrap items-center gap-2 px-4 text-xs text-muted-foreground"
+      aria-live="polite"
+    >
       <Badge v-if="latest" variant="outline">{{ directiveStatus(latest) }}</Badge>
       <span v-if="archived">团队已归档，不能发送消息。</span>
     </div>

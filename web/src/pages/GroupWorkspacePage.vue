@@ -999,18 +999,10 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :fetching-next-page="messagesQuery.isFetchingNextPage.value"
                 @load-more="messagesQuery.fetchNextPage()"
               />
-              <footer class="chat-footer text-xs text-muted-foreground">
-                <span>团队观测与指令</span>
-                <span class="text-muted-foreground">·</span>
-                <span>{{
-                  connection.lastSyncedAt?.toLocaleTimeString('zh-CN') ??
-                  '等待同步'
-                }}</span>
-              </footer>
             </template>
           <template #composer>
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
-              :controller-id="currentControllerId" :controller-name="currentController?.name"
+              :controller-id="currentControllerId"
               :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
               @sent="router.replace({ query: teamConversationAfterSend(route.query) })" />
           </template>
