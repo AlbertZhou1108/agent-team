@@ -1,4 +1,3 @@
-import { streamMessageToolName, partialJsonString } from './message-stream.mjs';
 import { randomUUID } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
@@ -8,6 +7,7 @@ import { EventLog } from './event-log.mjs';
 import { TeamRequests } from './team-requests.mjs';
 import { TeamDirectives } from './team-directives.mjs';
 import { Telemetry, telemetryObservation } from './telemetry.mjs';
+import { ToolStreams } from './tool-streams.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { Collaboration, roleNameKey } from './collaboration.mjs';
@@ -31,7 +31,6 @@ import {
   normalizeModelPolicy,
 } from './model-policy.mjs';
 
-const messageToolNames = new Set(['send', 'note', 'team_send', 'team_note']);
 const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
 
 function memberModelSummary(selection) {
@@ -75,15 +74,15 @@ export class Bus extends EventEmitter {
     this.panelBootReceiptSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM team_request_receipts').seq;
     this.hosts = hosts;
     this.running = new Map();
-    this.panelStreams = new Map();
-    this.teamStreams = new Map();
-    this.toolStreamRuns = new Map();
     this.closing = false;
     this.pumpingPanelUpdates = false;
     this.panelPrivateDeliveries = [];
     this.modelCatalogCache = null;
     this.modelCatalogPending = null;
+    this.toolStreams = new ToolStreams(this);
   }
+  get panelStreams() { return this.toolStreams.panelStreams; }
+  get teamStreams() { return this.toolStreams.teamStreams; }
   start() {
     this.teamDirectives.recoverOutputs();
     // Serving the panel does not implicitly resume historical work.
@@ -268,165 +267,16 @@ export class Bus extends EventEmitter {
     );
     return { messages, nextAfter: messages.at(-1)?.seq ?? after };
   }
-  panelStreaming(agentId = null) {
-    return [...this.panelStreams.values()]
-      .filter(stream => !agentId || stream.agentId === agentId)
-      .map(stream => ({ ...stream }));
-  }
-  publishPanelStream(event) {
-    if (!this.closing) this.emit('panel-stream', event);
-  }
-  teamStreaming(groupId = null) {
-    return [...this.teamStreams.values()]
-      .filter(stream => !groupId || stream.groupId === groupId)
-      .map(stream => ({ ...stream }));
-  }
-  publishTeamStream(event) {
-    if (!this.closing) this.emit('team-stream', event);
-  }
-  createToolStreamRun(scope) {
-    const run = { scope, streams: new Map() };
-    this.toolStreamRuns.set(scope.turnId, run);
-    return run;
-  }
-  selectToolStream(run, name, args, preferredCallId = null) {
-    const entries = [...run.streams.entries()];
-    if (preferredCallId && run.streams.has(preferredCallId)) {
-      const preferred = entries.find(([key]) => key === preferredCallId);
-      if (preferred?.[1].name === name) return preferred;
-    }
-    const serialized = JSON.stringify(args);
-    return entries.find(([, state]) => (
-      state.name === name && state.arguments === serialized
-    )) ?? entries.find(([, state]) => state.name === name) ?? null;
-  }
-  resolveStreamTarget(scope, value) {
-    if (typeof value !== 'string' || !value) return null;
-    return this.store.get(
-      'SELECT id,name FROM members WHERE group_id=? AND removed IS NULL AND (id=? OR name=?) LIMIT 1',
-      scope.groupId,
-      value,
-      value,
-    ) ?? null;
-  }
-  observeToolStreamDelta(scope, streams, payload) {
-    const name = streamMessageToolName(payload.name ?? streams.get(payload.callId)?.name);
-    if (!messageToolNames.has(name)) return;
-    const key = payload.callId ?? `${scope.turnId}:${payload.index ?? 0}`;
-    const state = streams.get(key) ?? { name, arguments: '', stream: null, previousText: '' };
-    state.name = name ?? state.name;
-    if (payload.complete) state.arguments = payload.argumentsDelta ?? '';
-    else state.arguments += payload.argumentsDelta ?? '';
-    streams.set(key, state);
-    const targetValue = partialJsonString(state.arguments, 'to');
-    const target = this.resolveStreamTarget(scope, targetValue);
-    const text = partialJsonString(state.arguments, 'text');
-    if (!text) return;
-    if (!state.stream) {
-      state.stream = {
-        id: `tool:${scope.turnId}:${key}`,
-        groupId: scope.groupId,
-        endpointId: scope.endpointId,
-        memberId: scope.memberId,
-        memberName: scope.memberName,
-        recipientName: target?.name ?? targetValue ?? '团队',
-        pairKey: target ? [scope.memberId, target.id].sort().join(':') : '',
-        kind: 'message',
-        messageKind: name === 'note' || name === 'team_note' ? 'note' : 'send',
-        host: scope.host,
-        context: scope.context,
-        turnId: scope.turnId,
-        toolCallId: key,
-        text: '',
-        created: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      this.teamStreams.set(state.stream.id, state.stream);
-      this.publishTeamStream({ type: 'start', stream: { ...state.stream } });
-    } else {
-      if (target) {
-        state.stream.recipientName = target.name;
-        state.stream.pairKey = [scope.memberId, target.id].sort().join(':');
-      } else if (targetValue) {
-        state.stream.recipientName = targetValue;
-      }
-    }
-    const replace = !text.startsWith(state.previousText);
-    const delta = replace ? text : text.slice(state.previousText.length);
-    if (!delta) return;
-    state.previousText = text;
-    state.stream.text = text;
-    state.stream.updatedAt = new Date().toISOString();
-    this.publishTeamStream({
-      type: 'delta',
-      stream: { ...state.stream, text: '' },
-      delta,
-      replace,
-    });
-  }
-  completeToolStream(scope, streams, payload, result) {
-    const key = payload.callId ?? `${scope.turnId}:${payload.index ?? 0}`;
-    const state = streams.get(key);
-    if (!state?.stream) return;
-    const message = result?.messageId
-      ? this.store.get('SELECT * FROM messages WHERE id=?', result.messageId)
-      : null;
-    if (message) {
-      const target = this.store.get('SELECT id,name FROM members WHERE id=?', message.recipient);
-      state.stream.text = message.text;
-      state.stream.recipientName = target?.name ?? message.recipient;
-      state.stream.pairKey = [message.sender, message.recipient].sort().join(':');
-      state.stream.messageId = message.id;
-      state.stream.messageSeq = message.seq;
-    }
-    state.stream.updatedAt = new Date().toISOString();
-    this.teamStreams.delete(state.stream.id);
-    this.publishTeamStream({ type: 'complete', stream: { ...state.stream } });
-    streams.delete(key);
-  }
-  completeToolMessageStream(turnId, name, args, result, preferredCallId = null) {
-    const run = this.toolStreamRuns.get(turnId);
-    if (!run || !messageToolNames.has(name)) return;
-    const selected = this.selectToolStream(run, name, args, preferredCallId);
-    if (!selected) return;
-    this.completeToolStream(
-      run.scope,
-      run.streams,
-      { callId: selected[0] },
-      result,
-    );
-  }
-  failToolMessageStream(turnId, name, args, error, preferredCallId = null) {
-    const run = this.toolStreamRuns.get(turnId);
-    if (!run || !messageToolNames.has(name)) return;
-    const selected = this.selectToolStream(run, name, args, preferredCallId);
-    if (!selected) return;
-    const [key, state] = selected;
-    if (state.stream) {
-      this.teamStreams.delete(state.stream.id);
-      this.publishTeamStream({
-        type: 'error',
-        stream: { ...state.stream, updatedAt: new Date().toISOString() },
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    run.streams.delete(key);
-  }
-  discardToolStreamRun(turnId, type = 'cancelled', error = null) {
-    const run = this.toolStreamRuns.get(turnId);
-    if (run) {
-      for (const state of run.streams.values()) {
-        if (!state.stream) continue;
-        this.teamStreams.delete(state.stream.id);
-        this.publishTeamStream({
-          type,
-          stream: { ...state.stream, updatedAt: new Date().toISOString() },
-          ...(error ? { error } : {}),
-        });
-      }
-    }
-    this.toolStreamRuns.delete(turnId);
-  }
+  panelStreaming(agentId = null) { return this.toolStreams.panelStreaming(agentId); }
+  publishPanelStream(event) { this.toolStreams.publishPanelStream(event); }
+  teamStreaming(groupId = null) { return this.toolStreams.teamStreaming(groupId); }
+  publishTeamStream(event) { this.toolStreams.publishTeamStream(event); }
+  createToolStreamRun(scope) { return this.toolStreams.createToolStreamRun(scope); }
+  observeToolStreamDelta(scope, streams, payload) { this.toolStreams.observeToolStreamDelta(scope, streams, payload); }
+  completeToolMessageStream(turnId, name, args, result, preferredCallId = null) { this.toolStreams.completeToolMessageStream(turnId, name, args, result, preferredCallId); }
+  failToolMessageStream(turnId, name, args, error, preferredCallId = null) { this.toolStreams.failToolMessageStream(turnId, name, args, error, preferredCallId); }
+  discardToolStreamRun(turnId, type = 'cancelled', error = null) { this.toolStreams.discardToolStreamRun(turnId, type, error); }
+
   async createPanelAgent({ name, host, model_provider, model, reasoning_effort, workspace, access = 'read-only' }) {
     if (this.panelAgent()) throw new Error('当前数据目录已经存在 Panel Agent');
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) throw new Error('Panel Agent 名称无效');
