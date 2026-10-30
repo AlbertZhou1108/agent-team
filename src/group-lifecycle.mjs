@@ -1,0 +1,313 @@
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { statSync, rmSync } from 'node:fs';
+import { roleNameKey } from './collaboration.mjs';
+
+// 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
+// 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
+
+export class GroupLifecycle {
+  constructor(bus) {
+    this.bus = bus;
+  }
+  controllerState(groupId) {
+    const group = this.bus.store.group(groupId);
+    const assignment = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    return {
+      groupId,
+      controller: this.bus.teamController(groupId),
+      revision: assignment?.revision ?? 0,
+      panelRelation: this.bus.panelTeamRelation(groupId),
+    };
+  }
+  assertControllerSwitchSafe(groupId) {
+    if (!this.bus.collaboration.communicationOpen(groupId)) throw new Error('团队已归档，不能切换控制者');
+    const running = [...this.bus.running.values()].filter(item => (
+      item.endpoint.group_id === groupId || item.activeTeamId === groupId
+    ));
+    if (running.length) throw new Error('团队仍有运行中回合，不能切换控制者');
+    if (this.bus.collaboration.unknown(groupId).length) throw new Error('团队存在待核实运行，不能切换控制者');
+    if (this.bus.panelUnknown(groupId).length) throw new Error('Panel Agent 团队上下文存在待核实运行，不能切换控制者');
+    const pending = this.bus.store.pending().filter(message => message.group_id === groupId);
+    if (pending.length) throw new Error(`团队仍有未处理正式消息，不能切换控制者: ${pending.map(message => `${message.seq}:${message.id}`).join(', ')}`);
+    if (this.bus.store.get('SELECT 1 FROM outbox WHERE accepted IS NULL AND error IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId)
+      || this.bus.store.get('SELECT 1 FROM panel_outbox WHERE accepted IS NULL AND error IS NULL AND session_id IN (SELECT id FROM panel_sessions WHERE group_id=?)', groupId)) {
+      throw new Error('团队仍有待投递消息，不能切换控制者');
+    }
+  }
+  takeoverTeam(groupId, expectedRevision) {
+    const panelAgent = this.bus.panelAgent();
+    if (!panelAgent) throw new Error('Panel Agent 尚未创建');
+    const group = this.bus.store.group(groupId);
+    const relation = this.bus.panelTeamRelation(groupId);
+    if (relation === 'main') throw new Error('Panel Agent 已经是该团队的主 Agent');
+    const current = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    const currentRevision = current?.revision ?? 0;
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) throw new Error('控制者版本已变化，请重新读取');
+    this.bus.assertControllerSwitchSafe(groupId);
+    const originalLeadId = current?.controller_kind === 'member'
+      ? current.controller_id
+      : current?.original_lead_id ?? group.lead;
+    if (!originalLeadId) throw new Error('团队没有可暂停的原主 Agent');
+    const now = new Date().toISOString();
+    this.bus.store.transaction(() => {
+      this.bus.store.run(
+        `INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated)
+         VALUES(?,'panel_agent',?,'active',?,1,?)
+         ON CONFLICT(group_id) DO UPDATE SET controller_kind='panel_agent',controller_id=excluded.controller_id,state='active',original_lead_id=excluded.original_lead_id,revision=revision+1,updated=excluded.updated`,
+        group.id,
+        panelAgent.id,
+        originalLeadId,
+        now,
+      );
+      this.bus.store.run(
+        "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?) ON CONFLICT(panel_agent_id,group_id) DO UPDATE SET relation='main',updated=excluded.updated",
+        panelAgent.id,
+        group.id,
+        now,
+        now,
+      );
+      this.bus.store.panelSession(panelAgent.id, 'coordination', group.id);
+      this.bus.store.run(
+        "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
+        now,
+        group.id,
+      );
+    });
+    return this.bus.controllerState(group.id);
+  }
+  handbackTeam(groupId, expectedRevision) {
+    const panelAgent = this.bus.panelAgent();
+    if (!panelAgent) throw new Error('Panel Agent 尚未创建');
+    this.bus.requirePanelMain(panelAgent.id, groupId);
+    const current = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    if (expectedRevision !== undefined && expectedRevision !== current.revision) throw new Error('控制者版本已变化，请重新读取');
+    this.bus.assertControllerSwitchSafe(groupId);
+    const original = current.original_lead_id ? this.bus.store.get('SELECT * FROM members WHERE id=? AND removed IS NULL', current.original_lead_id) : null;
+    if (!original) throw new Error('原主 Agent 不存在或已移除，无法交还');
+    const now = new Date().toISOString();
+    this.bus.store.transaction(() => {
+      this.bus.store.run(
+        "UPDATE team_lead_controllers SET controller_kind='member',controller_id=?,state='active',original_lead_id=NULL,revision=revision+1,updated=? WHERE group_id=?",
+        original.id,
+        now,
+        groupId,
+      );
+      this.bus.store.run(
+        "UPDATE panel_team_bindings SET relation='observer',updated=? WHERE panel_agent_id=? AND group_id=?",
+        now,
+        panelAgent.id,
+        groupId,
+      );
+      this.bus.store.run(
+        "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
+        now,
+        groupId,
+      );
+    });
+    return this.bus.controllerState(groupId);
+  }
+  normalizeAgentTasks(value) {
+    if (!Array.isArray(value)) throw new Error('任务列表必须是数组');
+    if (value.length > 20) throw new Error('任务列表最多 20 条');
+    return value.map(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('任务必须是对象');
+      if (typeof item.text !== 'string' || !item.text.trim() || item.text.length > 500) throw new Error('任务文本需要 1-500 字符');
+      if (!['doing', 'done', 'dropped'].includes(item.state)) throw new Error('任务状态必须是 doing、done 或 dropped');
+      return { text: item.text.trim(), state: item.state };
+    });
+  }
+  setAgentTasks({ groupId, ownerId, tasks }) {
+    this.bus.store.group(groupId);
+    const normalized = this.bus.normalizeAgentTasks(tasks);
+    const updated = new Date().toISOString();
+    if (normalized.length) {
+      this.bus.store.run(
+        'INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) VALUES(?,?,?,?) ON CONFLICT(owner_id,group_id) DO UPDATE SET tasks=excluded.tasks,updated=excluded.updated',
+        ownerId,
+        groupId,
+        JSON.stringify(normalized),
+        updated,
+      );
+    } else {
+      this.bus.store.run('DELETE FROM agent_tasks WHERE owner_id=? AND group_id=?', ownerId, groupId);
+    }
+    return { owner: ownerId, updated };
+  }
+  agentTasksView(groupId) {
+    const panelAgent = this.bus.panelAgent();
+    return this.bus.store.all('SELECT owner_id,group_id,tasks,updated FROM agent_tasks WHERE group_id=? ORDER BY updated DESC', groupId)
+      .map(row => ({
+        owner_id: row.owner_id,
+        group_id: row.group_id,
+        owner_kind: panelAgent && row.owner_id === panelAgent.id ? 'panel_agent' : 'member',
+        tasks: JSON.parse(row.tasks),
+        updated: row.updated,
+      }));
+  }
+  // Group creation is direct: the requester (CLI user, Panel Agent on behalf of
+  // its user, or a confirmed group_create tool call) supplies the people and an
+  // optional charter. No contract negotiation or confirmation protocol.
+  createGroup({ name, workspace, lead, members = [], panelAgentId, charter, policy, allowShell }) {
+    const panelAgent = panelAgentId ? this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', panelAgentId) : null;
+    if (panelAgentId && !panelAgent) throw new Error('Panel Agent 不存在');
+    if (panelAgent) lead = { name: panelAgent.name, host: panelAgent.host, kind: 'panel_agent', id: panelAgent.id };
+    if (!name?.trim() || !lead?.name || !lead?.host) throw new Error('需要群名、主 Agent 名称与宿主');
+    if (name.length > 200) throw new Error('群名过长');
+    workspace = resolve(workspace);
+    if (!statSync(workspace).isDirectory()) throw new Error('工作目录无效');
+    if (charter !== undefined && charter !== null && (typeof charter !== 'string' || charter.length > 48000)) throw new Error('团队说明过长');
+    if (policy !== undefined && !['communication', 'read-only', 'workspace-write'].includes(policy)) throw new Error('执行策略无效');
+    const people = panelAgent
+      ? members.map(member => ({ ...member, role: 'member' }))
+      : [{ ...lead, role: 'lead' }, ...members.map(member => ({ ...member, role: 'member' }))];
+    const names = new Set();
+    for (const person of people) {
+      this.bus.requireHost(person.host);
+      const key = person.name?.trim() ? roleNameKey(person.name) : '';
+      if (!key || person.name.length > 100 || names.has(key)) throw new Error('成员名称为空、重复或过长');
+      names.add(key);
+    }
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.bus.store.transaction(() => {
+      this.bus.store.run(
+        'INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES(?,?,?,?,?,?,?,?)',
+        id,
+        name,
+        workspace,
+        null,
+        now,
+        typeof charter === 'string' && charter.trim() ? charter.trim() : null,
+        policy ?? 'workspace-write',
+        allowShell === undefined ? 1 : allowShell ? 1 : 0,
+      );
+      for (const person of people) {
+        const memberId = randomUUID();
+        const selection = this.bus.defaultModelSelection(person.host);
+        this.bus.store.run(
+          'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
+          memberId,
+          id,
+          person.name,
+          person.host,
+          person.role,
+          selection?.model_provider ?? null,
+          selection?.model ?? null,
+          selection?.reasoning_effort ?? null,
+        );
+        this.bus.collaboration.reserveMemberName(id, memberId, person.name);
+        if (person.role === 'lead') this.bus.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
+      }
+      if (panelAgent) {
+        this.bus.store.run(
+          "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated) VALUES(?,'panel_agent',?,'active',NULL,1,?)",
+          id,
+          panelAgent.id,
+          now,
+        );
+        this.bus.store.run(
+          "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?)",
+          panelAgent.id,
+          id,
+          now,
+          now,
+        );
+      } else if (this.bus.panelAgent()) {
+        const owner = this.bus.panelAgent();
+        this.bus.store.run(
+          "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'observer',?,?)",
+          owner.id,
+          id,
+          now,
+          now,
+        );
+      }
+    });
+    for (const member of this.bus.members(id)) if (!member.profile) this.bus.introduce(member);
+    return this.bus.store.group(id);
+  }
+  setGroupState(groupId, state) {
+    if (!['open', 'archived'].includes(state)) throw new Error('团队状态无效');
+    this.bus.store.group(groupId);
+    this.bus.store.run('UPDATE groups SET state=? WHERE id=?', state === 'open' ? null : state, groupId);
+    return this.bus.store.group(groupId);
+  }
+  members(groupId) { this.bus.store.group(groupId); return this.bus.store.all('SELECT * FROM members WHERE group_id=? AND removed IS NULL ORDER BY rowid', groupId); }
+  resolveMember(groupId, value) {
+    const member = this.bus.store.get('SELECT * FROM members WHERE group_id=? AND id=? AND removed IS NULL', groupId, value)
+      ?? this.bus.store.get(`SELECT m.* FROM members m JOIN role_names r ON r.member_id=m.id
+        WHERE m.group_id=? AND m.removed IS NULL AND r.name_key=?`, groupId, roleNameKey(value));
+    if (!member) throw new Error(`群内找不到成员: ${value}`);
+    return member;
+  }
+  resolveRecipient(groupId, value) {
+    const controller = this.bus.teamController(groupId);
+    if (value === controller.id || value === controller.name || value === '主 Agent' || value === '主Agent') {
+      return { id: controller.id, name: controller.name, kind: controller.kind };
+    }
+    return this.bus.resolveMember(groupId, value);
+  }
+  async addMember(groupId, { name, host }) {
+    this.bus.collaboration.requireCommunication(groupId); this.bus.requireHost(host);
+    if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
+    if (this.bus.store.get(
+      'SELECT 1 FROM role_names WHERE group_id=? AND name_key=?',
+      groupId,
+      roleNameKey(name),
+    )) throw new Error('名称已被本团队历史使用');
+    const selection = this.bus.defaultModelSelection(host);
+    const id = randomUUID();
+    this.bus.store.transaction(() => {
+      this.bus.store.run(
+        'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
+        id,
+        groupId,
+        name.trim(),
+        host,
+        'member',
+        selection?.model_provider ?? null,
+        selection?.model ?? null,
+        selection?.reasoning_effort ?? null,
+      );
+      this.bus.collaboration.reserveMemberName(groupId, id, name);
+    });
+    this.bus.introduce(this.bus.store.member(id));
+    return this.bus.store.member(id);
+  }
+  async removeMember(groupId, memberId) {
+    const member = this.bus.resolveMember(groupId, memberId);
+    if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
+    this.bus.store.run('UPDATE members SET removed=? WHERE id=?', new Date().toISOString(), member.id);
+    for (const row of this.bus.store.pendingMemberInteractions(groupId, member.id)) this.bus.store.setInteractionState(row.id, 'cancelled');
+    await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);
+    return { removed: member.id };
+  }
+  async deleteGroup(groupId) {
+    this.bus.store.group(groupId);
+    const endpoints = this.bus.store.all('SELECT id FROM endpoints WHERE group_id=?', groupId);
+    const panelSessions = this.bus.store.all("SELECT id FROM panel_sessions WHERE group_id=? AND context='coordination'", groupId);
+    await this.bus.stopWhere(endpoint => endpoint.group_id === groupId);
+    this.bus.store.run('DELETE FROM groups WHERE id=?', groupId);
+    this.bus.store.run('DELETE FROM information_measurements WHERE group_id=?', groupId);
+    this.bus.information.pruneOrphanTurnSchemas();
+    for (const { id } of endpoints) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
+    for (const { id } of panelSessions) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
+    return { deleted: groupId };
+  }
+  async archiveGroup(groupId) {
+    await this.bus.stopWhere(e => e.group_id === groupId);
+    return this.bus.setGroupState(groupId, 'archived');
+  }
+  restoreGroup(groupId) {
+    const group = this.bus.setGroupState(groupId, 'open');
+    setImmediate(() => this.bus.pump());
+    return group;
+  }
+  directive(groupId, text) {
+    this.bus.collaboration.requireCommunication(groupId);
+    const controller = this.bus.teamController(groupId);
+    const message = this.bus.store.append(groupId, 'user', controller.id, 'send', text);
+    queueMicrotask(() => this.bus.pump()); return { messageId: message.id };
+  }
+}
