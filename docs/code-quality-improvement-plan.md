@@ -71,17 +71,17 @@
 
 ## 阶段四：加强后端静态检查
 
-状态：进行中；两个新提取模块已添加 JSDoc 并纳入严格 checkJs，接入 npm run check 及现有 CI。RPC、宿主、事件契约与 ESLint 尚未完成。
+状态：已完成。类型契约、checkJs 范围、ESLint 及检查有效性验证均落地；详见文末"第四阶段完成记录"。
 
 问题：现有 JavaScript 检查主要覆盖语法，后端缺少系统性的类型约束。
 
-- [ ] 为 RPC 请求、宿主适配器接口和事件载荷建立 JSDoc 类型契约。
-- [ ] 选择依赖边界清晰的模块，逐步启用 `checkJs`，明确检查范围。
-- [ ] 引入并配置 ESLint，优先覆盖高价值错误规则；避免大规模格式改动。
-- [ ] 对异步调用增加适当检查，明确哪些调用允许后台执行以及如何处理错误。
-- [ ] 将后端类型检查和 lint 接入本地检查命令及 CI。
-- [ ] 修复新增检查发现的问题，不用批量忽略规则规避错误。
-- [ ] 验证检查能够发现无效接口字段、常见逻辑错误及适用范围内的未处理异步调用。
+- [x] 为 RPC 请求、宿主适配器接口和事件载荷建立 JSDoc 转换为类型契约：`src/types.mjs` 定义 RpcRequest、HostRunOptions、HostAdapter、BusRef 与 StoreRef；interactions 与 tool-streams 的构造函数已接入 BusRef/StoreRef 契约检查（其余模块列为下一批）。
+- [x] 选择依赖边界清晰的模块，逐步启用 `checkJs`：strict checkJs 现覆盖 types、http-route-access、message-stream、tool-streams、interactions 五个模块；bus-queries、group-lifecycle、message-dispatch、panel-sessions 为下一批（需先补全参数注解）。
+- [x] 引入并配置 ESLint：`eslint.config.mjs`（flat config + globals.node），规则 = eslint:recommended + no-unused-vars（`_` 前缀豁免）、no-async-promise-executor、require-atomic-updates（src 限定）、no-use-before-define（函数豁免）。
+- [x] 对异步调用增加适当检查：no-async-promise-executor 已启用；floating-promise 检测需 type-aware linting，实测当前两套检查均无法发现，如实列为覆盖缺口（后续批次评估 typescript-eslint typed linting）。
+- [x] 将后端类型检查和 lint 接入本地检查命令及 CI：`npm run check` = check.mjs + vue-tsc + tsc:backend + eslint:backend；CI 兼容性工作流已运行 check。
+- [x] 修复新增检查发现的问题：43 项逐一修复（含 telemetry 拆分遗留的 `capability()` ReferenceError 隐患），仅 2 处带理由的定点禁用（规则误报：作用域内无 error 绑定可作 cause）。
+- [x] 验证检查有效性：负例验证通过——无效接口字段（`stroe`）被 tsc/BusRef 契约拦截；未定义引用被 no-undef 拦截；浮空异步调用未被拦截（如实记录为缺口）。
 
 验收：检查命令可重复执行，覆盖范围明确，CI 可阻止已纳入规则的错误进入主分支。
 
@@ -154,4 +154,34 @@ Bus 由约 2813 行拆为协调入口（约 560 行）加七个职责模块，�
 | 运行中停止（rpc stop，abort 收敛） | 通过（runningCount 归零） | 通过（runningCount 归零） |
 | 重启恢复（回合中强杀进程→重启→待核实→resolve_runtime→自动重投） | 通过 | 未重复（与宿主无关，路径同 dsh） |
 
-未验证范围：codex 宿主（CLI 不在当前环境）；浏览器视觉验证（本轮无界面改动）。
+未验证范围：codex 宿主（CLI 不在当前环境）；浏览器视觉验证（本轮无纯后端改动）。
+
+## 第四阶段完成记录（2026-10-31）
+
+| 提交 | 内容 |
+| --- | --- |
+| `09c7995` | `src/types.mjs` 类型契约（RpcRequest/HostRunOptions/HostAdapter/BusRef/StoreRef）+ strict checkJs 扩至五模块（types、http-route-access、message-stream、tool-streams、interactions），全部参数注解完成 |
+| `35b2b0e` | ESLint 10 flat config + 精选错误规则；修复 43 项发现（含 telemetry `capability()` 真隐患）；`check` 接入 `lint:backend` |
+
+检查有效性（负例验证）：
+
+| 负例 | 预期 | 实际 |
+| --- | --- | --- |
+| 无效接口字段（BusRef 上访问 `stroe`） | tsc 拦截 | TS2551 拦截 ✓ |
+| 未定义引用 | no-undef 拦截 | no-undef 拦截 ✓ |
+| 浮空异步调用 | — | tsc 与 ESLint 均未拦截（如实记录为缺口，需 type-aware linting） |
+
+本轮修复中的实质性问题：telemetry.mjs `_capabilityMap` 的 fallback 仍调用已迁至 telemetry-capabilities.mjs 的 `capability()`——宿主未声明遥测能力时运行时会 ReferenceError；已改为从新模块导入。ESLint 的 43 项发现全部逐一处置，仅 2 处带理由的定点禁用（`preserve-caught-error` 对无被捕获 error 可引用场景的误报）。
+
+CI 兼容性工作流（ubuntu/macos/windows × npm ci → check → build → test）已运行 check，新增 lint 在 CI 上自动生效。未验证范围：前端 ESLint（本计划限定后端）；typescript-eslint typed linting（floating-promise 检测）。
+
+## 最终验证（2026-10-31，阶段四完成后）
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm run check`（syntax + vue-tsc + tsc:backend + eslint:backend） | 通过 |
+| `npm test` 后端 | 167 项通过 |
+| `npm test` 前端 | 23 文件 / 100 项通过 |
+| `npm run build` | 通过（仍有 >500 kB chunk 提示，非本计划范围） |
+| 真实 CLI 宿主联调 | 阶段三已完成（dsh/claude） |
+| 浏览器视觉验证 | 不适用（本计划无界面改动） |
