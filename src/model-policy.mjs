@@ -50,3 +50,10 @@ export function normalizeModelPolicy({ mode = 'user', rules } = {}) {
   if (value.length > 48000) throw new Error('模型策略rules过长');
   return { mode, rules: value };
 }
+
+// 成员模型选择的展示摘要,互动卡与日志使用同一文案。
+export function memberModelSummary(selection) {
+  return selection
+    ? `${selection.model_provider ? `${selection.model_provider}/` : ''}${selection.model}（强度 ${selection.reasoning_effort}）`
+    : '宿主默认模型';
+}
