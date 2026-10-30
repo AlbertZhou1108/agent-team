@@ -389,7 +389,7 @@ function submitRenameFolder() {
         <template #indicator><component :is="org.sections.pinned ? ChevronRight : ChevronDown" /></template>
       </SidebarEntry>
       <div v-if="!org.sections.pinned && pinned.length" class="team-pinned-scroll">
-      <TeamRow
+      <TeamRow :all-ids="groups.map(group => group.id)"
         v-for="group in pinned"
         :key="group.id"
         :group="group"
@@ -452,7 +452,7 @@ function submitRenameFolder() {
           v-if="!folder.collapsed"
           :class="{ 'team-folder-children': !ui.sidebarCollapsed }"
         >
-          <TeamRow
+          <TeamRow :all-ids="groups.map(group => group.id)"
             v-for="group in folderTeams(folder.id)"
             :key="group.id"
             :group="group"
@@ -497,7 +497,7 @@ function submitRenameFolder() {
           <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
         </SidebarEntry>
         <div v-if="!org.sections.ungrouped && rootTeams.length" class="team-root-children">
-        <TeamRow
+        <TeamRow :all-ids="groups.map(group => group.id)"
           v-for="group in rootTeams"
           :key="group.id"
           :group="group"
@@ -522,7 +522,7 @@ function submitRenameFolder() {
       </p>
     </nav>
 
-    <div v-if="!ui.sidebarCollapsed" class="mt-5 space-y-3 pt-4">
+    <div v-if="!ui.sidebarCollapsed" class="mt-5 flex flex-col gap-3 pt-4">
       <div class="flex items-center gap-2 px-2 text-muted-foreground">
         <span
           :class="[

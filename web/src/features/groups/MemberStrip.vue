@@ -26,7 +26,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <PanelState v-if="!members.length" :icon="Users" title="暂无成员" description="成员加入团队后，会显示身份、模型和能力自述。" />
+  <PanelState v-if="!members.length" :icon="Users" title="暂无成员" />
   <ItemGroup v-else class="gap-2">
     <Item
       v-for="member in members"

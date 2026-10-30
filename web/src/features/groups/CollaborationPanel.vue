@@ -66,7 +66,6 @@ async function restoreTeam() {
       v-if="summaryQuery.isPending.value"
       loading
       title="正在读取团队概览"
-      description="正在同步沟通状态与团队说明。"
     />
     <Alert v-else-if="summaryQuery.error.value" variant="destructive">
       <AlertDescription>

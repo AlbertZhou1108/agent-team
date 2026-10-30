@@ -41,7 +41,6 @@ async function loadMore() {
       v-if="query.isPending.value"
       loading
       title="正在读取协调遥测"
-      description="等待服务端返回协调批次与执行方汇总。"
     />
     <Alert v-else-if="query.error.value" variant="destructive">
       <AlertDescription

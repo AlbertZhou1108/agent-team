@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CircleCheck, CircleOff, ClipboardList, ListTodo, Radio } from '@lucide/vue';
+import { CircleCheck, CircleOff, ClipboardList, Radio } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { AgentTaskEntry, Member, PanelAgent } from '@/shared/api/raw-types';
 import { identityColor } from '@/features/messages/identity';
 
@@ -42,11 +42,11 @@ const stateMeta = {
     v-if="!groups.length"
     :icon="ClipboardList"
     title="任务面板为空"
-    description="成员与主控用 tasks_set 工具更新自己的任务后，会显示在这里。任务进度由各 Agent 自行维护，不阻塞流程。"
   />
   <div v-else class="flex flex-col gap-4">
     <Card v-for="group in groups" :key="group.key" class="py-0">
-      <CardContent class="flex flex-col gap-3 py-4">
+      <CardHeader>
+        <CardTitle class="flex min-w-0 items-center gap-2">
         <div class="flex min-w-0 items-center gap-2">
           <span class="speaking-dot" :style="{ backgroundColor: group.color }" />
           <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ group.name }}</span>
@@ -54,6 +54,9 @@ const stateMeta = {
           <Badge v-if="group.doingCount" variant="secondary">{{ group.doingCount }} 进行中</Badge>
           <span class="text-xs text-muted-foreground tabular-nums">{{ group.updated }}</span>
         </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
         <ul class="flex flex-col gap-2">
           <li
             v-for="(task, index) in group.tasks"
@@ -68,25 +71,21 @@ const stateMeta = {
         </ul>
       </CardContent>
     </Card>
-    <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <ListTodo class="size-3.5" />
-      任务由各 Agent 通过 tasks_set 整体更新，进度自控、不阻塞流程。
-    </p>
   </div>
 </template>
 
 <style scoped>
 .task-doing {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .task-done {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .task-dropped {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   text-decoration: line-through;
-  text-decoration-color: hsl(var(--muted-foreground) / 60%);
+  text-decoration-color: color-mix(in oklch, var(--muted-foreground) 60%, transparent);
 }
 </style>

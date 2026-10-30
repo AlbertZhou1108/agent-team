@@ -31,13 +31,13 @@ function selectStream(id: string) {
   selectedStreamId.value = selectedStreamId.value === id ? null : id;
 }
 function status(item: StreamView) {
-  return item.message.text ? '输出中' : '思考中';
+  return item.message.text.trim() ? '输出中' : '处理中';
 }
 </script>
 
 <template>
   <div v-if="pending.length" class="speaking-strip" aria-live="polite" data-testid="speaking-strip">
-    <span class="text-xs font-medium text-muted-foreground">正在发言</span>
+    <span class="text-xs font-medium text-muted-foreground">正在处理</span>
     <button
       v-for="item in pending"
       :key="item.message.id"
@@ -54,19 +54,19 @@ function status(item: StreamView) {
     </button>
   </div>
   <div
-    v-if="expanded"
+    v-if="expanded && (expanded.message.text.trim() || expanded.reasoning?.trim())"
     :key="expanded.message.id"
     class="chat-message"
     :data-message-id="expanded.message.id"
     aria-live="polite"
   >
     <ReasoningBlock
+      v-if="expanded.reasoning?.trim()"
       :reasoning="expanded.reasoning"
-      :running="expanded.pending && !expanded.message.text"
       :sender="expanded.message.senderName"
       class="mb-2"
     />
-    <AgentMessage :message="expanded.message" :pending="expanded.pending" :markdown="markdown">
+    <AgentMessage v-if="expanded.message.text.trim()" :message="expanded.message" :pending="expanded.pending" :markdown="markdown">
       <template v-if="$slots.footer" #footer="{ message: footerMessage }">
         <slot name="footer" :message="footerMessage" />
       </template>

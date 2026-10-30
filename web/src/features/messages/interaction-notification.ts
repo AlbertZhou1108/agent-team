@@ -5,10 +5,11 @@ export function notifyInteraction(name: string, text: string, navigate: () => vo
   const open = () => { void navigate(); toast.dismiss(id); };
   const id = toast(() => h('button', {
     type: 'button',
-    class: 'flex w-full flex-col gap-1 text-left focus-visible:outline-2 focus-visible:outline-ring',
+    class: 'flex w-full min-w-0 flex-col gap-2 text-left focus-visible:outline-2 focus-visible:outline-ring',
     onClick: open,
     'aria-label': `查看互动：${name}，${text}`,
-  }, [h('span', { class: 'font-medium' }, `等待你的互动：${name}`), h('span', { class: 'text-sm' }, text)]), {
+  }, [h('span', { class: 'font-semibold' }, 'Agent 请求互动'), h('span', { class: 'text-xs text-muted-foreground truncate max-w-full' }, name), h('span', { class: 'text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere]' }, text)]), {
+    class: 'interaction-notice',
     duration: Infinity,
     closeButton: true,
     action: { label: '查看', onClick: open },

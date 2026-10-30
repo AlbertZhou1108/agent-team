@@ -112,9 +112,6 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
         </div>
       </div>
       <CollapsibleContent class="flex min-h-0 flex-col gap-4">
-        <p class="px-1 text-sm text-muted-foreground leading-5">
-          点击团队进入团队协作会话，与该团队主 Agent 继续沟通。
-        </p>
         <ScrollArea
           class="w-full"
           item-selector="[data-team-relation-item]"

@@ -28,6 +28,7 @@ const props = withDefaults(
 const stream = ref<HTMLElement>();
 const content = ref<HTMLElement>();
 const atBottom = ref(true);
+const hasNewMessages = ref(false);
 let observer: ResizeObserver | undefined;
 
 const route = useRoute();
@@ -68,11 +69,13 @@ function updatePosition() {
   atBottom.value =
     element.scrollHeight - element.clientHeight - element.scrollTop <=
     props.threshold;
+  if (atBottom.value) hasNewMessages.value = false;
 }
 
 function scrollToBottom(behavior: ScrollBehavior = 'auto') {
   const element = stream.value;
   if (!element) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) behavior = 'auto';
   element.scrollTo({ top: element.scrollHeight, behavior });
   updatePosition();
 }
@@ -86,6 +89,7 @@ watch(
     const top = element.scrollTop;
     const height = element.scrollHeight;
     const follow = atBottom.value;
+    if (!follow && !prepend && ids.some(id => !previous.includes(id))) hasNewMessages.value = true;
     const sequence = revealSequence;
     if (prepend) atBottom.value = false;
     await nextTick();
@@ -109,6 +113,7 @@ watch(
 watch(
   () => props.resetKey,
   async () => {
+    hasNewMessages.value = false;
     atBottom.value = true;
     await nextTick();
     scrollToBottom();
@@ -150,12 +155,12 @@ defineExpose({ scrollToBottom });
       v-if="!atBottom"
       class="jump-to-bottom"
       variant="secondary"
-      size="icon"
-      aria-label="回到底部"
+      size="sm"
+      :aria-label="hasNewMessages ? '有新消息，回到底部' : '回到底部'"
       title="回到底部"
       @click="scrollToBottom('smooth')"
     >
-      <ArrowDown />
+      <ArrowDown data-icon="inline-start" />{{ hasNewMessages ? '有新消息' : '回到底部' }}
     </Button>
   </div>
 </template>

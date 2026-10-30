@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -146,9 +147,7 @@ async function loadMore() {
       </Select>
     </div>
 
-    <p class="text-xs text-muted-foreground">
-      双方执行归属消耗分开显示，互不合并；来源小计是触发来源分析视图，不能与执行归属总量相加。合并投递整批计入执行方一次。
-    </p>
+    <div class="flex items-center gap-1"><p class="text-xs text-muted-foreground">双方消耗分别统计，来源小计不可与执行总量相加。</p><HelpPopover title="统计口径"><p>双方执行归属消耗分开显示，互不合并；来源小计是触发来源分析视图，不能与执行归属总量相加。合并投递整批计入执行方一次。</p></HelpPopover></div>
 
     <PanelState
       v-if="!selectedPair && selectedEndpointIsNonMemberPair"
@@ -160,13 +159,12 @@ async function loadMore() {
       v-else-if="!pairs.length"
       :icon="ArrowLeftRight"
       title="暂无双人会话"
-      description="成员之间产生 pair 会话后，这里可查看双方各自的执行消耗。"
+      description="成员产生会话后可查看双方消耗。"
     />
     <PanelState
       v-else-if="query.isPending.value"
       loading
       title="正在读取双方会话遥测"
-      description="等待服务端返回双方 executor 汇总与批次。"
     />
     <Alert v-else-if="query.error.value" variant="destructive">
       <AlertDescription

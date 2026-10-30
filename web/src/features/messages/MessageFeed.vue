@@ -244,9 +244,9 @@ const messageIds = computed(() => {
         <slot name="footer" :message="message" />
       </template>
     </StreamingMessages>
-    <PanelState v-if="loading" loading title="正在读取群消息" description="正在同步这个团队的共享记录。" />
+    <PanelState v-if="loading" loading title="正在读取群消息" />
     <slot v-else-if="!filtered.length && !streamingCount" name="empty">
-      <PanelState :icon="MessagesSquare" title="暂无消息" :description="selectedPair ? '这个双人会话还没有消息。' : '成员开始交流后，消息会显示在这里。'" />
+      <PanelState :icon="MessagesSquare" title="暂无消息" />
     </slot>
 
   </ConversationPanel>

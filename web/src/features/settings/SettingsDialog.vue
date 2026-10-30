@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
@@ -388,9 +389,6 @@ watch(
           <section class="flex flex-col gap-3">
             <div>
               <h3 class="text-sm font-semibold">显示模式</h3>
-              <p class="mt-1 text-xs text-muted-foreground">
-                控制界面的明暗外观，保存在当前浏览器。
-              </p>
             </div>
             <ToggleGroup
               type="single"
@@ -415,10 +413,7 @@ watch(
           <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <h3 class="text-sm font-semibold">思考过程</h3>
-                <p class="mt-1 text-xs leading-5 text-muted-foreground">
-                  在会话和消息流中显示模型的实时思考与“宿主思考”步骤。
-                </p>
+                <div class="flex items-center gap-1"><h3 class="text-sm font-semibold">思考过程</h3><HelpPopover title="思考过程"><p>在会话和消息流中显示模型的实时思考与“宿主思考”步骤。</p></HelpPopover></div>
               </div>
               <Switch
                 :model-value="preferences.showReasoning"
@@ -432,10 +427,7 @@ watch(
           <section class="flex flex-col gap-3 pt-6">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <h3 class="text-sm font-semibold">模型策略</h3>
-                <p class="mt-1 text-xs leading-5 text-muted-foreground">
-                  全局策略在创建新团队和已有团队新增角色时读取；已有角色模型不会被改写。
-                </p>
+                <div class="flex items-center gap-1"><h3 class="text-sm font-semibold">模型策略</h3><HelpPopover title="模型策略"><p>全局策略在创建新团队和已有团队新增角色时读取；已有角色模型不会被改写。</p></HelpPopover></div>
                 <p v-if="hasPolicyChanges" class="mt-1 text-xs text-foreground">
                   已切换到「{{ editingPresetName ?? '手写规则' }}」，点保存后生效。
                 </p>

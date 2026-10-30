@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -115,9 +116,7 @@ function clearFilters() {
       >
     </div>
 
-    <p class="text-xs text-muted-foreground" data-manager-non-additive>
-      成员侧与管理侧并排展示，互不相加；管理者侧是相关性视图，不能与主 Agent 协调会话总量相加。本页不提供任何合计数字；共享批次整批展示一次、不拆分。
-    </p>
+    <div class="flex items-center gap-1" data-manager-non-additive><p class="text-xs text-muted-foreground">成员侧与管理侧不可相加；管理侧不可与主 Agent 协调总量相加。</p><HelpPopover title="统计口径"><p>成员侧与管理侧并排展示，互不相加；管理者侧是相关性视图，不能与主 Agent 协调会话总量相加。本页不提供任何合计数字；共享批次整批展示一次、不拆分。</p></HelpPopover></div>
 
     <div class="grid gap-2 sm:grid-cols-2">
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">

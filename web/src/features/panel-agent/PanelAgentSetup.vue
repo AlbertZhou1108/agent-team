@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { computed, ref } from 'vue';
@@ -97,10 +98,7 @@ const principles = [
             <h1 class="mt-2 text-2xl font-semibold">
               {{ agent ? '编辑 Panel Agent' : '创建 Panel Agent' }}
             </h1>
-            <p class="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-              一个 Agent
-              同时承担全局私人会话与获准后的团队主控，按需观察或操作多个团队。
-            </p>
+            <p v-if="!agent" class="mt-2 text-sm text-muted-foreground">配置私人助手，按需参与团队协作。</p>
           </div>
         </header>
 
@@ -131,21 +129,15 @@ const principles = [
                 autocomplete="off"
                 placeholder="Panel Agent"
               />
-              <FieldDescription>
-                该名称用于私人会话和团队主控中的统一身份。
-              </FieldDescription>
             </Field>
 
             <Field>
-              <FieldLabel>宿主、模型与思考强度</FieldLabel>
+              <div class="flex items-center gap-1"><FieldLabel>宿主、模型与思考强度</FieldLabel><HelpPopover title="模型配置"><p>团队创建和主控回合共用此配置。</p></HelpPopover></div>
               <PanelAgentModelSelector
                 v-model:form="form"
                 :hosts="hosts"
                 :disabled="saving"
               />
-              <FieldDescription>
-                团队创建和主控回合都使用这一套模型配置。
-              </FieldDescription>
             </Field>
 
             <Field :data-invalid="workspaceMissing || undefined">

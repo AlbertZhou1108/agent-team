@@ -197,6 +197,15 @@ const visibleGroups = computed(() => {
   );
 });
 
+function moveHome(id: string, direction: number) {
+  const ids = sortedGroups.value.filter(group => !isHomePinned(group.id)).map(group => group.id);
+  const target = ids[ids.indexOf(id) + direction];
+  if (target) organization.reorderHomeTeams([id], target, direction > 0, props.groups.map(group => group.id));
+}
+function canMoveHome(id: string, direction: number) {
+  const ids = sortedGroups.value.filter(group => !isHomePinned(group.id)).map(group => group.id);
+  return !isHomePinned(id) && !search.value.trim() && Boolean(ids[ids.indexOf(id) + direction]);
+}
 function clearHomeDrag() {
   draggingId.value = undefined;
   dropInsertion.value = undefined;
@@ -213,7 +222,6 @@ onBeforeUnmount(() => {
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="flex flex-col gap-2">
           <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
-          <p class="text-sm text-muted-foreground">所有协作，一处查看。</p>
         </div>
         <Button as-child variant="outline">
           <RouterLink :to="{ name: 'panel-agent' }"
@@ -350,7 +358,9 @@ onBeforeUnmount(() => {
                       </span>
                     </button>
                   </ItemContent>
-                  <ItemActions>
+                  <ItemActions class="flex-wrap">
+                    <Button variant="ghost" size="sm" :disabled="!canMoveHome(group.id, -1)" @click="moveHome(group.id, -1)">前移</Button>
+                    <Button variant="ghost" size="sm" :disabled="!canMoveHome(group.id, 1)" @click="moveHome(group.id, 1)">后移</Button>
                     <Button
                       type="button"
                       size="icon-sm"

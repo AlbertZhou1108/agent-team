@@ -698,9 +698,9 @@ button {
   gap: 8px;
   padding: 8px 10px;
   margin-top: 8px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: hsl(var(--background) / 92%);
+  background: color-mix(in oklch, var(--background) 92%, transparent);
   backdrop-filter: blur(6px);
 }
 
@@ -711,17 +711,17 @@ button {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.75rem;
   line-height: 1.2;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   cursor: pointer;
 }
 
 .speaking-chip-active {
-  background: hsl(var(--secondary));
+  background: var(--secondary);
 }
 
 .speaking-dot {
@@ -991,7 +991,7 @@ button {
 
   .workspace-shell {
     height: calc(100svh - 178px);
-    min-height: 560px;
+    min-height: 0;
   }
 
   .chat-header {
@@ -1241,16 +1241,18 @@ button {
   35% { opacity: 1; }
 }
 
-/* 思考强度滑块:整条轨道为渐变刻度,滑块位置表达档位(参考设计稿)。 */
-.model-effort-slider [data-slot='slider-track'] {
-  height: 0.5rem;
-  background: linear-gradient(90deg, #22c55e 0%, #10b981 25%, #06b6d4 55%, #3b82f6 100%);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
-.model-effort-slider [data-slot='slider-range'] {
-  background: transparent;
+
+/* Interaction notifications keep their preview bounded and the destination action separate. */
+[data-sonner-toast].interaction-notice {
+  flex-wrap: wrap;
 }
-.model-effort-slider [data-slot='slider-thumb'] {
-  border: 0;
-  background: white;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+[data-sonner-toast].interaction-notice [data-content] {
+  width: 100%;
+  min-width: 0;
+}
+[data-sonner-toast].interaction-notice [data-button] {
+  margin-left: auto;
 }

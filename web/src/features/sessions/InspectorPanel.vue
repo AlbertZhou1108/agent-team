@@ -176,11 +176,11 @@ function prettyEvent(value: string) {
           ></TabsList
         >
         <TabsContent :value="tab" class="pt-3">
-          <PanelState v-if="loading && tab !== 'usage'" loading title="正在读取事件" description="等待宿主会话的观测数据。" />
+          <PanelState v-if="loading && tab !== 'usage'" loading title="正在读取事件" />
           <template v-else>
             <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
             <RecordPanel v-else-if="tab === 'events'" title="原始事件" :count="historyRows.length" description="宿主实际输出的事件流，可能包含宿主自身的截断。">
-              <PanelState v-if="!historyRows.length" :icon="Braces" title="暂无原始事件" description="会话产生事件后会显示在这里。" />
+              <PanelState v-if="!historyRows.length" :icon="Braces" title="暂无原始事件" />
               <details v-for="row in historyRows" :key="row.seq" @toggle="toggleRecord('event:' + row.seq, $event)" class="group" data-record-row>
                 <summary
                   class="flex cursor-pointer items-center gap-2 py-2 text-xs"

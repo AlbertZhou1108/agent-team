@@ -577,9 +577,8 @@ const inspectorError = computed(() =>
 );
 
 watchEffect(() => {
-  if (snapshotQuery.data.value) connection.online();
-  else if (snapshotQuery.error.value)
-    connection.failed(snapshotQuery.error.value);
+  if (snapshotQuery.error.value) connection.failed(snapshotQuery.error.value);
+  else if (snapshotQuery.data.value) connection.online();
 });
 
 watch(
