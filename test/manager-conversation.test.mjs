@@ -43,6 +43,7 @@ function seedComplete(usage, context, { source = 'fake.panel.usage', timing = { 
 }
 
 async function fixture(t) {
+  const cleanup = [];
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-manager-conversation-'));
   const host = {
     telemetryCapabilities: telemetryCapabilitiesFor('codex'),
@@ -155,10 +156,11 @@ async function fixture(t) {
   };
 
   t.after(async () => {
+    for (const close of cleanup) await close();
     if (!bus.closing) await bus.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  return { bus, group, lead, one, two, panelId, session, addPanelTurn, addMemberPairTurn, directory };
+  return { bus, group, lead, one, two, panelId, session, addPanelTurn, addMemberPairTurn, directory, cleanup };
 }
 
 test('manager-conversation separates member and manager sides, covers input and output involvement, and keeps shared batches whole', async t => {
@@ -332,10 +334,10 @@ test('manager-conversation keeps partial usage non-zero-filled and duplicate obs
 });
 
 test('manager-conversation HTTP route is read-only JSON and preserves existing endpoints', async t => {
-  const { bus, group, one, directory, addPanelTurn } = await fixture(t);
+  const { bus, group, one, directory, addPanelTurn, cleanup } = await fixture(t);
   const turnId = addPanelTurn({ startedAt: '2026-10-23T10:00:10.000Z', inputs: [{ sender: one.id }], outputs: [{ recipient: one.id }] });
   const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
-  t.after(() => server.close());
+  cleanup.push(() => server.close());
   await new Promise(resolve => setTimeout(resolve, 100));
   const before = bus.telemetryMembers(group.id);
   const response = await fetch(`${server.url}api/telemetry/manager-conversation?group=${group.id}&member=${one.id}`);

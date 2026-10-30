@@ -203,7 +203,7 @@ test('group deletion removes framework records and leaves shared files untouched
 });
 
 test('RPC rejects a connection closed before a reply rather than hanging', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'agent-rpc-test-')), socketPath = join(directory, 'rpc.sock');
+  const directory = mkdtempSync(join(tmpdir(), 'agent-rpc-test-')), socketPath = (await import('../src/server.mjs')).socketFor(directory);
   const server = net.createServer(socket => { socket.on('data', () => socket.destroy()); });
   await new Promise(resolve => server.listen(socketPath, resolve));
   t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(directory, { recursive: true, force: true }); });

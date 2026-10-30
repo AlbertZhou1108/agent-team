@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -50,7 +50,7 @@ function runClaudeSlashCommand(command, prompt, { directory, configDirectory }) 
     let stderr = '', result, failure;
     const timer = setTimeout(() => {
       failure = new Error(`Claude 模型目录探测超时：${prompt}`);
-      child.kill('SIGTERM');
+      stopHost(child).catch(reject);
     }, 20000);
     child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-4000); });
     createInterface({ input: child.stdout }).on('line', line => {
@@ -109,7 +109,7 @@ function runDshCatalogProbe(command, directory) {
     let stderr = '', result, failure;
     const timer = setTimeout(() => {
       failure = new Error('DSH 模型目录探测超时');
-      child.kill('SIGTERM');
+      stopHost(child).catch(reject);
     }, 20000);
     child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-6000); });
     createInterface({ input: child.stdout }).on('line', line => {

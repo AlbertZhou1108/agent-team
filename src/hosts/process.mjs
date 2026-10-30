@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { createInterface } from 'node:readline';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -51,12 +51,9 @@ export function runJsonProcess(command, args, { workspace, signal, onEvent, onRo
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error('回合已中断'));
     const child = spawn(command, args, { cwd: workspace, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stderr = '', failure, bytes = 0, killTimer;
+    let stderr = '', failure, bytes = 0, stopping;
     const kill = () => {
-      if (!child.pid) return;
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* Already exited. */ }
-      killTimer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ } }, 1500);
-      killTimer.unref();
+      stopping ??= stopHost(child).catch(error => { failure = error; reject(error); });
     };
     signal.addEventListener('abort', kill, { once: true });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); });
@@ -70,7 +67,6 @@ export function runJsonProcess(command, args, { workspace, signal, onEvent, onRo
     child.on('error', error => { failure = error; });
     child.on('close', (code, reason) => {
       signal.removeEventListener('abort', kill);
-      clearTimeout(killTimer);
       if (signal.aborted) return reject(new Error('回合已中断'));
       if (failure) return reject(failure);
       if (code !== 0) return reject(new Error(`${command} 退出 (${code ?? reason})：${stderr || '请检查宿主认证、权限与额度'}`));

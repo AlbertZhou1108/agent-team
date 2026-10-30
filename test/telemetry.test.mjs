@@ -15,6 +15,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 3000; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
 
 function fixture(t, run) {
+  const cleanup = [];
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-telemetry-'));
   let counter = 0;
   const calls = [];
@@ -40,8 +41,8 @@ function fixture(t, run) {
     members: [{ name: 'one', host: 'fake' }, { name: 'two', host: 'fake' }],
   });
   const members = bus.members(group.id);
-  t.after(async () => { if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
-  return { bus, group, members, directory, calls, host };
+  t.after(async () => { for (const close of cleanup) await close(); if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  return { bus, group, members, directory, calls, host, cleanup };
 }
 
 function emitDefault(ctx, counter, nativeTurnId, overrides = {}) {
@@ -510,13 +511,13 @@ test('multi-bucket sums are declared derived and direct fields stay direct', () 
 });
 
 test('telemetry HTTP routes are read-only JSON and errors use JSON {error}', async t => {
-  const { bus, group, members, directory } = fixture(t);
+  const { bus, group, members, directory, cleanup } = fixture(t);
   const [, one, two] = members;
   await until(() => bus.running.size === 0);
   await sendFrom(bus, one, two, 'http');
   await bus.close();
   const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
-  t.after(() => server.close());
+  cleanup.push(() => server.close());
   const ok = await fetch(`${server.url}api/telemetry/conversation?group=${group.id}&member=${one.id}&peer=${two.id}`);
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get('content-type'), /application\/json/);
@@ -673,14 +674,14 @@ test('manager conversation keeps merged shared manager batches whole and returns
 });
 
 test('manager conversation HTTP route is read-only JSON with manager fields and JSON errors', async t => {
-  const { bus, group, one, agentId, session, directory } = setupManagerFixture(t);
+  const { bus, group, one, agentId, session, directory, cleanup } = setupManagerFixture(t);
   addPanelTurn(bus, {
     group, session, agentId, id: 'panel-turn-http', created: '2026-01-01T00:01:00.000Z',
     inputs: [one.id], outputs: [one.id],
   });
   await bus.close();
   const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'unused'; } }]]) });
-  t.after(() => server.close());
+  cleanup.push(() => server.close());
   const base = server.url;
   const ok = await fetch(`${base}api/telemetry/manager-conversation?group=${group.id}&member=${one.id}`);
   assert.equal(ok.status, 200);

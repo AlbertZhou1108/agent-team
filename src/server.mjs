@@ -12,6 +12,10 @@ import { createCodexHost } from './hosts/codex.mjs';
 import { createClaudeHost, createDshHost } from './hosts/cli-hosts.mjs';
 
 export function socketFor(directory) {
+  if (process.platform === 'win32') {
+    const key = createHash('sha256').update(resolve(directory).toLowerCase()).digest('hex').slice(0, 24);
+    return `\\\\.\\pipe\\agent-team-${key}`;
+  }
   const candidate = resolve(directory, 'bus.sock');
   return Buffer.byteLength(candidate) < 100 ? candidate : `/tmp/agent-team-${process.getuid?.() ?? 'local'}-${createHash('sha256').update(resolve(directory)).digest('hex').slice(0, 20)}.sock`;
 }
@@ -56,12 +60,14 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     for (const response of panelEventStreams) response.end();
     panelEventStreams.clear();
     await Promise.all([ipc, panel].filter(Boolean).map(server => new Promise(resolve => { if (server.listening) server.close(resolve); else resolve(); })));
-    if (socketOwned) { try { unlinkSync(socketPath); } catch { /* net.Server may have removed it. */ } }
+    if (socketOwned && process.platform !== 'win32') { try { unlinkSync(socketPath); } catch { /* net.Server may have removed it. */ } }
     try { if (JSON.parse(readFileSync(lockPath, 'utf8')).pid === process.pid) unlinkSync(lockPath); } catch { /* Already cleaned up. */ }
   };
   try {
     try {
-      if (lstatSync(socketPath).isSocket()) {
+      if (process.platform === 'win32') {
+        // Named pipes are managed by Windows and have no filesystem entry.
+      } else if (lstatSync(socketPath).isSocket()) {
         try { await rpc(socketPath, { op: 'ping' }, 1500); throw new Error('已有群总线使用此 socket'); }
         catch (error) { if (!['ECONNREFUSED', 'ENOENT'].includes(error.code)) throw error; }
         unlinkSync(socketPath);
@@ -83,7 +89,8 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
       });
     });
     await new Promise((resolve, reject) => { ipc.once('error', reject); ipc.listen(socketPath, resolve); });
-    socketOwned = true; chmodSync(socketPath, 0o600);
+    socketOwned = true;
+    if (process.platform !== 'win32') chmodSync(socketPath, 0o600);
     panel = http.createServer(async (request, response) => {
       const fail = (status, text) => { response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); response.end(text); };
       const failJson = (status, error) => {

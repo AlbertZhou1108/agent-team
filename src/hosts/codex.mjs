@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation } from './policies.mjs';
@@ -296,10 +296,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       } finally { signal.removeEventListener('abort', interrupt); active.delete(thread); }
     },
     async close() {
-      const process = child;
-      if (!process) return;
-      process.kill('SIGTERM');
-      await new Promise(resolve => { const timer = setTimeout(() => { process.kill('SIGKILL'); resolve(); }, 2000); process.once('exit', () => { clearTimeout(timer); resolve(); }); });
+      await stopHost(child);
     },
   };
 }
