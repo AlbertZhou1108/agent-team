@@ -77,13 +77,16 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
     bus = new Bus({ directory, hosts: hosts ?? await loadHosts({ directory, socketPath, configFile }) });
     ipc = net.createServer(socket => {
+      socket.setEncoding('utf8');
+      let receivedBytes = 0;
       let data = '', handled = false;
       socket.setTimeout(960000, () => socket.destroy());
       socket.on('error', () => {});
       socket.on('data', async chunk => {
         if (handled) return;
+        receivedBytes += Buffer.byteLength(chunk, 'utf8');
         data += chunk;
-        if (data.length > 1024 * 1024) return socket.destroy();
+        if (receivedBytes > 1024 * 1024) return socket.destroy();
         if (!data.includes('\n')) return;
         handled = true;
         try { const value = await handleRpc(bus, JSON.parse(data.split('\n')[0])); socket.end(JSON.stringify({ result: value }) + '\n'); }

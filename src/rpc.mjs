@@ -4,12 +4,15 @@ import { createInterface } from 'node:readline';
 export function rpc(socketPath, request, timeout = 960000) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
+    socket.setEncoding('utf8');
     const timer = setTimeout(() => socket.destroy(new Error('群总线请求超时')), timeout);
+    let receivedBytes = 0;
     let buffer = '', answered = false;
     socket.on('connect', () => socket.write(JSON.stringify(request) + '\n'));
     socket.on('data', chunk => {
+      receivedBytes += Buffer.byteLength(chunk, 'utf8');
       buffer += chunk;
-      if (buffer.length > 4 * 1024 * 1024) return socket.destroy(new Error('响应过大，请分页读取'));
+      if (receivedBytes > 4 * 1024 * 1024) return socket.destroy(new Error('响应过大，请分页读取'));
       if (!buffer.includes('\n')) return;
       answered = true;
       try { const result = JSON.parse(buffer.split('\n')[0]); result.error ? reject(new Error(result.error)) : resolve(result.result); }
