@@ -657,13 +657,6 @@ function selectSession(id: string) {
   });
 }
 
-function openPanelAgentForTeam() {
-  router.push({
-    name: 'panel-agent',
-    query: { team: groupId.value },
-  });
-}
-
 watch([currentEndpoints, selectedSessionId], () => {
   if (
     snapshot.value &&
@@ -913,15 +906,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               >
                 <PanelRightOpen />
                 群信息
-              </Button>
-              <Button
-                v-if="currentController?.kind === 'panel_agent'"
-                variant="outline"
-                size="sm"
-                @click="openPanelAgentForTeam"
-              >
-                <Bot />
-                Panel Agent
               </Button>
             </header>
 
