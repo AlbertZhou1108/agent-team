@@ -132,12 +132,12 @@ function modalityLabel(model: CatalogModel) {
         variant="outline"
         :size="size"
         :disabled="disabled"
-        class="min-w-0 justify-start"
+        class="min-w-0 shrink justify-start"
         :aria-label="`模型：${selectedModel?.label ?? (form.model || '未选择')}`"
       >
         <Bot data-icon="inline-start" />
         <span class="truncate">{{ selectedModel?.label ?? (form.model || '选择模型') }}</span>
-        <ChevronRight data-icon="inline-end" class="text-muted-foreground" />
+        <ChevronRight data-icon="inline-end" class="composer-control-trailing text-muted-foreground" />
       </Button>
     </PopoverTrigger>
     <PopoverContent align="start" class="w-80 p-0">

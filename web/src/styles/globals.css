@@ -356,9 +356,11 @@
   padding: 10px 14px 12px;
 }
 
-/* 输入区控件随容器宽度收敛:窄列下只留图标,名称仍可通过 tooltip/可访问名获取。 */
+/* 输入区控件随容器宽度收敛:窄列下隐藏文字与展开箭头,把宽度让给模型名。
+   名称仍可通过 aria-label 与 tooltip 获取。 */
 @container (max-width: 560px) {
-  .composer-control-label {
+  .composer-control-label,
+  .composer-control-trailing {
     display: none;
   }
 }

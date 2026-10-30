@@ -135,33 +135,33 @@ function keyboardResize(event: KeyboardEvent) {
           :style="{ height: 'var(--agent-composer-height)' }"
           @keydown="onKeydown"
         />
-        <InputGroupAddon align="block-end" class="flex-wrap">
+        <!-- 控件始终一行:窄列下由模型名截断让位,避免按钮被挤到第二行。 -->
+        <InputGroupAddon align="block-end" class="flex-nowrap">
           <slot name="controls" />
-          <span class="composer-hint ml-auto text-muted-foreground">
-            Enter 发送 · Shift + Enter 换行
-          </span>
-          <slot name="actions" />
-          <InputGroupButton
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            :disabled="sending"
-            aria-label="收起输入区"
-            title="收起输入区"
-            @click="collapse"
-          >
-            <ChevronDown />
-          </InputGroupButton>
-          <InputGroupButton
-            type="submit"
-            size="icon-sm"
-            variant="default"
-            :disabled="!draft.trim() || sending || disabled"
-            :aria-label="sending ? '发送中' : '发送'"
-          >
-            <LoaderCircle v-if="sending" class="animate-spin" />
-            <ArrowUp v-else />
-          </InputGroupButton>
+          <div class="ml-auto flex flex-none items-center gap-2">
+            <slot name="actions" />
+            <InputGroupButton
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              :disabled="sending"
+              aria-label="收起输入区"
+              title="收起输入区"
+              @click="collapse"
+            >
+              <ChevronDown />
+            </InputGroupButton>
+            <InputGroupButton
+              type="submit"
+              size="icon-sm"
+              variant="default"
+              :disabled="!draft.trim() || sending || disabled"
+              :aria-label="sending ? '发送中' : '发送'"
+            >
+              <LoaderCircle v-if="sending" class="animate-spin" />
+              <ArrowUp v-else />
+            </InputGroupButton>
+          </div>
         </InputGroupAddon>
       </InputGroup>
     </form>
@@ -190,13 +190,5 @@ function keyboardResize(event: KeyboardEvent) {
 
 .agent-composer-collapsed:hover {
   background: var(--accent);
-}
-
-/* 窄输入区收掉快捷键提示与控件文字,让模型、权限、设置与发送保持一行。
-   宽度按输入区自身测量:侧栏展开时聊天列可能远窄于视口。 */
-@container (max-width: 560px) {
-  .composer-hint {
-    display: none;
-  }
 }
 </style>
