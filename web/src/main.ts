@@ -6,6 +6,8 @@ import { installTabCache } from './shared/api/tab-cache';
 import { router } from './app/router';
 import { applyColorMode, usePreferencesStore } from './stores/preferences';
 import '@fontsource-variable/noto-sans-sc';
+import '@fontsource-variable/geist';
+import '@fontsource/fira-code/400.css';
 import './styles/globals.css';
 
 function showFatal(error: unknown) {

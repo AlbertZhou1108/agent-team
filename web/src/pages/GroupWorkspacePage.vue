@@ -843,7 +843,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       @lostpointercapture="endResize"
       @keydown="keyboardResize($event, 'left')"
     />
-    <main class="min-w-0 p-3 sm:p-4">
+    <main class="min-w-0 bg-muted/40 p-3 sm:p-4">
       <SettingsDialog
         v-if="isSettingsRoute"
         :open="true"
