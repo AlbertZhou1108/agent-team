@@ -1,5 +1,9 @@
 const output = value => {
-  process.stdout.write(`AGENT_TEAM_DSH_MODEL_CATALOG ${JSON.stringify(value)}\n`, () => process.exit(0));
+  process.stdout.write(`AGENT_TEAM_DSH_MODEL_CATALOG ${JSON.stringify(value)}\n`, () => {
+    // Exiting inside the write callback triggers a Windows/libuv closing-handle
+    // assertion in DSH. Defer teardown; the parent still bounds the probe lifetime.
+    setTimeout(() => process.exit(0), 50);
+  });
 };
 
 export const inject = ['llm', 'agentDefaultModel'];

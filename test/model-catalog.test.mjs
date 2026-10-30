@@ -138,3 +138,14 @@ test('Bus reports a host that cannot discover models without failing other hosts
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+ test('DSH rejects abnormal exit even after a complete valid catalog', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-dsh-abnormal-'));
+  const fake = join(directory, 'fake-dsh.mjs');
+  writeFileSync(fake, `#!/usr/bin/env node
+process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ok:true,providers:[],failures:[]}) + '\\n', () => setTimeout(() => process.exit(7), 50));
+`);
+  chmodSync(fake, 0o700);
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  await assert.rejects(createDshHost({directory, command:fake}).listModels(), /模型目录探测退出 \(7\)/);
+});
