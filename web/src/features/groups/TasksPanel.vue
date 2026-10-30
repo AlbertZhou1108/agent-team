@@ -44,8 +44,10 @@ const stateMeta = {
     title="任务面板为空"
   />
   <div v-else class="flex flex-col gap-4">
-    <Card v-for="group in groups" :key="group.key" class="py-0">
-      <CardHeader>
+    <!-- 卡片自带 gap-6 与 py-6;任务面板需要更紧凑的垂直节奏,统一改为 gap-4/py-4,
+         避免出现"表头与列表间距 24px、而内容贴着卡片上下边框"的不对称。 -->
+    <Card v-for="group in groups" :key="group.key" class="gap-4 py-4">
+      <CardHeader class="px-4">
         <CardTitle class="flex min-w-0 items-center gap-2">
         <div class="flex min-w-0 items-center gap-2">
           <span class="speaking-dot" :style="{ backgroundColor: group.color }" />
@@ -56,7 +58,7 @@ const stateMeta = {
         </div>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent class="px-4">
         <ul class="flex flex-col gap-2">
           <li
             v-for="(task, index) in group.tasks"
@@ -64,7 +66,8 @@ const stateMeta = {
             class="flex items-start gap-2 text-sm"
             :class="stateMeta[task.state].class"
           >
-            <component :is="stateMeta[task.state].icon" class="mt-0.5 size-4 shrink-0" />
+            <!-- 16px 图标在 24px 行高里居中需要 4px 上偏移。 -->
+            <component :is="stateMeta[task.state].icon" class="mt-1 size-4 shrink-0" />
             <span class="min-w-0 flex-1 break-words leading-6">{{ task.text }}</span>
             <span class="sr-only">{{ stateMeta[task.state].label }}</span>
           </li>
