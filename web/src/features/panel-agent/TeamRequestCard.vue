@@ -14,7 +14,7 @@ defineProps<{ request: TeamRequest; teamName: string }>();
       <CardDescription>{{ directiveStatus(request.delivery) }}；投递状态不代表执行结果。</CardDescription>
     </CardHeader>
     <CardContent v-if="request.receipts.length" class="flex flex-col gap-3">
-      <p v-for="receipt in request.receipts" :key="receipt.id" class="whitespace-pre-wrap break-words">{{ receipt.text }}</p>
+      <p v-for="receipt in request.receipts" :key="receipt.id" class="whitespace-pre-wrap wrap-anywhere">{{ receipt.text }}</p>
     </CardContent>
     <CardFooter>
       <Button as-child variant="outline" size="sm">

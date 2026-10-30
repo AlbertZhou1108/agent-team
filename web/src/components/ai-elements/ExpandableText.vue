@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
       :style="bodyStyle"
     >
       <div ref="content">
-        <slot><span class="whitespace-pre-wrap">{{ text }}</span></slot>
+        <slot><span class="whitespace-pre-wrap wrap-anywhere">{{ text }}</span></slot>
       </div>
     </div>
     <Button

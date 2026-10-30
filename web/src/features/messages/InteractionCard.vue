@@ -115,7 +115,7 @@ async function submitInput() {
       <ItemTitle>
         用户互动 · {{ isAction ? actionLabel : kind === 'choice' ? '选择' : '填写' }}
       </ItemTitle>
-      <ItemDescription class="line-clamp-none whitespace-pre-wrap">
+      <ItemDescription class="line-clamp-none whitespace-pre-wrap wrap-anywhere">
         {{ payload.text }}
       </ItemDescription>
       <template v-if="interaction.state === 'answered'">

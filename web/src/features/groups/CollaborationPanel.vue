@@ -145,7 +145,7 @@ async function restoreTeam() {
         >
           正在读取团队说明…
         </p>
-        <p v-else-if="charter" class="whitespace-pre-wrap">{{ charter }}</p>
+        <p v-else-if="charter" class="whitespace-pre-wrap wrap-anywhere">{{ charter }}</p>
         <p v-else class="text-xs text-muted-foreground">暂无团队说明。</p>
       </section>
     </template>

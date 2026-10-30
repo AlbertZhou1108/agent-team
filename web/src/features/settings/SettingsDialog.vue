@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Monitor,
   Moon,
-  Settings2,
   Sun,
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
@@ -376,9 +375,6 @@ watch(
           >
             <ArrowLeft />
           </Button>
-          <span>
-            <Settings2 />
-          </span>
           <div class="min-w-0 flex-1">
             <h1 v-if="embedded" class="text-2xl font-semibold">设置</h1>
             <DialogTitle v-else>设置</DialogTitle>
@@ -710,7 +706,7 @@ watch(
           </div>
           <p
             v-if="rulesDialog.mode === 'view'"
-            class="scrollbar-thin max-h-[55vh] overflow-y-auto whitespace-pre-wrap border p-3 text-sm leading-6"
+            class="scrollbar-thin max-h-[55vh] overflow-y-auto whitespace-pre-wrap wrap-anywhere border p-3 text-sm leading-6"
           >{{ rulesDialogRules }}</p>
           <template v-else>
             <Textarea

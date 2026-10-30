@@ -217,7 +217,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
       <summary class="cursor-pointer text-sm font-medium">团队来源通知（{{ notifications.length }}）</summary>
       <div class="mt-3 flex max-h-64 flex-col gap-3 overflow-y-auto">
         <div v-for="notification in notifications" :key="notification.id" class="flex flex-col gap-2 rounded-lg border p-3 text-sm">
-          <p class="whitespace-pre-wrap">{{ notification.text }}</p>
+          <p class="whitespace-pre-wrap wrap-anywhere">{{ notification.text }}</p>
           <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
         </div>
       </div>
