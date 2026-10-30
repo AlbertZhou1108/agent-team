@@ -198,10 +198,6 @@ const currentSessionBindings = computed(() => {
     ids.has(binding.endpoint_id),
   );
 });
-const currentRunningEndpoints = computed(() => {
-  const ids = new Set(currentEndpoints.value.map((endpoint) => endpoint.id));
-  return runningEndpoints.value.filter((id) => ids.has(id));
-});
 const currentModelPolicy = computed(() => snapshot.value?.modelPolicy);
 
 const selectedSessionId = computed(() => routeString(route.query.session));
@@ -898,12 +894,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   <span class="text-xs text-muted-foreground"
                     >{{ currentMembers.length }} 名成员</span
                   >
-                  <Badge
-                    v-if="currentRunningEndpoints.length"
-                    variant="default"
-                  >
-                    {{ currentRunningEndpoints.length }} 个运行中
-                  </Badge>
                 </div>
                 <p
                   class="mt-2 truncate text-xs text-muted-foreground"
