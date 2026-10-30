@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '@/shared/api/client';
-import type { PanelMessage, TeamRequest } from '@/shared/api/raw-types';
+import type { UnreadMessage, UnreadReceipt } from '@/shared/api/raw-types';
 
 const storageKey = 'agent-team:panel-agent';
 
@@ -20,7 +20,7 @@ function loadState() {
   }
 }
 
-export function countUnreadPanelMessages(messages: PanelMessage[], lastReadSeq: number | null) {
+export function countUnreadPanelMessages(messages: UnreadMessage[], lastReadSeq: number | null) {
   if (lastReadSeq == null) return 0;
   return messages.filter(message => message.role !== 'user' && message.seq > lastReadSeq).length;
 }
@@ -54,10 +54,10 @@ export const usePanelAgentStore = defineStore('panel-agent', {
       this.draft = value;
       if (this.sendError) this.sendError = '';
     },
-    unreadReceipts(requests: TeamRequest[]) {
+    unreadReceipts(requests: Array<{ receipts: UnreadReceipt[] }>) {
       return requests.flatMap(request => request.receipts).filter(receipt => !this.readReceiptIds.includes(receipt.id)).length;
     },
-    syncReceiptReads(requests: TeamRequest[], onGlobal: boolean, visibleSourceIds: string[] = []) {
+    syncReceiptReads(requests: Array<{ receipts: UnreadReceipt[] }>, onGlobal: boolean, visibleSourceIds: string[] = []) {
       const knownSources = new Set([...this.readTeamMessageIds, ...visibleSourceIds]);
       this.readTeamMessageIds = [...knownSources].slice(-5000);
       const read = new Set(this.readReceiptIds);
@@ -68,11 +68,11 @@ export const usePanelAgentStore = defineStore('panel-agent', {
       this.readReceiptIds = [...read];
       this.persist();
     },
-    unreadForContext(messages: PanelMessage[], teamId: string) {
+    unreadForContext(messages: UnreadMessage[], teamId: string) {
       const baseline = this.readByContext[teamId || '__global__'] ?? this.lastReadSeq;
       return countUnreadPanelMessages(messages.filter(message => (message.active_team_id || '') === teamId), baseline);
     },
-    syncReadContexts(messages: PanelMessage[], visibleContext?: string) {
+    syncReadContexts(messages: UnreadMessage[], visibleContext?: string) {
       if (!messages.length) return;
       if (this.lastReadSeq == null) this.lastReadSeq = Math.max(...messages.map(message => message.seq));
       for (const message of messages) {
@@ -86,7 +86,7 @@ export const usePanelAgentStore = defineStore('panel-agent', {
       }
       this.persist();
     },
-    markAllPanelRead(messages: PanelMessage[]) {
+    markAllPanelRead(messages: UnreadMessage[]) {
       for (const message of messages) {
         const key = message.active_team_id || '__global__';
         this.readByContext[key] = Math.max(this.readByContext[key] ?? 0, message.seq);

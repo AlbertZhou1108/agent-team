@@ -61,6 +61,8 @@ const answerSummary = computed(() => {
 
 async function refresh() {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['group', props.interaction.group_id] }),
+    queryClient.invalidateQueries({ queryKey: ['home-summary'] }),
     queryClient.invalidateQueries({ queryKey: ['interactions', props.interaction.group_id] }),
     queryClient.invalidateQueries({ queryKey: ['interactions', 'panel'] }),
     queryClient.invalidateQueries({ queryKey: ['messages', props.interaction.group_id] }),
@@ -109,7 +111,7 @@ async function submitInput() {
       <CircleOff v-else-if="interaction.state === 'cancelled'" />
       <CircleHelp v-else />
     </ItemMedia>
-    <ItemContent>
+    <ItemContent class="min-w-0">
       <ItemTitle>
         用户互动 · {{ isAction ? actionLabel : kind === 'choice' ? '选择' : '填写' }}
       </ItemTitle>
@@ -137,6 +139,7 @@ async function submitInput() {
       <template v-else-if="kind === 'choice'">
         <div class="flex flex-wrap gap-2 pt-1">
           <Button
+            class="h-auto max-w-full whitespace-normal break-words py-2 text-left"
             v-for="option in options"
             :key="option"
             size="sm"

@@ -335,7 +335,7 @@
   min-height: 0;
 }
 
-.agent-chat {
+.conversation-workspace {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -343,7 +343,7 @@
   overflow: hidden;
 }
 
-.agent-chat-header {
+.conversation-header {
   display: flex;
   min-height: 62px;
   align-items: center;
@@ -418,7 +418,7 @@
     min-height: calc(100vh - 24px);
   }
 
-  .agent-chat {
+  .conversation-workspace {
     min-height: 70vh;
   }
 }
@@ -532,21 +532,7 @@ button {
   min-height: 620px;
 }
 
-.chat-window {
-  display: flex;
-  min-height: 0;
-  min-width: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
 
-.chat-header {
-  display: flex;
-  min-height: 70px;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-}
 
 .chat-avatar {
   display: grid;
@@ -580,6 +566,7 @@ button {
 }
 
 .message-viewport {
+  min-width: 0;
   position: relative;
   display: flex;
   flex: 1;
@@ -594,6 +581,7 @@ button {
 }
 
 .message-stream {
+  min-width: 0;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -1091,7 +1079,7 @@ button {
     min-height: 0;
   }
 
-  .chat-header {
+  .conversation-header {
     flex-wrap: wrap;
     padding: 10px;
   }
@@ -1136,13 +1124,12 @@ button {
   .context-panel-collapsed .context-tab {
     flex: none;
   }
-  .context-collapse-toggle {
-    flex: none;
-    align-self: flex-start;
-    margin: 8px;
+  .context-panel-collapsed .context-collapse-footer {
+    margin-top: auto;
+    padding-inline: 8px;
   }
-  .context-panel-collapsed .context-collapse-toggle {
-    margin: auto 0 0;
+  .context-panel-collapsed .sidebar-collapse-button {
+    justify-content: center;
   }
 }
 

@@ -68,7 +68,7 @@ test('open targets accept directives; archived targets reject new input until re
  const response=await f.send(body);assert.equal(response.status,200);await until(()=>!f.server.bus.running.size);
  assert.equal(f.calls.at(-1).policy.mode,'communication');
  s.run("UPDATE groups SET state='archived' WHERE id=?",f.group.id);
- assert.equal((await f.send({...body,operationId:'archive'})).status,400);
+ assert.equal((await f.send({...body,operationId:'archive'})).status,410);
  s.run("UPDATE groups SET state=NULL WHERE id=?",f.group.id);
  assert.equal((await f.send({...body,operationId:'restored'})).status,200);
 });

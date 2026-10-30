@@ -36,30 +36,11 @@ export function useCharterQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   });
 }
 
-export function useOverviewQuery() {
-  return useQuery({
-    queryKey: ['overview'],
-    queryFn: ({ signal }) => api.overview(signal),
-    refetchInterval: refreshInterval,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-}
-
-export function useSnapshotQuery(groupId: MaybeRefOrGetter<string | undefined> = undefined) {
-  return useQuery({
-    queryKey: computed(() => ['snapshot', toValue(groupId)]),
-    queryFn: ({ signal }) => api.snapshot(signal, toValue(groupId)),
-    refetchInterval: refreshInterval,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-}
-
 export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
-    queryKey: computed(() => ['panel-agent', toValue(full)]),
-    queryFn: ({ signal }) => api.panelAgent(signal, !toValue(full)),
+    queryKey: ['panel-agent', 'state'],
+    enabled: computed(() => toValue(full)),
+    queryFn: ({ signal }) => api.panelAgent(signal),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -373,4 +354,8 @@ export function usePanelInteractionsQuery() {
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });
+}
+
+export function useResourceQuery<T>(key: MaybeRefOrGetter<readonly unknown[]>, load: (signal: AbortSignal) => Promise<T>, enabled: MaybeRefOrGetter<boolean> = true, interval: number | false = 2000) {
+  return useQuery({ queryKey: computed(() => toValue(key)), queryFn: ({ signal }) => load(signal), enabled: computed(() => toValue(enabled)), refetchInterval: interval, refetchOnWindowFocus: false, retry: 1 });
 }

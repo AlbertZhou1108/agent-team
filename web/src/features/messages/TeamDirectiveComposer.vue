@@ -22,6 +22,9 @@ async function send() {
   const groupId = props.groupId;
   const result = await store.send(groupId, props.controllerId);
   if (!result) return;
+  void client.invalidateQueries({ queryKey: ['group', groupId] });
+  void client.invalidateQueries({ queryKey: ['home-summary'] });
+  void client.invalidateQueries({ queryKey: ['panel-agent'] });
   void client.invalidateQueries({ queryKey: ['messages', groupId] });
   void client.invalidateQueries({ queryKey: ['team-directives', groupId] });
   if (mounted) emit('sent');

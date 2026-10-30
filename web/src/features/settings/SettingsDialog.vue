@@ -61,6 +61,7 @@ const emit = defineEmits<{
 }>();
 
 const preferences = usePreferencesStore();
+const archivedOpen = ref(true);
 const mode = ref<ModelPolicy['mode']>('user');
 const rules = ref('');
 const saving = ref(false);
@@ -592,16 +593,26 @@ watch(
           </section>
 
           <section class="flex flex-col gap-3 pt-6">
-            <div>
+            <Collapsible v-model:open="archivedOpen" class="flex min-w-0 flex-col gap-3">
+            <div class="flex items-center justify-between gap-2">
+              <div>
               <h3 class="text-sm font-semibold">归档团队</h3>
               <p class="mt-1 text-xs text-muted-foreground">
                 归档团队不再接收消息；恢复后可继续沟通。
               </p>
+              </div>
+              <CollapsibleTrigger v-if="archivedTeams?.length" as-child>
+                <Button variant="ghost" size="sm" :aria-label="archivedOpen ? '收起归档团队' : '展开归档团队'">
+                  <span class="tabular-nums">{{ archivedTeams.length }}</span>
+                  <ChevronDown v-if="archivedOpen" /><ChevronRight v-else />
+                </Button>
+              </CollapsibleTrigger>
             </div>
             <Empty v-if="!archivedTeams?.length">
               <EmptyHeader><EmptyTitle>没有归档团队</EmptyTitle></EmptyHeader>
             </Empty>
-            <div v-else class="flex flex-col gap-2">
+            <CollapsibleContent v-else>
+            <div class="flex max-h-72 flex-col gap-2 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="归档团队列表" tabindex="0">
               <div
                 v-for="team in archivedTeams"
                 :key="team.id"
@@ -629,6 +640,8 @@ watch(
                 >
               </div>
             </div>
+            </CollapsibleContent>
+            </Collapsible>
           </section>
 
           <Alert v-if="error" variant="destructive">

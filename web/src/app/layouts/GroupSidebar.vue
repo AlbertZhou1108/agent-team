@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Input } from '@/components/ui/input';
 import { computed, ref, watch } from 'vue';
+import SidebarCollapseButton from './SidebarCollapseButton.vue';
 import AgentTeamLogo from './AgentTeamLogo.vue';
 import TeamRow from './TeamRow.vue';
 import SidebarEntry from './SidebarEntry.vue';
@@ -13,8 +14,6 @@ import {
   FolderPlus,
   ChevronDown,
   ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   House,
   Settings2,
 } from '@lucide/vue';
@@ -251,6 +250,8 @@ function drop(event: DragEvent, folder?: string) {
       );
   } catch {
     /* Ignore unrelated dragged content. */
+  } finally {
+    clearDrag();
   }
 }
 function createFolder() {
@@ -468,8 +469,8 @@ function submitRenameFolder() {
             :class="insertionClass(group.id, 'team')"
           />
           <p
-            v-if="!folderTeams(folder.id).length && !ui.sidebarCollapsed"
-            class="team-section-label"
+            v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
+            class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
           >
             拖入团队
           </p>
@@ -575,17 +576,7 @@ function submitRenameFolder() {
         <span v-if="!ui.sidebarCollapsed">设置</span>
       </Button>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        class="w-full justify-start"
-        :title="ui.sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-        @click="ui.toggleSidebar()"
-      >
-        <ChevronsRight v-if="ui.sidebarCollapsed" />
-        <ChevronsLeft v-else />
-        <span v-if="!ui.sidebarCollapsed">收起</span>
-      </Button>
+      <SidebarCollapseButton side="left" :collapsed="ui.sidebarCollapsed" @toggle="ui.toggleSidebar()" />
     </div>
   </aside>
 </template>

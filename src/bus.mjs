@@ -131,6 +131,9 @@ export class Bus extends EventEmitter {
   constructor({ directory, hosts }) {
     super();
     this.store = new Store(directory);
+    this.panelBootSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM panel_messages').seq;
+    this.panelBootId = randomUUID();
+
     // token 级增量占历史表 76%–97%,逐条 autocommit 会拖垮事件循环;走写合并层。
     this.events = new EventLog(this.store);
     this.telemetry = new Telemetry(this.store, {
@@ -140,6 +143,7 @@ export class Bus extends EventEmitter {
     this.information = new Information(this.store);
     this.teamDirectives = new TeamDirectives(this);
     this.teamRequests = new TeamRequests(this);
+    this.panelBootReceiptSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM team_request_receipts').seq;
     this.hosts = hosts;
     this.running = new Map();
     this.panelStreams = new Map();
@@ -267,7 +271,7 @@ export class Bus extends EventEmitter {
     this.ensurePanelBindings();
     const panelAgent = this.panelAgent();
     if (!panelAgent) return [];
-    return this.store.all('SELECT * FROM groups ORDER BY created').map(group => ({
+    return this.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created").map(group => ({
       ...group,
       relation: this.store.get(
         'SELECT relation FROM panel_team_bindings WHERE panel_agent_id=? AND group_id=?',
@@ -300,6 +304,30 @@ export class Bus extends EventEmitter {
       unknown: this.panelUnknown(),
       streaming: this.panelStreaming(agent.id),
     };
+  }
+  panelBrowserState(summary = false) {
+    const state = this.panelAgentState(summary);
+    const active = new Set(this.store.all("SELECT id FROM groups WHERE state IS NULL OR state!='archived'").map(row => row.id));
+    return { ...state, bootId: this.panelBootId, bootSeq: this.panelBootSeq,
+      conversation: state.conversation.filter(row => row.seq > this.panelBootSeq),
+      teams: state.teams.filter(row => active.has(row.id)),
+      requests: (state.requests ?? []).filter(row => active.has(row.group_id) && ((this.store.get('SELECT seq FROM panel_messages WHERE id=?', row.source_user_message_id)?.seq ?? 0) > this.panelBootSeq || row.receipts.some(receipt => receipt.seq > this.panelBootReceiptSeq))),
+      notifications: (state.notifications ?? []).filter(row => active.has(row.group_id)),
+      sessions: state.sessions.filter(row => !row.group_id || active.has(row.group_id)),
+      unknown: (state.unknown ?? []).filter(row => !row.group_id || active.has(row.group_id)),
+      teamPendingInteractions: Object.fromEntries(Object.entries(state.teamPendingInteractions ?? {}).filter(([id]) => active.has(id))),
+    };
+  }
+  panelMessagePage({ history = false, before = 0 } = {}) {
+    const agent = this.panelAgent();
+    if (!agent) return { messages: [], nextBefore: null, bootId: this.panelBootId };
+    const params = [agent.id, this.panelBootSeq];
+    let where = history ? 'seq<=?' : 'seq>?';
+    if (before > 0) { where += ' AND seq<?'; params.push(before); }
+    const rows = this.store.all("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND " + where + ' ORDER BY seq DESC LIMIT 201', ...params);
+    const hasMore = rows.length > 200;
+    const messages = rows.slice(0, 200).reverse();
+    return { messages, nextBefore: hasMore ? messages[0].seq : null, bootId: this.panelBootId };
   }
   panelConversation(after = 0) {
     const agent = this.panelAgent();
@@ -735,6 +763,7 @@ export class Bus extends EventEmitter {
     }
 
     const group = this.store.group(args.groupId);
+    if (group.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
     if (name === 'team_snapshot') return this.panelTeamSnapshot(group.id);
     if (name === 'team_members') return this.members(group.id);
     if (name === 'team_read') {
@@ -2692,6 +2721,47 @@ export class Bus extends EventEmitter {
       },
       groupStates: this.store.all('SELECT id,state,charter,policy,allow_shell FROM groups'),
     };
+  }
+  queryDirectory() {
+    const panelAgent = this.panelAgent();
+    return {
+      members: this.store.all('SELECT * FROM members ORDER BY rowid'),
+      actors: this.store.all('SELECT id,name FROM members ORDER BY rowid'),
+      panelAgent: panelAgent ? Object.fromEntries(['id','name','host','model_provider','model','reasoning_effort','created','updated'].map(key => [key, panelAgent[key]])) : null,
+    };
+  }
+  queryDefaults() {
+    return { smart: { performance: SMART_PERFORMANCE_RULES, cost: SMART_COST_RULES }, user: DEFAULT_USER_MODEL_RULES };
+  }
+  querySessions(groupId) {
+    this.store.group(groupId);
+    this.ensurePanelBindings();
+    const endpoints = [
+      ...this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE group_id=? AND context!='private'", groupId),
+      ...this.store.all("SELECT id,group_id,panel_agent_id AS member_id,context,NULL AS peer,session FROM panel_sessions WHERE group_id=? AND context='coordination'", groupId).map(row => ({ ...row, context: 'panel-coordination' })),
+    ];
+    const sessionBindings = this.store.all(`SELECT b.endpoint_id,b.session_key,b.session,b.updated FROM endpoint_session_bindings b
+      WHERE b.endpoint_id IN (SELECT id FROM endpoints WHERE group_id=? AND context!='private'
+      UNION SELECT id FROM panel_sessions WHERE group_id=? AND context='coordination') ORDER BY b.endpoint_id,b.session_key`, groupId, groupId);
+    return { endpoints, sessionBindings };
+  }
+  querySession(groupId, endpointId) {
+    this.store.group(groupId);
+    return this.store.get("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE group_id=? AND id=? AND context NOT IN ('private','profile')", groupId, endpointId)
+      ?? this.store.get("SELECT id,group_id,panel_agent_id AS member_id,'panel-coordination' AS context,NULL AS peer,session FROM panel_sessions WHERE group_id=? AND id=? AND context='coordination'", groupId, endpointId);
+  }
+  queryRuntime(groupId) {
+    if (groupId) this.store.group(groupId);
+    return [...this.running.values()].filter(({ endpoint }) => endpoint.context !== 'private' && endpoint.context !== 'panel-private' && (!groupId || endpoint.group_id === groupId))
+      .map(({ endpoint }) => ({ id: endpoint.id, group_id: endpoint.group_id, member_id: endpoint.member_id }));
+  }
+  queryUnread(current = false) {
+    const agent = this.panelAgent();
+    if (!agent) return { messages: [], receipts: [] };
+    const messages = this.store.all("SELECT seq,role,active_team_id FROM (SELECT seq,role,active_team_id FROM panel_messages WHERE panel_agent_id=? AND context='private'" + (current ? ' AND seq>?' : '') + ' ORDER BY seq DESC LIMIT 200) ORDER BY seq', agent.id, ...(current ? [this.panelBootSeq] : []));
+    const receipts = this.store.all('SELECT r.id,r.text,r.source_message_ids FROM team_request_receipts r JOIN team_requests q ON q.id=r.request_id WHERE q.panel_agent_id=?' + (current ? " AND r.seq>? AND q.group_id IN (SELECT id FROM groups WHERE state IS NULL OR state!='archived')" : '') + ' ORDER BY r.seq', agent.id, ...(current ? [this.panelBootReceiptSeq] : []))
+      .map(row => { const sourceMessageIds = JSON.parse(row.source_message_ids); return { id: row.id, sourceMessageIds, isSourceCopy: sourceMessageIds.some(id => this.store.get('SELECT text FROM messages WHERE id=?', id)?.text === row.text) }; });
+    return { messages: current ? messages.map(row => ({ ...row, active_team_id: null })) : messages, receipts };
   }
   snapshot(groupId) {
     this.ensurePanelBindings();

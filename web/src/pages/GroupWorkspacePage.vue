@@ -15,13 +15,11 @@ import { toast } from 'vue-sonner';
 import { useMediaQuery } from '@vueuse/core';
 import {
   Activity,
-  ChevronsLeft,
-  ChevronsRight,
-  AlertTriangle,
   Bot,
   MessagesSquare,
   PanelRightOpen,
 } from '@lucide/vue';
+import SidebarCollapseButton from '@/app/layouts/SidebarCollapseButton.vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
@@ -35,9 +33,9 @@ import { frameBatch } from '@/features/messages/frame-batch';
 import { teamConversationAfterSend } from '@/features/messages/conversation-navigation';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
 import { notifyInteraction } from '@/features/messages/interaction-notification';
-import MessageFeed from '@/features/messages/MessageFeed.vue';
+import ConversationWorkspace from '@/features/messages/ConversationWorkspace.vue';
 import TeamDirectiveComposer from '@/features/messages/TeamDirectiveComposer.vue';
-import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
+
 import SessionList from '@/features/sessions/SessionList.vue';
 import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
 import type { InspectorTab } from '@/features/sessions/types';
@@ -50,8 +48,7 @@ import {
   useMessagesQuery,
   useModelsQuery,
   usePanelAgentQuery,
-  useOverviewQuery,
-  useSnapshotQuery,
+  useResourceQuery,
 } from '@/features/queries';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,7 +57,9 @@ import {
   usePanelAgentStore,
 } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
-import { api } from '@/shared/api/client';
+import { api, ApiError } from '@/shared/api/client';
+import { useQueryClient } from '@tanstack/vue-query';
+import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import type { Group, Member, TeamStream } from '@/shared/api/raw-types';
 
 const route = useRoute();
@@ -68,21 +67,33 @@ const router = useRouter();
 const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
-const overviewQuery = useOverviewQuery();
-const snapshotQuery = useSnapshotQuery(() => routeString(route.params.groupId) || undefined);
+const groupId = computed(() => routeString(route.params.groupId));
+const selectedSessionId = computed(() => routeString(route.query.session));
+const queryClient = useQueryClient();
+const archivedQuery = useResourceQuery(['groups', 'archived'], api.archivedGroups, () => route.name === 'settings', 10000);
+const groupsQuery = useResourceQuery(queryKeys.groups, api.groups, true, 10000);
+const directoryQuery = useResourceQuery(queryKeys.directory, api.directory, true, 10000);
+const detailQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'detail'), signal => api.group(groupId.value, signal), () => Boolean(groupId.value), 3000);
+const policyQuery = useResourceQuery(queryKeys.policy, api.modelPolicy, () => Boolean(groupId.value) || route.name === 'settings', 10000);
+const defaultsQuery = useResourceQuery(queryKeys.defaults, api.modelDefaults, () => route.name === 'settings', false);
 const panelAgentQuery = usePanelAgentQuery(() => route.name === 'panel-agent');
-
-// 全局数据(团队/成员/策略)来自 overview:它的 key 不含 groupId,切换团队时不会
-// 重新加载,侧栏也就不会在截断请求期间退化成空列表。团队相关数据仍看 snapshot。
-const overview = computed(() => overviewQuery.data.value);
-const snapshot = computed(() => snapshotQuery.data.value);
-const allGroups = computed(() => overview.value?.groups ?? []);
-const members = computed(() => overview.value?.members ?? []);
-const actors = computed(() => overview.value?.actors ?? []);
-const endpoints = computed(() => snapshot.value?.endpoints ?? []);
-const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
-const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
-const modelPolicyDefaults = computed(() => overview.value?.modelPolicyDefaults);
+const unreadQuery = useResourceQuery(queryKeys.unread, api.unread, () => route.name !== 'panel-agent');
+const runtimeQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'runtime'), signal => api.runtime(groupId.value, signal), () => Boolean(groupId.value));
+const homeQuery = useResourceQuery(queryKeys.home, api.homeSummary, () => !groupId.value && route.name === 'group');
+const sessionQuery = useResourceQuery(() => queryKeys.session(groupId.value, selectedSessionId.value), signal => api.session(groupId.value, selectedSessionId.value, signal), () => Boolean(groupId.value && selectedSessionId.value), 3000);
+const allGroups = computed(() => groupsQuery.data.value ?? []);
+const members = computed(() => directoryQuery.data.value?.members ?? []);
+const actors = computed(() => [...(directoryQuery.data.value?.actors ?? []), ...(directoryQuery.data.value?.panelAgent ? [directoryQuery.data.value.panelAgent] : [])]);
+const endpoints = computed(() => groupId.value ? [...new Map([...(sessionsQuery.data.value?.endpoints ?? []), ...(sessionQuery.data.value ? [sessionQuery.data.value] : [])].map(row => [row.id, row])).values()] : []);
+const sessionBindings = computed(() => sessionsQuery.data.value?.sessionBindings ?? []);
+const runningEndpoints = computed(() => (groupId.value ? runtimeQuery.data.value : homeQuery.data.value)?.map(row => row.id) ?? []);
+const overview = computed(() => groupsQuery.data.value && directoryQuery.data.value ? { groups: allGroups.value, ...directoryQuery.data.value, panelTeams: detailQuery.data.value ? [detailQuery.data.value] : [], modelPolicy: policyQuery.data.value, modelPolicyDefaults: defaultsQuery.data.value } : undefined);
+const snapshot = computed(() => ({ endpoints: endpoints.value, agentTasks: tasksQuery.data.value ?? [] }));
+async function refreshResources() { await invalidateWorkspaceResources(queryClient); }
+const navigationState = { data: overview, isPending: computed(() => groupsQuery.isPending.value || directoryQuery.isPending.value), error: computed(() => groupsQuery.error.value ?? directoryQuery.error.value), refetch: refreshResources };
+const workspaceState = { data: snapshot, isPending: computed(() => Boolean(groupId.value) ? detailQuery.isPending.value || runtimeQuery.isPending.value : route.name === 'group' && homeQuery.isPending.value), error: computed(() => groupId.value ? detailQuery.error.value ?? runtimeQuery.error.value : route.name === 'group' ? homeQuery.error.value : null), refetch: refreshResources };
+const modelPolicyDefaults = computed(() => defaultsQuery.data.value);
+const homeRunningByGroup = computed(() => Object.fromEntries(allGroups.value.map(group => [group.id, (homeQuery.data.value ?? []).filter(row => row.group_id === group.id).length])));
 const modelDialogMember = ref<Member | null>(null);
 const modelDialogOpen = ref(false);
 
@@ -92,7 +103,7 @@ function openMemberModelDialog(member: Member) {
 }
 
 function onMemberModelSaved() {
-  void snapshotQuery.refetch();
+  void workspaceState.refetch();
 }
 
 const archiveConfirm = ref<{
@@ -108,15 +119,13 @@ function routeString(value: unknown) {
       : '';
 }
 
-const groupId = computed(() => routeString(route.params.groupId));
+
 const groups = computed(() =>
   allGroups.value.filter(
-    (team) => team.state !== 'archived' || team.id === groupId.value,
+    (team) => team.state !== 'archived',
   ),
 );
-const archivedGroups = computed(() =>
-  allGroups.value.filter((team) => team.state === 'archived'),
-);
+const archivedGroups = computed(() => archivedQuery.data.value ?? []);
 const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
 const isSettingsRoute = computed(() => route.name === 'settings');
 const group = computed(() =>
@@ -128,10 +137,11 @@ const pageVisible = ref(
     document.hasFocus(),
 );
 const panelMessages = computed(
-  () => panelAgentQuery.data.value?.conversation ?? [],
+  () => isPanelAgentRoute.value ? panelAgentQuery.data.value?.conversation.map(row => ({ ...row, active_team_id: null })) ?? [] : unreadQuery.data.value?.messages ?? [],
 );
+const receiptRequests = computed(() => isPanelAgentRoute.value ? panelAgentQuery.data.value?.requests ?? [] : unreadQuery.data.value ? [{ receipts: unreadQuery.data.value.receipts }] : []);
 const agentUnreadCount = computed(() =>
-  panelAgentState.unreadForContext(panelMessages.value, '') + panelAgentState.unreadReceipts(panelAgentQuery.data.value?.requests ?? []),
+  panelAgentState.unreadForContext(panelMessages.value, '') + panelAgentState.unreadReceipts(receiptRequests.value),
 );
 
 function updatePageVisibility() {
@@ -205,7 +215,7 @@ const currentSessionBindings = computed(() => {
 });
 const currentModelPolicy = computed(() => overview.value?.modelPolicy);
 
-const selectedSessionId = computed(() => routeString(route.query.session));
+
 const selectedEndpoint = computed(() =>
   currentEndpoints.value.find(
     (endpoint) => endpoint.id === selectedSessionId.value,
@@ -286,6 +296,8 @@ const contextTabs: Array<{
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
 const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
+const sessionsQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'sessions'), signal => api.sessions(groupId.value, signal), () => Boolean(groupId.value) && contextVisible.value && contextPanel.value === 'sessions');
+const tasksQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'tasks'), signal => api.tasks(groupId.value, signal), () => Boolean(groupId.value) && contextVisible.value && contextPanel.value === 'collaboration');
 const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
 const interactionsQuery = useInteractionsQuery(() => groupId.value || undefined);
 const seenPendingInteractions = new Set<string>();
@@ -308,16 +320,16 @@ watch(
       const name = item.member_id
         ? (requester?.name ?? item.member_id)
         : 'Panel Agent';
-      notifyInteraction(name, item.payload.text, () => router.push({
+      notifyInteraction(name, item.payload.text, async () => {
+        const target = item.member_id ? await api.sessionTarget(item.group_id || groupId.value, item.member_id, requester?.role === 'lead' ? 'coordination' : 'pair:user') : null;
+        return router.push({
         name: 'group',
         params: { groupId: item.group_id || groupId.value },
         query: {
-          session: item.member_id
-            ? endpoints.value.find(endpoint => endpoint.group_id === item.group_id && endpoint.member_id === item.member_id && endpoint.context === (requester?.role === 'lead' ? 'coordination' : 'pair:user'))?.id
-            : undefined,
+          session: target?.id,
           interaction: item.id,
         },
-      }));
+      }); });
     }
   },
 );
@@ -521,7 +533,7 @@ const messageViews = computed(() => {
   return cachedMessageViews;
 });
 watch(
-  [() => panelAgentQuery.data.value?.requests, messageViews, pageVisible, isPanelAgentRoute, () => panelAgentState.historyVisible],
+  [() => receiptRequests.value, messageViews, pageVisible, isPanelAgentRoute, () => panelAgentState.historyVisible],
   ([requests, views, visible, onPanel]) => {
     if (!requests) return;
     const pair = selectedPair.value;
@@ -554,17 +566,10 @@ const turns = computed(() =>
   }) : [],
 );
 
-const runningMemberIds = computed(
-  () =>
-    new Set(
-      currentEndpoints.value
-        .filter((endpoint) => runningEndpoints.value.includes(endpoint.id))
-        .map((endpoint) => endpoint.member_id),
-    ),
-);
+const runningMemberIds = computed(() => new Set((runtimeQuery.data.value ?? []).map(endpoint => endpoint.member_id)));
 
 const selectedModelState = computed(
-  () => selectedEndpoint.value?.modelState ?? modelsQuery.state.value ?? null,
+  () => modelsQuery.state.value ?? null,
 );
 
 const inspectorHasNextPage = computed(() =>
@@ -582,6 +587,9 @@ const inspectorFetchingNextPage = computed(() =>
       : historyQuery.isFetchingNextPage.value,
 );
 
+const contextError = computed(() => contextPanel.value === 'sessions' ? sessionsQuery.error.value : contextPanel.value === 'collaboration' ? tasksQuery.error.value : contextPanel.value === 'details' ? sessionQuery.error.value : null);
+function retryContext() { if (contextPanel.value === 'sessions') void sessionsQuery.refetch(); else if (contextPanel.value === 'collaboration') void tasksQuery.refetch(); else void sessionQuery.refetch(); }
+
 const inspectorError = computed(() =>
   activeTab.value === 'usage'
     ? undefined
@@ -591,17 +599,17 @@ const inspectorError = computed(() =>
 );
 
 watchEffect(() => {
-  // 任一路由请求失败都说明连不上本机服务;overview 也参与判断。
-  const failure = overviewQuery.error.value ?? snapshotQuery.error.value;
+  // 连接状态只由基础导航和主体资源判断；局部面板失败不阻断页面。
+  const failure = navigationState.error.value ?? workspaceState.error.value;
   if (failure) connection.failed(failure);
-  else if (overviewQuery.data.value && snapshotQuery.data.value) connection.online();
+  else if (navigationState.data.value && workspaceState.data.value) connection.online();
 });
 
 watch(
   [groups, groupId],
   ([items, id]) => {
-    // 团队列表来自 overview,判断"该团队是否存在"也要等 overview 就绪。
-    if (!overview.value || overviewQuery.isPending.value || !id || items.some((item) => item.id === id)) return;
+    // 等导航数据就绪后再处理不存在的团队。
+    if (!overview.value || navigationState.isPending.value || !id || items.some((item) => item.id === id)) return;
     router.replace({
       name: 'group',
     });
@@ -609,12 +617,13 @@ watch(
   { immediate: true },
 );
 
-watch([currentEndpoints, selectedSessionId], ([items, id]) => {
-  if (!snapshot.value || snapshotQuery.isPending.value || !id || items.some((endpoint) => endpoint.id === id)) return;
-  const query = { ...route.query };
-  delete query.session;
-  delete query.tab;
-  router.replace({ query });
+watch(() => detailQuery.error.value, error => {
+  if (error instanceof ApiError && error.status === 410) void router.replace({ name: 'group' });
+});
+watch(() => sessionQuery.error.value, error => {
+  if (!(error instanceof ApiError) || error.status !== 404) return;
+  const query = { ...route.query }; delete query.session; delete query.tab;
+  void router.replace({ query });
 });
 
 function replaceQuery(changes: Record<string, string | undefined>) {
@@ -665,24 +674,13 @@ function selectSession(id: string) {
   });
 }
 
-watch([currentEndpoints, selectedSessionId], () => {
-  if (
-    snapshot.value &&
-    selectedSessionId.value &&
-    !currentEndpoints.value.some(
-      (endpoint) => endpoint.id === selectedSessionId.value,
-    )
-  ) {
-    replaceQuery({ session: undefined, pair: undefined });
-  }
-});
 
 function closeContextPanel() {
   ui.closeInspector();
 }
 
 async function modelPolicySaved() {
-  await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
+  await refreshResources();
   toast.success('全局模型策略已保存', {
     description: '将用于新团队初始角色和已有团队新增角色',
   });
@@ -691,8 +689,8 @@ async function modelPolicySaved() {
 async function restoreArchivedTeam(team: Group) {
   try {
     await api.restoreTeam(team.id);
-    // 团队状态属于 overview 的数据,两路都要刷新。
-    await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
+    // 刷新团队导航、详情和运行状态。
+    await refreshResources();
     toast.success(`已恢复 ${team.name}`);
   } catch (error) {
     toast.error('恢复团队失败', { description: String(error) });
@@ -714,7 +712,7 @@ async function runArchiveTeam() {
   archiveConfirm.value = null;
   try {
     await api.archiveTeam(request.id);
-    await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
+    await refreshResources();
     if (groupId.value === request.id) router.push({ name: 'group' });
     toast.success(`已归档 ${request.name}`);
   } catch (error) {
@@ -857,16 +855,17 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         @saved="modelPolicySaved"
         @restore-team="restoreArchivedTeam"
       />
+      <Card v-else-if="groupId && !group" class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">正在读取团队…</CardContent></Card>
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
         :groups="groups"
         :members="members"
-        :endpoints="endpoints"
+        :running-by-group="homeRunningByGroup"
         :running-endpoints="runningEndpoints"
-        :loading="overviewQuery.isPending.value || snapshotQuery.isPending.value"
-        :error="(overviewQuery.error.value ?? snapshotQuery.error.value)?.message"
+        :loading="navigationState.isPending.value || workspaceState.isPending.value"
+        :error="(navigationState.error.value ?? workspaceState.error.value)?.message"
         @select="selectGroup"
-        @retry="overviewQuery.refetch(); snapshotQuery.refetch()"
+        @retry="refreshResources()"
       />
       <PanelAgentPanel v-else-if="!group" />
       <div
@@ -877,119 +876,43 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           'manager-view-open': managerConversationActive,
         }"
       >
-        <ConversationFrame class="chat-window" :readonly="false">
-            <header class="chat-header">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <h1 class="truncate text-base font-semibold">
-                    {{ group?.name ?? '选择或创建一个群' }}
-                  </h1>
-                  <Badge v-if="currentController" variant="outline">
-                    {{
-                      currentController.kind === 'panel_agent'
-                        ? 'Panel Agent 主控'
-                        : currentController.name === '主 Agent'
-                          ? '主 Agent'
-                          : `${currentController.name} · 主 Agent`
-                    }}
-                  </Badge>
-                  <span class="text-xs text-muted-foreground"
-                    >{{ currentMembers.length }} 名成员</span
-                  >
-                </div>
-                <p
-                  class="mt-2 truncate text-xs text-muted-foreground"
-                  :title="group?.workspace"
-                >
-                  {{
-                    group?.workspace ??
-                    '团队操作面板展示共享记录，并支持向主 Agent 发送指令。'
-                  }}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="xl:hidden"
-                @click="ui.openInspector()"
-              >
-                <PanelRightOpen />
-                群信息
-              </Button>
-            </header>
-
-            <Alert
-              variant="destructive"
-              v-if="overviewQuery.error.value || snapshotQuery.error.value"
-              class="error-banner mx-3 mb-2"
-              role="alert"
-              ><AlertDescription class="flex items-center gap-2">
-                <AlertTriangle />
-                <span class="min-w-0 flex-1">{{
-                  connection.error || '无法连接本机面板服务。'
-                }}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  @click="overviewQuery.refetch(); snapshotQuery.refetch()"
-                  >重试</Button
-                >
-              </AlertDescription></Alert
-            >
-            <Alert
-              variant="destructive"
-              v-if="inspectorError"
-              class="error-banner mx-3 mb-2"
-              role="alert"
-              ><AlertDescription class="flex items-center gap-2">
-                <AlertTriangle />
-                <span class="min-w-0 flex-1">{{ inspectorError.message }}</span>
-              </AlertDescription></Alert
-            >
-
-            <div
-              v-if="overviewQuery.isPending.value || snapshotQuery.isPending.value"
-              class="empty-state m-3 min-h-[60vh]"
-            >
-              正在连接本机群总线…
-            </div>
-            <div
-              v-else-if="!groups.length"
-              class="empty-state m-3 min-h-[60vh]"
-            >
-              还没有群。请先在 CLI 中创建群，这里会自动显示。
-            </div>
-            <template v-else>
-              <Alert v-if="messagesQuery.isError.value" variant="destructive" class="m-3 w-auto">
-                <AlertDescription class="flex items-center justify-between gap-2">
-                  <span>消息同步失败，当前显示的是已缓存记录。</span>
-                  <Button variant="outline" size="sm" @click="messagesQuery.refetch()">重试同步</Button>
-                </AlertDescription>
-              </Alert>
-              <MessageFeed
-                :key="`${groupId}:${selectedSessionId}`"
-                class="chat-feed"
-                :messages="messageViews"
-                :stream-source="readTeamStreamViews"
-                :directives="directivesQuery.data.value ?? []"
-                :interactions="interactionsQuery.data.value ?? []"
-                :title="conversationTitle"
-                :selected-pair="selectedPair"
-                :hosts="endpointHosts"
-                :group-names="Object.fromEntries(groups.map(group => [group.id, group.name]))"
-                :loading="messagesQuery.isPending.value"
-                :has-next-page="messagesQuery.hasNextPage.value"
-                :fetching-next-page="messagesQuery.isFetchingNextPage.value"
-                @load-more="messagesQuery.fetchNextPage()"
-              />
-            </template>
+        <ConversationWorkspace
+          :heading="group.name"
+          :description="group.workspace"
+          :messages="messageViews"
+          :stream-source="readTeamStreamViews"
+          :directives="directivesQuery.data.value ?? []"
+          :interactions="interactionsQuery.data.value ?? []"
+          :title="conversationTitle"
+          :selected-pair="selectedPair"
+          :hosts="endpointHosts"
+          :group-names="Object.fromEntries(groups.map(group => [group.id, group.name]))"
+          :reset-key="groupId + ':' + selectedSessionId"
+          :loading="navigationState.isPending.value || workspaceState.isPending.value || messagesQuery.isPending.value"
+          :has-next-page="messagesQuery.hasNextPage.value"
+          :fetching-next-page="messagesQuery.isFetchingNextPage.value"
+          :error="navigationState.error.value?.message ?? workspaceState.error.value?.message ?? (messagesQuery.isError.value ? '消息同步失败，当前显示的是已缓存记录。' : '')"
+          retryable
+          @retry="refreshResources(); messagesQuery.refetch()"
+          @load-more="messagesQuery.fetchNextPage()"
+        >
+          <template #heading-meta>
+            <Badge v-if="currentController" variant="outline">{{ currentController.kind === 'panel_agent' ? 'Panel Agent 主控' : currentController.name === '主 Agent' ? '主 Agent' : currentController.name + ' · 主 Agent' }}</Badge>
+            <span class="text-xs text-muted-foreground">{{ currentMembers.length }} 名成员</span>
+          </template>
+          <template #actions>
+            <Button variant="outline" size="sm" class="xl:hidden" @click="ui.openInspector()"><PanelRightOpen />群信息</Button>
+          </template>
+          <template #status>
+            <Alert v-if="inspectorError" variant="destructive" class="mx-4 mb-2 w-auto"><AlertDescription>{{ inspectorError.message }}</AlertDescription></Alert>
+          </template>
           <template #composer>
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
               :controller-id="currentControllerId"
               :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
               @sent="router.replace({ query: teamConversationAfterSend(route.query) })" />
           </template>
-        </ConversationFrame>
+        </ConversationWorkspace>
 
         <button
           v-if="ui.inspectorOpen"
@@ -1018,7 +941,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         />
         <Card
           :class="[
-            'context-panel',
+            'context-panel pb-0',
             ui.inspectorOpen && 'context-panel-open',
             ui.contextCollapsed && 'context-panel-collapsed',
           ]"
@@ -1066,6 +989,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               :value="contextPanel"
               class="context-scroll"
             >
+              <Alert v-if="contextError" variant="destructive"><AlertDescription class="flex items-center gap-2"><span class="flex-1">{{ contextError.message }}</span><Button variant="outline" size="sm" @click="retryContext">重试</Button></AlertDescription></Alert>
               <CollaborationPanel
                 v-if="contextPanel === 'collaboration'"
                 :group-id="groupId"
@@ -1126,19 +1050,9 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               />
             </TabsContent>
           </Tabs>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="context-collapse-toggle hidden xl:inline-flex"
-            :title="ui.contextCollapsed ? '展开右侧栏' : '收起右侧栏'"
-            :aria-label="ui.contextCollapsed ? '展开右侧栏' : '收起右侧栏'"
-            :aria-expanded="!ui.contextCollapsed"
-            @click="ui.toggleContext()"
-          >
-            <ChevronsLeft v-if="ui.contextCollapsed" />
-            <ChevronsRight v-else />
-            <span v-if="!ui.contextCollapsed">收起</span>
-          </Button>
+          <div class="context-collapse-footer hidden w-full shrink-0 px-3 pb-px xl:block">
+            <SidebarCollapseButton side="right" :collapsed="ui.contextCollapsed" @toggle="ui.toggleContext()" />
+          </div>
         </Card>
       </div>
     </main>

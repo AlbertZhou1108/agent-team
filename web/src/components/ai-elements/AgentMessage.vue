@@ -30,10 +30,10 @@ const props = withDefaults(
     compact?: boolean;
     /** 群发指令展示:正文渲染一次,头部改为完整接收者列表。 */
     fanoutRecipients?: string[];
-    /** 助手/系统正文按 Markdown 渲染(用户消息始终纯文本);团队消息流默认关闭。 */
+    /** 助手/系统正文默认按 Markdown 渲染；用户输入保持纯文本。 */
     markdown?: boolean;
   }>(),
-  { compact: false, fanoutRecipients: undefined, markdown: false },
+  { compact: false, fanoutRecipients: undefined, markdown: true },
 );
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 

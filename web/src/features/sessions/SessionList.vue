@@ -128,11 +128,11 @@ function contextLabel(endpoint: SessionEndpoint) {
           >
         </ItemTitle>
         <ItemDescription>
-          <template v-if="endpoint.modelState.currentModel?.model">
-            {{ endpoint.modelState.currentModel.model }}
+          <template v-if="endpoint.modelState?.currentModel?.model">
+            {{ endpoint.modelState?.currentModel.model }}
             ·
             {{
-              endpoint.modelState.currentReasoningEffort?.reasoningEffort ??
+              endpoint.modelState?.currentReasoningEffort?.reasoningEffort ??
               '强度未知'
             }}
           </template>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Users } from '@lucide/vue';
+import HelpPopover from '@/components/panel/HelpPopover.vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import {
   useMembersTelemetryQuery,
@@ -24,6 +25,7 @@ const capabilitiesQuery = useTelemetryCapabilitiesQuery(
 
 const data = computed(() => query.data.value);
 const selectedId = ref('');
+watch(() => props.groupId, () => { selectedId.value = ''; });
 const selectedMember = computed(() => data.value?.members.find(m => m.executor.memberId === selectedId.value)
   ?? [...(data.value?.members ?? [])].sort((a, b) => (numeric(b.totals.totalTokens) ?? -1) - (numeric(a.totals.totalTokens) ?? -1))[0]);
 const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
@@ -49,19 +51,18 @@ function capabilitySummary(host: string): string {
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-1">
         <h3 class="text-sm font-semibold">成员开销</h3>
+        <HelpPopover title="消耗统计口径"><p>按已观测 Token 汇总，不同宿主的采集范围可能不同；未采集显示为“未采集”。</p></HelpPopover>
 
       </div>
       <span class="text-[11px] text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
-    <p class="text-xs text-muted-foreground">先看消耗分布，再展开成员详情。未采集的数据不补零。</p>
 
     <PanelState
       v-if="query.isPending.value"
       loading
       title="正在读取成员遥测"
-      description="等待服务端返回 executor 汇总。"
     />
     <Alert v-else-if="query.error.value" variant="destructive">
       <AlertDescription
@@ -72,10 +73,11 @@ function capabilitySummary(host: string): string {
       v-else-if="!data?.members.length"
       :icon="Users"
       title="暂无成员遥测"
-      description="成员执行任务后，这里会按执行归属显示消耗；没有数据时不显示为 0。"
     />
     <template v-else>
       <TelemetryMemberComparison :members="data.members" :selected-id="selectedMember?.executor.memberId" @select="selectedId = $event" />
+      <details v-if="selectedMember" :open="Boolean(selectedId)" class="text-sm">
+        <summary class="cursor-pointer py-2">{{ selectedMember.executor.name }} · 执行详情</summary>
       <TelemetryExecutorCard
         v-if="selectedMember"
         :key="selectedMember.executor.memberId"
@@ -92,6 +94,7 @@ function capabilitySummary(host: string): string {
           </div>
         </template>
       </TelemetryExecutorCard>
+      </details>
 
       <details class="text-xs text-muted-foreground">
         <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
@@ -106,7 +109,7 @@ function capabilitySummary(host: string): string {
         </div>
       </details>
 
-      <details class="rounded-lg border p-3 text-xs">
+      <details class="text-xs text-muted-foreground">
         <summary class="w-fit cursor-pointer font-medium">
           宿主采集能力
         </summary>

@@ -133,6 +133,17 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
         response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+        const requestedTeam = url.searchParams.get('group') || url.pathname.match(/^\/api\/teams\/([^/]+)/)?.[1];
+        const endpointId = url.searchParams.get('endpoint');
+        const endpointTeam = endpointId ? (bus.store.get('SELECT group_id FROM endpoints WHERE id=?', endpointId) ?? bus.store.get('SELECT group_id FROM panel_sessions WHERE id=?', endpointId))?.group_id : null;
+        const messageTeam = url.searchParams.get('message') ? bus.store.get('SELECT group_id FROM messages WHERE id=?', url.searchParams.get('message'))?.group_id : null;
+        const interactionId = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/)?.[1];
+        const interactionTeam = interactionId ? bus.store.get('SELECT group_id FROM interactions WHERE id=?', interactionId)?.group_id : null;
+        const turnId = url.searchParams.get('turn');
+        const turnTeam = turnId ? (bus.store.get('SELECT e.group_id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE t.id=?', turnId) ?? bus.store.get('SELECT group_id FROM panel_turns WHERE id=?', turnId))?.group_id : null;
+        for (const id of [requestedTeam, endpointTeam, messageTeam, interactionTeam, turnTeam]) {
+          if (id && bus.store.get('SELECT state FROM groups WHERE id=?', id)?.state === 'archived' && !teamStateMutation) return fail(410, '团队已归档，请在设置中恢复后访问');
+        }
         if (request.method === 'GET' && url.pathname === '/api/panel-agent/events') {
           panelEventStreams.add(response);
           response.writeHead(200, {
@@ -306,9 +317,29 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
             } catch (error) {
               return failJson(error.status ?? 500, error);
             }
-          } else if (url.pathname === '/api/overview') value = bus.overview();
+          } else if (url.pathname === '/api/groups') value = url.searchParams.get('archived') === '1' ? bus.store.all("SELECT id,name,workspace,state,created,lead FROM groups WHERE state='archived' ORDER BY created") : bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
+          else if (url.pathname === '/api/directory') value = bus.queryDirectory();
+          else if (url.pathname === '/api/model-policy/defaults') value = bus.queryDefaults();
+          else if (url.pathname === '/api/group') {
+            const group = bus.store.group(url.searchParams.get('group')); bus.ensurePanelBindings();
+            value = { ...group, controller: bus.teamController(group.id) };
+          }
+          else if (url.pathname === '/api/sessions') value = bus.querySessions(url.searchParams.get('group'));
+          else if (url.pathname === '/api/session') {
+            value = bus.querySession(url.searchParams.get('group'), url.searchParams.get('endpoint'));
+            if (!value) return fail(404, '不存在的团队会话');
+          }
+          else if (url.pathname === '/api/session-target') {
+            value = bus.querySessions(url.searchParams.get('group')).endpoints.find(row => row.member_id === url.searchParams.get('member') && row.context === url.searchParams.get('context')) ?? null;
+          }
+          else if (url.pathname === '/api/group-runtime') { const group = bus.store.group(url.searchParams.get('group')); value = bus.queryRuntime(group.id); }
+          else if (url.pathname === '/api/home-summary') value = bus.queryRuntime();
+          else if (url.pathname === '/api/agent-tasks') { const group = bus.store.group(url.searchParams.get('group')); value = bus.agentTasksView(group.id); }
+          else if (url.pathname === '/api/panel-agent/unread') value = bus.queryUnread(true);
+          else if (url.pathname === '/api/overview') value = bus.overview();
           else if (url.pathname === '/api/snapshot') value = bus.snapshot(url.searchParams.get('scoped') === '1' ? url.searchParams.get('group') || '' : undefined);
-          else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState(url.searchParams.get('summary') === '1');
+          else if (url.pathname === '/api/panel-agent') value = bus.panelBrowserState(url.searchParams.get('summary') === '1');
+          else if (url.pathname === '/api/panel-agent/records') value = bus.panelMessagePage({ history: url.searchParams.get('history') === '1', before: Number(url.searchParams.get('before')) || 0 });
           else if (url.pathname === '/api/panel-agent/conversation') value = bus.panelConversation(cursor(url));
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();
           else if (url.pathname === '/api/model-policy') value = bus.modelPolicy();
@@ -361,6 +392,12 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
               ? bus.store.all('SELECT * FROM history WHERE endpoint_id=? AND seq>? ORDER BY seq LIMIT 200', endpoint.id, cursor(url))
               : bus.store.all('SELECT * FROM panel_history WHERE session_id=? AND seq>? ORDER BY seq LIMIT 200', panelSession.id, cursor(url));
           } else return fail(404, 'Not found');
+          if (['/api/overview', '/api/snapshot', '/api/directory'].includes(url.pathname)) {
+            const activeIds = new Set(bus.store.all("SELECT id FROM groups WHERE state IS NULL OR state!='archived'").map(row => row.id));
+            for (const key of ['groups', 'groupStates', 'panelTeams']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.id));
+            for (const key of ['members', 'endpoints', 'agentTasks']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.group_id));
+            if (value.endpoints) { const ids = new Set(value.endpoints.map(row => row.id)); value.sessionBindings = value.sessionBindings.filter(row => ids.has(row.endpoint_id)); value.runningEndpoints = value.runningEndpoints.filter(id => ids.has(id)); }
+          }
           response.writeHead(200, { 'Content-Type': 'application/json' }); return response.end(JSON.stringify(value));
         }
         const staticFile = resolvePanelFile(url.pathname, request.headers.accept);
@@ -423,10 +460,12 @@ export function resolvePanelFile(pathname, accept = '') {
 }
 
 export async function handleRpc(bus, request) {
+  const group = request.group || (request.endpoint ? (bus.store.get('SELECT group_id FROM endpoints WHERE id=?', request.endpoint) ?? bus.store.get('SELECT group_id FROM panel_sessions WHERE id=?', request.endpoint))?.group_id : null);
+  if (group && !['restore', 'archive'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
   if (request.op === 'ping') return { version: '0.1.0' };
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });
-  if (request.op === 'groups') return bus.store.all('SELECT * FROM groups ORDER BY created');
+  if (request.op === 'groups') return bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
   if (request.op === 'model_catalog') return bus.modelCatalog({ refresh: request.refresh === true });
   if (request.op === 'new') return bus.createGroup(request.args);
   if (request.op === 'collaboration') return bus.groupSummary(request.group);

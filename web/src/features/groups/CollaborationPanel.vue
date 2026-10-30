@@ -36,9 +36,9 @@ const busy = ref(false);
 
 async function refresh() {
   await Promise.all([
-    // 团队状态与成员列表在 overview 里,和团队级快照分属两次查询。
-    queryClient.invalidateQueries({ queryKey: ['overview'] }),
-    queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
+    // 控制权变化同时刷新导航、目录与当前团队资源。
+    queryClient.invalidateQueries({ predicate: query => ['groups', 'directory', 'home-summary'].includes(String(query.queryKey[0])) }),
+    queryClient.invalidateQueries({ queryKey: ['group', props.groupId] }),
     queryClient.invalidateQueries({ queryKey: ['collaboration', props.groupId] }),
     queryClient.invalidateQueries({ queryKey: ['charter', props.groupId] }),
   ]);

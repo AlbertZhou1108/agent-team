@@ -411,7 +411,8 @@ test('private creation forwards to its team coordination and receives an explici
  const requests=bus.panelAgentState().requests; assert.equal(requests.length,1);
  assert.equal(requests[0].source_user_message_id,response.message.id);
  assert.equal(requests[0].original_text,'create and run'); assert.equal(requests[0].receipts.length,1);
- assert.equal(requests[0].receipts[0].text,'received'); assert.equal(privateCalls,1);
+ assert.equal(requests[0].receipts[0].text,'received');
+ assert.deepEqual(bus.queryUnread().receipts, requests.flatMap(request => request.receipts).map(({id,isSourceCopy,sourceMessageIds}) => ({id,isSourceCopy,sourceMessageIds})));  assert.equal(privateCalls,1);
  assert.equal(response.message.active_team_id,null);
  const message=bus.store.get('SELECT * FROM messages WHERE id=?',requests[0].message_id);
  assert.equal(message.sender,'user'); assert.equal(message.recipient,state.agent.id);
@@ -558,4 +559,32 @@ test('stopping the global assistant does not stop its team coordination', async 
     assert.equal(privateAbort.signal.aborted, true);
     assert.equal(teamAbort.signal.aborted, false);
   } finally { bus.running.delete('test-private'); bus.running.delete('test-team'); }
+});
+
+test('unread projection preserves the private message window without text', async t => {
+ const {bus}=await fixture(t); const state=await createAgent(bus);
+ for(let i=0;i<205;i++) bus.store.panelAppend(state.agent.id,'private',i%2?'assistant':'user','private payload',null);
+ const full=bus.panelAgentState(true); const projection=bus.queryUnread();
+ assert.deepEqual(projection.messages.map(row => ({...row})), full.conversation.map(({seq,role,active_team_id})=>({seq,role,active_team_id})));
+ assert.equal(projection.messages.length,200);
+ assert.ok(!JSON.stringify(projection).includes('private payload'));
+});
+
+test('service restart separates all private history from current messages and pages without overlap', async t => {
+ const directory=mkdtempSync(join(tmpdir(),'panel-boot-'));
+ let bus=new Bus({directory,hosts:new Map([['fake',hostFixture()]])});
+ t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true});});
+ const state=await createAgent(bus);
+ for(let i=0;i<205;i++) bus.store.panelAppend(state.agent.id,'private','assistant','old '+i,i%2?'legacy-team':null);
+ const hosts=bus.hosts;await bus.close();bus=new Bus({directory,hosts});
+ assert.equal(bus.panelBrowserState().conversation.length,0);
+ assert.deepEqual(bus.queryUnread(true).messages,[]);
+ const first=bus.panelMessagePage({history:true});const second=bus.panelMessagePage({history:true,before:first.nextBefore});
+ assert.equal(first.messages.length,200);assert.equal(second.messages.length,5);assert.equal(second.nextBefore,null);
+ assert.ok(second.messages.at(-1).seq<first.messages[0].seq);
+ bus.store.panelAppend(state.agent.id,'private','assistant','new');
+ assert.equal(bus.panelBrowserState().conversation[0].text,'new');
+ assert.equal(bus.panelMessagePage().messages.length,1);
+ assert.equal(bus.queryUnread(true).messages.length,1);
+ assert.equal(bus.panelMessagePage({history:true}).messages.length,200);
 });

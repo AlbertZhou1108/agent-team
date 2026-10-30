@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { computed } from 'vue';
+import { useInfiniteQuery } from '@tanstack/vue-query';
+import { api } from '@/shared/api/client';
 import { Bot, Settings2 } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,8 +13,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Badge } from '@/components/ui/badge';
-import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
-import MessageFeed from '@/features/messages/MessageFeed.vue';
+import ConversationWorkspace from '@/features/messages/ConversationWorkspace.vue';
 import type {
   Interaction,
   PanelAgent,
@@ -24,13 +24,13 @@ import type {
 import PanelAgentComposer from './PanelAgentComposer.vue';
 import TeamRequestCard from './TeamRequestCard.vue';
 import { usePanelAgentStore } from '@/stores/panel-agent';
-import { filterPanelMessagesForContext } from './message-context';
 import { reuseMessageViews, toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
 import type { MessageView } from '@/shared/models/view-types';
 import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 
 const props = defineProps<{
   agent: PanelAgent;
+  bootId?: string;
   messages: PanelMessage[];
   requests?: TeamRequest[];
   streaming?: PanelStream | null;
@@ -62,9 +62,19 @@ const showHistory = computed({ get: () => state.historyVisible, set: value => { 
 const activeTeam = computed(() =>
   props.teams.find((team) => team.id === activeTeamId.value),
 );
-const visibleMessages = computed(() =>
-  showHistory.value ? props.messages.filter(message => message.active_team_id != null) : filterPanelMessagesForContext(props.messages, ''),
-);
+const records = useInfiniteQuery({
+  queryKey: computed(() => ['panel-agent', 'records', props.bootId, showHistory.value]),
+  initialPageParam: undefined as number | undefined,
+  queryFn: ({ pageParam, signal }) => api.panelRecords(showHistory.value, pageParam, signal),
+  getNextPageParam: page => page.nextBefore ?? undefined,
+  enabled: computed(() => Boolean(props.bootId)),
+  refetchInterval: computed(() => showHistory.value ? false : 2000),
+  refetchOnWindowFocus: false,
+});
+const visibleMessages = computed(() => [...new Map([
+  ...(records.data.value?.pages.flatMap(page => page.messages) ?? []),
+  ...(!showHistory.value ? props.messages : []),
+].map(row => [row.seq, row])).values()].sort((a,b) => a.seq-b.seq));
 // 视图对象按内容复用:2 秒轮询会让 conversation 每轮都是新数组,若每次都产出新对象,
 // 历史消息的 props 比较永远判为变化,整表随流式输出一起重渲染。
 let cachedViews: MessageView[] = [];
@@ -92,9 +102,19 @@ const suggestions = [
 </script>
 
 <template>
-  <ConversationFrame :readonly="false" class="agent-chat">
-  <MessageFeed
+  <ConversationWorkspace
+    :heading="agent.name"
+    :title="showHistory ? '历史记录' : '私人消息'"
+    :description="showHistory ? '此前启动的记录 · 只读' : '本次启动的会话'"
+    :readonly="showHistory"
+    :error="records.error.value?.message || actionError"
+    :retryable="Boolean(records.error.value)"
+    @retry="records.refetch()"
     :messages="visibleViews"
+    :has-next-page="records.hasNextPage.value"
+    :fetching-next-page="records.isFetchingNextPage.value"
+    :loading="records.isPending.value && !visibleViews.length"
+    @load-more="records.fetchNextPage()"
     :stream-source="readPanelStreamViews"
     :interactions="interactions ?? []"
     :group-system-messages="false"
@@ -102,29 +122,23 @@ const suggestions = [
     :hosts="{}"
     :group-names="Object.fromEntries(teams.map(team => [team.id, team.name]))"
     selected-pair=""
-    :reset-key="activeTeamId || globalContextKey"
+    :reset-key="showHistory ? 'history' : globalContextKey"
     :aria-label="'Panel Agent 私人会话'"
-    viewport-class="size-full min-h-0"
-    stream-class="size-full overflow-y-auto scroll-fade-b scrollbar-thin scrollbar-gutter-stable overscroll-contain contain-content"
-    content-class="flex min-h-full flex-col gap-5 px-4 py-5"
   >
-    <template #header>
-      <header class="agent-chat-header">
-        <div class="agent-mark agent-mark-small"><Bot /></div>
-        <div class="min-w-0 flex-1">
-          <h1 class="truncate text-base font-semibold">{{ agent.name }}</h1>
-          <span class="text-xs text-muted-foreground">{{ showHistory ? '历史团队私聊 · 只读' : '全局私人会话' }}</span>
-        </div>
-        <Button variant="ghost" size="sm" @click="showHistory = !showHistory">{{ showHistory ? '返回全局' : '历史团队私聊' }}</Button>
+    <template #leading><div class="agent-mark agent-mark-small"><Bot /></div></template>
+    <template #actions>
+        <Button variant="ghost" size="sm" @click="showHistory = !showHistory">{{ showHistory ? '返回当前会话' : '历史记录' }}</Button>
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Panel Agent 设置"
           title="Panel Agent 设置"
           @click="emit('edit')"
         >
           <Settings2 />
         </Button>
-      </header>
+    </template>
+    <template #context>
       <div v-if="!showHistory" class="flex flex-col gap-3 px-4">
         <TeamRequestCard v-for="request in (requests ?? []).filter(row => row.receipts.length && !visibleMessages.some(message => message.id === row.source_user_message_id))" :key="request.id" :request="request" :team-name="teams.find(team => team.id === request.group_id)?.name ?? '团队'" />
       </div>
@@ -137,9 +151,9 @@ const suggestions = [
             <Bot />
           </EmptyMedia>
           <EmptyTitle>
-            {{ activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
+            {{ showHistory ? '暂无历史记录' : activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
           </EmptyTitle>
-          <EmptyDescription>
+          <EmptyDescription v-if="!showHistory">
             {{
               activeTeam
                 ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
@@ -147,7 +161,7 @@ const suggestions = [
             }}
           </EmptyDescription>
         </EmptyHeader>
-        <EmptyContent v-if="!activeTeam">
+        <EmptyContent v-if="!showHistory && !activeTeam">
           <div class="flex flex-wrap justify-center gap-2">
             <Button
               v-for="suggestion in suggestions"
@@ -172,17 +186,8 @@ const suggestions = [
         >自动进度</Badge
       >
     </template>
-  </MessageFeed>
+
     <template #composer>
-      <Alert
-        variant="destructive"
-        v-if="actionError"
-        class="error-banner mx-4 mt-3"
-        role="alert"
-        ><AlertDescription class="flex items-center gap-2">
-          {{ actionError }}
-        </AlertDescription></Alert
-      >
       <PanelAgentComposer v-if="!showHistory"
         v-model="draft"
         v-model:form="form"
@@ -198,5 +203,5 @@ const suggestions = [
         @update-model="emit('updateModel', $event)"
       />
     </template>
-  </ConversationFrame>
+  </ConversationWorkspace>
 </template>

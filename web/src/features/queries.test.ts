@@ -127,3 +127,18 @@ it('pages through several cached islands until the whole window is contiguous', 
     expect(vi.mocked(api.messages).mock.calls.filter(call => call[1] !== undefined)).toHaveLength(2);
   } finally { dispose(); }
 });
+
+it('stops observing panel resources when hidden and isolates team caches', async () => {
+  const { useResourceQuery } = await import('./queries');
+  const visible = ref(false); const team = ref('one');
+  const load = vi.fn(async () => ({ team: team.value }));
+  let query!: ReturnType<typeof useResourceQuery<{ team: string }>>;
+  const dispose = mount(() => { query = useResourceQuery(() => ['group', team.value, 'tasks'], load, visible, false); });
+  try {
+    await settle(); expect(load).not.toHaveBeenCalled();
+    visible.value = true; await settle(); expect(query.data.value).toEqual({ team: 'one' });
+    visible.value = false; team.value = 'two'; await settle();
+    expect(load).toHaveBeenCalledTimes(1); expect(query.data.value).toBeUndefined();
+    visible.value = true; await settle(); expect(query.data.value).toEqual({ team: 'two' });
+  } finally { dispose(); }
+});

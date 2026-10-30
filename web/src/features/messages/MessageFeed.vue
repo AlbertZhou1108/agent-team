@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import type { MessageFeedProps } from './message-feed-types';
 import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
-import type { MessageView } from '@/shared/models/view-types';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
 import { Badge } from '@/components/ui/badge';
-import type { Interaction, TeamDirectiveReceipt } from '@/shared/api/raw-types';
+import type { Interaction } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
 import type { StreamView } from './adapters';
 import { buildMessageGroups, isSystemStack } from './message-groups';
@@ -17,34 +17,7 @@ import InteractionCard from './InteractionCard.vue';
 import StreamingMessages from './StreamingMessages.vue';
 
 const props = withDefaults(
-  defineProps<{
-    messages: MessageView[];
-    /**
-     * 流视图的取值函数,是流数据的唯一入口。高频更新必须走取值函数而不是数组
-     * props:函数只在 StreamingMessages 内部被调用,响应式依赖登记在流式子组件上,
-     * 本组件不会随每个增量重渲染。
-     */
-    streamSource?: () => StreamView[];
-    directives?: TeamDirectiveReceipt[];
-    interactions?: Interaction[];
-    title?: string;
-    selectedPair: string;
-    hosts?: Record<string, string>;
-    /** 团队 id → 名称,仅用于运行卡里的工具动作说明。 */
-    groupNames?: Record<string, string>;
-    loading?: boolean;
-    hasNextPage?: boolean;
-    fetchingNextPage?: boolean;
-    /** 连续 system 消息是否折叠为通知堆栈;Panel 的自动进度消息不折叠。 */
-    groupSystemMessages?: boolean;
-    /** 助手/系统正文按 Markdown 渲染。 */
-    markdown?: boolean;
-    ariaLabel?: string;
-    resetKey?: string | number;
-    viewportClass?: string;
-    streamClass?: string;
-    contentClass?: string;
-  }>(),
+  defineProps<MessageFeedProps>(),
   {
     streamSource: undefined,
     directives: () => [],
@@ -56,7 +29,7 @@ const props = withDefaults(
     hasNextPage: false,
     fetchingNextPage: false,
     groupSystemMessages: true,
-    markdown: false,
+    markdown: true,
     ariaLabel: '团队消息',
     resetKey: undefined,
     viewportClass: 'message-viewport',
@@ -255,7 +228,7 @@ const messageIds = computed(() => {
         <slot name="footer" :message="message" />
       </template>
     </StreamingMessages>
-    <PanelState v-if="loading" loading title="正在读取群消息" />
+    <PanelState v-if="loading" loading title="正在读取消息" />
     <slot v-else-if="!filtered.length && !streamingCount" name="empty">
       <PanelState :icon="MessagesSquare" title="暂无消息" />
     </slot>

@@ -55,7 +55,7 @@ function workspaceLabel(workspace: string) {
 const props = defineProps<{
   groups: Group[];
   members: Member[];
-  endpoints: SessionEndpoint[];
+  runningByGroup: Record<string, number>;
   runningEndpoints: string[];
   loading?: boolean;
   error?: string;
@@ -103,12 +103,7 @@ function memberCountFor(groupId: string) {
 }
 
 function runningCountFor(groupId: string) {
-  const endpointIds = new Set(
-    props.endpoints
-      .filter((endpoint) => endpoint.group_id === groupId)
-      .map((endpoint) => endpoint.id),
-  );
-  return props.runningEndpoints.filter((id) => endpointIds.has(id)).length;
+  return props.runningByGroup[groupId] ?? 0;
 }
 
 function folderNameFor(groupId: string) {

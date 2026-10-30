@@ -122,7 +122,7 @@ export interface SessionEndpoint {
   context: string;
   peer: string | null;
   session: string | null;
-  modelState: ModelState;
+  modelState?: ModelState;
 }
 
 export type PanelAccess = 'read-only' | 'workspace-write' | 'full-access';
@@ -174,6 +174,8 @@ export interface TeamRequest {
 }
 
 export interface PanelAgentState {
+  bootId?: string;
+  bootSeq?: number;
   requests?: TeamRequest[];
   teamPendingInteractions?: Record<string, number>;
   notifications?: Array<{ id: string; group_id: string; text: string; sourceMessageIds: string[] }>;
@@ -820,3 +822,11 @@ export interface HostStatus {
   installing?: boolean;
   installation?: { phase: 'checking' | 'installing' | 'verifying' | 'completed' | 'failed'; reason?: string };
 }
+
+export type UnreadMessage = Pick<PanelMessage, 'seq' | 'role' | 'active_team_id'>;
+export type UnreadReceipt = Pick<TeamRequestReceipt, 'id' | 'isSourceCopy' | 'sourceMessageIds'>;
+export interface UnreadProjection { messages: UnreadMessage[]; receipts: UnreadReceipt[] }
+export type RuntimeEndpoint = { id: string; group_id: string; member_id: string };
+export type GroupDetail = Group & { controller: PanelTeamView['controller'] };
+
+export interface PanelMessagePage { messages: PanelMessage[]; nextBefore: number | null; bootId: string }

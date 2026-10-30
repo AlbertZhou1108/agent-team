@@ -1,3 +1,5 @@
+import type { PanelMessagePage } from './raw-types';
+import type { UnreadProjection, RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTaskEntry } from './raw-types';
 import type {
   HostStatus,
   Group,
@@ -76,6 +78,20 @@ function query(path: string, values: Record<string, string | number | undefined>
 }
 
 export const api = {
+  groups(signal?: AbortSignal) { return request<Group[]>('/api/groups', signal); },
+  archivedGroups(signal?: AbortSignal) { return request<Group[]>('/api/groups?archived=1', signal); },
+  directory(signal?: AbortSignal) { return request<Pick<Overview, 'members' | 'actors' | 'panelAgent'>>('/api/directory', signal); },
+  group(group: string, signal?: AbortSignal) { return request<GroupDetail>(query('/api/group', { group }), signal); },
+  sessions(group: string, signal?: AbortSignal) { return request<Pick<Snapshot, 'endpoints' | 'sessionBindings'>>(query('/api/sessions', { group }), signal); },
+  session(group: string, endpoint: string, signal?: AbortSignal) { return request<SessionEndpoint>(query('/api/session', { group, endpoint }), signal); },
+  sessionTarget(group: string, member: string, context: string) { return request<SessionEndpoint | null>(query('/api/session-target', { group, member, context })); },
+  runtime(group: string, signal?: AbortSignal) { return request<RuntimeEndpoint[]>(query('/api/group-runtime', { group }), signal); },
+  homeSummary(signal?: AbortSignal) { return request<RuntimeEndpoint[]>('/api/home-summary', signal); },
+  tasks(group: string, signal?: AbortSignal) { return request<AgentTaskEntry[]>(query('/api/agent-tasks', { group }), signal); },
+  unread(signal?: AbortSignal) { return request<UnreadProjection>('/api/panel-agent/unread', signal); },
+  modelPolicy(signal?: AbortSignal) { return request<Overview['modelPolicy']>('/api/model-policy', signal); },
+  modelDefaults(signal?: AbortSignal) { return request<Overview['modelPolicyDefaults']>('/api/model-policy/defaults', signal); },
+
   hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
   hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
   installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },
@@ -120,8 +136,9 @@ export const api = {
     return mutate<{ deleted: string }>(`/api/model-policy/presets/${encodeURIComponent(id)}/delete`, {});
   },
   panelAgent(signal?: AbortSignal, summary = false) {
-    return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined }), signal);
+    return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined, current: 1 }), signal);
   },
+  panelRecords(history: boolean, before?: number, signal?: AbortSignal) { return request<PanelMessagePage>(query('/api/panel-agent/records', { history: history ? 1 : undefined, before }), signal); },
   createPanelAgent(body: {
     name: string;
     host: string;

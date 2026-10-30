@@ -5,7 +5,7 @@ export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > 31 * 86400000) throw new Error('统计区间须有效且不超过31天');
   if (!['hour', 'day'].includes(bucket)) throw new Error('分桶仅支持 hour 或 day');
   const width = bucket === 'hour' ? 3600000 : 86400000;
-  const groups = bus.store.all('SELECT * FROM groups ORDER BY created');
+  const groups = bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
   const liveRuns = [...bus.running.values()].filter(r => ['coordination','panel-coordination'].includes(r.endpoint?.context) || r.endpoint?.context?.startsWith('pair:'));
   const seen = new Set();
   const all = [];
@@ -36,8 +36,8 @@ export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
     return{from:new Date(a).toISOString(),to:new Date(b).toISOString(),batchCount:samples.length,metrics:bus.telemetry._sumBatches(samples)};
   });
   return{range:{from:new Date(start).toISOString(),to:new Date(end).toISOString(),bucket},generatedAt:new Date().toISOString(),
-    scope:'全部团队的共享执行回合，包含归档团队；不包含私人、准备和profile会话',timeBasis:'回合开始时间；区间左闭右开；hour/day为从区间起点开始的固定1/24小时',
-    counts:{teams:groups.length,members:bus.store.get('SELECT COUNT(*) AS count FROM members WHERE removed IS NULL').count,running:liveRuns.length},
+    scope:'当前未归档团队的共享执行回合；不包含私人、准备和profile会话',timeBasis:'回合开始时间；区间左闭右开；hour/day为从区间起点开始的固定1/24小时',
+    counts:{teams:groups.length,members:bus.store.get("SELECT COUNT(*) AS count FROM members m JOIN groups g ON g.id=m.group_id WHERE m.removed IS NULL AND (g.state IS NULL OR g.state!='archived')").count,running:liveRuns.length},
     totals,coverage:{expectedTurns,tokenBatches,missingTurns},teams,series,
     states:Object.entries(teams.reduce((out,t)=>{out[t.status]=(out[t.status]??0)+1;return out},{})).map(([state,count])=>({state,count}))};
 }

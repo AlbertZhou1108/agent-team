@@ -552,6 +552,7 @@ watch(
           v-model:active-team-id="activeTeamId"
           v-model:form="form"
           :agent="panel.agent"
+          :boot-id="panel.bootId"
           :messages="panel.conversation"
           :requests="panel.requests ?? []"
           :streaming="privateStreaming"
