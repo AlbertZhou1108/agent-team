@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { runJsonProcess } from '../src/hosts/process.mjs';

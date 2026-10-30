@@ -1,6 +1,6 @@
 // 遥测能力声明:各宿主适配器对统一遥测字段的采集方式与完整性条件。
 // 纯声明性数据,不依赖任何运行时状态。
-import { telemetryCapabilitiesFor, METRIC_KEYS, CONTEXT_KEYS, UNIFIED_FIELDS } from './telemetry-capabilities.mjs';
+import { telemetryCapabilitiesFor, capability, METRIC_KEYS, UNIFIED_FIELDS } from './telemetry-capabilities.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 export class TelemetryQueryError extends Error {
   constructor(message, status = 400) {
@@ -76,11 +76,6 @@ function sumMetricList(field, metrics, { fallbackScope = 'query' } = {}) {
   });
 }
 
-function normalizedMetricValue(observation, field) {
-  if (METRIC_KEYS.includes(field)) return observation.usage?.[field] ?? observation.timing?.[field];
-  return observation.context?.[field];
-}
-
 function hasNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -145,7 +140,7 @@ function normalizePayload(observation) {
 }
 
 function conversationSummary(summary) {
-  const { executorTotals, contextReference, ...rest } = summary;
+  const { executorTotals: _executorTotals, contextReference: _contextReference, ...rest } = summary;
   return rest;
 }
 

@@ -38,8 +38,10 @@ export function stopHost(child) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve, reject) => {
     let escalation;
-    const cleanup = () => { clearTimeout(deadline); clearTimeout(escalation); child.off('close', closed); };
-    const closed = () => {
+    const deadline = setTimeout(() => failed(new Error('无法确认宿主进程树已停止')), 5000);
+    function failed(error) { cleanup(); error.runtimeUnknown = true; reject(error); }
+    function cleanup() { clearTimeout(deadline); clearTimeout(escalation); child.off('close', closed); }
+    function closed() {
       // A parent may exit on SIGTERM while descendants ignore it.
       if (process.platform !== 'win32') {
         try { process.kill(-child.pid, 'SIGKILL'); }
@@ -47,8 +49,6 @@ export function stopHost(child) {
       }
       cleanup(); resolve();
     };
-    const failed = error => { cleanup(); error.runtimeUnknown = true; reject(error); };
-    const deadline = setTimeout(() => failed(new Error('无法确认宿主进程树已停止')), 5000);
     child.once('close', closed);
     if (process.platform === 'win32') {
       execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, error => {

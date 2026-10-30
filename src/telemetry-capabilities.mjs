@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from 'node:crypto';
 
 export const METRIC_KEYS = [
   'inputTokensTotal',
@@ -15,9 +14,7 @@ export const METRIC_KEYS = [
 export const CONTEXT_KEYS = ['lastRequestInputTokens', 'contextWindowTokens', 'lastRequestInputRatio'];
 export const UNIFIED_FIELDS = [...METRIC_KEYS, ...CONTEXT_KEYS];
 
-const tokenKeys = ['inputTokensTotal', 'uncachedInputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'outputTokens', 'totalTokens'];
-
-function capability(capability, source, requires, completenessConditions, note = null) {
+export function capability(capability, source, requires, completenessConditions, note = null) {
   return { capability, source, requires, completenessConditions, note };
 }
 

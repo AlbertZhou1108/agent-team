@@ -11,7 +11,7 @@ import { telemetryCapabilitiesFor, telemetryObservation } from '../src/telemetry
 import { startServer } from '../src/server.mjs';
 import { confirmedGroup } from './helpers.mjs';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 3000; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
 
 function fixture(t, run) {

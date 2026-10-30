@@ -55,7 +55,7 @@ test('delivery failure is visible and does not turn retrying HTTP into duplicate
 });
 test('controller change rejects stale submissions; panel takeover routes to its coordination and private stays untouched',async t=>{
  const f=await setup(t);await f.server.bus.createPanelAgent({name:'Panel',host:'fake',model:'test',reasoning_effort:'low'});
- const before=f.server.bus.panelConversation().messages.length;const taken=f.server.bus.takeoverTeam(f.group.id,0);const controller=f.server.bus.teamController(f.group.id);
+ const before=f.server.bus.panelConversation().messages.length;const _taken=f.server.bus.takeoverTeam(f.group.id,0);const controller=f.server.bus.teamController(f.group.id);
  assert.equal(controller.kind,'panel_agent');
  assert.equal((await f.send({text:'hello',operationId:'stale',controllerId:f.group.lead})).status,400);
  const sent=await f.send({text:'hello panel lead',operationId:'panel',controllerId:controller.id});assert.equal(sent.status,200);

@@ -40,6 +40,6 @@ test('stopping a host also terminates its child process', { timeout: 12000 }, as
     await stopHost(child);
   } finally {
     await stopHost(child);
-    if (descendant) { try { process.kill(descendant, 'SIGKILL'); } catch {} }
+    if (descendant) { try { process.kill(descendant, 'SIGKILL'); } catch { /* 后代进程可能已自行退出 */ } }
   }
 });

@@ -8,8 +8,6 @@ import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
-import { telemetryOverview } from './telemetry-overview.mjs';
-import { chooseDirectory } from './directory-picker.mjs';
 import { rpc } from './rpc.mjs';
 import { createCodexHost } from './hosts/codex.mjs';
 import { createClaudeHost, createDshHost } from './hosts/cli-hosts.mjs';
@@ -48,8 +46,12 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     let owner;
-    try { owner = JSON.parse(readFileSync(lockPath, 'utf8')); } catch { throw new Error('无法判断数据目录所有者；请先检查 owner.json'); }
+    try { owner = JSON.parse(readFileSync(lockPath, 'utf8')); }
+    catch (error) { throw new Error('无法判断数据目录所有者；请先检查 owner.json', { cause: error }); }
+    // 此处无被捕获的 error 对象可作 cause;规则建议注入的 error 在该作用域不存在。
+    // eslint-disable-next-line preserve-caught-error
     if (!Number.isInteger(owner.pid) || owner.pid <= 0) throw new Error('数据目录锁格式无效');
+    // eslint-disable-next-line preserve-caught-error -- 原始冲突信号由外层 catch 原样重抛,无需 cause
     try { process.kill(owner.pid, 0); throw new Error('该数据目录已有群总线运行'); }
     catch (check) { if (check.code !== 'ESRCH') throw check; }
     unlinkSync(lockPath);

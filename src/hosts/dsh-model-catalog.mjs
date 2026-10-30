@@ -10,6 +10,9 @@ export const inject = ['llm', 'agentDefaultModel'];
 
 export function apply(ctx) {
   let started = false;
+  const timeout = setTimeout(() => {
+    if (!started) output({ ok: false, defaultModel: null, providers: [], failures: [{ provider: null, error: 'DSH LLM provider 未在限定时间内就绪' }] });
+  }, 5000);
   const inspect = async () => {
     if (started || ctx.llm.listProviders().length === 0) return;
     started = true;
@@ -55,9 +58,6 @@ export function apply(ctx) {
       output({ ok: false, defaultModel: null, providers: [], failures: [{ provider: null, error: error instanceof Error ? error.message : String(error) }] });
     }
   };
-  const timeout = setTimeout(() => {
-    if (!started) output({ ok: false, defaultModel: null, providers: [], failures: [{ provider: null, error: 'DSH LLM provider 未在限定时间内就绪' }] });
-  }, 5000);
   ctx.on('llm/adapters-updated', () => setTimeout(inspect, 50));
   setTimeout(inspect, 1000);
 }

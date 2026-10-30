@@ -28,7 +28,7 @@ export async function chooseDirectory({ platform = process.platform, run = execu
           ({ stdout } = await run('kdialog', ['--getexistingdirectory', process.cwd(), '--title', '选择 Panel Agent 私人工作区'], options));
         } catch (fallback) {
           if (fallback.code === 1) return { path: null };
-          if (fallback.code === 'ENOENT') throw new Error('文件夹选择器需要 zenity 或 kdialog；也可以手动输入工作区路径');
+          if (fallback.code === 'ENOENT') throw new Error('文件夹选择器需要 zenity 或 kdialog；也可以手动输入工作区路径', { cause: fallback });
           throw fallback;
         }
       }
@@ -37,5 +37,9 @@ export async function chooseDirectory({ platform = process.platform, run = execu
     if (!path) return { path: null };
     if (!isAbsolute(path) || !(await stat(path)).isDirectory()) throw new Error('选择的路径不是有效文件夹');
     return { path };
-  } finally { picking = false; }
+  } finally {
+    // 模块级单飞锁:并发进入已被上方守卫拦截,复位不依赖读值。
+    // eslint-disable-next-line require-atomic-updates
+    picking = false;
+  }
 }

@@ -18,7 +18,7 @@ import {
 } from '../src/information.mjs';
 import { confirmedGroup } from './helpers.mjs';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn, message = 'condition timed out') {
   for (let index = 0; index < 600; index += 1) {
     if (fn()) return;
@@ -200,7 +200,7 @@ test('rules budget overrun fails explicitly before the host runs and is not sile
 
 test('bounded message list, database body references and measurements work through the tool entry', async t => {
   let captured = null;
-  const { bus, group, calls } = fixture(t, async context => {
+  const { bus, group, calls: _calls } = fixture(t, async context => {
     if (!context.endpoint.context.startsWith('pair:') || captured?.done) {
       context.onAccepted();
       return 'done';

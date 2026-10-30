@@ -11,7 +11,7 @@ export class GroupLifecycle {
     this.bus = bus;
   }
   controllerState(groupId) {
-    const group = this.bus.store.group(groupId);
+    this.bus.store.group(groupId);
     const assignment = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
     return {
       groupId,

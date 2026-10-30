@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Bus } from '../src/bus.mjs';
 import { confirmedGroup } from './helpers.mjs';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const _tick = () => new Promise(resolve => setImmediate(resolve));
 
 async function until(predicate) {
   for (let i = 0; i < 300; i++) {
@@ -64,7 +64,7 @@ test('open group keeps every conversation path working without flow state', asyn
   await until(() => bus.running.size === 0 && bus.store.get('SELECT accepted FROM outbox WHERE id=(SELECT outbox_id FROM attached WHERE message_id=?)', reply.messageId)?.accepted);
 
   const reviewer = bus.store.endpoint(members[2].id, `pair:${members[1].id}`, members[1].id);
-  const peerReply = await bus.tool(executor.id, executor.key, 'send', { to: members[2].id, text: '成员之间也可以继续交流' });
+  const _peerReply = await bus.tool(executor.id, executor.key, 'send', { to: members[2].id, text: '成员之间也可以继续交流' });
   await until(() => bus.running.size === 0);
   assert.ok(calls.some(call => call.endpoint.id === reviewer.id && call.policy.mode === 'workspace-write'));
 

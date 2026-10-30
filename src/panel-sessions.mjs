@@ -334,7 +334,7 @@ export class PanelSessions {
     if (name === 'team_receipt_publish') return this.bus.teamRequests.publish(session, panelAgent, origin, args);
     if (name === 'team_requests') {
       const requests = this.bus.teamRequests.list(panelAgent.id, session.context === 'coordination' ? session.group_id : args.groupId);
-      return session.context === 'coordination' ? requests.map(({ original_text, source_user_message_id, ...request }) => request) : requests;
+      return session.context === 'coordination' ? requests.map(({ original_text: _originalText, source_user_message_id: _sourceUserMessageId, ...request }) => request) : requests;
     }
     if (name === 'model_catalog') return this.bus.modelCatalog({ refresh: true });
     if (name === 'teams_list') return this.bus.panelTeamViews();
@@ -490,706 +490,706 @@ export class PanelSessions {
   }
 
 
-  panelInstructions(session, panelAgent, activeTeamId = null) {
-    if (session.context === 'coordination') return panelCoordinationInstructions(panelAgent, session.group_id);
-    const relation = activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null;
-    return panelPrivateInstructions(panelAgent, {
-      workspace: panelAgent.workspace ?? '未设置（宿主 cwd 使用数据目录）',
-      access: this.bus.panelAccessValue(panelAgent),
-      activeTeamId,
-      relation,
-    });
-  }
-
-  panelUpdate(row) {
-    if (!row) return null;
-    return {
-      ...row,
-      kind: row.kind ?? 'update',
-      sourceMessageIds: JSON.parse(row.source_message_ids),
-    };
-  }
-
-  pendingPanelUpdates(groupId) {
-    const agent = this.bus.panelAgent();
-    if (!agent || !groupId) return [];
-    return this.bus.store.all(
-      `SELECT * FROM panel_updates
-       WHERE panel_agent_id=? AND group_id=? AND delivered_turn_id IS NULL
-       ORDER BY created LIMIT 5`,
-      agent.id,
-      groupId,
-    ).map(row => this.bus.panelUpdate(row));
-  }
-
-  publishPanelUpdate({
-    panelAgentId,
-    groupId,
-    sourceTurnId,
-    kind = 'update',
-    text,
-    sourceMessageIds = [],
-    id = randomUUID(),
-  }) {
-    this.bus.store.run(
-      `INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created)
-       VALUES(?,?,?,?,?,?,?,?)`,
-      id,
-      panelAgentId,
-      groupId,
-      sourceTurnId ?? null,
-      kind,
-      text,
-      JSON.stringify(sourceMessageIds),
-      new Date().toISOString(),
-    );
-    const update = this.bus.panelUpdate(this.bus.store.get('SELECT * FROM panel_updates WHERE id=?', id));
-    this.bus.emit('panel-update', update);
-    return update;
-  }
-
-  markPanelUpdatesDelivered(updateIds, turnId) {
-    if (!updateIds.length) return;
-    const delivered = new Date().toISOString();
-    this.bus.store.transaction(() => {
-      for (const id of updateIds) {
-        this.bus.store.run(
-          'UPDATE panel_updates SET delivered_turn_id=?,delivered=? WHERE id=? AND delivered_turn_id IS NULL',
-          turnId,
-          delivered,
-          id,
-        );
-      }
-    });
-  }
-
-  async pumpPanelUpdates() {
-    // Only explicit user answers may resume the private host. Legacy updates never do.
-    this.bus.flushPanelPrivateDeliveries();
-  }
-
-  async runPanelTurn({
-    sourceUserMessageId = null,
-    session,
-    panelAgent,
-    prompt,
-    activeTeamId = null,
-    inputs = [],
-    onAccepted = () => {},
-  }) {
-    if (this.bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行');
-    if (this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) {
-      throw new Error('Panel Agent 会话存在待核实运行，请先核实宿主已经停止');
-    }
-    if (session.context === 'coordination') {
-      this.bus.requirePanelMain(panelAgent.id, session.group_id);
-      this.bus.collaboration.requireCommunication(session.group_id);
-      if (this.bus.panelUnknown(session.group_id).length) throw new Error('Panel Agent 团队存在待核实运行');
-    }
-    const host = this.bus.hosts.get(panelAgent.host);
-    if (!host) throw new Error(`宿主未配置: ${panelAgent.host}`);
-    const abort = new AbortController();
-    const group = session.group_id ? this.bus.store.group(session.group_id) : null;
-    const privateContext = session.context === 'private';
-    const access = privateContext ? this.bus.panelAccessValue(panelAgent) : 'communication';
-    if (privateContext) this.bus.requirePanelAccess(panelAgent.host, access);
-    const privateWorkspace = privateContext ? (panelAgent.workspace ?? this.bus.store.directory) : null;
-    const policy = privateContext
-      ? { mode: access, allowShell: true, access, domain: 'project' }
-      : { mode: 'communication', allowShell: false, domain: 'communication' };
-    const schema = this.bus.information.rememberPanelSchema(session, this.bus.information.panelSchemaForStart(session));
-    const instructions = this.bus.panelInstructions(session, panelAgent, activeTeamId);
-    this.bus.information.assertRuleBudget(instructions, schema);
-    const turnId = randomUUID();
-    const now = new Date().toISOString();
-    this.bus.store.run(
-      'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
-      turnId,
-      session.id,
-      panelAgent.id,
-      session.context,
-      session.group_id ?? null,
-      activeTeamId,
-      'running',
-      now,
-    );
-    if (sourceUserMessageId) this.bus.store.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, turnId);
-    this.bus.information.rememberTurnSchema(turnId, 'panel', schema);
-    inputs.forEach((message, ordinal) => this.bus.store.run(
-      'INSERT INTO panel_turn_inputs VALUES(?,?,?)',
-      turnId,
-      message.id,
-      ordinal,
-    ));
-    const live = {
-      endpoint: { ...session, group_id: session.group_id ?? null, context: session.context === 'private' ? 'panel-private' : 'panel-coordination' },
-      activeTeamId,
-      abort,
-      turnId,
-      done: null,
-      created: now,
-    };
-    const stream = {
-      agentId: panelAgent.id,
-      sessionId: session.id,
-      turnId,
-      context: session.context,
-      activeTeamId,
-      text: '',
-      reasoning: '',
-      // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
-      runPhase: 'accepted',
-      tool: null,
-      created: now,
-      updatedAt: now,
-    };
-    this.bus.panelStreams.set(turnId, stream);
-    this.bus.publishPanelStream({ type: 'start', stream: { ...stream } });
-    const teamStream = session.context === 'coordination' && inputs.some(message => message.sender === 'user')
-      ? {
-          id: turnId,
-          groupId: session.group_id,
-          endpointId: session.id,
-          memberId: panelAgent.id,
-          memberName: panelAgent.name,
-          recipientName: '用户',
-          pairKey: '',
-          kind: 'reply',
-          host: panelAgent.host,
-          context: session.context,
-          turnId,
-          text: '',
-          reasoning: '',
-          runPhase: 'accepted',
-          tool: null,
-          created: now,
-          updatedAt: now,
-        }
-      : null;
-    if (teamStream) {
-      this.bus.teamStreams.set(turnId, teamStream);
-      this.bus.publishTeamStream({ type: 'start', stream: { ...teamStream } });
-    }
-    // `publish: false` 用于增量路径:该事件本身已携带新阶段,无需再补一条 phase。
-    const setPhase = (phase, tool = null, publish = true) => {
-      const current = this.bus.panelStreams.get(turnId);
-      if (!current || (current.runPhase === phase && current.tool === tool)) return;
-      current.runPhase = phase;
-      current.tool = tool;
-      current.updatedAt = new Date().toISOString();
-      if (!publish) return;
-      this.bus.publishPanelStream({ type: 'phase', stream: { ...current } });
-      const teamCurrent = teamStream ? this.bus.teamStreams.get(turnId) : null;
-      if (teamCurrent) {
-        teamCurrent.runPhase = phase;
-        teamCurrent.tool = tool;
-        this.bus.publishTeamStream({ type: 'phase', stream: { ...teamCurrent } });
-      }
-    };
-    const toolStreamRun = session.context === 'coordination'
-      ? this.bus.createToolStreamRun({
-          groupId: session.group_id,
-          endpointId: session.id,
-          memberId: panelAgent.id,
-          memberName: panelAgent.name,
-          host: panelAgent.host,
-          context: session.context,
-          turnId,
-        })
-      : null;
-    const telemetryStarted = performance.now();
-    this.bus.running.set(session.id, live);
-    this.bus.events.panel(session.id, { type: 'input', text: prompt }, turnId);
-    try {
-      this.bus.information.measureRules({
-        groupId: session.group_id ?? null,
-        endpointId: session.id,
-        turnId,
-        schemaVersion: schema,
-        instructions,
-        fixed: false,
-      });
-      this.bus.information.measureTurnInput({
-        groupId: session.group_id ?? null,
-        endpointId: session.id,
-        turnId,
-        schemaVersion: schema,
-        prompt,
-      });
-    } catch {
-      // Measurement is observational and must never change the host outcome.
-    }
-    this.bus.events.panel(session.id, {
-      type: 'framework.context',
-      activeTeamId,
-      relation: activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null,
-      contextSchemaVersion: schema,
-      ...(privateContext ? { workspace: privateWorkspace, access } : {}),
-    }, turnId);
-    const previousPolicy = session.policy_signature ? { signature: session.policy_signature } : null;
-    const promise = Promise.resolve().then(() => host.run({
-      endpoint: { ...session, context: live.endpoint.context, group_id: session.group_id ?? null },
-      turnId,
-      workspace: privateContext ? privateWorkspace : (group?.workspace ?? this.bus.store.directory),
-      prompt,
-      instructions,
-      tools: panelToolsFor(session.context),
-      policy,
-      previousPolicy,
-      signal: abort.signal,
-      modelSelection: {
-        model_provider: panelAgent.model_provider ?? null,
-        model: panelAgent.model ?? null,
-        reasoning_effort: panelAgent.reasoning_effort ?? null,
-      },
-      onAccepted: () => {
-        onAccepted(turnId);
-        this.bus.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
-      },
-      onNativeTurn: ref => {
-        this.bus.events.panel(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
-      },
-      onTool: async (name, args, metadata = {}) => {
-        setPhase('tool', { name, groupId: activeTeamId ?? null });
-        try {
-          return await this.bus.panelTool(session.id, session.key, name, args, {
-            ...metadata,
-            turnId,
-            activeTeamId,
-          });
-        } catch (error) {
-          this.bus.failToolMessageStream(
-            turnId,
-            name,
-            args,
-            error,
-            metadata.nativeCallId ?? null,
-          );
-          throw error;
-        } finally {
-          // 工具结束后回到内容阶段:有正文即输出中,否则回到思考中。
-          const settled = this.bus.panelStreams.get(turnId);
-          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
-        }
-      },
-      onSession: value => {
-        this.bus.store.run(
-          'UPDATE panel_sessions SET session=?,updated=? WHERE id=?',
-          value,
-          new Date().toISOString(),
-          session.id,
-        );
-        session.session = value;
-      },
-      onModel: observation => this.bus.events.panel(session.id, { type: 'framework.model', ...observation }, turnId),
-      onSelection: selection => {
-        if (selection?.model) this.bus.events.panel(session.id, { type: 'framework.model_selection', ...selection }, turnId);
-      },
-      onToolCallDelta: payload => {
-        if (toolStreamRun) {
-          this.bus.observeToolStreamDelta(
-            toolStreamRun.scope,
-            toolStreamRun.streams,
-            payload,
-          );
-        }
-      },
-      onTextDelta: (delta, metadata = {}) => {
-        if (typeof delta !== 'string' || !delta) return;
-        const current = this.bus.panelStreams.get(turnId);
-        if (!current || current.text.length + delta.length > 2_000_000) return;
-        current.text += delta;
-        current.runPhase = 'writing';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (teamStream) {
-          const teamCurrent = this.bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.text = current.text;
-            teamCurrent.runPhase = 'writing';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            this.bus.publishTeamStream({
-              type: 'delta',
-              stream: { ...teamCurrent, text: '' },
-              delta,
-              metadata,
-            });
-          }
-        }
-        this.bus.publishPanelStream({
-          type: 'delta',
-          stream: { ...current, text: '' },
-          delta,
-          metadata,
-        });
-      },
-      onReasoningDelta: (delta, metadata = {}) => {
-        if (typeof delta !== 'string' || !delta) return;
-        const current = this.bus.panelStreams.get(turnId);
-        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
-        current.reasoning += delta;
-        current.runPhase = 'thinking';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (teamStream) {
-          const teamCurrent = this.bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.reasoning = current.reasoning;
-            teamCurrent.runPhase = 'thinking';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            this.bus.publishTeamStream({
-              type: 'reasoning-delta',
-              stream: { ...teamCurrent, text: '', reasoning: '' },
-              delta,
-              metadata,
-            });
-          }
-        }
-        this.bus.publishPanelStream({
-          type: 'reasoning-delta',
-          stream: { ...current, text: '', reasoning: '' },
-          delta,
-          metadata,
-        });
-      },
-      onPolicy: observation => {
-        if (observation.signature) {
-          this.bus.store.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', observation.signature, new Date().toISOString(), session.id);
-          session.policy_signature = observation.signature;
-        }
-        this.bus.events.panel(session.id, { type: 'framework.policy', ...observation }, turnId);
-      },
-      onTelemetry: observation => {
-        try {
-          this.bus.telemetry.record({
-            groupId: session.group_id,
-            executorKind: 'panel_agent',
-            executorId: panelAgent.id,
-            endpointId: session.id,
-            sessionKey: 'default',
-            turnId,
-            turnKind: 'panel',
-            host: panelAgent.host,
-            hostSessionId: session.session ?? null,
-            context: session.context,
-            observation,
-          });
-        } catch {
-          // Telemetry is observational and must never turn a host turn into a failure.
-        }
-      },
-      onEvent: event => {
-        if (!this.bus.closing) this.bus.events.panel(session.id, event, turnId);
-      },
-    }));
-    live.done = promise;
-    try {
-      const result = await promise;
-      this.bus.store.run(
-        "UPDATE panel_turns SET state=?,ended=? WHERE id=?",
-        abort.signal.aborted ? 'cancelled' : 'completed',
-        new Date().toISOString(),
-        turnId,
-      );
-      this.bus.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
-      if (result) {
-        const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
-        this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
-      }
-      const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
-        ? this.bus.teamDirectives.publishOutput(turnId, result, true)
-        : [];
-      const persistedReply = publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN panel_message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
-      this.bus.panelStreams.delete(turnId);
-      this.bus.publishPanelStream({
-        type: 'complete',
-        stream: { ...stream, text: String(result ?? stream.text), updatedAt: new Date().toISOString() },
-      });
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: 'complete',
-          stream: {
-            ...teamStream,
-            text: String(persistedReply?.text ?? result ?? teamStream.text),
-            updatedAt: new Date().toISOString(),
-            ...(persistedReply
-              ? { messageId: persistedReply.id, messageSeq: persistedReply.seq }
-              : {}),
-          },
-        });
-      }
-      this.bus.discardToolStreamRun(turnId);
-      return result;
-    } catch (error) {
-      const state = error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed';
-      this.bus.store.run(
-        'UPDATE panel_turns SET state=?,ended=? WHERE id=?',
-        state,
-        new Date().toISOString(),
-        turnId,
-      );
-      this.bus.events.panel(session.id, {
-        type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error',
-        error: error.message,
-      }, turnId);
-      this.bus.panelStreams.delete(turnId);
-      this.bus.publishPanelStream({
-        type: abort.signal.aborted ? 'cancelled' : 'error',
-        stream: { ...stream, updatedAt: new Date().toISOString() },
-        error: error.message,
-      });
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: abort.signal.aborted ? 'cancelled' : 'error',
-          stream: { ...teamStream, updatedAt: new Date().toISOString() },
-          error: error.message,
-        });
-      }
-      this.bus.discardToolStreamRun(turnId, 'error', error.message);
-      throw error;
-    } finally {
-      try {
-        this.bus.telemetry.record({
-          groupId: session.group_id,
-          executorKind: 'panel_agent',
-          executorId: panelAgent.id,
-          endpointId: session.id,
-          sessionKey: 'default',
-          turnId,
-          turnKind: 'panel',
-          host: panelAgent.host,
-          hostSessionId: session.session ?? null,
-          context: session.context,
-          observation: telemetryObservation({
-            source: 'framework.measured',
-            scope: 'turn',
-            aggregation: 'delta',
-            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
-            quality: { executionWallMs: 'measured' },
-            completeness: { executionWallMs: 'complete' },
-          }),
-        });
-      } catch { /* telemetry must not affect the host outcome */ }
-      this.bus.running.delete(session.id);
-      setImmediate(() => this.bus.pumpPanelUpdates());
-      setImmediate(() => this.bus.pump());
-    }
+  panelInstructions(session, panelAgent, activeTeamId = null) {
+    if (session.context === 'coordination') return panelCoordinationInstructions(panelAgent, session.group_id);
+    const relation = activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null;
+    return panelPrivateInstructions(panelAgent, {
+      workspace: panelAgent.workspace ?? '未设置（宿主 cwd 使用数据目录）',
+      access: this.bus.panelAccessValue(panelAgent),
+      activeTeamId,
+      relation,
+    });
+  }
+
+  panelUpdate(row) {
+    if (!row) return null;
+    return {
+      ...row,
+      kind: row.kind ?? 'update',
+      sourceMessageIds: JSON.parse(row.source_message_ids),
+    };
+  }
+
+  pendingPanelUpdates(groupId) {
+    const agent = this.bus.panelAgent();
+    if (!agent || !groupId) return [];
+    return this.bus.store.all(
+      `SELECT * FROM panel_updates
+       WHERE panel_agent_id=? AND group_id=? AND delivered_turn_id IS NULL
+       ORDER BY created LIMIT 5`,
+      agent.id,
+      groupId,
+    ).map(row => this.bus.panelUpdate(row));
+  }
+
+  publishPanelUpdate({
+    panelAgentId,
+    groupId,
+    sourceTurnId,
+    kind = 'update',
+    text,
+    sourceMessageIds = [],
+    id = randomUUID(),
+  }) {
+    this.bus.store.run(
+      `INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created)
+       VALUES(?,?,?,?,?,?,?,?)`,
+      id,
+      panelAgentId,
+      groupId,
+      sourceTurnId ?? null,
+      kind,
+      text,
+      JSON.stringify(sourceMessageIds),
+      new Date().toISOString(),
+    );
+    const update = this.bus.panelUpdate(this.bus.store.get('SELECT * FROM panel_updates WHERE id=?', id));
+    this.bus.emit('panel-update', update);
+    return update;
+  }
+
+  markPanelUpdatesDelivered(updateIds, turnId) {
+    if (!updateIds.length) return;
+    const delivered = new Date().toISOString();
+    this.bus.store.transaction(() => {
+      for (const id of updateIds) {
+        this.bus.store.run(
+          'UPDATE panel_updates SET delivered_turn_id=?,delivered=? WHERE id=? AND delivered_turn_id IS NULL',
+          turnId,
+          delivered,
+          id,
+        );
+      }
+    });
+  }
+
+  async pumpPanelUpdates() {
+    // Only explicit user answers may resume the private host. Legacy updates never do.
+    this.bus.flushPanelPrivateDeliveries();
+  }
+
+  async runPanelTurn({
+    sourceUserMessageId = null,
+    session,
+    panelAgent,
+    prompt,
+    activeTeamId = null,
+    inputs = [],
+    onAccepted = () => {},
+  }) {
+    if (this.bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行');
+    if (this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) {
+      throw new Error('Panel Agent 会话存在待核实运行，请先核实宿主已经停止');
+    }
+    if (session.context === 'coordination') {
+      this.bus.requirePanelMain(panelAgent.id, session.group_id);
+      this.bus.collaboration.requireCommunication(session.group_id);
+      if (this.bus.panelUnknown(session.group_id).length) throw new Error('Panel Agent 团队存在待核实运行');
+    }
+    const host = this.bus.hosts.get(panelAgent.host);
+    if (!host) throw new Error(`宿主未配置: ${panelAgent.host}`);
+    const abort = new AbortController();
+    const group = session.group_id ? this.bus.store.group(session.group_id) : null;
+    const privateContext = session.context === 'private';
+    const access = privateContext ? this.bus.panelAccessValue(panelAgent) : 'communication';
+    if (privateContext) this.bus.requirePanelAccess(panelAgent.host, access);
+    const privateWorkspace = privateContext ? (panelAgent.workspace ?? this.bus.store.directory) : null;
+    const policy = privateContext
+      ? { mode: access, allowShell: true, access, domain: 'project' }
+      : { mode: 'communication', allowShell: false, domain: 'communication' };
+    const schema = this.bus.information.rememberPanelSchema(session, this.bus.information.panelSchemaForStart(session));
+    const instructions = this.bus.panelInstructions(session, panelAgent, activeTeamId);
+    this.bus.information.assertRuleBudget(instructions, schema);
+    const turnId = randomUUID();
+    const now = new Date().toISOString();
+    this.bus.store.run(
+      'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
+      turnId,
+      session.id,
+      panelAgent.id,
+      session.context,
+      session.group_id ?? null,
+      activeTeamId,
+      'running',
+      now,
+    );
+    if (sourceUserMessageId) this.bus.store.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, turnId);
+    this.bus.information.rememberTurnSchema(turnId, 'panel', schema);
+    inputs.forEach((message, ordinal) => this.bus.store.run(
+      'INSERT INTO panel_turn_inputs VALUES(?,?,?)',
+      turnId,
+      message.id,
+      ordinal,
+    ));
+    const live = {
+      endpoint: { ...session, group_id: session.group_id ?? null, context: session.context === 'private' ? 'panel-private' : 'panel-coordination' },
+      activeTeamId,
+      abort,
+      turnId,
+      done: null,
+      created: now,
+    };
+    const stream = {
+      agentId: panelAgent.id,
+      sessionId: session.id,
+      turnId,
+      context: session.context,
+      activeTeamId,
+      text: '',
+      reasoning: '',
+      // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
+      runPhase: 'accepted',
+      tool: null,
+      created: now,
+      updatedAt: now,
+    };
+    this.bus.panelStreams.set(turnId, stream);
+    this.bus.publishPanelStream({ type: 'start', stream: { ...stream } });
+    const teamStream = session.context === 'coordination' && inputs.some(message => message.sender === 'user')
+      ? {
+          id: turnId,
+          groupId: session.group_id,
+          endpointId: session.id,
+          memberId: panelAgent.id,
+          memberName: panelAgent.name,
+          recipientName: '用户',
+          pairKey: '',
+          kind: 'reply',
+          host: panelAgent.host,
+          context: session.context,
+          turnId,
+          text: '',
+          reasoning: '',
+          runPhase: 'accepted',
+          tool: null,
+          created: now,
+          updatedAt: now,
+        }
+      : null;
+    if (teamStream) {
+      this.bus.teamStreams.set(turnId, teamStream);
+      this.bus.publishTeamStream({ type: 'start', stream: { ...teamStream } });
+    }
+    // `publish: false` 用于增量路径:该事件本身已携带新阶段,无需再补一条 phase。
+    const setPhase = (phase, tool = null, publish = true) => {
+      const current = this.bus.panelStreams.get(turnId);
+      if (!current || (current.runPhase === phase && current.tool === tool)) return;
+      current.runPhase = phase;
+      current.tool = tool;
+      current.updatedAt = new Date().toISOString();
+      if (!publish) return;
+      this.bus.publishPanelStream({ type: 'phase', stream: { ...current } });
+      const teamCurrent = teamStream ? this.bus.teamStreams.get(turnId) : null;
+      if (teamCurrent) {
+        teamCurrent.runPhase = phase;
+        teamCurrent.tool = tool;
+        this.bus.publishTeamStream({ type: 'phase', stream: { ...teamCurrent } });
+      }
+    };
+    const toolStreamRun = session.context === 'coordination'
+      ? this.bus.createToolStreamRun({
+          groupId: session.group_id,
+          endpointId: session.id,
+          memberId: panelAgent.id,
+          memberName: panelAgent.name,
+          host: panelAgent.host,
+          context: session.context,
+          turnId,
+        })
+      : null;
+    const telemetryStarted = performance.now();
+    this.bus.running.set(session.id, live);
+    this.bus.events.panel(session.id, { type: 'input', text: prompt }, turnId);
+    try {
+      this.bus.information.measureRules({
+        groupId: session.group_id ?? null,
+        endpointId: session.id,
+        turnId,
+        schemaVersion: schema,
+        instructions,
+        fixed: false,
+      });
+      this.bus.information.measureTurnInput({
+        groupId: session.group_id ?? null,
+        endpointId: session.id,
+        turnId,
+        schemaVersion: schema,
+        prompt,
+      });
+    } catch {
+      // Measurement is observational and must never change the host outcome.
+    }
+    this.bus.events.panel(session.id, {
+      type: 'framework.context',
+      activeTeamId,
+      relation: activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null,
+      contextSchemaVersion: schema,
+      ...(privateContext ? { workspace: privateWorkspace, access } : {}),
+    }, turnId);
+    const previousPolicy = session.policy_signature ? { signature: session.policy_signature } : null;
+    const promise = Promise.resolve().then(() => host.run({
+      endpoint: { ...session, context: live.endpoint.context, group_id: session.group_id ?? null },
+      turnId,
+      workspace: privateContext ? privateWorkspace : (group?.workspace ?? this.bus.store.directory),
+      prompt,
+      instructions,
+      tools: panelToolsFor(session.context),
+      policy,
+      previousPolicy,
+      signal: abort.signal,
+      modelSelection: {
+        model_provider: panelAgent.model_provider ?? null,
+        model: panelAgent.model ?? null,
+        reasoning_effort: panelAgent.reasoning_effort ?? null,
+      },
+      onAccepted: () => {
+        onAccepted(turnId);
+        this.bus.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
+      },
+      onNativeTurn: ref => {
+        this.bus.events.panel(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
+      },
+      onTool: async (name, args, metadata = {}) => {
+        setPhase('tool', { name, groupId: activeTeamId ?? null });
+        try {
+          return await this.bus.panelTool(session.id, session.key, name, args, {
+            ...metadata,
+            turnId,
+            activeTeamId,
+          });
+        } catch (error) {
+          this.bus.failToolMessageStream(
+            turnId,
+            name,
+            args,
+            error,
+            metadata.nativeCallId ?? null,
+          );
+          throw error;
+        } finally {
+          // 工具结束后回到内容阶段:有正文即输出中,否则回到思考中。
+          const settled = this.bus.panelStreams.get(turnId);
+          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
+        }
+      },
+      onSession: value => {
+        this.bus.store.run(
+          'UPDATE panel_sessions SET session=?,updated=? WHERE id=?',
+          value,
+          new Date().toISOString(),
+          session.id,
+        );
+        session.session = value;
+      },
+      onModel: observation => this.bus.events.panel(session.id, { type: 'framework.model', ...observation }, turnId),
+      onSelection: selection => {
+        if (selection?.model) this.bus.events.panel(session.id, { type: 'framework.model_selection', ...selection }, turnId);
+      },
+      onToolCallDelta: payload => {
+        if (toolStreamRun) {
+          this.bus.observeToolStreamDelta(
+            toolStreamRun.scope,
+            toolStreamRun.streams,
+            payload,
+          );
+        }
+      },
+      onTextDelta: (delta, metadata = {}) => {
+        if (typeof delta !== 'string' || !delta) return;
+        const current = this.bus.panelStreams.get(turnId);
+        if (!current || current.text.length + delta.length > 2_000_000) return;
+        current.text += delta;
+        current.runPhase = 'writing';
+        current.tool = null;
+        current.updatedAt = new Date().toISOString();
+        if (teamStream) {
+          const teamCurrent = this.bus.teamStreams.get(turnId);
+          if (teamCurrent) {
+            teamCurrent.text = current.text;
+            teamCurrent.runPhase = 'writing';
+            teamCurrent.tool = null;
+            teamCurrent.updatedAt = current.updatedAt;
+            this.bus.publishTeamStream({
+              type: 'delta',
+              stream: { ...teamCurrent, text: '' },
+              delta,
+              metadata,
+            });
+          }
+        }
+        this.bus.publishPanelStream({
+          type: 'delta',
+          stream: { ...current, text: '' },
+          delta,
+          metadata,
+        });
+      },
+      onReasoningDelta: (delta, metadata = {}) => {
+        if (typeof delta !== 'string' || !delta) return;
+        const current = this.bus.panelStreams.get(turnId);
+        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
+        current.reasoning += delta;
+        current.runPhase = 'thinking';
+        current.tool = null;
+        current.updatedAt = new Date().toISOString();
+        if (teamStream) {
+          const teamCurrent = this.bus.teamStreams.get(turnId);
+          if (teamCurrent) {
+            teamCurrent.reasoning = current.reasoning;
+            teamCurrent.runPhase = 'thinking';
+            teamCurrent.tool = null;
+            teamCurrent.updatedAt = current.updatedAt;
+            this.bus.publishTeamStream({
+              type: 'reasoning-delta',
+              stream: { ...teamCurrent, text: '', reasoning: '' },
+              delta,
+              metadata,
+            });
+          }
+        }
+        this.bus.publishPanelStream({
+          type: 'reasoning-delta',
+          stream: { ...current, text: '', reasoning: '' },
+          delta,
+          metadata,
+        });
+      },
+      onPolicy: observation => {
+        if (observation.signature) {
+          this.bus.store.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', observation.signature, new Date().toISOString(), session.id);
+          session.policy_signature = observation.signature;
+        }
+        this.bus.events.panel(session.id, { type: 'framework.policy', ...observation }, turnId);
+      },
+      onTelemetry: observation => {
+        try {
+          this.bus.telemetry.record({
+            groupId: session.group_id,
+            executorKind: 'panel_agent',
+            executorId: panelAgent.id,
+            endpointId: session.id,
+            sessionKey: 'default',
+            turnId,
+            turnKind: 'panel',
+            host: panelAgent.host,
+            hostSessionId: session.session ?? null,
+            context: session.context,
+            observation,
+          });
+        } catch {
+          // Telemetry is observational and must never turn a host turn into a failure.
+        }
+      },
+      onEvent: event => {
+        if (!this.bus.closing) this.bus.events.panel(session.id, event, turnId);
+      },
+    }));
+    live.done = promise;
+    try {
+      const result = await promise;
+      this.bus.store.run(
+        "UPDATE panel_turns SET state=?,ended=? WHERE id=?",
+        abort.signal.aborted ? 'cancelled' : 'completed',
+        new Date().toISOString(),
+        turnId,
+      );
+      this.bus.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
+      if (result) {
+        const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
+        this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
+      }
+      const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
+        ? this.bus.teamDirectives.publishOutput(turnId, result, true)
+        : [];
+      const persistedReply = publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN panel_message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
+      this.bus.panelStreams.delete(turnId);
+      this.bus.publishPanelStream({
+        type: 'complete',
+        stream: { ...stream, text: String(result ?? stream.text), updatedAt: new Date().toISOString() },
+      });
+      if (teamStream) {
+        this.bus.teamStreams.delete(turnId);
+        this.bus.publishTeamStream({
+          type: 'complete',
+          stream: {
+            ...teamStream,
+            text: String(persistedReply?.text ?? result ?? teamStream.text),
+            updatedAt: new Date().toISOString(),
+            ...(persistedReply
+              ? { messageId: persistedReply.id, messageSeq: persistedReply.seq }
+              : {}),
+          },
+        });
+      }
+      this.bus.discardToolStreamRun(turnId);
+      return result;
+    } catch (error) {
+      const state = error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed';
+      this.bus.store.run(
+        'UPDATE panel_turns SET state=?,ended=? WHERE id=?',
+        state,
+        new Date().toISOString(),
+        turnId,
+      );
+      this.bus.events.panel(session.id, {
+        type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error',
+        error: error.message,
+      }, turnId);
+      this.bus.panelStreams.delete(turnId);
+      this.bus.publishPanelStream({
+        type: abort.signal.aborted ? 'cancelled' : 'error',
+        stream: { ...stream, updatedAt: new Date().toISOString() },
+        error: error.message,
+      });
+      if (teamStream) {
+        this.bus.teamStreams.delete(turnId);
+        this.bus.publishTeamStream({
+          type: abort.signal.aborted ? 'cancelled' : 'error',
+          stream: { ...teamStream, updatedAt: new Date().toISOString() },
+          error: error.message,
+        });
+      }
+      this.bus.discardToolStreamRun(turnId, 'error', error.message);
+      throw error;
+    } finally {
+      try {
+        this.bus.telemetry.record({
+          groupId: session.group_id,
+          executorKind: 'panel_agent',
+          executorId: panelAgent.id,
+          endpointId: session.id,
+          sessionKey: 'default',
+          turnId,
+          turnKind: 'panel',
+          host: panelAgent.host,
+          hostSessionId: session.session ?? null,
+          context: session.context,
+          observation: telemetryObservation({
+            source: 'framework.measured',
+            scope: 'turn',
+            aggregation: 'delta',
+            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
+            quality: { executionWallMs: 'measured' },
+            completeness: { executionWallMs: 'complete' },
+          }),
+        });
+      } catch { /* telemetry must not affect the host outcome */ }
+      this.bus.running.delete(session.id);
+      setImmediate(() => this.bus.pumpPanelUpdates());
+      setImmediate(() => this.bus.pump());
+    }
   }
 
 
-  async panelPrivateTurn(text, activeTeamId = null) {
-    const panelAgent = this.bus.panelAgent();
-    if (!panelAgent) throw new Error('Panel Agent 尚未创建');
-    if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('Panel Agent 输入无效');
-    if (activeTeamId) throw new Error('团队对话已迁移到团队协作会话，请从团队页面发送');
-    const user = this.bus.store.panelAppend(panelAgent.id, 'private', 'user', text.trim(), null);
-    const session = this.bus.store.panelSession(panelAgent.id, 'private');
-    const updates = [];
-    const prompt = text.trim();
-    let accepted = false;
-    let acceptedTurnId = null;
-    try {
-      const result = await this.bus.runPanelTurn({
-        session,
-        panelAgent,
-        sourceUserMessageId: user.id,
-        prompt,
-        activeTeamId: null,
-        onAccepted: turnId => {
-          accepted = true;
-          acceptedTurnId = turnId;
-        },
-      });
-      if (result && acceptedTurnId) {
-        this.bus.markPanelUpdatesDelivered(updates.map(update => update.id), acceptedTurnId);
-      }
-      let finalActiveTeamId = activeTeamId ?? null;
-      if (acceptedTurnId) {
-        finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
-      }
-      if (finalActiveTeamId && finalActiveTeamId !== (activeTeamId ?? null)) {
-        this.bus.store.run('UPDATE panel_messages SET active_team_id=? WHERE id=?', finalActiveTeamId, user.id);
-        user.active_team_id = finalActiveTeamId;
-      }
-      return {
-        message: user,
-        reply: this.bus.store.get("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 1", panelAgent.id),
-        result,
-        activeTeamId: finalActiveTeamId,
-      };
-    } catch (error) {
-      throw Object.assign(error, { panelMessageId: user.id, accepted });
-    }
-  }
-  async stopPanel() {
-    const agent = this.bus.panelAgent();
-    if (!agent) return { stopped: [] };
-    const active = [...this.bus.running.values()].filter(item => item.endpoint.context === 'panel-private');
-    for (const item of active) item.abort.abort();
-    await Promise.allSettled(active.map(item => item.done));
-    return { stopped: active.map(item => item.turnId) };
-  }
-  resolvePanelRuntime(turnId, reason) {
-    if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');
-    const turn = this.bus.store.get("SELECT * FROM panel_turns WHERE id=? AND state='unknown'", turnId);
-    if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
-    this.bus.store.run("UPDATE panel_turns SET state='stopped',ended=? WHERE id=?", new Date().toISOString(), turnId);
-    this.bus.events.panel(turn.session_id, {
-      type: 'framework.runtime_verified_by_user',
-      turnId,
-      reason: reason.trim(),
-    }, turnId);
-    this.bus.pump();
-    return { turnId, state: 'stopped' };
-  }
-  panelInteractionAnchor(session, panelAgent, origin, text) {
-    if (session.context === 'coordination') {
-      const groupId = session.group_id;
-      const message = this.bus.store.append(groupId, panelAgent.id, 'user', 'send', text);
-      this.bus.emit('message', message);
-      return { groupId, messageId: message.id, panelMessageId: null };
-    }
-    const row = this.bus.store.panelAppend(panelAgent.id, 'private', 'assistant', text, null);
-    return { groupId: null, messageId: null, panelMessageId: row.id };
-  }
-  requestPanelControllerAction(panelAgent, session, origin, action, groupId) {
-    if (!['takeover', 'handback'].includes(action)) throw new Error('控制动作无效');
-    const relation = this.bus.panelTeamRelation(groupId);
-    if (action === 'takeover' && relation !== 'observer') throw new Error('团队当前不是观察状态');
-    if (action === 'handback' && relation !== 'main') throw new Error('Panel Agent 当前不是该团队主 Agent');
-    const revision = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId)?.revision ?? 0;
-    const existing = this.bus.store.get(
-      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC LIMIT 1",
-      panelAgent.id,
-      groupId,
-      action,
-    );
-    if (existing) {
-      if (JSON.parse(existing.payload).baseRevision === revision) return interactionView(existing);
-      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '控制者版本已变化');
-    }
-    const groupName = this.bus.store.group(groupId).name;
-    const text = action === 'takeover'
-      ? `请求接管团队「${groupName}」`
-      : `请求将团队「${groupName}」交还原主 Agent`;
-    const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
-    const row = this.bus.store.createInteraction({
-      id: randomUUID(),
-      groupId,
-      panelAgentId: panelAgent.id,
-      endpointId: session.id,
-      context: session.context,
-      turnId: origin.turnId ?? '',
-      callId: origin.callId,
-      messageId: anchor.messageId,
-      panelMessageId: anchor.panelMessageId,
-      kind: action,
-      payload: { kind: action, text, groupId, baseRevision: revision },
-    });
-    return interactionView(row);
-  }
-  requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
-    const existing = this.bus.store.get(
-      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC LIMIT 1",
-      panelAgent.id,
-      group.id,
-    );
-    if (existing) {
-      if (JSON.parse(existing.payload).text === text) return interactionView(existing);
-      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '请求内容已变化');
-    }
-    const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
-    const row = this.bus.store.createInteraction({
-      id: randomUUID(),
-      groupId: group.id,
-      panelAgentId: panelAgent.id,
-      endpointId: session.id,
-      context: session.context,
-      turnId: origin.turnId ?? '',
-      callId: origin.callId,
-      messageId: anchor.messageId,
-      panelMessageId: anchor.panelMessageId,
-      kind: 'member_model',
-      payload: { kind: 'member_model', text, args },
-    });
-    return interactionView(row);
-  }
-  deliverToPanelPrivate(row, text) {
-    const agent = this.bus.panelAgent();
-    if (!agent || agent.id !== row.panel_agent_id || this.bus.closing) return;
-    const session = this.bus.store.panelSession(agent.id, 'private');
-    if (this.bus.running.has(session.id)) {
-      this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
-      return;
-    }
-    void this.bus.panelPrivateTurn(text, null).catch(() => {});
-  }
-  // 私人会话忙碌期间积压的互动答复/动作结果,在会话空闲后按序补投。
-  flushPanelPrivateDeliveries() {
-    if (this.bus.closing || !this.panelPrivateDeliveries.length) return;
-    const agent = this.bus.panelAgent();
-    if (!agent) return;
-    const session = this.bus.store.panelSession(agent.id, 'private');
-    if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
-    const item = this.panelPrivateDeliveries.shift();
-    void this.bus.panelPrivateTurn(item.text, null).catch(() => {});
-  }
-
-  panelUnknown(groupId = null) {
-    return this.bus.store.all(
-      `SELECT t.*,s.context AS session_context FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
-       WHERE t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
-      ...(groupId ? [groupId] : []),
-    );
-  }
-  failPanelDelivery(session, input, entry, error) {
-    this.bus.store.run('UPDATE panel_outbox SET error=? WHERE id=?', error.message, entry.id);
-    if (this.bus.closing) return;
-    const message = this.bus.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
-    if (message?.sender) {
-      const notice = this.bus.store.append(session.group_id, 'system', message.sender, 'system',
-        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
-      this.bus.emit('notice', notice);
-    }
-  }
-  deliverPanel(entry) {
-    const session = this.bus.store.get('SELECT * FROM panel_sessions WHERE id=?', entry.session_id);
-    if (!session || session.context !== 'coordination') return;
-    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
-    if (!panelAgent) return;
-    const input = JSON.parse(entry.payload);
-    const schema = this.bus.information.panelSchemaForStart(session);
-    let prompt;
-    try {
-      if (schema === CONTEXT_SCHEMA_VERSION) {
-        const group = this.bus.store.group(session.group_id);
-        prompt = JSON.stringify(this.bus.information.turnInput({
-          group,
-          charter: group.charter,
-          policy: { mode: 'communication', allowShell: false, domain: 'communication' },
-          input,
-          schema,
-        }));
-      } else {
-        prompt = legacyPanelDeliveryPrompt(input);
-      }
-    } catch (error) {
-      this.bus.failPanelDelivery(session, input, entry, error);
-      return;
-    }
-    this.bus.runPanelTurn({
-      session: { ...session, group_id: session.group_id },
-      panelAgent,
-      prompt,
-      activeTeamId: session.group_id,
-      inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
-      onAccepted: () => this.bus.store.run('UPDATE panel_outbox SET accepted=? WHERE id=?', new Date().toISOString(), entry.id),
-    }).catch(error => {
-      this.bus.failPanelDelivery(session, input, entry, error);
-    });
+  async panelPrivateTurn(text, activeTeamId = null) {
+    const panelAgent = this.bus.panelAgent();
+    if (!panelAgent) throw new Error('Panel Agent 尚未创建');
+    if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('Panel Agent 输入无效');
+    if (activeTeamId) throw new Error('团队对话已迁移到团队协作会话，请从团队页面发送');
+    const user = this.bus.store.panelAppend(panelAgent.id, 'private', 'user', text.trim(), null);
+    const session = this.bus.store.panelSession(panelAgent.id, 'private');
+    const updates = [];
+    const prompt = text.trim();
+    let accepted = false;
+    let acceptedTurnId = null;
+    try {
+      const result = await this.bus.runPanelTurn({
+        session,
+        panelAgent,
+        sourceUserMessageId: user.id,
+        prompt,
+        activeTeamId: null,
+        onAccepted: turnId => {
+          accepted = true;
+          acceptedTurnId = turnId;
+        },
+      });
+      if (result && acceptedTurnId) {
+        this.bus.markPanelUpdatesDelivered(updates.map(update => update.id), acceptedTurnId);
+      }
+      let finalActiveTeamId = activeTeamId ?? null;
+      if (acceptedTurnId) {
+        finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
+      }
+      if (finalActiveTeamId && finalActiveTeamId !== (activeTeamId ?? null)) {
+        this.bus.store.run('UPDATE panel_messages SET active_team_id=? WHERE id=?', finalActiveTeamId, user.id);
+        user.active_team_id = finalActiveTeamId;
+      }
+      return {
+        message: user,
+        reply: this.bus.store.get("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 1", panelAgent.id),
+        result,
+        activeTeamId: finalActiveTeamId,
+      };
+    } catch (error) {
+      throw Object.assign(error, { panelMessageId: user.id, accepted });
+    }
+  }
+  async stopPanel() {
+    const agent = this.bus.panelAgent();
+    if (!agent) return { stopped: [] };
+    const active = [...this.bus.running.values()].filter(item => item.endpoint.context === 'panel-private');
+    for (const item of active) item.abort.abort();
+    await Promise.allSettled(active.map(item => item.done));
+    return { stopped: active.map(item => item.turnId) };
+  }
+  resolvePanelRuntime(turnId, reason) {
+    if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');
+    const turn = this.bus.store.get("SELECT * FROM panel_turns WHERE id=? AND state='unknown'", turnId);
+    if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
+    this.bus.store.run("UPDATE panel_turns SET state='stopped',ended=? WHERE id=?", new Date().toISOString(), turnId);
+    this.bus.events.panel(turn.session_id, {
+      type: 'framework.runtime_verified_by_user',
+      turnId,
+      reason: reason.trim(),
+    }, turnId);
+    this.bus.pump();
+    return { turnId, state: 'stopped' };
+  }
+  panelInteractionAnchor(session, panelAgent, origin, text) {
+    if (session.context === 'coordination') {
+      const groupId = session.group_id;
+      const message = this.bus.store.append(groupId, panelAgent.id, 'user', 'send', text);
+      this.bus.emit('message', message);
+      return { groupId, messageId: message.id, panelMessageId: null };
+    }
+    const row = this.bus.store.panelAppend(panelAgent.id, 'private', 'assistant', text, null);
+    return { groupId: null, messageId: null, panelMessageId: row.id };
+  }
+  requestPanelControllerAction(panelAgent, session, origin, action, groupId) {
+    if (!['takeover', 'handback'].includes(action)) throw new Error('控制动作无效');
+    const relation = this.bus.panelTeamRelation(groupId);
+    if (action === 'takeover' && relation !== 'observer') throw new Error('团队当前不是观察状态');
+    if (action === 'handback' && relation !== 'main') throw new Error('Panel Agent 当前不是该团队主 Agent');
+    const revision = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId)?.revision ?? 0;
+    const existing = this.bus.store.get(
+      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC LIMIT 1",
+      panelAgent.id,
+      groupId,
+      action,
+    );
+    if (existing) {
+      if (JSON.parse(existing.payload).baseRevision === revision) return interactionView(existing);
+      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '控制者版本已变化');
+    }
+    const groupName = this.bus.store.group(groupId).name;
+    const text = action === 'takeover'
+      ? `请求接管团队「${groupName}」`
+      : `请求将团队「${groupName}」交还原主 Agent`;
+    const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
+    const row = this.bus.store.createInteraction({
+      id: randomUUID(),
+      groupId,
+      panelAgentId: panelAgent.id,
+      endpointId: session.id,
+      context: session.context,
+      turnId: origin.turnId ?? '',
+      callId: origin.callId,
+      messageId: anchor.messageId,
+      panelMessageId: anchor.panelMessageId,
+      kind: action,
+      payload: { kind: action, text, groupId, baseRevision: revision },
+    });
+    return interactionView(row);
+  }
+  requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
+    const existing = this.bus.store.get(
+      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC LIMIT 1",
+      panelAgent.id,
+      group.id,
+    );
+    if (existing) {
+      if (JSON.parse(existing.payload).text === text) return interactionView(existing);
+      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '请求内容已变化');
+    }
+    const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
+    const row = this.bus.store.createInteraction({
+      id: randomUUID(),
+      groupId: group.id,
+      panelAgentId: panelAgent.id,
+      endpointId: session.id,
+      context: session.context,
+      turnId: origin.turnId ?? '',
+      callId: origin.callId,
+      messageId: anchor.messageId,
+      panelMessageId: anchor.panelMessageId,
+      kind: 'member_model',
+      payload: { kind: 'member_model', text, args },
+    });
+    return interactionView(row);
+  }
+  deliverToPanelPrivate(row, text) {
+    const agent = this.bus.panelAgent();
+    if (!agent || agent.id !== row.panel_agent_id || this.bus.closing) return;
+    const session = this.bus.store.panelSession(agent.id, 'private');
+    if (this.bus.running.has(session.id)) {
+      this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
+      return;
+    }
+    void this.bus.panelPrivateTurn(text, null).catch(() => {});
+  }
+  // 私人会话忙碌期间积压的互动答复/动作结果,在会话空闲后按序补投。
+  flushPanelPrivateDeliveries() {
+    if (this.bus.closing || !this.panelPrivateDeliveries.length) return;
+    const agent = this.bus.panelAgent();
+    if (!agent) return;
+    const session = this.bus.store.panelSession(agent.id, 'private');
+    if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
+    const item = this.panelPrivateDeliveries.shift();
+    void this.bus.panelPrivateTurn(item.text, null).catch(() => {});
+  }
+
+  panelUnknown(groupId = null) {
+    return this.bus.store.all(
+      `SELECT t.*,s.context AS session_context FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
+       WHERE t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
+      ...(groupId ? [groupId] : []),
+    );
+  }
+  failPanelDelivery(session, input, entry, error) {
+    this.bus.store.run('UPDATE panel_outbox SET error=? WHERE id=?', error.message, entry.id);
+    if (this.bus.closing) return;
+    const message = this.bus.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
+    if (message?.sender) {
+      const notice = this.bus.store.append(session.group_id, 'system', message.sender, 'system',
+        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
+      this.bus.emit('notice', notice);
+    }
+  }
+  deliverPanel(entry) {
+    const session = this.bus.store.get('SELECT * FROM panel_sessions WHERE id=?', entry.session_id);
+    if (!session || session.context !== 'coordination') return;
+    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    if (!panelAgent) return;
+    const input = JSON.parse(entry.payload);
+    const schema = this.bus.information.panelSchemaForStart(session);
+    let prompt;
+    try {
+      if (schema === CONTEXT_SCHEMA_VERSION) {
+        const group = this.bus.store.group(session.group_id);
+        prompt = JSON.stringify(this.bus.information.turnInput({
+          group,
+          charter: group.charter,
+          policy: { mode: 'communication', allowShell: false, domain: 'communication' },
+          input,
+          schema,
+        }));
+      } else {
+        prompt = legacyPanelDeliveryPrompt(input);
+      }
+    } catch (error) {
+      this.bus.failPanelDelivery(session, input, entry, error);
+      return;
+    }
+    this.bus.runPanelTurn({
+      session: { ...session, group_id: session.group_id },
+      panelAgent,
+      prompt,
+      activeTeamId: session.group_id,
+      inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
+      onAccepted: () => this.bus.store.run('UPDATE panel_outbox SET accepted=? WHERE id=?', new Date().toISOString(), entry.id),
+    }).catch(error => {
+      this.bus.failPanelDelivery(session, input, entry, error);
+    });
   }
 }

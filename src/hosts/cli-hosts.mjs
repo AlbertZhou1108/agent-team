@@ -133,7 +133,7 @@ function runDshCatalogProbe(command, directory) {
 
 export function createClaudeHost({
   directory, socketPath, command = 'claude', model, reasoningEffort,
-  permissionMode = 'dontAsk', allowEdits = false, configDirectory,
+  permissionMode: _permissionMode = 'dontAsk', allowEdits: _allowEdits = false, configDirectory,
 }) {
   if (reasoningEffort && !efforts.has(reasoningEffort)) throw new Error(`Claude 思考强度无效: ${reasoningEffort}`);
   configDirectory ??= process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
@@ -181,7 +181,7 @@ export function createClaudeHost({
       let result, sessionId = endpoint.session;
       let assistantModel = null;
       let selectionModel = selectedModel ?? null;
-      let lastAssistantUsage = null;
+      let _lastAssistantUsage = null;
       let resultEmitted = false;
       const seenAssistant = new Set();
       const toolBlocks = new Map();
@@ -247,7 +247,7 @@ export function createClaudeHost({
         if (row.type === 'assistant' && row.message?.usage) {
           const usage = row.message.usage;
           const messageId = row.message.id ?? row.uuid ?? row.message.uuid ?? `${row.message.model ?? 'unknown'}:${usage.input_tokens ?? '?'}:${usage.cache_read_input_tokens ?? '?'}:${usage.cache_creation_input_tokens ?? '?'}`;
-          lastAssistantUsage = usage;
+          _lastAssistantUsage = usage;
           if (!seenAssistant.has(messageId)) {
             seenAssistant.add(messageId);
             const inputBuckets = [usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens];

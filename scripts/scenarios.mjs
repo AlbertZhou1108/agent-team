@@ -7,7 +7,7 @@ const bus = server.bus;
 const result = {};
 const group = bus.store.all('SELECT * FROM groups')[0];
 const members = bus.members(group.id);
-const lead = members.find(m => m.role === 'lead'), dsh = members.find(m => m.host === 'dsh'), claude = members.find(m => m.host === 'claude');
+const _lead = members.find(m => m.role === 'lead'), dsh = members.find(m => m.host === 'dsh'), claude = members.find(m => m.host === 'claude');
 async function until(fn) { const end = Date.now() + 150000; while (!fn()) { if (Date.now() > end) throw new Error('scenario timed out'); await new Promise(resolve => setTimeout(resolve, 100)); } }
 let peakDshPairTurns = 0;
 const sampler = setInterval(() => { peakDshPairTurns = Math.max(peakDshPairTurns, [...bus.running.values()].filter(x => x.endpoint.member_id === dsh.id && x.endpoint.context.startsWith('pair:')).length); }, 25);

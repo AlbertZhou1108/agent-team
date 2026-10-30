@@ -7,7 +7,7 @@ import { Bus } from '../src/bus.mjs';
 import { panelToolsFor, validatePanelTool } from '../src/panel-tools.mjs';
 import { confirmedGroup } from './helpers.mjs';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) {
   for (let index = 0; index < 400; index++) {
     if (fn()) return;
