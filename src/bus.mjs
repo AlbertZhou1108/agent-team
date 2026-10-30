@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
+import { EventLog } from './event-log.mjs';
 import { TeamRequests } from './team-requests.mjs';
 import { TeamDirectives } from './team-directives.mjs';
 import { Telemetry, telemetryObservation } from './telemetry.mjs';
@@ -130,6 +131,8 @@ export class Bus extends EventEmitter {
   constructor({ directory, hosts }) {
     super();
     this.store = new Store(directory);
+    // token 级增量占历史表 76%–97%,逐条 autocommit 会拖垮事件循环;走写合并层。
+    this.events = new EventLog(this.store);
     this.telemetry = new Telemetry(this.store, {
       capabilityFor: host => this.hosts.get(host)?.telemetryCapabilities ?? null,
     });
@@ -632,7 +635,7 @@ export class Bus extends EventEmitter {
       ? recordedTurn.active_team_id ?? null
       : provenance.activeTeamId ?? null;
     const callId = randomUUID();
-    this.store.panelHistory(sessionId, {
+    this.events.panel(sessionId, {
       type: 'framework.tool_call',
       name,
       args,
@@ -656,10 +659,10 @@ export class Bus extends EventEmitter {
         result,
         schema: this.information.panelSchemaForTurn(turnId) ?? this.information.panelSchemaForSession(session),
       });
-      this.store.panelHistory(sessionId, { type: 'framework.tool_result', callId, result }, turnId);
+      this.events.panel(sessionId, { type: 'framework.tool_result', callId, result }, turnId);
       return result;
     } catch (error) {
-      this.store.panelHistory(sessionId, { type: 'framework.tool_result', callId, error: error.message }, turnId);
+      this.events.panel(sessionId, { type: 'framework.tool_result', callId, error: error.message }, turnId);
       throw error;
     }
   }
@@ -1030,7 +1033,7 @@ export class Bus extends EventEmitter {
       : null;
     const telemetryStarted = performance.now();
     this.running.set(session.id, live);
-    this.store.panelHistory(session.id, { type: 'input', text: prompt }, turnId);
+    this.events.panel(session.id, { type: 'input', text: prompt }, turnId);
     try {
       this.information.measureRules({
         groupId: session.group_id ?? null,
@@ -1050,7 +1053,7 @@ export class Bus extends EventEmitter {
     } catch {
       // Measurement is observational and must never change the host outcome.
     }
-    this.store.panelHistory(session.id, {
+    this.events.panel(session.id, {
       type: 'framework.context',
       activeTeamId,
       relation: activeTeamId ? this.panelTeamRelation(activeTeamId) : null,
@@ -1075,10 +1078,10 @@ export class Bus extends EventEmitter {
       },
       onAccepted: () => {
         onAccepted(turnId);
-        this.store.panelHistory(session.id, { type: 'framework.input_accepted' }, turnId);
+        this.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
       },
       onNativeTurn: ref => {
-        this.store.panelHistory(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
+        this.events.panel(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
       },
       onTool: async (name, args, metadata = {}) => {
         setPhase('tool', { name, groupId: activeTeamId ?? null });
@@ -1112,9 +1115,9 @@ export class Bus extends EventEmitter {
         );
         session.session = value;
       },
-      onModel: observation => this.store.panelHistory(session.id, { type: 'framework.model', ...observation }, turnId),
+      onModel: observation => this.events.panel(session.id, { type: 'framework.model', ...observation }, turnId),
       onSelection: selection => {
-        if (selection?.model) this.store.panelHistory(session.id, { type: 'framework.model_selection', ...selection }, turnId);
+        if (selection?.model) this.events.panel(session.id, { type: 'framework.model_selection', ...selection }, turnId);
       },
       onToolCallDelta: payload => {
         if (toolStreamRun) {
@@ -1190,7 +1193,7 @@ export class Bus extends EventEmitter {
           this.store.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', observation.signature, new Date().toISOString(), session.id);
           session.policy_signature = observation.signature;
         }
-        this.store.panelHistory(session.id, { type: 'framework.policy', ...observation }, turnId);
+        this.events.panel(session.id, { type: 'framework.policy', ...observation }, turnId);
       },
       onTelemetry: observation => {
         try {
@@ -1212,7 +1215,7 @@ export class Bus extends EventEmitter {
         }
       },
       onEvent: event => {
-        if (!this.closing) this.store.panelHistory(session.id, event, turnId);
+        if (!this.closing) this.events.panel(session.id, event, turnId);
       },
     }));
     live.done = promise;
@@ -1224,7 +1227,7 @@ export class Bus extends EventEmitter {
         new Date().toISOString(),
         turnId,
       );
-      this.store.panelHistory(session.id, { type: 'framework.output', text: result }, turnId);
+      this.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
       if (result) {
         const finalActiveTeamId = this.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
         this.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
@@ -1262,7 +1265,7 @@ export class Bus extends EventEmitter {
         new Date().toISOString(),
         turnId,
       );
-      this.store.panelHistory(session.id, {
+      this.events.panel(session.id, {
         type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error',
         error: error.message,
       }, turnId);
@@ -1367,7 +1370,7 @@ export class Bus extends EventEmitter {
     const turn = this.store.get("SELECT * FROM panel_turns WHERE id=? AND state='unknown'", turnId);
     if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
     this.store.run("UPDATE panel_turns SET state='stopped',ended=? WHERE id=?", new Date().toISOString(), turnId);
-    this.store.panelHistory(turn.session_id, {
+    this.events.panel(turn.session_id, {
       type: 'framework.runtime_verified_by_user',
       turnId,
       reason: reason.trim(),
@@ -2001,14 +2004,14 @@ export class Bus extends EventEmitter {
     const { turnId, nativeCallId = null } = provenance;
     if (turnId && this.running.get(endpointId)?.turnId !== turnId) throw new Error('工具不属于当前执行回合');
     const origin = turnId ? { turnId, callId: randomUUID(), nativeCallId } : null;
-    if (origin) origin.eventSeq = this.store.history(endpointId, { type: 'framework.tool_call', name, args, callId: origin.callId, nativeCallId }, turnId);
+    if (origin) origin.eventSeq = this.events.member(endpointId, { type: 'framework.tool_call', name, args, callId: origin.callId, nativeCallId }, turnId);
     try {
       const result = await this.executeTool(endpointId, key, name, args, origin);
       this.measureToolCall({ groupId: member.group_id, endpointId, turnId, name, args, result, schema: this.information.toolSchema(turnId, endpointId) });
-      if (origin) this.store.history(endpointId, { type: 'framework.tool_result', callId: origin.callId, result }, turnId);
+      if (origin) this.events.member(endpointId, { type: 'framework.tool_result', callId: origin.callId, result }, turnId);
       return result;
     } catch (error) {
-      if (origin) this.store.history(endpointId, { type: 'framework.tool_result', callId: origin.callId, error: error.message }, turnId);
+      if (origin) this.events.member(endpointId, { type: 'framework.tool_result', callId: origin.callId, error: error.message }, turnId);
       throw error;
     }
   }
@@ -2381,7 +2384,7 @@ export class Bus extends EventEmitter {
       current.updatedAt = new Date().toISOString();
       if (publish) this.publishTeamStream({ type: 'phase', stream: { ...current } });
     };
-    this.store.history(endpoint.id, { type: 'input', text: prompt }, turnId);
+    this.events.member(endpoint.id, { type: 'input', text: prompt }, turnId);
     try {
       this.information.measureRules({
         groupId: group.id,
@@ -2395,7 +2398,7 @@ export class Bus extends EventEmitter {
     } catch {
       // Measurement is observational and must never change the host outcome.
     }
-    this.store.history(endpoint.id, {
+    this.events.member(endpoint.id, {
       type: 'framework.session_scope',
       domain: policy.domain,
       sessionKey,
@@ -2411,7 +2414,7 @@ export class Bus extends EventEmitter {
         model: member.model ?? null,
         reasoning_effort: member.reasoning_effort ?? null,
       },
-      onAccepted: () => { onAccepted(); this.store.history(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
+      onAccepted: () => { onAccepted(); this.events.member(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
       onNativeTurn: ref => { this.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
       onTool: async (name, args, metadata = {}) => {
         setPhase('tool', { name, groupId: group.id });
@@ -2441,8 +2444,8 @@ export class Bus extends EventEmitter {
         effectiveEndpoint.session = session;
         this.store.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
       },
-      onModel: observation => { this.store.history(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
-      onSelection: selection => { if (selection?.model) this.store.history(endpoint.id, { type: 'framework.model_selection', ...selection }, turnId); },
+      onModel: observation => { this.events.member(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
+      onSelection: selection => { if (selection?.model) this.events.member(endpoint.id, { type: 'framework.model_selection', ...selection }, turnId); },
       onToolCallDelta: payload => this.observeToolStreamDelta(
         streamScope,
         toolStreamRun.streams,
@@ -2483,7 +2486,7 @@ export class Bus extends EventEmitter {
           this.store.run('INSERT INTO endpoint_session_policies VALUES(?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET signature=excluded.signature', endpoint.id, sessionKey, observation.signature);
           this.store.run('INSERT INTO endpoint_policy VALUES(?,?) ON CONFLICT(endpoint_id) DO UPDATE SET signature=excluded.signature', endpoint.id, observation.signature);
         }
-        this.store.history(endpoint.id, { type: 'framework.policy', ...observation }, turnId);
+        this.events.member(endpoint.id, { type: 'framework.policy', ...observation }, turnId);
       },
       onTelemetry: observation => {
         try {
@@ -2504,13 +2507,13 @@ export class Bus extends EventEmitter {
           // Telemetry is observational and must never turn a host turn into a failure.
         }
       },
-      onEvent: event => { if (!this.closing) this.store.history(endpoint.id, event, turnId); },
+      onEvent: event => { if (!this.closing) this.events.member(endpoint.id, event, turnId); },
     }));
     live.done = promise;
     try {
       const result = await promise;
       this.store.run("UPDATE runtime_attempts SET state=?,ended=? WHERE turn_id=?", abort.signal.aborted ? 'cancelled' : 'completed', new Date().toISOString(), turnId);
-      this.store.history(endpoint.id, { type: 'framework.output', text: result }, turnId);
+      this.events.member(endpoint.id, { type: 'framework.output', text: result }, turnId);
       const publishedReplies = !abort.signal.aborted && endpoint.context === 'coordination'
         ? this.teamDirectives.publishOutput(turnId, result)
         : [];
@@ -2534,7 +2537,7 @@ export class Bus extends EventEmitter {
     }
     catch (error) {
       this.store.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', error.message, new Date().toISOString(), turnId);
-      this.store.history(endpoint.id, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message }, turnId);
+      this.events.member(endpoint.id, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message }, turnId);
       if (teamStream) {
         this.teamStreams.delete(turnId);
         this.publishTeamStream({
@@ -2603,7 +2606,7 @@ export class Bus extends EventEmitter {
     const e = this.store.get('SELECT * FROM endpoints WHERE id=?', endpointId);
     if (!e || this.running.has(e.id) || this.collaboration.unknown(e.group_id).some(r => r.endpoint_id === e.id)) throw new Error('会话不存在、运行中或停止状态未核实');
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要明确重建会话的原因');
-    this.store.history(e.id, { type: 'framework.session_rotated', previousSession: e.session, reason });
+    this.events.member(e.id, { type: 'framework.session_rotated', previousSession: e.session, reason });
     const rotationKeys = sessionKey
       ? [sessionKey]
       : [...new Set([
@@ -2716,6 +2719,8 @@ export class Bus extends EventEmitter {
     this.closing = true;
     await this.stopWhere(() => true);
     await Promise.allSettled([...this.hosts.values()].map(host => host.close?.()));
+    // 停止所有回合后缓冲里可能还有尾段增量,必须在关闭数据库前落盘。
+    this.events.close();
     this.store.close();
   }
   endpointTools(id, key) {
