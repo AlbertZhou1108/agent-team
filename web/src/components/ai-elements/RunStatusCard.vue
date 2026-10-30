@@ -11,6 +11,7 @@ import {
   toolActionLabel,
 } from '@/features/messages/run-rows';
 import type { StreamView } from '@/features/messages/adapters';
+import ReasoningScroller from './ReasoningScroller.vue';
 
 /**
  * 运行状态卡:汇总当前会话里正在运行的回合。它只表达“谁在做什么、做了多久”,
@@ -116,7 +117,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
           v-if="preferences.showReasoning && single.reasoning"
           class="run-reasoning"
         >
-          <p class="run-reasoning-text scrollbar-thin">{{ single.reasoning }}</p>
+          <ReasoningScroller :key="single.key" :text="single.reasoning" />
         </div>
       </div>
       <!-- 多路并发:每路一行,点选决定正文区展示哪一路。 -->
@@ -159,7 +160,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
             v-if="preferences.showReasoning && row.reasoning && openReasoning === row.key"
             class="run-reasoning"
           >
-            <p class="run-reasoning-text scrollbar-thin">{{ row.reasoning }}</p>
+            <ReasoningScroller :key="row.key" :text="row.reasoning" />
           </div>
         </div>
       </div>
