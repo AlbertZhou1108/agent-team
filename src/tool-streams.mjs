@@ -1,5 +1,8 @@
 import { streamMessageToolName, partialJsonString } from './message-stream.mjs';
 
+/** @typedef {Record<string, any>} StreamScope */
+/** @typedef {{ streams: Map<string, any>, scope: StreamScope }} ToolStreamRun */
+
 const messageToolNames = new Set(['send', 'note', 'team_send', 'team_note']);
 
 /**
@@ -7,33 +10,39 @@ const messageToolNames = new Set(['send', 'note', 'team_send', 'team_note']);
  * 状态归本模块所有;Bus 保留同名委托方法作为协调入口,事件仍由 Bus 发出。
  */
 export class ToolStreams {
-  constructor(bus) {
+  constructor(/** @type {import("./types.mjs").BusRef} */ bus) {
     this.bus = bus;
     this.panelStreams = new Map();
     this.teamStreams = new Map();
     this.toolStreamRuns = new Map();
   }
+  /** @param {string | null} [agentId] @returns {object[]} */
   panelStreaming(agentId = null) {
     return [...this.panelStreams.values()]
       .filter(stream => !agentId || stream.agentId === agentId)
       .map(stream => ({ ...stream }));
   }
+  /** @param {object} event */
   publishPanelStream(event) {
     if (!this.bus.closing) this.bus.emit('panel-stream', event);
   }
+  /** @param {string | null} [groupId] @returns {object[]} */
   teamStreaming(groupId = null) {
     return [...this.teamStreams.values()]
       .filter(stream => !groupId || stream.groupId === groupId)
       .map(stream => ({ ...stream }));
   }
+  /** @param {object} event */
   publishTeamStream(event) {
     if (!this.bus.closing) this.bus.emit('team-stream', event);
   }
+  /** @param {StreamScope} scope @returns {ToolStreamRun} */
   createToolStreamRun(scope) {
     const run = { scope, streams: new Map() };
     this.toolStreamRuns.set(scope.turnId, run);
     return run;
   }
+  /** @param {ToolStreamRun} run @param {string} name @param {object} args @param {string | null} [preferredCallId] */
   selectToolStream(run, name, args, preferredCallId = null) {
     const entries = [...run.streams.entries()];
     if (preferredCallId && run.streams.has(preferredCallId)) {
@@ -45,6 +54,7 @@ export class ToolStreams {
       state.name === name && state.arguments === serialized
     )) ?? entries.find(([, state]) => state.name === name) ?? null;
   }
+  /** @param {StreamScope} scope @param {unknown} value */
   resolveStreamTarget(scope, value) {
     if (typeof value !== 'string' || !value) return null;
     return this.bus.store.get(
@@ -54,6 +64,7 @@ export class ToolStreams {
       value,
     ) ?? null;
   }
+  /** @param {StreamScope} scope @param {Map<string, any>} streams @param {Record<string, any>} payload */
   observeToolStreamDelta(scope, streams, payload) {
     const name = streamMessageToolName(payload.name ?? streams.get(payload.callId)?.name);
     if (!messageToolNames.has(name)) return;
@@ -109,6 +120,7 @@ export class ToolStreams {
       replace,
     });
   }
+  /** @param {StreamScope} scope @param {Map<string, any>} streams @param {Record<string, any>} payload @param {Record<string, any> | null} result */
   completeToolStream(scope, streams, payload, result) {
     const key = payload.callId ?? `${scope.turnId}:${payload.index ?? 0}`;
     const state = streams.get(key);
@@ -129,6 +141,7 @@ export class ToolStreams {
     this.publishTeamStream({ type: 'complete', stream: { ...state.stream } });
     streams.delete(key);
   }
+  /** @param {string} turnId @param {string} name @param {object} args @param {Record<string, any> | null} result @param {string | null} [preferredCallId] */
   completeToolMessageStream(turnId, name, args, result, preferredCallId = null) {
     const run = this.toolStreamRuns.get(turnId);
     if (!run || !messageToolNames.has(name)) return;
@@ -141,6 +154,7 @@ export class ToolStreams {
       result,
     );
   }
+  /** @param {string} turnId @param {string} name @param {object} args @param {unknown} error @param {string | null} [preferredCallId] */
   failToolMessageStream(turnId, name, args, error, preferredCallId = null) {
     const run = this.toolStreamRuns.get(turnId);
     if (!run || !messageToolNames.has(name)) return;
@@ -157,6 +171,7 @@ export class ToolStreams {
     }
     run.streams.delete(key);
   }
+  /** @param {string} turnId @param {string} [type] @param {string | null} [error] */
   discardToolStreamRun(turnId, type = 'cancelled', error = null) {
     const run = this.toolStreamRuns.get(turnId);
     if (run) {

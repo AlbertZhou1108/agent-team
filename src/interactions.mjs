@@ -5,11 +5,14 @@ import { randomUUID } from 'node:crypto';
 
 const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
 
+/** @param {unknown} text */
 function questionPreview(text) {
   const points = Array.from(typeof text === 'string' ? text : '');
   return points.length > 120 ? `${points.slice(0, 120).join('')}…` : points.join('');
 }
 
+/** @param {Record<string, any> | null | undefined} row
+ * @returns {Record<string, any> | null | undefined} */
 export function interactionView(row) {
   if (!row) return row;
   return {
@@ -21,10 +24,12 @@ export function interactionView(row) {
   };
 }
 
+/** @param {import("./types.mjs").BusRef} bus */
 export class Interactions {
-  constructor(bus) {
+  constructor(/** @type {import("./types.mjs").BusRef} */ bus) {
     this.bus = bus;
   }
+  /** @param {string} id @param {Record<string, any> | null | undefined} answer */
   decideInteraction(id, answer) {
     const row = this.bus.store.interaction(id);
     if (!row) throw new Error('互动不存在');
@@ -69,11 +74,12 @@ export class Interactions {
     queueMicrotask(() => this.bus.pump());
     return interactionView(this.bus.store.interaction(id));
   }
+  /** @param {Record<string, any>} row @param {Record<string, any>} payload @param {Record<string, any> | null | undefined} answer */
   decideActionInteraction(row, payload, answer) {
     if (!answer || typeof answer !== 'object' || Array.isArray(answer) || typeof answer.approved !== 'boolean') {
       throw new Error('答复必须包含 approved 布尔值');
     }
-    const executors = {
+    const executors = /** @type {Record<string, () => unknown>} */ ({
       takeover: () => this.bus.takeoverTeam(payload.groupId, payload.baseRevision),
       handback: () => this.bus.handbackTeam(payload.groupId, payload.baseRevision),
       group_create: () => this.bus.createGroup(payload.args),
@@ -85,8 +91,8 @@ export class Interactions {
       } : null),
       // 群删除会级联清除本行,结果不再回送发起会话。
       group_delete: () => this.bus.deleteGroup(row.group_id),
-    };
-    const deliverOutcome = text => {
+    });
+    const deliverOutcome = /** @param {string} text */ text => {
       if (row.panel_agent_id) return this.bus.deliverToPanelPrivate(row, text);
       const message = this.bus.store.append(row.group_id, 'user', row.member_id, 'send', text, row.message_id);
       this.bus.emit('message', message);
@@ -103,8 +109,8 @@ export class Interactions {
       try {
         executors[row.kind]();
       } catch (error) {
-        this.bus.store.setInteractionState(row.id, 'failed', null, null, error.message);
-        this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,但执行失败:${error.message}`);
+        this.bus.store.setInteractionState(row.id, 'failed', null, null, /** @type {Error} */ (error).message);
+        this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,但执行失败:${/** @type {Error} */ (error).message}`);
         throw error;
       }
       outcome = `${payload.text}:用户已同意,已生效。`;
@@ -112,17 +118,20 @@ export class Interactions {
     this.bus.deliverOutcomeSafe(row, deliverOutcome, outcome);
     return row.kind === 'group_delete' ? decidedView : interactionView(this.bus.store.interaction(row.id));
   }
+  /** @param {Record<string, any>} row @param {(text: string) => unknown} deliver @param {string} text */
   deliverOutcomeSafe(row, deliver, text) {
     try { deliver(text); } catch (error) {
       // 群删除等场景下发起会话可能已不存在;结果以卡片状态为准。
-      if (!this.bus.closing) console.warn(`互动结果投递失败: ${error.message}`);
+      if (!this.bus.closing) console.warn(`互动结果投递失败: ${/** @type {Error} */ (error).message}`);
     }
   }
+  /** @param {Record<string, any>} member @param {string} text */
   memberInteractionAnchor(member, text) {
     const message = this.bus.store.append(member.group_id, member.id, 'user', 'send', text);
     this.bus.emit('message', message);
     return message;
   }
+  /** @param {Record<string, any>} member @param {Record<string, any>} endpoint @param {Record<string, any> | null} origin @param {string} kind @param {string} text @param {object} args */
   requestGroupAction(member, endpoint, origin, kind, text, args) {
     const existing = this.bus.store.get(
       "SELECT * FROM interactions WHERE member_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC LIMIT 1",

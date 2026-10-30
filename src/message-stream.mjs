@@ -1,4 +1,4 @@
-/** @param {unknown} name */
+/** @param {unknown} name @returns {any} */
 export function streamMessageToolName(name) {
   if (typeof name !== 'string') return name;
   if (name.startsWith('mcp__agent_team__')) return name.slice('mcp__agent_team__'.length);

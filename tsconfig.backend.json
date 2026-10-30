@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/types.mjs",
+    "src/http-route-access.mjs",
+    "src/message-stream.mjs",
+    "src/tool-streams.mjs",
+    "src/interactions.mjs"
+  ]
+}
