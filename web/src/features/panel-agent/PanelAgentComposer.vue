@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleStop, Settings2, ShieldCheck } from '@lucide/vue';
+import { Settings2, ShieldCheck } from '@lucide/vue';
 import MessageComposer from '@/components/ai-elements/MessageComposer.vue';
 import { panelAccessOption, panelAccessOptions } from './access';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
@@ -26,8 +26,11 @@ const emit = defineEmits<{
 }>();
 </script>
 <template>
-  <MessageComposer v-model="draft" :sending="sending" label="Panel Agent 消息"
-    placeholder="询问团队状态，或让 Panel Agent 准备一个新团队…" @submit="emit('submit')">
+  <!-- 运行中的停止入口由发送按钮承担,面板这里只提供配置类控件。 -->
+  <MessageComposer v-model="draft" :sending="sending" :stoppable="true" :stopping="stopping"
+    label="Panel Agent 消息"
+    placeholder="询问团队状态，或让 Panel Agent 准备一个新团队…"
+    @submit="emit('submit')" @stop="emit('stop')">
     <template #controls>
       <PanelAgentModelSelector v-model:form="form" :hosts="hosts" size="sm"
         :disabled="sending || catalogLoading || modelSaving" @change="emit('updateModel', $event)" />
@@ -53,11 +56,6 @@ const emit = defineEmits<{
       </DropdownMenu>
       <InputGroupButton size="icon-sm" variant="ghost" :disabled="sending || modelSaving"
         aria-label="Panel Agent 设置" title="Panel Agent 设置" @click="emit('edit')"><Settings2 /></InputGroupButton>
-    </template>
-    <template #actions>
-      <InputGroupButton v-if="sending" size="sm" variant="outline" :disabled="stopping" @click="emit('stop')">
-        <CircleStop data-icon="inline-start" />{{ stopping ? '停止中…' : '停止' }}
-      </InputGroupButton>
     </template>
   </MessageComposer>
 </template>

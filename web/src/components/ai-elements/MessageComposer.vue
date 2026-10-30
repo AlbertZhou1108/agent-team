@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { createComposerActions } from './composer-actions';
-import { ArrowUp, ChevronDown, ChevronUp, LoaderCircle } from '@lucide/vue';
+import { ArrowUp, ChevronDown, ChevronUp, LoaderCircle, Square } from '@lucide/vue';
 import {
   InputGroup,
   InputGroupAddon,
@@ -16,10 +16,15 @@ const props = withDefaults(defineProps<{
   disabled?: boolean;
   placeholder?: string;
   label?: string;
+  /** 发送按钮在运行中转为停止按钮;不支持停止的宿主保持加载态。 */
+  stoppable?: boolean;
+  stopping?: boolean;
 }>(), {
   disabled: false,
   placeholder: '输入消息…',
   label: '消息',
+  stoppable: false,
+  stopping: false,
 });
 const draft = defineModel<string>({ required: true });
 const ui = useUiStore();
@@ -27,7 +32,7 @@ const resizing = ref(false);
 const textarea = ref<{ $el?: HTMLTextAreaElement } | null>(null);
 const compactInput = ref<{ $el?: HTMLInputElement } | null>(null);
 let resize: { startY: number; startHeight: number } | undefined;
-const emit = defineEmits<{ submit: [] }>();
+const emit = defineEmits<{ submit: []; stop: [] }>();
 const { submit, onKeydown } = createComposerActions(
   () => ({ draft: draft.value, sending: props.sending, disabled: props.disabled }),
   () => emit('submit'),
@@ -106,18 +111,6 @@ function keyboardResize(event: KeyboardEvent) {
         @keydown="onKeydown"
       />
       <InputGroupAddon align="inline-end" class="gap-1">
-        <!-- 运行中的停止入口在折叠后仍需可达。 -->
-        <slot name="actions" />
-        <InputGroupButton
-          type="submit"
-          size="icon-sm"
-          variant="default"
-          :disabled="!draft.trim() || sending || disabled"
-          :aria-label="sending ? '发送中' : '发送'"
-        >
-          <LoaderCircle v-if="sending" class="animate-spin" />
-          <ArrowUp v-else />
-        </InputGroupButton>
         <InputGroupButton
           type="button"
           size="icon-sm"
@@ -127,6 +120,31 @@ function keyboardResize(event: KeyboardEvent) {
           @click="expand"
         >
           <ChevronUp />
+        </InputGroupButton>
+        <!-- 运行中的发送按钮即停止入口,不再并列第二个停止按钮。 -->
+        <InputGroupButton
+          v-if="sending && stoppable"
+          type="button"
+          size="icon-sm"
+          variant="secondary"
+          :disabled="stopping"
+          :aria-label="stopping ? '正在停止' : '停止'"
+          :title="stopping ? '正在停止' : '停止'"
+          @click="emit('stop')"
+        >
+          <LoaderCircle v-if="stopping" class="animate-spin" />
+          <Square v-else class="fill-current" />
+        </InputGroupButton>
+        <InputGroupButton
+          v-else
+          type="submit"
+          size="icon-sm"
+          variant="default"
+          :disabled="!draft.trim() || sending || disabled"
+          :aria-label="sending ? '发送中' : '发送'"
+        >
+          <LoaderCircle v-if="sending" class="animate-spin" />
+          <ArrowUp v-else />
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>
@@ -170,7 +188,6 @@ function keyboardResize(event: KeyboardEvent) {
         <InputGroupAddon align="block-end" class="flex-nowrap">
           <slot name="controls" />
           <div class="ml-auto flex flex-none items-center gap-2">
-            <slot name="actions" />
             <InputGroupButton
               type="button"
               size="icon-sm"
@@ -181,7 +198,22 @@ function keyboardResize(event: KeyboardEvent) {
             >
               <ChevronDown />
             </InputGroupButton>
+            <!-- 运行中的发送按钮即停止入口,与折叠态保持同一位置和语义。 -->
             <InputGroupButton
+              v-if="sending && stoppable"
+              type="button"
+              size="icon-sm"
+              variant="secondary"
+              :disabled="stopping"
+              :aria-label="stopping ? '正在停止' : '停止'"
+              :title="stopping ? '正在停止' : '停止'"
+              @click="emit('stop')"
+            >
+              <LoaderCircle v-if="stopping" class="animate-spin" />
+              <Square v-else class="fill-current" />
+            </InputGroupButton>
+            <InputGroupButton
+              v-else
               type="submit"
               size="icon-sm"
               variant="default"
