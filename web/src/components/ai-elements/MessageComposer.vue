@@ -41,8 +41,8 @@ const collapsed = computed({
 });
 const draftPreview = computed(() => draft.value.trim().split('\n')[0] || props.placeholder);
 
+// 禁用只限制发送,展开仍应允许:用户需要能查看自己写下的草稿。
 async function expand() {
-  if (props.disabled) return;
   collapsed.value = false;
   await nextTick();
   textarea.value?.$el?.focus();
@@ -86,18 +86,27 @@ function keyboardResize(event: KeyboardEvent) {
 </script>
 
 <template>
-  <button
-    v-if="collapsed"
-    type="button"
-    class="agent-composer-collapsed"
-    :aria-label="`展开输入区${draft.trim() ? '，草稿：' + draftPreview : ''}`"
-    :aria-expanded="false"
-    :disabled="disabled"
-    @click="expand"
-  >
-    <span class="min-w-0 flex-1 truncate" :class="{ 'text-muted-foreground': !draft.trim() }">{{ draftPreview }}</span>
-    <ChevronUp class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-  </button>
+  <div v-if="collapsed" class="agent-composer-collapsed">
+    <button
+      type="button"
+      class="agent-composer-collapsed-label"
+      :aria-label="`展开输入区${draft.trim() ? '，草稿：' + draftPreview : ''}`"
+      :aria-expanded="false"
+      @click="expand"
+    >
+      <span class="min-w-0 flex-1 truncate" :class="{ 'text-muted-foreground': !draft.trim() }">{{ draftPreview }}</span>
+    </button>
+    <!-- 收起后运行仍可能在进行,操作入口(如停止)必须保留。 -->
+    <slot name="actions" />
+    <button
+      type="button"
+      class="agent-composer-expand"
+      aria-label="展开输入区"
+      @click="expand"
+    >
+      <ChevronUp class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  </div>
   <form
     v-else
     :class="cn('agent-ai-composer', resizing && 'is-resizing')"
@@ -142,7 +151,6 @@ function keyboardResize(event: KeyboardEvent) {
               type="button"
               size="icon-sm"
               variant="ghost"
-              :disabled="sending"
               aria-label="收起输入区"
               title="收起输入区"
               @click="collapse"
@@ -166,22 +174,47 @@ function keyboardResize(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+/* 折叠态是一条可点击展开的整行,右侧保留仍在进行的操作(如停止)。 */
 .agent-composer-collapsed {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 6px 8px 6px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: transparent;
+}
+
+.agent-composer-collapsed-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  padding: 4px 0;
   color: var(--foreground);
   font-size: 0.875rem;
   text-align: left;
   cursor: pointer;
 }
 
-.agent-composer-collapsed:hover {
+.agent-composer-collapsed-label:hover {
+  color: var(--foreground);
+  opacity: 0.8;
+}
+
+.agent-composer-expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-composer-expand:hover {
   background: var(--accent);
 }
 </style>
