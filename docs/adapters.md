@@ -20,6 +20,26 @@ export function createHost(options) {
 
 `options` 包含本机数据 directory、群总线 socketPath 和用户提供的配置。
 
+## 状态检查与安装
+
+`GET /api/hosts/installations` 仅读取内存中的安装阶段，不启动 CLI。安装期间前端只轮询该接口；进入设置页、手动检测和安装结束时才调用 `/api/hosts` 进行实际检查。
+
+内置 CLI 适配器额外提供 `checkStatus()` 与 `install()`，设置页通过 `GET /api/hosts` 和 `POST /api/hosts/:name/install` 调用。安装请求只允许空 JSON 对象，不接受前端传入命令、包名或脚本。
+
+- `available`：界面显示“已安装”，表示已定位到命令且 `--version` 成功。适配器只负责安装和安装状态检查；API Key、登录和模型配置由用户在宿主中自行完成，不提供连接测试或凭据管理。
+- `missing`：未找到命令，界面显示安装按钮。
+- `error`：定位或启动失败，展示原因。
+- 安装进行中附带 `installing: true`，重复请求复用同一适配器实例的安装操作。失败允许重试，成功后再次检测。
+- `installation.phase` 展示 `checking`（检查安装条件）、`installing`（执行安装）、`verifying`（确认安装结果）、`completed`（完成）或 `failed`（失败）。前端安装期间每两秒查询，不估算百分比；结果在服务进程内保留，服务重启后清空。
+
+安装以服务运行环境为准：Windows 使用本机命令，WSL 使用 Linux 命令。Codex 和 DSH 使用 npm 全局安装，并启用 `--engine-strict`；Claude Code 使用官方 PowerShell（Windows）或 Bash（macOS/Linux）原生安装脚本。不自动安装 npm/curl、不自动提权，也不执行登录或模型调用。
+
+检测复用宿主配置中的 command；自定义命令缺失时要求修正配置，不通过默认安装掩盖配置错误。安装结束后查询 npm 全局前缀或 Claude 用户安装目录，更新该适配器后续业务调用使用的命令，避免服务进程持有旧 PATH 导致安装后仍无法使用。
+
+安装策略来源：[Codex 官方说明](https://github.com/openai/codex#installation)、[Claude Code 官方说明](https://code.claude.com/docs/en/setup)、[DSH CLI 包](https://www.npmjs.com/package/@deepseek-ai/dsh)。版本和平台依赖由安装器及 npm engine 检查决定；安装命令退出成功后仍必须通过本地启动检查。
+
+## 回合上下文
+
 `context` 包含：
 
 | 字段 | 契约 |

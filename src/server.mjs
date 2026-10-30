@@ -105,6 +105,8 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
         const isDirectiveMutation = request.method === 'POST' && Boolean(directiveMatch);
         const isDirectoryMutation = request.method === 'POST' && url.pathname === '/api/local/directory-picker';
+        const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
+        const isHostInstall = request.method === 'POST' && Boolean(hostInstallMatch);
         const isPolicyMutation = request.method === 'POST' && (
           url.pathname === '/api/model-policy'
           || url.pathname === '/api/model-policy/presets'
@@ -121,7 +123,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
           || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname)
           || /^\/api\/teams\/[^/]+\/members\/[^/]+\/model$/.test(url.pathname)
         );
-        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !teamStateMutation && !isDirectiveMutation && !isDirectoryMutation) return fail(403, 'Panel endpoint is not writable');
+        if (request.method !== 'GET' && !isPolicyMutation && !isPanelMutation && !teamStateMutation && !isDirectiveMutation && !isDirectoryMutation && !isHostInstall) return fail(403, 'Panel endpoint is not writable');
         if (request.method !== 'GET' && request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('Referrer-Policy', 'no-referrer');
@@ -194,7 +196,24 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         }
         if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
           let value;
-          if (isDirectoryMutation) {
+          if (isHostInstall) {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '安装不接受命令或脚本参数');
+            const name = decodeURIComponent(hostInstallMatch[1]);
+            const host = bus.hosts.get(name);
+            if (!host) return fail(404, '宿主未配置');
+            if (!host.install) return fail(400, '该适配器不支持自动安装');
+            value = { name, ...await host.install() };
+          } else if (url.pathname === '/api/hosts/installations') {
+            value = [...bus.hosts].map(([name, host]) => ({ name, ...(host.installationStatus?.() ?? { installing: false }) }));
+          } else if (url.pathname === '/api/hosts') {
+            value = await Promise.all([...bus.hosts].map(async ([name, host]) => {
+              try {
+                return { name, ...await (host.checkStatus?.() ?? { status: 'error', reason: '该适配器未提供状态检查' }) };
+              } catch (error) { return { name, status: 'error', reason: error.message }; }
+            }));
+          } else if (isDirectoryMutation) {
             if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '文件夹选择不接受路径或脚本参数');

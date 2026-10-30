@@ -1,4 +1,5 @@
 import type {
+  HostStatus,
   Group,
   GroupCommunicationSummary,
   HistoryRow,
@@ -65,6 +66,9 @@ function query(path: string, values: Record<string, string | number | undefined>
 }
 
 export const api = {
+  hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
+  hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
+  installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },
   chooseDirectory() { return mutate<{ path: string | null }>('/api/local/directory-picker', {}); },
   teamDirectives(groupId: string, signal?: AbortSignal) {
     return request<TeamDirectiveReceipt[]>(`/api/teams/${encodeURIComponent(groupId)}/directives`, signal);

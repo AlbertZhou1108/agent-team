@@ -1,4 +1,5 @@
 import { spawnHost as spawn, stopHost } from './subprocess.mjs';
+import { createCliLifecycle } from './lifecycle.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation } from './policies.mjs';
@@ -17,6 +18,7 @@ function sameSessionConfiguration(previous, signature) {
 }
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
+  const lifecycle = createCliLifecycle('codex', command, value => { command = value; });
   let child, init, nextId = 0, stderr = '', serverNames = [];
   const pending = new Map(), active = new Map(), ended = new Map(), waits = new Map();
   const usageBaselines = new Map(), turnBaselines = new Map(), emittedTurns = new Set();
@@ -198,6 +200,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
     return init;
   }
   return {
+    ...lifecycle,
     sessionKey({ policy }) { return policy.domain ?? (policy.mode === 'communication' ? 'communication' : 'project'); },
     async listModels() {
       await ready();

@@ -796,3 +796,10 @@ export interface TeamDirectiveReceipt {
   status: 'queued' | 'delivered' | 'failed' | 'unknown';
   error: string | null;
 }
+export interface HostStatus {
+  name: string;
+  status: 'available' | 'missing' | 'error';
+  reason?: string;
+  installing?: boolean;
+  installation?: { phase: 'checking' | 'installing' | 'verifying' | 'completed' | 'failed'; reason?: string };
+}

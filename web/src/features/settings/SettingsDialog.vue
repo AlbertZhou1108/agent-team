@@ -42,6 +42,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
+import HostStatuses from './HostStatuses.vue';
 import { usePreferencesStore, type ColorMode } from '@/stores/preferences';
 
 const props = defineProps<{
@@ -383,6 +384,7 @@ watch(
         </CardHeader>
 
         <CardContent class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-6">
+          <HostStatuses :active="open || Boolean(embedded)" />
           <section class="flex flex-col gap-3">
             <div>
               <h3 class="text-sm font-semibold">显示模式</h3>

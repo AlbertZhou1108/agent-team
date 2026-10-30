@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnHost as spawn, stopHost } from './subprocess.mjs';
+import { createCliLifecycle } from './lifecycle.mjs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -138,6 +139,7 @@ export function createClaudeHost({
   configDirectory ??= process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
   const verified = new Map();
   return {
+    ...createCliLifecycle('claude', command, value => { command = value; }),
     async listModels() {
       const [modelValue, effortValue] = await Promise.all([
         runClaudeSlashCommand(command, '/model', { directory, configDirectory }),
@@ -368,6 +370,7 @@ export function createClaudeHost({
 export function createDshHost({ directory, socketPath, command = 'dsh', model }) {
   if (model) throw new Error('DSH 模型由其 headless profile 设置；本版本不伪造未验证的模型参数');
   return {
+    ...createCliLifecycle('dsh', command, value => { command = value; }),
     async listModels() {
       const result = await runDshCatalogProbe(command, directory);
       const models = result.providers.flatMap(provider => provider.models ?? []);
