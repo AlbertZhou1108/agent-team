@@ -12,6 +12,7 @@ import type {
   ModelPolicyPreset,
   MessageRow,
   ModelsPage,
+  Overview,
   PanelAccess,
   PanelAgentState,
   Snapshot,
@@ -90,6 +91,9 @@ export const api = {
   },
   charter(group: string, signal?: AbortSignal) {
     return request<string | null>(query('/api/charter', { group }), signal);
+  },
+  overview(signal?: AbortSignal) {
+    return request<Overview>('/api/overview', signal);
   },
   snapshot(signal?: AbortSignal, group?: string) {
     return request<Snapshot>(query('/api/snapshot', { group, scoped: 1 }), signal);

@@ -36,6 +36,8 @@ const busy = ref(false);
 
 async function refresh() {
   await Promise.all([
+    // 团队状态与成员列表在 overview 里,和团队级快照分属两次查询。
+    queryClient.invalidateQueries({ queryKey: ['overview'] }),
     queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
     queryClient.invalidateQueries({ queryKey: ['collaboration', props.groupId] }),
     queryClient.invalidateQueries({ queryKey: ['charter', props.groupId] }),

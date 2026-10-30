@@ -50,6 +50,7 @@ import {
   useMessagesQuery,
   useModelsQuery,
   usePanelAgentQuery,
+  useOverviewQuery,
   useSnapshotQuery,
 } from '@/features/queries';
 import { Button } from '@/components/ui/button';
@@ -67,17 +68,21 @@ const router = useRouter();
 const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
+const overviewQuery = useOverviewQuery();
 const snapshotQuery = useSnapshotQuery(() => routeString(route.params.groupId) || undefined);
 const panelAgentQuery = usePanelAgentQuery(() => route.name === 'panel-agent');
 
+// 全局数据(团队/成员/策略)来自 overview:它的 key 不含 groupId,切换团队时不会
+// 重新加载,侧栏也就不会在截断请求期间退化成空列表。团队相关数据仍看 snapshot。
+const overview = computed(() => overviewQuery.data.value);
 const snapshot = computed(() => snapshotQuery.data.value);
-const allGroups = computed(() => snapshot.value?.groups ?? []);
-const members = computed(() => snapshot.value?.members ?? []);
-const actors = computed(() => snapshot.value?.actors ?? []);
+const allGroups = computed(() => overview.value?.groups ?? []);
+const members = computed(() => overview.value?.members ?? []);
+const actors = computed(() => overview.value?.actors ?? []);
 const endpoints = computed(() => snapshot.value?.endpoints ?? []);
 const sessionBindings = computed(() => snapshot.value?.sessionBindings ?? []);
 const runningEndpoints = computed(() => snapshot.value?.runningEndpoints ?? []);
-const modelPolicyDefaults = computed(() => snapshot.value?.modelPolicyDefaults);
+const modelPolicyDefaults = computed(() => overview.value?.modelPolicyDefaults);
 const modelDialogMember = ref<Member | null>(null);
 const modelDialogOpen = ref(false);
 
@@ -149,14 +154,14 @@ onBeforeUnmount(() => {
 
 const currentControllerId = computed(
   () =>
-    snapshot.value?.panelTeams.find((team) => team.id === groupId.value)
+    overview.value?.panelTeams.find((team) => team.id === groupId.value)
       ?.controller.id ??
     group.value?.lead ??
     undefined,
 );
 const currentController = computed(
   () =>
-    snapshot.value?.panelTeams.find((team) => team.id === groupId.value)
+    overview.value?.panelTeams.find((team) => team.id === groupId.value)
       ?.controller ??
     (() => {
       const lead = members.value.find(
@@ -175,7 +180,7 @@ const pausedMemberIds = computed(
     new Set(
       currentController.value?.kind === 'panel_agent'
         ? [
-            snapshot.value?.panelTeams.find((team) => team.id === groupId.value)
+            overview.value?.panelTeams.find((team) => team.id === groupId.value)
               ?.controller.assignment?.original_lead_id,
           ].filter((id): id is string => Boolean(id))
         : [],
@@ -198,7 +203,7 @@ const currentSessionBindings = computed(() => {
     ids.has(binding.endpoint_id),
   );
 });
-const currentModelPolicy = computed(() => snapshot.value?.modelPolicy);
+const currentModelPolicy = computed(() => overview.value?.modelPolicy);
 
 const selectedSessionId = computed(() => routeString(route.query.session));
 const selectedEndpoint = computed(() =>
@@ -532,8 +537,8 @@ const endpointHosts = computed(
           (item) => item.id === endpoint.member_id,
         );
         const panelHost =
-          endpoint.member_id === snapshot.value?.panelAgent?.id
-            ? snapshot.value?.panelAgent?.host
+          endpoint.member_id === overview.value?.panelAgent?.id
+            ? overview.value?.panelAgent?.host
             : undefined;
         return [endpoint.id, member?.host ?? panelHost ?? 'unknown'];
       }),
@@ -586,14 +591,17 @@ const inspectorError = computed(() =>
 );
 
 watchEffect(() => {
-  if (snapshotQuery.error.value) connection.failed(snapshotQuery.error.value);
-  else if (snapshotQuery.data.value) connection.online();
+  // 任一路由请求失败都说明连不上本机服务;overview 也参与判断。
+  const failure = overviewQuery.error.value ?? snapshotQuery.error.value;
+  if (failure) connection.failed(failure);
+  else if (overviewQuery.data.value && snapshotQuery.data.value) connection.online();
 });
 
 watch(
   [groups, groupId],
   ([items, id]) => {
-    if (!snapshot.value || snapshotQuery.isPending.value || !id || items.some((item) => item.id === id)) return;
+    // 团队列表来自 overview,判断"该团队是否存在"也要等 overview 就绪。
+    if (!overview.value || overviewQuery.isPending.value || !id || items.some((item) => item.id === id)) return;
     router.replace({
       name: 'group',
     });
@@ -674,7 +682,7 @@ function closeContextPanel() {
 }
 
 async function modelPolicySaved() {
-  await snapshotQuery.refetch();
+  await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
   toast.success('全局模型策略已保存', {
     description: '将用于新团队初始角色和已有团队新增角色',
   });
@@ -683,7 +691,8 @@ async function modelPolicySaved() {
 async function restoreArchivedTeam(team: Group) {
   try {
     await api.restoreTeam(team.id);
-    await snapshotQuery.refetch();
+    // 团队状态属于 overview 的数据,两路都要刷新。
+    await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
     toast.success(`已恢复 ${team.name}`);
   } catch (error) {
     toast.error('恢复团队失败', { description: String(error) });
@@ -705,7 +714,7 @@ async function runArchiveTeam() {
   archiveConfirm.value = null;
   try {
     await api.archiveTeam(request.id);
-    await snapshotQuery.refetch();
+    await Promise.all([overviewQuery.refetch(), snapshotQuery.refetch()]);
     if (groupId.value === request.id) router.push({ name: 'group' });
     toast.success(`已归档 ${request.name}`);
   } catch (error) {
@@ -854,10 +863,10 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         :members="members"
         :endpoints="endpoints"
         :running-endpoints="runningEndpoints"
-        :loading="snapshotQuery.isPending.value"
-        :error="snapshotQuery.error.value?.message"
+        :loading="overviewQuery.isPending.value || snapshotQuery.isPending.value"
+        :error="(overviewQuery.error.value ?? snapshotQuery.error.value)?.message"
         @select="selectGroup"
-        @retry="snapshotQuery.refetch()"
+        @retry="overviewQuery.refetch(); snapshotQuery.refetch()"
       />
       <PanelAgentPanel v-else-if="!group" />
       <div
@@ -911,7 +920,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
 
             <Alert
               variant="destructive"
-              v-if="snapshotQuery.error.value"
+              v-if="overviewQuery.error.value || snapshotQuery.error.value"
               class="error-banner mx-3 mb-2"
               role="alert"
               ><AlertDescription class="flex items-center gap-2">
@@ -922,7 +931,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 <Button
                   variant="ghost"
                   size="sm"
-                  @click="snapshotQuery.refetch()"
+                  @click="overviewQuery.refetch(); snapshotQuery.refetch()"
                   >重试</Button
                 >
               </AlertDescription></Alert
@@ -939,7 +948,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
             >
 
             <div
-              v-if="snapshotQuery.isPending.value"
+              v-if="overviewQuery.isPending.value || snapshotQuery.isPending.value"
               class="empty-state m-3 min-h-[60vh]"
             >
               正在连接本机群总线…
@@ -1062,7 +1071,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :group-id="groupId"
                 :tasks="snapshot?.agentTasks ?? []"
                 :members="members"
-                :panel-agent="snapshot?.panelAgent ?? null"
+                :panel-agent="overview?.panelAgent ?? null"
               />
               <div
                 v-else-if="contextPanel === 'members'"

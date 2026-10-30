@@ -2652,22 +2652,11 @@ export class Bus extends EventEmitter {
   informationManifest(turnId) {
     return this.information.manifest(turnId);
   }
-  snapshot(groupId) {
+  // 与团队无关的全局状态。团队页每次切换 groupId 都会重新拉 scoped snapshot,
+  // 但侧栏需要的团队/成员列表并不随团队变化,单独提供以免整棵侧栏闪一次空态。
+  overview() {
     this.ensurePanelBindings();
     const panelAgent = this.panelAgent();
-    const endpoints = [
-      ...this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE context!='private'")
-        .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
-        .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) })),
-      ...(panelAgent
-        ? this.store.all("SELECT id,group_id,panel_agent_id AS member_id,'panel-coordination' AS context,NULL AS peer,session FROM panel_sessions WHERE panel_agent_id=? AND context='coordination'", panelAgent.id)
-          .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
-        .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) }))
-        : []),
-    ];
-    const visibleEndpoints = groupId === undefined ? endpoints : endpoints.filter(e => e.group_id === groupId);
-    const endpointIds = new Set(visibleEndpoints.map(e => e.id));
-    const sessionBindings = this.store.all('SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings ORDER BY endpoint_id,session_key').filter(b => groupId === undefined || endpointIds.has(b.endpoint_id));
     return {
       groups: this.store.all('SELECT * FROM groups ORDER BY created'),
       members: this.store.all('SELECT * FROM members ORDER BY rowid'),
@@ -2693,8 +2682,6 @@ export class Bus extends EventEmitter {
           reasoning_effort: panelAgent.reasoning_effort,
         }] : []),
       ],
-      endpoints: visibleEndpoints,
-      sessionBindings,
       modelPolicy: this.modelPolicy(),
       modelPolicyDefaults: {
         smart: {
@@ -2703,6 +2690,29 @@ export class Bus extends EventEmitter {
         },
         user: DEFAULT_USER_MODEL_RULES,
       },
+      groupStates: this.store.all('SELECT id,state,charter,policy,allow_shell FROM groups'),
+    };
+  }
+  snapshot(groupId) {
+    this.ensurePanelBindings();
+    const panelAgent = this.panelAgent();
+    const endpoints = [
+      ...this.store.all("SELECT id,group_id,member_id,context,peer,session FROM endpoints WHERE context!='private'")
+        .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
+        .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) })),
+      ...(panelAgent
+        ? this.store.all("SELECT id,group_id,panel_agent_id AS member_id,'panel-coordination' AS context,NULL AS peer,session FROM panel_sessions WHERE panel_agent_id=? AND context='coordination'", panelAgent.id)
+          .filter(endpoint => groupId === undefined || endpoint.group_id === groupId)
+          .map(endpoint => ({ ...endpoint, modelState: this.store.endpointModelSummary(endpoint.id) }))
+        : []),
+    ];
+    const visibleEndpoints = groupId === undefined ? endpoints : endpoints.filter(e => e.group_id === groupId);
+    const endpointIds = new Set(visibleEndpoints.map(e => e.id));
+    const sessionBindings = this.store.all('SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings ORDER BY endpoint_id,session_key').filter(b => groupId === undefined || endpointIds.has(b.endpoint_id));
+    return {
+      ...this.overview(),
+      endpoints: visibleEndpoints,
+      sessionBindings,
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.running.values()]
         .filter(({ endpoint }) => endpoint.context !== 'private' && endpoint.context !== 'panel-private')
@@ -2712,7 +2722,6 @@ export class Bus extends EventEmitter {
         .map(({ endpoint, turnId, activeTeamId }) => ({ endpoint: endpoint.id, groupId: activeTeamId ?? endpoint.group_id ?? null, turnId })),
       panelUnknown: panelAgent ? this.panelUnknown() : [],
       agentTasks: groupId ? this.agentTasksView(groupId) : [],
-      groupStates: this.store.all('SELECT id,state,charter,policy,allow_shell FROM groups'),
     };
   }
   async close() {

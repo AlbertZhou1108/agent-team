@@ -192,7 +192,8 @@ export interface PanelAgentState {
   unknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
 }
 
-export interface Snapshot {
+/** 与当前团队无关的全局数据;切换团队不会重新加载。 */
+export interface Overview {
   groups: Group[];
   members: Member[];
   panelAgent: PanelAgent | null;
@@ -205,15 +206,18 @@ export interface Snapshot {
     model?: string | null;
     reasoning_effort?: string | null;
   }>;
-  endpoints: SessionEndpoint[];
-  sessionBindings: SessionBinding[];
   modelPolicy: ModelPolicy;
   modelPolicyDefaults: ModelPolicyDefaults;
+  groupStates: GroupStateRow[];
+}
+
+export interface Snapshot extends Overview {
+  endpoints: SessionEndpoint[];
+  sessionBindings: SessionBinding[];
   runningEndpoints: string[];
   panelRunning: Array<{ endpoint: string; groupId: string | null; turnId: string }>;
   panelUnknown: Array<{ turn_id: string; group_id: string | null; detail?: string }>;
   agentTasks: AgentTaskEntry[];
-  groupStates: GroupStateRow[];
 }
 
 export type AgentTaskState = 'doing' | 'done' | 'dropped';

@@ -306,7 +306,8 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
             } catch (error) {
               return failJson(error.status ?? 500, error);
             }
-          } else if (url.pathname === '/api/snapshot') value = bus.snapshot(url.searchParams.get('scoped') === '1' ? url.searchParams.get('group') || '' : undefined);
+          } else if (url.pathname === '/api/overview') value = bus.overview();
+          else if (url.pathname === '/api/snapshot') value = bus.snapshot(url.searchParams.get('scoped') === '1' ? url.searchParams.get('group') || '' : undefined);
           else if (url.pathname === '/api/panel-agent') value = bus.panelAgentState(url.searchParams.get('summary') === '1');
           else if (url.pathname === '/api/panel-agent/conversation') value = bus.panelConversation(cursor(url));
           else if (url.pathname === '/api/panel-agent/teams') value = bus.panelTeamViews();

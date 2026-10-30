@@ -36,6 +36,16 @@ export function useCharterQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   });
 }
 
+export function useOverviewQuery() {
+  return useQuery({
+    queryKey: ['overview'],
+    queryFn: ({ signal }) => api.overview(signal),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+}
+
 export function useSnapshotQuery(groupId: MaybeRefOrGetter<string | undefined> = undefined) {
   return useQuery({
     queryKey: computed(() => ['snapshot', toValue(groupId)]),
