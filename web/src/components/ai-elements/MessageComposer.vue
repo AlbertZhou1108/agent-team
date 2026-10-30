@@ -6,6 +6,7 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
+  InputGroupInput,
   InputGroupTextarea,
 } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ const draft = defineModel<string>({ required: true });
 const ui = useUiStore();
 const resizing = ref(false);
 const textarea = ref<{ $el?: HTMLTextAreaElement } | null>(null);
+const compactInput = ref<{ $el?: HTMLInputElement } | null>(null);
 let resize: { startY: number; startHeight: number } | undefined;
 const emit = defineEmits<{ submit: [] }>();
 const { submit, onKeydown } = createComposerActions(
@@ -31,7 +33,7 @@ const { submit, onKeydown } = createComposerActions(
   () => emit('submit'),
 );
 
-// 折叠态只留一行:草稿非空时显示首行,否则显示占位提示,避免收起后看不出内容。
+// 折叠是两种输入形态的切换,不是只读预览:两种形态都能继续输入与发送。
 const collapsed = computed({
   get: () => ui.composerCollapsed,
   set: (value: boolean) => {
@@ -39,7 +41,6 @@ const collapsed = computed({
     ui.persist();
   },
 });
-const draftPreview = computed(() => draft.value.trim().split('\n')[0] || props.placeholder);
 
 // 禁用只限制发送,展开仍应允许:用户需要能查看自己写下的草稿。
 async function expand() {
@@ -48,8 +49,10 @@ async function expand() {
   textarea.value?.$el?.focus();
 }
 
-function collapse() {
+async function collapse() {
   collapsed.value = true;
+  await nextTick();
+  compactInput.value?.$el?.focus();
 }
 
 function setComposerHeight(height: number) {
@@ -86,27 +89,48 @@ function keyboardResize(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div v-if="collapsed" class="agent-composer-collapsed">
-    <button
-      type="button"
-      class="agent-composer-collapsed-label"
-      :aria-label="`展开输入区${draft.trim() ? '，草稿：' + draftPreview : ''}`"
-      :aria-expanded="false"
-      @click="expand"
-    >
-      <span class="min-w-0 flex-1 truncate" :class="{ 'text-muted-foreground': !draft.trim() }">{{ draftPreview }}</span>
-    </button>
-    <!-- 收起后运行仍可能在进行,操作入口(如停止)必须保留。 -->
-    <slot name="actions" />
-    <button
-      type="button"
-      class="agent-composer-expand"
-      aria-label="展开输入区"
-      @click="expand"
-    >
-      <ChevronUp class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-    </button>
-  </div>
+  <!-- 折叠态是仍可输入的简洁行:单行输入、发送、展开切换,不展示模型与权限等次要控件。 -->
+  <form
+    v-if="collapsed"
+    class="agent-composer-compact"
+    @submit.prevent="submit"
+  >
+    <InputGroup>
+      <InputGroupInput
+        ref="compactInput"
+        v-model="draft"
+        maxlength="48000"
+        :placeholder="placeholder"
+        :aria-label="label"
+        :disabled="disabled"
+        @keydown="onKeydown"
+      />
+      <InputGroupAddon align="inline-end" class="gap-1">
+        <!-- 运行中的停止入口在折叠后仍需可达。 -->
+        <slot name="actions" />
+        <InputGroupButton
+          type="submit"
+          size="icon-sm"
+          variant="default"
+          :disabled="!draft.trim() || sending || disabled"
+          :aria-label="sending ? '发送中' : '发送'"
+        >
+          <LoaderCircle v-if="sending" class="animate-spin" />
+          <ArrowUp v-else />
+        </InputGroupButton>
+        <InputGroupButton
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="展开输入区"
+          title="展开输入区"
+          @click="expand"
+        >
+          <ChevronUp />
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
+  </form>
   <form
     v-else
     :class="cn('agent-ai-composer', resizing && 'is-resizing')"
@@ -174,47 +198,14 @@ function keyboardResize(event: KeyboardEvent) {
 </template>
 
 <style scoped>
-/* 折叠态是一条可点击展开的整行,右侧保留仍在进行的操作(如停止)。 */
-.agent-composer-collapsed {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: transparent;
+/* 简洁输入区:单行输入 + 操作。与展开态共用输入组件的视觉,只是高度收敛。 */
+.agent-composer-compact :deep([data-slot="input-group"]) {
+  height: 44px;
 }
 
-.agent-composer-collapsed-label {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  padding: 4px 0;
-  color: var(--foreground);
+.agent-composer-compact :deep([data-slot="input-group-control"]) {
+  height: 44px;
+  padding-block: 0;
   font-size: 0.875rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.agent-composer-collapsed-label:hover {
-  color: var(--foreground);
-  opacity: 0.8;
-}
-
-.agent-composer-expand {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.agent-composer-expand:hover {
-  background: var(--accent);
 }
 </style>
