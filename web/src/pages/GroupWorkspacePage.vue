@@ -874,6 +874,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         :class="{
           'context-is-collapsed': ui.contextCollapsed,
           'manager-view-open': managerConversationActive,
+          'is-resizing': resizing,
         }"
       >
         <ConversationWorkspace
@@ -917,7 +918,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         <button
           v-if="ui.inspectorOpen"
           type="button"
-          class="inspector-backdrop xl:hidden"
+          class="inspector-backdrop xl:hidden animate-in fade-in-0"
           aria-label="关闭群信息"
           @click="closeContextPanel"
         />

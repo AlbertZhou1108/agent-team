@@ -521,6 +521,7 @@ button {
   min-width: 0;
   flex-direction: column;
   padding: 20px 12px;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--card);
 }
@@ -1089,6 +1090,7 @@ button {
     max-height: 100vh;
     overflow-y: auto;
     transform: translateX(105%);
+    transition: transform calc(0.3s * var(--motion-pace, 1)) cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .context-panel-open {
@@ -1483,6 +1485,24 @@ html[data-density='loose'] {
   --density-header-pad: 14px 18px;
   --density-composer-pad: 14px 18px 16px;
   --density-context-pad: 20px;
+}
+
+/* ===== 结构性动画:侧栏与上下文面板折叠/展开时网格列宽平滑过渡 =====
+   时长跟随动效风格节奏;拖拽把手调整宽度时暂停(is-resizing),保证跟手。 */
+.app-shell,
+.workspace-shell,
+.agent-workspace {
+  transition: grid-template-columns calc(0.3s * var(--motion-pace, 1)) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.app-shell.is-resizing,
+.workspace-shell.is-resizing {
+  transition: none;
+}
+
+/* 折叠挤压过程中防止文字换行,呈现干净的滑出感。 */
+.team-row,
+.team-folder-heading {
+  white-space: nowrap;
 }
 
 /* ===== 外观样例:设置页内的微缩会话界面,实时反映材质/密度/阅读/动效草稿 ===== */

@@ -191,3 +191,14 @@
 - Toast:vue-sonner 内建时序(入场为 transition、滑动移除为 keyframes 且与手势测量耦合),风格节奏**不接入**;减少档由全局 kill-switch 覆盖
 - 平滑滚动:浏览器内建 smooth 时长不可控,回底按钮已有减少档降级,维持现状
 
+
+### 结构性动画(2026-10-31,用户反馈"动效不应只有速度,还应有动画")
+
+用户指出折叠侧栏等结构性状态变化是瞬间跳变。已补齐"展开收起"语义:
+
+- 侧栏/上下文面板/Panel Agent 右栏:`grid-template-columns` 过渡(0.3s×pace,实测 76→368px 帧帧渐变);拖拽把手调整宽度时经 `is-resizing` 暂停,保证跟手
+- 共享 CollapsibleContent 接入 `collapsible-up/down` 动画(此前仅 TraceCollapsibleContent 有)——主题区、归档团队、数据总览、模型策略预设等所有折叠区块统一获得展开收起动画(实测 collapsible-up 0.27s=0.2s×1.35)
+- 移动端上下文抽屉 transform 过渡 + 背板淡入
+- 侧栏容器 overflow:hidden + 团队行 nowrap,折叠挤压呈现干净滑出感
+- 减少动态效果档:全部结构性动画即时(实测 1e-05s)
+- 刻意不做:设置页 Tab 切换内容动画(TabsContent 常驻不重挂载,动画无法可靠重触发)、消息流入场(流式追加不重复入场)
