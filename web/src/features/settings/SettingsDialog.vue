@@ -48,6 +48,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import HostStatuses from './HostStatuses.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
@@ -96,6 +97,8 @@ const emit = defineEmits<{
 }>();
 
 const preferences = usePreferencesStore();
+// 设置页按用户目标分组:外观/通用/模型策略/团队管理。
+const activeTab = ref('appearance');
 const archivedOpen = ref(true);
 const mode = ref<ModelPolicy['mode']>('user');
 const rules = ref('');
@@ -749,7 +752,14 @@ watch(
         </CardHeader>
 
           <CardContent class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-6">
-          <HostStatuses :active="open || Boolean(embedded)" />
+          <Tabs v-model="activeTab" class="flex min-h-0 flex-col gap-6">
+            <TabsList class="sticky top-0 z-10 grid w-full grid-cols-4">
+              <TabsTrigger value="appearance">外观</TabsTrigger>
+              <TabsTrigger value="general">通用</TabsTrigger>
+              <TabsTrigger value="policy">模型策略</TabsTrigger>
+              <TabsTrigger value="teams">团队管理</TabsTrigger>
+            </TabsList>
+          <TabsContent value="appearance" class="flex flex-col gap-6">
           <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div class="min-w-0">
@@ -1046,6 +1056,10 @@ watch(
               </CollapsibleContent>
             </Collapsible>
           </section>
+          </TabsContent>
+
+          <TabsContent value="general" class="flex flex-col gap-6">
+            <HostStatuses :active="open || Boolean(embedded)" />
 
           <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">
@@ -1064,6 +1078,9 @@ watch(
           <section class="flex flex-col gap-3">
             <AttachmentSettings />
           </section>
+          </TabsContent>
+
+          <TabsContent value="policy" class="flex flex-col gap-6">
 
           <section class="flex flex-col gap-3 pt-6">
             <div class="flex items-start justify-between gap-3">
@@ -1232,6 +1249,13 @@ watch(
 
           </section>
 
+          <Alert v-if="error" variant="destructive">
+            <AlertDescription>{{ error }}</AlertDescription>
+          </Alert>
+          </TabsContent>
+
+          <TabsContent value="teams" class="flex flex-col gap-6">
+
           <section class="flex flex-col gap-3 pt-6">
             <Collapsible v-model:open="archivedOpen" class="flex min-w-0 flex-col gap-3">
             <div class="flex items-center justify-between gap-2">
@@ -1283,10 +1307,8 @@ watch(
             </CollapsibleContent>
             </Collapsible>
           </section>
-
-          <Alert v-if="error" variant="destructive">
-            <AlertDescription>{{ error }}</AlertDescription>
-          </Alert>
+          </TabsContent>
+          </Tabs>
         </CardContent>
       </component>
     </div>
