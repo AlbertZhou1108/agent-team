@@ -21,6 +21,7 @@ describe('preferences appearance', () => {
     expect(store.colorMode).toBe('system');
     expect(store.themePack).toBe('classic');
     expect(store.themePackSnapshot).toBeNull();
+    expect(store.motionPreference).toBe('system');
   });
 
   it('loads functional settings while discarding saved custom appearance', () => {
@@ -30,6 +31,7 @@ describe('preferences appearance', () => {
         colorTheme: 'ocean',
         appearanceVersion: 2,
         density: 'compact',
+        motionPreference: 'soft',
         showReasoning: false,
         showRawPayloads: true,
         refreshInterval: 5000,
@@ -39,10 +41,16 @@ describe('preferences appearance', () => {
       colorMode: 'light',
       themePack: 'classic',
       themePackSnapshot: null,
+      motionPreference: 'soft',
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
     });
+  });
+
+  it('falls back to system motion when the saved value is unknown', () => {
+    stubStorage(JSON.stringify({ motionPreference: 'bouncy' }));
+    expect(usePreferencesStore().motionPreference).toBe('system');
   });
 
   it('migrates the legacy theme preference as color mode', () => {

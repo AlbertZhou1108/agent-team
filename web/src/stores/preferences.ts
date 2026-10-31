@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import type { ThemeTokens } from '@/theme/tokens';
 
@@ -14,6 +15,7 @@ interface PreferencesState {
   colorMode: ColorMode;
   themePack: string;
   themePackSnapshot: ThemePackSnapshot | null;
+  motionPreference: MotionPreference;
   showReasoning: boolean;
   showRawPayloads: boolean;
   refreshInterval: number;
@@ -37,6 +39,7 @@ function load(): PreferencesState {
     colorMode: 'system',
     themePack: CLASSIC_THEME_ID,
     themePackSnapshot: null,
+    motionPreference: 'system',
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
@@ -58,6 +61,9 @@ function load(): PreferencesState {
       themePackSnapshot: isThemePackSnapshot(saved.themePackSnapshot)
         ? saved.themePackSnapshot
         : null,
+      motionPreference: isMotionPreference(saved.motionPreference)
+        ? saved.motionPreference
+        : fallback.motionPreference,
       showReasoning: saved.showReasoning ?? fallback.showReasoning,
       showRawPayloads: saved.showRawPayloads ?? fallback.showRawPayloads,
       refreshInterval: saved.refreshInterval ?? fallback.refreshInterval,
@@ -89,6 +95,10 @@ export const usePreferencesStore = defineStore('preferences', {
     setThemePack(id: string, snapshot: ThemePackSnapshot | null) {
       this.themePack = id;
       this.themePackSnapshot = snapshot;
+      this.persist();
+    },
+    setMotionPreference(motionPreference: MotionPreference) {
+      this.motionPreference = motionPreference;
       this.persist();
     },
     toggleReasoning() {

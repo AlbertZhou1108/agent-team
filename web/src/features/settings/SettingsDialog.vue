@@ -50,6 +50,7 @@ import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import HostStatuses from './HostStatuses.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
+import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
@@ -83,6 +84,14 @@ const colorModes: Array<{ value: ColorMode; icon: typeof Sun; label: string }> =
     { value: 'light', icon: Sun, label: '浅色' },
     { value: 'dark', icon: Moon, label: '深色' },
   ];
+
+const motionOptions: Array<{ value: MotionPreference; label: string }> = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'reduced', label: '减少动态效果' },
+  { value: 'simple', label: '简洁' },
+  { value: 'soft', label: '柔和' },
+  { value: 'lively', label: '灵动' },
+];
 
 // ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
 const themePacksQuery = useQuery({
@@ -281,6 +290,12 @@ function selectPolicyMode(value: unknown) {
 function selectColorMode(value: unknown) {
   if (value === 'dark' || value === 'light' || value === 'system') {
     preferences.setColorMode(value);
+  }
+}
+
+function selectMotionPreference(value: unknown) {
+  if (isMotionPreference(value)) {
+    preferences.setMotionPreference(value);
   }
 }
 
@@ -536,6 +551,32 @@ watch(
                 class="display-mode-option min-w-0"
               >
                 <component :is="item.icon" />
+                <span>{{ item.label }}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <div>
+              <h3 class="text-sm font-semibold">动效</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                跟随系统时响应系统的减少动态效果偏好；明确选择后以应用内为准。
+              </p>
+            </div>
+            <ToggleGroup
+              type="single"
+              :model-value="preferences.motionPreference"
+              :spacing="2"
+              class="grid w-full grid-cols-5"
+              @update:model-value="selectMotionPreference"
+            >
+              <ToggleGroupItem
+                v-for="item in motionOptions"
+                :key="item.value"
+                :value="item.value"
+                variant="outline"
+                class="min-w-0 px-1 text-xs"
+              >
                 <span>{{ item.label }}</span>
               </ToggleGroupItem>
             </ToggleGroup>

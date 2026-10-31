@@ -41,8 +41,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --animate-collapsible-down: collapsible-down 0.2s ease-out;
-  --animate-collapsible-up: collapsible-up 0.2s ease-out;
+  --animate-collapsible-down: collapsible-down calc(0.2s * var(--motion-pace, 1)) ease-out;
+  --animate-collapsible-up: collapsible-up calc(0.2s * var(--motion-pace, 1)) ease-out;
 }
 
 @keyframes collapsible-down {
@@ -1341,18 +1341,27 @@ button {
   border-radius: 9999px;
   background: currentColor;
   opacity: 0.25;
-  animation: loading-dot 1.2s ease-in-out infinite;
+  animation: loading-dot calc(1.2s * var(--motion-pace, 1)) ease-in-out infinite;
 }
-.loading-dots i:nth-child(2) { animation-delay: 0.2s; }
-.loading-dots i:nth-child(3) { animation-delay: 0.4s; }
+.loading-dots i:nth-child(2) { animation-delay: calc(0.2s * var(--motion-pace, 1)); }
+.loading-dots i:nth-child(3) { animation-delay: calc(0.4s * var(--motion-pace, 1)); }
 @keyframes loading-dot {
   0%, 70%, 100% { opacity: 0.25; }
   35% { opacity: 1; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+/* 减少动态效果策略:外观收口把解析结果(跟随系统或用户显式选择)写为
+   <html data-motion='reduced'>,系统偏好与应用内选择在此汇成同一条路径。 */
+html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
+
+/* 动效风格节奏:简洁=1(默认),柔和放慢,灵动加快。共享动画统一乘 --motion-pace。 */
+html[data-motion='soft'] { --motion-pace: 1.35; }
+html[data-motion='lively'] { --motion-pace: 0.7; }
 
 /* Interaction notifications keep their preview bounded and the destination action separate. */
 [data-sonner-toast].interaction-notice {

@@ -1,3 +1,4 @@
+import type { MotionStyle } from '@/shared/motion';
 import { TOKEN_KEYS, type ThemeTokens } from './tokens';
 
 /**
@@ -12,4 +13,13 @@ export function applyTheme(tokens: ThemeTokens, isDark: boolean): void {
   for (const key of TOKEN_KEYS) {
     root.style.setProperty(`--${key}`, tokens[key]);
   }
+}
+
+/**
+ * 把解析后的动效风格写到 <html data-motion>。
+ * 全局 CSS 与 JS 侧动效决策都以这个属性为唯一依据。
+ */
+export function applyMotion(style: MotionStyle): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.dataset.motion = style;
 }
