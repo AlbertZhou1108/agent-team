@@ -22,7 +22,7 @@ const feedProps = computed(() => {
 
 <template>
   <ConversationFrame class="conversation-workspace" :readonly="readonly ?? false">
-    <header class="conversation-header">
+    <header class="conversation-header" data-surface="action">
       <slot name="leading" />
       <div class="min-w-0 flex-1">
         <div class="flex min-w-0 flex-wrap items-center gap-2">

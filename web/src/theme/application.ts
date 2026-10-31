@@ -42,4 +42,8 @@ export function startThemeApplication() {
   window
     .matchMedia('(prefers-reduced-motion: reduce)')
     .addEventListener('change', apply);
+  // 系统降低透明度时材质回落实色,恢复时再切回。
+  window
+    .matchMedia('(prefers-reduced-transparency: reduce)')
+    .addEventListener('change', apply);
 }

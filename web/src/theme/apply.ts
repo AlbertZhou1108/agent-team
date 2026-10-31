@@ -1,4 +1,5 @@
 import type { MotionStyle } from '@/shared/motion';
+import { getMaterialCategory, SURFACE_ROLES } from './materials';
 import { TOKEN_KEYS, type ThemeTokens } from './tokens';
 
 /**
@@ -31,13 +32,40 @@ export function isMaterialPreference(value: unknown): value is MaterialPreferenc
   return value === 'solid' || value === 'glass';
 }
 
+/** 设备能否呈现表面效果(模糊);不能或用户要求降低透明度时回落实色。 */
+function surfaceEffectsUsable(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  const supportsBlur =
+    typeof CSS !== 'undefined' &&
+    (CSS.supports?.('backdrop-filter', 'blur(1px)') ||
+      CSS.supports?.('-webkit-backdrop-filter', 'blur(1px)') ||
+      false);
+  const reduceTransparency =
+    window.matchMedia?.('(prefers-reduced-transparency: reduce)').matches ?? false;
+  return supportsBlur && !reduceTransparency;
+}
+
 /**
- * 把材质选项写到 <html data-material>;具体表面映射由共享 CSS 完成。
- * 效果不可用(不支持 backdrop-filter 或用户要求降低透明度)时由 CSS 回落实色。
+ * 把材质大类落到 <html>:data-material 记录"实际生效"的大类,
+ * 并按规格表(theme/materials.ts)把每个角色的表面参数写成
+ * --surface-{role}-* CSS 变量供表面消费。设备不支持或要求降低透明度时,
+ * 回落为默认实色(变量不写,表面走主题基线)。
  */
 export function applyMaterial(preference: MaterialPreference): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.dataset.material = preference;
+  const root = document.documentElement;
+  const category = getMaterialCategory(preference);
+  const effective = surfaceEffectsUsable() ? category : getMaterialCategory('solid');
+  // 先清空上一大类的表面变量再写入,切换无残留。
+  for (const role of SURFACE_ROLES) {
+    root.style.removeProperty(`--surface-${role}-bg`);
+    root.style.removeProperty(`--surface-${role}-blur`);
+  }
+  root.dataset.material = effective.id;
+  for (const [role, finish] of Object.entries(effective.roles)) {
+    if (finish.bg) root.style.setProperty(`--surface-${role}-bg`, finish.bg);
+    if (finish.blur) root.style.setProperty(`--surface-${role}-blur`, finish.blur);
+  }
 }
 
 /** 界面密度:只调节共享间距与容器留白,不改正文大小与业务信息。 */

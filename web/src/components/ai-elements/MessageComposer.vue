@@ -241,6 +241,7 @@ function keyboardResize(event: KeyboardEvent) {
   <form
     v-else
     :class="cn('agent-ai-composer', resizing && 'is-resizing', dragging && 'is-dragging')"
+    data-surface="action"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
     @dragenter="onDragEnter"

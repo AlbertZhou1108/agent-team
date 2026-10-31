@@ -69,6 +69,7 @@ import {
 } from '@/theme/apply';
 import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
 import { resolveThemePack, resolveTokens } from '@/theme/resolve';
+import { MATERIAL_CATEGORIES } from '@/theme/materials';
 import {
   APPEARANCE_PRESET_MAX,
   APPEARANCE_PRESET_NAME_MAX,
@@ -122,10 +123,10 @@ const motionOptions: Array<{ value: MotionPreference; label: string }> = [
   { value: 'lively', label: '灵动' },
 ];
 
-const materialOptions: Array<{ value: 'solid' | 'glass'; label: string }> = [
-  { value: 'solid', label: '默认实色' },
-  { value: 'glass', label: '磨砂玻璃' },
-];
+const materialOptions = Object.values(MATERIAL_CATEGORIES).map((category) => ({
+  value: category.id as 'solid' | 'glass',
+  label: category.label,
+}));
 
 const densityOptions: Array<{ value: 'compact' | 'standard' | 'loose'; label: string }> = [
   { value: 'compact', label: '紧凑' },

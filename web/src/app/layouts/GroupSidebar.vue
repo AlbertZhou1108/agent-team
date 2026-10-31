@@ -274,6 +274,7 @@ function submitRenameFolder() {
 
 <template>
   <aside
+    data-surface="nav-panel"
     :class="
       cn('group-sidebar', ui.sidebarCollapsed && 'group-sidebar-collapsed')
     "

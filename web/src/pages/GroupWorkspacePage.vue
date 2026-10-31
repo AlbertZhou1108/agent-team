@@ -945,6 +945,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           :collapsed-actions="contextTabs"
           :active-action="contextPanel"
           desktop-only-toggle
+          data-surface="context-panel"
           @update:collapsed="ui.persist()"
           @action="setContextPanel"
           :class="[
