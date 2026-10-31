@@ -1361,9 +1361,26 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
   scroll-behavior: auto !important;
 }
 
-/* 动效风格节奏:简洁=1(默认),柔和放慢,灵动加快。共享动画统一乘 --motion-pace。 */
-html[data-motion='soft'] { --motion-pace: 1.35; }
-html[data-motion='lively'] { --motion-pace: 0.7; }
+/* 动效风格节奏:简洁=1(默认),柔和放慢,灵动加快。共享动画统一乘 --motion-pace。
+   微交互过渡:未显式指定时长的 transition-* 走 --default-transition-duration,
+   共享组件显式时长用 --motion-fast/--motion-base;三种取值随风格重映射。
+   循环状态动画(spin/pulse)引用 Tailwind 主题变量,同样乘 pace。 */
+html[data-motion='soft'] {
+  --motion-pace: 1.35;
+  --motion-fast: 220ms;
+  --motion-base: 300ms;
+  --default-transition-duration: 220ms;
+  --animate-spin: spin calc(1s * var(--motion-pace, 1)) linear infinite;
+  --animate-pulse: pulse calc(2s * var(--motion-pace, 1)) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+html[data-motion='lively'] {
+  --motion-pace: 0.7;
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --default-transition-duration: 100ms;
+  --animate-spin: spin calc(1s * var(--motion-pace, 1)) linear infinite;
+  --animate-pulse: pulse calc(2s * var(--motion-pace, 1)) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
 
 /* 弹层进出(弹窗/浮层/下拉/选择/提示)跟随动效风格节奏;
    简洁档即组件默认时长,reduced 仍由全局 kill-switch 压制。 */

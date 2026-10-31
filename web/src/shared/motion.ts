@@ -34,6 +34,19 @@ export function systemReducedMotion(): boolean {
 }
 
 /**
+ * 当前动效节奏系数(简洁=1;柔和=1.35;灵动=0.7),与 CSS 的 --motion-pace 同源。
+ * JS 侧动画(WAAPI 等)用它缩放时长,保证与 CSS 动画节奏一致。
+ */
+export function motionPace(): number {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return 1;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(
+    '--motion-pace',
+  );
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+/**
  * 共享的减少动态效果判断:唯一依据是外观收口写到 `<html data-motion>` 的解析结果,
  * 全局 CSS(html[data-motion='reduced'])与所有 JS 侧动效决策(平滑滚动、高度动画等)
  * 因此始终同源;属性尚未就绪的极端时序回落到系统媒体查询。

@@ -14,7 +14,7 @@ const delegatedProps = reactiveOmit(props, "class")
   <CollapsibleContent
     data-slot="trace-collapsible-content"
     v-bind="delegatedProps"
-    class="duration-200 min-w-0 overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down"
+    class="duration-[var(--motion-base)] min-w-0 overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down"
   >
     <div
       data-slot="trace-collapsible-content-inner"

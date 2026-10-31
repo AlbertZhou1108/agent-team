@@ -10,7 +10,7 @@ import {
   useId,
 } from 'vue';
 import { ChevronDown } from '@lucide/vue';
-import { prefersReducedMotion } from '@/shared/motion';
+import { motionPace, prefersReducedMotion } from '@/shared/motion';
 
 const props = withDefaults(defineProps<{ text: string; lines?: number }>(), {
   lines: 6,
@@ -65,7 +65,7 @@ function toggleExpanded() {
   const animation = element.animate(
     [{ height: `${from}px` }, { height: `${target}px` }],
     {
-      duration: 240,
+      duration: Math.round(240 * motionPace()),
       easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
       fill: 'both',
     },

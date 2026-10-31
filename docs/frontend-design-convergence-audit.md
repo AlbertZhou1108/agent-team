@@ -173,3 +173,21 @@
 4. **其他动效风格:不新增**。五档风格 + 节奏系数已覆盖用途空间;B4 收口后未见语义缺口。
 5. **再引入的路径**:均按既有模式增量进行 —— 新材质 = 新 `data-material` 值 + 角色映射 + 回落;新动效 = 新风格档 + `--motion-pace`/参数表;无需改动页面代码。
 
+
+### 动效打磨(2026-10-31,用户驱动,按感知频率排序)
+
+实测探针(注入元素取计算值):
+
+| 探针 | 简洁 | 柔和 | 灵动 | 减少 |
+| --- | --- | --- | --- | --- |
+| 默认微过渡(transition-colors) | 150ms | 220ms | 100ms | 压制 |
+| 弹窗进出动画 | 0.2s | 0.27s | 0.14s | 压制 |
+| animate-spin(15+ 处加载) | 1s | 1.35s | 0.7s | 压制 |
+| animate-pulse(运行状态点) | 2s | 2.7s | 1.4s | 压制 |
+
+- 微过渡:风格重映射 `--default-transition-duration`(覆盖 25 处无显式时长的过渡)+ 共享组件 4 处显式时长改 `--motion-fast/--motion-base` 变量
+- 循环动画:`--animate-spin/--animate-pulse` 按风格变量覆盖(利用 Tailwind v4 工具类的 var 引用机制)
+- WAAPI(ExpandableText 高度动画):时长 × `motionPace()`(JS 读 `--motion-pace`,与 CSS 同源)
+- Toast:vue-sonner 内建时序(入场为 transition、滑动移除为 keyframes 且与手势测量耦合),风格节奏**不接入**;减少档由全局 kill-switch 覆盖
+- 平滑滚动:浏览器内建 smooth 时长不可控,回底按钮已有减少档降级,维持现状
+
