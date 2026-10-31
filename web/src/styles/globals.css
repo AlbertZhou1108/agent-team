@@ -1467,10 +1467,6 @@ html[data-density='loose'] {
   --density-context-pad: 20px;
 }
 
-/* ===== 折叠内容动画:展开/收起关键帧(高度按开启时实测值) =====
-   滚动容器配 scrollbar-gutter: stable 预留槽位,避免动画中滚动条
-   出现/消失引发的宽度反馈与测量过冲(瞬态滚动条 bug)。 */
-
 /* ===== 折叠内容动画:grid-template-rows 0fr→1fr 过渡 =====
    由根节点 data-state 驱动、在内层干净元素上过渡:每帧按真实布局解析行高,
    不存在"开启瞬间测量"导致的过冲(展开把下方内容推远再回弹的根因);
@@ -1492,6 +1488,28 @@ html[data-density='loose'] {
     visibility 0s linear var(--motion-duration-normal);
 }
 .collapsible-clip-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ===== 折叠显现原语(CollapseReveal):行为契约的最小承载 =====
+   供未使用 reka Collapsible 的条件渲染场景以一行接入统一展开收起动效;
+   与 .collapsible-clip 同源同节奏(逐帧解析真实布局,终点不变式)。 */
+.collapse-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard);
+}
+.collapse-reveal[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.collapse-reveal[data-open='false'] {
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard),
+    visibility 0s linear var(--motion-duration-normal);
+}
+.collapse-reveal-clip {
   min-height: 0;
   overflow: hidden;
 }

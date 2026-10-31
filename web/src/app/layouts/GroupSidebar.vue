@@ -20,6 +20,7 @@ import {
 } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
+import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
@@ -451,32 +452,31 @@ function submitRenameFolder() {
             >
           </div>
         </form>
-        <div
-          v-if="!folder.collapsed"
-          :class="{ 'team-folder-children': !ui.sidebarCollapsed }"
-        >
-          <TeamRow :all-ids="groups.map(group => group.id)"
-            v-for="group in folderTeams(folder.id)"
-            :key="group.id"
-            :group="group"
-            :active="group.id === currentGroupId"
-            :selected="selected.includes(group.id)"
-            :collapsed="ui.sidebarCollapsed"
-            @select="selectTeam(group.id, $event)"
-            @drag="startDrag(group.id, $event)"
-            @reorder="reorderTeam(group.id, $event)"
-            @over="showTeamInsertion(group.id, $event)"
-            @leave="leaveInsertion"
-            @archive="emit('archive', group.id)"
-            :class="insertionClass(group.id, 'team')"
-          />
-          <p
-            v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
-            class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
-          >
-            拖入团队
-          </p>
-        </div>
+        <CollapseReveal :show="!folder.collapsed">
+          <div :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
+            <TeamRow :all-ids="groups.map(group => group.id)"
+              v-for="group in folderTeams(folder.id)"
+              :key="group.id"
+              :group="group"
+              :active="group.id === currentGroupId"
+              :selected="selected.includes(group.id)"
+              :collapsed="ui.sidebarCollapsed"
+              @select="selectTeam(group.id, $event)"
+              @drag="startDrag(group.id, $event)"
+              @reorder="reorderTeam(group.id, $event)"
+              @over="showTeamInsertion(group.id, $event)"
+              @leave="leaveInsertion"
+              @archive="emit('archive', group.id)"
+              :class="insertionClass(group.id, 'team')"
+            />
+            <p
+              v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
+              class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
+            >
+              拖入团队
+            </p>
+          </div>
+        </CollapseReveal>
       </section>
       <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
       <div
