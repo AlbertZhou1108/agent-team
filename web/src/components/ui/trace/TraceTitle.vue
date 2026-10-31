@@ -10,7 +10,7 @@ const props = defineProps<{
 <template>
   <span
     data-slot="trace-title"
-    :class="cn('min-w-0 truncate motion-reduce:shimmer-none', props.class)"
+    :class="cn('min-w-0 truncate', props.class)"
   >
     <slot />
   </span>

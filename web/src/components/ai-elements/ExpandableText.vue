@@ -10,6 +10,7 @@ import {
   useId,
 } from 'vue';
 import { ChevronDown } from '@lucide/vue';
+import { prefersReducedMotion } from '@/shared/motion';
 
 const props = withDefaults(defineProps<{ text: string; lines?: number }>(), {
   lines: 6,
@@ -51,7 +52,7 @@ function toggleExpanded() {
     : Math.min(collapsedHeight.value, element.scrollHeight);
   expanded.value = next;
   if (
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+    prefersReducedMotion() ||
     Math.abs(target - from) < 1
   ) {
     heightAnimation?.cancel();

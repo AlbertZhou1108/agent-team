@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { ArrowDown } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { prefersReducedMotion } from '@/shared/motion';
 
 const props = withDefaults(
   defineProps<{
@@ -75,7 +76,7 @@ function updatePosition() {
 function scrollToBottom(behavior: ScrollBehavior = 'auto') {
   const element = stream.value;
   if (!element) return;
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) behavior = 'auto';
+  if (prefersReducedMotion()) behavior = 'auto';
   element.scrollTo({ top: element.scrollHeight, behavior });
   updatePosition();
 }
