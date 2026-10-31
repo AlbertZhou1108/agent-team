@@ -156,6 +156,20 @@ export function apiRoutes(context) {
                 }
                 return value;
             } },
+        { methods: ["POST"], archived: false, matches: url => (url.pathname === '/api/theme-packs' || /^\/api\/theme-packs\/[^/]+\/delete$/.test(url.pathname)), handle: async () => {
+                let value;
+                if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
+                    return fail(415, '需要 application/json');
+                const body = await readJsonBody(request);
+                const themeDeleteMatch = url.pathname.match(/^\/api\/theme-packs\/([^/]+)\/delete$/);
+                if (themeDeleteMatch) {
+                    value = bus.deleteThemePack(decodeURIComponent(themeDeleteMatch[1]));
+                }
+                else {
+                    value = bus.createThemePack(body);
+                }
+                return value;
+            } },
         { methods: ["POST"], archived: true, matches: url => (/^\/api\/teams\/[^/]+\/(?:archive|restore)$/.test(url.pathname)), handle: async () => {
                 let value;
                 if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
@@ -285,6 +299,7 @@ export function apiRoutes(context) {
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/panel-agent/teams'), handle: async () => { let value; value = bus.panelTeamViews(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-policy'), handle: async () => { let value; value = bus.modelPolicy(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-policy/presets'), handle: async () => { let value; value = bus.modelPolicyPresets(); return value; } },
+        { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/theme-packs'), handle: async () => { let value; value = bus.themePacks(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-catalog'), handle: async () => { let value; value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' }); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/collaboration'), handle: async () => { let value; value = bus.groupSummary(url.searchParams.get('group')); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/interactions'), handle: async () => {

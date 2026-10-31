@@ -276,6 +276,58 @@ export class Bus extends EventEmitter {
     this.store.run('DELETE FROM model_policy_presets WHERE id=?', id);
     return { deleted: id };
   }
+  // 主题包:内置主题随应用发布、不进库(前端代码持有),这里只存用户上传的包。
+  // 服务端只做结构级校验(可解析、长度、键数),颜色语义校验在前端导入时完成。
+  themePacks() {
+    return this.store.all('SELECT id,name,light,dark,created,updated FROM theme_packs ORDER BY updated DESC');
+  }
+  normalizeThemePackName(name) {
+    const value = typeof name === 'string' ? name.trim() : '';
+    if (!value || value.length > 60) throw new Error('主题名称需要 1-60 字符');
+    return value;
+  }
+  validateThemePackTokens(value, label) {
+    if (typeof value !== 'string' || value.length > 16384) throw new Error(`${label}数据过大或缺失`);
+    let parsed;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error(`${label}不是有效 JSON`);
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label}格式不正确`);
+    const keys = Object.keys(parsed);
+    if (keys.length > 64) throw new Error(`${label}变量过多`);
+    for (const key of keys) {
+      const item = parsed[key];
+      if (typeof item !== 'string' || item.length > 128) throw new Error(`${label}存在非法变量值`);
+    }
+  }
+  createThemePack({ name, light, dark }) {
+    const normalized = this.normalizeThemePackName(name);
+    if (this.store.get('SELECT 1 FROM theme_packs WHERE name=?', normalized)) throw new Error('主题名称已存在');
+    this.validateThemePackTokens(light, '浅色');
+    this.validateThemePackTokens(dark, '深色');
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    this.store.run(
+      'INSERT INTO theme_packs(id,name,light,dark,created,updated) VALUES(?,?,?,?,?,?)',
+      id,
+      normalized,
+      light,
+      dark,
+      now,
+      now,
+    );
+    return this.store.get('SELECT id,name,light,dark,created,updated FROM theme_packs WHERE id=?', id);
+  }
+  deleteThemePack(id) {
+    const existing = this.store.get('SELECT id FROM theme_packs WHERE id=?', id);
+    if (!existing) throw new Error('主题不存在');
+    // 使用中由各端偏好自行禁删(选中状态存在浏览器端,服务端无全局"当前主题");
+    // 跨设备删除后,其他端解析不到该 id 时自动回落内置主题。
+    this.store.run('DELETE FROM theme_packs WHERE id=?', id);
+    return { deleted: id };
+  }
   defaultModelSelection(hostName) {
     const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
     if (!cached) return null;
