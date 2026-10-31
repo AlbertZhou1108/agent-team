@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import HelpPopover from '@/components/panel/HelpPopover.vue';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
 import {
   Archive,
   ArrowLeft,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  Download,
   Monitor,
   Moon,
   Sun,
+  Trash2,
+  Upload,
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type {
@@ -38,12 +42,18 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
+import { FileDropzone } from '@/components/ui/file-dropzone';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import HostStatuses from './HostStatuses.vue';
-import { usePreferencesStore, type ColorMode } from '@/stores/preferences';
+import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
+import { queryKeys } from '@/features/query-keys';
+import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
+import { THEME_TEMPLATE_JSON } from '@/theme/template';
+import { parseThemePackJson } from '@/theme/validate';
+import type { ThemePack, UserThemePack } from '@/theme/tokens';
 
 const props = defineProps<{
   open: boolean;
@@ -72,6 +82,129 @@ const colorModes: Array<{ value: ColorMode; icon: typeof Sun; label: string }> =
     { value: 'light', icon: Sun, label: '浅色' },
     { value: 'dark', icon: Moon, label: '深色' },
   ];
+
+// ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
+const themePacksQuery = useQuery({
+  queryKey: queryKeys.themePacks,
+  queryFn: ({ signal }) => api.themePacks(signal),
+});
+const userThemePacks = computed(() => themePacksQuery.data.value ?? []);
+const allThemePacks = computed(() => [...BUILTIN_THEME_PACKS, ...userThemePacks.value]);
+const themeOpen = ref(true);
+const isBuiltinTheme = (pack: ThemePack) =>
+  BUILTIN_THEME_PACKS.some((item) => item.id === pack.id);
+// 色板预览跟随当前明暗模式:只依赖 colorMode,切换显示模式即换版。
+const themePreviewDark = computed(() => resolveDark(preferences.colorMode));
+// 选中即生效并缓存快照(刷新首帧用),无需保存按钮。
+function selectTheme(pack: ThemePack) {
+  preferences.setThemePack(pack.id, { light: pack.light, dark: pack.dark });
+}
+function themeSwatches(pack: ThemePack) {
+  const tokens = themePreviewDark.value ? pack.dark : pack.light;
+  return [
+    { key: 'background', value: tokens.background, divider: true },
+    { key: 'card', value: tokens.card, divider: true },
+    { key: 'primary', value: tokens.primary, divider: true },
+    { key: 'accent', value: tokens.accent, divider: true },
+    { key: 'success', value: tokens.success, divider: false },
+  ];
+}
+
+// 轨道轮播:左右按钮按视口 80% 滚动,到端点禁用。
+const themeTrack = ref<HTMLElement | null>(null);
+const canScrollThemeLeft = ref(false);
+const canScrollThemeRight = ref(false);
+function updateThemeCarousel() {
+  const track = themeTrack.value;
+  if (!track) {
+    canScrollThemeLeft.value = false;
+    canScrollThemeRight.value = false;
+    return;
+  }
+  canScrollThemeLeft.value = track.scrollLeft > 1;
+  canScrollThemeRight.value =
+    track.scrollLeft + track.clientWidth < track.scrollWidth - 1;
+}
+function scrollThemeTrack(direction: -1 | 1) {
+  const track = themeTrack.value;
+  track?.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: 'smooth' });
+}
+watch(
+  [userThemePacks, themeOpen],
+  () => nextTick(updateThemeCarousel),
+  { immediate: true },
+);
+
+// 新增主题:弹窗提供样板下载(带注释,即文档)与拖拽/点击上传;校验错误内联展示。
+const addThemeOpen = ref(false);
+const addThemeError = ref('');
+const uploadingTheme = ref(false);
+function beginAddTheme() {
+  addThemeError.value = '';
+  addThemeOpen.value = true;
+}
+function downloadThemeTemplate() {
+  const blob = new Blob([THEME_TEMPLATE_JSON], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'agent-team-theme-template.json';
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+async function onThemeFiles(files: File[]) {
+  const file = files[0];
+  if (!file) return;
+  addThemeError.value = '';
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    addThemeError.value = '无法读取所选文件';
+    return;
+  }
+  const parsed = parseThemePackJson(text);
+  if (!parsed.ok) {
+    addThemeError.value = parsed.error;
+    return;
+  }
+  uploadingTheme.value = true;
+  try {
+    await api.createThemePack({
+      name: parsed.pack.name,
+      light: JSON.stringify(parsed.pack.light),
+      dark: JSON.stringify(parsed.pack.dark),
+    });
+    addThemeOpen.value = false;
+    await themePacksQuery.refetch();
+    toast.success('主题已导入');
+  } catch (cause) {
+    addThemeError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    uploadingTheme.value = false;
+  }
+}
+
+// 删除:使用中的禁删(按钮禁用);跨设备删除由「缺 id 回落内置」兜底。
+const deletingTheme = ref<UserThemePack | null>(null);
+function requestDeleteTheme(pack: ThemePack) {
+  // 内置包不渲染删除按钮,这里再挡一道;能走到这里的必然是用户包。
+  if (isBuiltinTheme(pack)) return;
+  deletingTheme.value = pack as UserThemePack;
+}
+async function confirmDeleteTheme() {
+  if (!deletingTheme.value) return;
+  try {
+    await api.deleteThemePack(deletingTheme.value.id);
+    deletingTheme.value = null;
+    await themePacksQuery.refetch();
+    toast.success('主题已删除');
+  } catch (cause) {
+    toast.error('删除失败', {
+      description: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
 
 const originalMode = computed(() => props.policy?.mode ?? 'user');
 const originalRules = computed(
@@ -408,6 +541,108 @@ watch(
           </section>
 
           <section class="flex flex-col gap-3">
+            <Collapsible v-model:open="themeOpen" class="flex min-w-0 flex-col gap-3">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <h3 class="text-sm font-semibold">主题</h3>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    点击卡片即切换，与深色模式组合生效；自定义主题删除后可重新上传。
+                  </p>
+                </div>
+                <CollapsibleTrigger as-child>
+                  <Button variant="ghost" size="sm" :aria-label="themeOpen ? '收起主题' : '展开主题'">
+                    <span class="tabular-nums">{{ allThemePacks.length }}</span>
+                    <ChevronDown v-if="themeOpen" /><ChevronRight v-else />
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent class="flex flex-col gap-2">
+                <div class="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    :disabled="!canScrollThemeLeft"
+                    aria-label="向左滚动主题"
+                    @click="scrollThemeTrack(-1)"
+                  >
+                    <ChevronLeft />
+                  </Button>
+                  <div
+                    ref="themeTrack"
+                    class="scrollbar-thin flex min-w-0 flex-1 items-stretch gap-2 overflow-x-auto pb-1"
+                    @scroll.passive="updateThemeCarousel"
+                  >
+                    <div
+                      v-for="pack in allThemePacks"
+                      :key="pack.id"
+                      class="flex w-36 shrink-0 flex-col gap-1.5 rounded-md border p-2 shadow-xs"
+                      :class="preferences.themePack === pack.id
+                        ? 'border-input bg-accent text-accent-foreground'
+                        : 'border-input bg-transparent hover:bg-accent/50'"
+                    >
+                      <button
+                        type="button"
+                        class="flex appearance-none text-left"
+                        :aria-pressed="preferences.themePack === pack.id"
+                        :title="`使用「${pack.name}」`"
+                        @click="selectTheme(pack)"
+                      >
+                        <span class="flex flex-1 overflow-hidden rounded-md border border-border">
+                          <span
+                            v-for="swatch in themeSwatches(pack)"
+                            :key="swatch.key"
+                            class="h-8 flex-1"
+                            :class="swatch.divider ? 'border-r border-border' : ''"
+                            :style="{ background: swatch.value }"
+                          />
+                        </span>
+                      </button>
+                      <div class="flex min-w-0 items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          class="min-w-0 flex-1 truncate text-left text-sm"
+                          :title="`使用「${pack.name}」`"
+                          @click="selectTheme(pack)"
+                        >
+                          {{ pack.name }}
+                        </button>
+                        <Button
+                          v-if="!isBuiltinTheme(pack)"
+                          variant="ghost"
+                          size="icon-xs"
+                          :disabled="preferences.themePack === pack.id"
+                          :title="preferences.themePack === pack.id ? '正在使用中，请先切换到其他主题' : `删除「${pack.name}」`"
+                          :aria-label="`删除主题 ${pack.name}`"
+                          @click="requestDeleteTheme(pack)"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="flex w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed p-2 text-muted-foreground transition-colors outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+                      @click="beginAddTheme"
+                    >
+                      <Upload class="size-4" />
+                      <span class="text-sm">新增主题</span>
+                    </button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    :disabled="!canScrollThemeRight"
+                    aria-label="向右滚动主题"
+                    @click="scrollThemeTrack(1)"
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </section>
+
+          <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex items-center gap-1"><h3 class="text-sm font-semibold">思考过程</h3><HelpPopover title="思考过程"><p>在会话和消息流中显示模型的实时思考与“宿主思考”步骤。</p></HelpPopover></div>
@@ -688,6 +923,40 @@ watch(
       </DialogContent>
     </Dialog>
     <Dialog
+      :open="addThemeOpen"
+      @update:open="(value) => { if (!value) addThemeOpen = false; }"
+    >
+      <DialogContent v-if="addThemeOpen" class="max-w-lg">
+        <div class="flex flex-col gap-4">
+          <div>
+            <h3 class="text-sm font-semibold">新增主题</h3>
+            <p class="mt-1 text-xs text-muted-foreground">
+              下载样板 JSON 填写颜色后上传；主题不提供在线修改，调整时删除后重新上传即可。
+            </p>
+          </div>
+          <div class="flex flex-col gap-2">
+            <Button variant="outline" size="sm" class="self-start" @click="downloadThemeTemplate">
+              <Download />
+              下载样板 JSON
+            </Button>
+            <FileDropzone
+              accept=".json,application/json"
+              :disabled="uploadingTheme"
+              :label="uploadingTheme ? '导入中…' : '拖入主题 JSON 文件，或点击选择'"
+              hint="支持带 // 注释的样板文件"
+              @files="onThemeFiles"
+            />
+          </div>
+          <Alert v-if="addThemeError" variant="destructive">
+            <AlertDescription>{{ addThemeError }}</AlertDescription>
+          </Alert>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" @click="addThemeOpen = false">关闭</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog
       :open="rulesDialog !== null"
       @update:open="(value) => { if (!value) rulesDialog = null; }"
     >
@@ -737,6 +1006,15 @@ watch(
       destructive
       @confirm="confirmDeletePreset"
       @cancel="deletingPreset = null"
+    />
+    <ConfirmDialog
+      :open="deletingTheme !== null"
+      :title="`删除主题「${deletingTheme?.name ?? ''}」？`"
+      description="删除后不可恢复。正在使用该主题的设备会自动回落到内置主题。"
+      confirm-text="删除"
+      destructive
+      @confirm="confirmDeleteTheme"
+      @cancel="deletingTheme = null"
     />
   </Dialog>
 </template>
