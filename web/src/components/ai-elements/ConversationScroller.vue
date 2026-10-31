@@ -154,7 +154,7 @@ defineExpose({ scrollToBottom });
     </div>
     <Button
       v-if="!atBottom"
-      class="jump-to-bottom"
+      class="jump-to-bottom animate-in fade-in-0 slide-in-from-bottom-2 duration-[var(--motion-duration-fast)]"
       variant="secondary"
       size="sm"
       :aria-label="hasNewMessages ? '有新消息，回到底部' : '回到底部'"
