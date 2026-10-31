@@ -7,7 +7,7 @@ import {
   usePreferencesStore,
 } from '@/stores/preferences';
 import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
-import { applyMotion, applyTheme } from './apply';
+import { applyMaterial, applyMotion, applyTheme } from './apply';
 import { resolveThemePack, resolveTokens } from './resolve';
 
 /**
@@ -29,6 +29,7 @@ export function startThemeApplication() {
     applyMotion(
       resolveMotionStyle(preferences.motionPreference, systemReducedMotion()),
     );
+    applyMaterial(preferences.materialPreference);
   };
 
   watchEffect(apply);

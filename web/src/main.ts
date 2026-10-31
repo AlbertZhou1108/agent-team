@@ -6,7 +6,7 @@ import { installTabCache } from './shared/api/tab-cache';
 import { router } from './app/router';
 import { resolveDark, usePreferencesStore } from './stores/preferences';
 import { resolveMotionStyle, systemReducedMotion } from './shared/motion';
-import { applyMotion, applyTheme } from './theme/apply';
+import { applyMaterial, applyMotion, applyTheme } from './theme/apply';
 import { resolveThemePack, resolveTokens } from './theme/resolve';
 import '@fontsource-variable/noto-sans-sc';
 import '@fontsource-variable/geist';
@@ -75,6 +75,7 @@ try {
   applyMotion(
     resolveMotionStyle(preferences.motionPreference, systemReducedMotion()),
   );
+  applyMaterial(preferences.materialPreference);
 
   app.mount('#app');
 } catch (error) {

@@ -42,6 +42,7 @@ describe('preferences appearance', () => {
       themePack: 'classic',
       themePackSnapshot: null,
       motionPreference: 'soft',
+      materialPreference: 'solid',
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
@@ -51,6 +52,11 @@ describe('preferences appearance', () => {
   it('falls back to system motion when the saved value is unknown', () => {
     stubStorage(JSON.stringify({ motionPreference: 'bouncy' }));
     expect(usePreferencesStore().motionPreference).toBe('system');
+  });
+
+  it('falls back to solid material when the saved value is unknown', () => {
+    stubStorage(JSON.stringify({ materialPreference: 'hologram' }));
+    expect(usePreferencesStore().materialPreference).toBe('solid');
   });
 
   it('migrates the legacy theme preference as color mode', () => {

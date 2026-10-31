@@ -51,6 +51,7 @@ import HostStatuses from './HostStatuses.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
+import { isMaterialPreference } from '@/theme/apply';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
@@ -91,6 +92,11 @@ const motionOptions: Array<{ value: MotionPreference; label: string }> = [
   { value: 'simple', label: '简洁' },
   { value: 'soft', label: '柔和' },
   { value: 'lively', label: '灵动' },
+];
+
+const materialOptions: Array<{ value: 'solid' | 'glass'; label: string }> = [
+  { value: 'solid', label: '默认实色' },
+  { value: 'glass', label: '磨砂玻璃' },
 ];
 
 // ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
@@ -296,6 +302,12 @@ function selectColorMode(value: unknown) {
 function selectMotionPreference(value: unknown) {
   if (isMotionPreference(value)) {
     preferences.setMotionPreference(value);
+  }
+}
+
+function selectMaterialPreference(value: unknown) {
+  if (isMaterialPreference(value)) {
+    preferences.setMaterialPreference(value);
   }
 }
 
@@ -576,6 +588,32 @@ watch(
                 :value="item.value"
                 variant="outline"
                 class="min-w-0 px-1 text-xs"
+              >
+                <span>{{ item.label }}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <div>
+              <h3 class="text-sm font-semibold">材质</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                玻璃作用于导航与上下文面板；阅读区与浮层保持实色，效果不可用时自动回落。
+              </p>
+            </div>
+            <ToggleGroup
+              type="single"
+              :model-value="preferences.materialPreference"
+              :spacing="2"
+              class="grid w-full grid-cols-2"
+              @update:model-value="selectMaterialPreference"
+            >
+              <ToggleGroupItem
+                v-for="item in materialOptions"
+                :key="item.value"
+                :value="item.value"
+                variant="outline"
+                class="min-w-0 text-xs"
               >
                 <span>{{ item.label }}</span>
               </ToggleGroupItem>

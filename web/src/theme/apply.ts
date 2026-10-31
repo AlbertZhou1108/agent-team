@@ -23,3 +23,19 @@ export function applyMotion(style: MotionStyle): void {
   if (typeof document === 'undefined') return;
   document.documentElement.dataset.motion = style;
 }
+
+/** 材质选项:默认实色,或一种从当前配色派生的玻璃。 */
+export type MaterialPreference = 'solid' | 'glass';
+
+export function isMaterialPreference(value: unknown): value is MaterialPreference {
+  return value === 'solid' || value === 'glass';
+}
+
+/**
+ * 把材质选项写到 <html data-material>;具体表面映射由共享 CSS 完成。
+ * 效果不可用(不支持 backdrop-filter 或用户要求降低透明度)时由 CSS 回落实色。
+ */
+export function applyMaterial(preference: MaterialPreference): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.dataset.material = preference;
+}
