@@ -227,3 +227,5 @@
 最终修复:折叠动画进行期间,由 CollapsibleContent 监听自身 animationstart/end(冒泡),对最近的滚动容器加减 `collapse-scroll-suppressed`(scrollbar-width:none + ::-webkit-scrollbar display:none),以 WeakMap 计数支持多区块并行动画;动画结束且仍溢出时滚动条平静重现(gutter stable 保证重现时宽度零跳动)。同时移除"打开瞬间测量"偏差的备用路径:该方案对测量过冲免疫(动画期间根本无滚动条可闪现)。
 
 最终方案(2026-11-01,用户复测"推很远再收缩"仍在,滚动条只是症状):折叠动画整体从"测量值关键帧"迁移到 **grid-template-rows 0fr→1fr 过渡** —— CollapsibleContent 以 forceMount 常驻,内层干净元素由根节点 data-state(祖先选择器)驱动行高过渡,每帧按真实布局解析,过冲在构造上不可能发生。实测展开帧 331→597→738→762px 单调收敛、收起 762→221→0 平滑、通知区不受邻区动画影响、reka 未抢占 hidden。滚动条抑制逻辑随之移除(无过冲则无瞬态滚动条;gutter stable 保留,溢出时滚动条稳定重现)。局限已注释:祖先选择器不支持嵌套折叠(当前应用无此结构)。
+
+确认(2026-11-01):用户实测确认 grid-rows 方案效果正确,折叠展开过冲与瞬态滚动条问题关闭。
