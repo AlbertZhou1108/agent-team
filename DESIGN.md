@@ -240,4 +240,4 @@ Panel Agent 与团队的中间会话区使用同一会话工作区组件，统�
 
 演进顺序：先整理共享语义与现有规则，再以默认实色和一种玻璃材质验证模型，同时统一动效策略；组合稳定后再扩展材质、密度、阅读和预设。不要为未来每种候选风格预建完整配置或复制页面样式。
 
-相关资料：[共享会话工作区](docs/conversation-workspace.md)定义复用边界；[历史前端整改记录](docs/frontend-design-checklist.md)记录当时验证范围；[shadcn-vue 接入说明](docs/shadcn-vue-agent-integration.md)说明工具使用。涉及业务行为时同时查阅对应业务契约。
+相关资料:[共享会话工作区](docs/conversation-workspace.md)定义复用边界;[前端分层架构](docs/frontend-architecture.md)说明样式的六层组织与"改哪里"决策表;[历史前端整改记录](docs/frontend-design-checklist.md)记录当时验证范围;[shadcn-vue 接入说明](docs/shadcn-vue-agent-integration.md)说明工具使用。涉及业务行为时同时查阅对应业务契约。
