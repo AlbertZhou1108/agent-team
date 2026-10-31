@@ -41,26 +41,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --animate-collapsible-down: collapsible-down var(--motion-duration-normal) var(--motion-ease-out);
-  --animate-collapsible-up: collapsible-up var(--motion-duration-normal) var(--motion-ease-in);
-}
-
-@keyframes collapsible-down {
-  from {
-    height: 0;
-  }
-  to {
-    height: var(--reka-collapsible-content-height);
-  }
-}
-
-@keyframes collapsible-up {
-  from {
-    height: var(--reka-collapsible-content-height);
-  }
-  to {
-    height: 0;
-  }
 }
 
 :root {
@@ -1521,6 +1501,31 @@ html[data-density='loose'] {
 /* ===== 折叠内容动画:展开/收起关键帧(高度按开启时实测值) =====
    滚动容器配 scrollbar-gutter: stable 预留槽位,避免动画中滚动条
    出现/消失引发的宽度反馈与测量过冲(瞬态滚动条 bug)。 */
+
+/* ===== 折叠内容动画:grid-template-rows 0fr→1fr 过渡 =====
+   由根节点 data-state 驱动、在内层干净元素上过渡:每帧按真实布局解析行高,
+   不存在"开启瞬间测量"导致的过冲(展开把下方内容推远再回弹的根因);
+   收起结束后延迟 visibility 隐藏,保证收起动画可见。
+   reka 内容元素仅作 presence 载体(其内联抑制样式不影响内层过渡)。
+   当前应用无嵌套折叠;若未来出现,祖先选择器需改为就近匹配方案。 */
+.collapsible-clip {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard);
+}
+[data-slot='collapsible'][data-state='open'] .collapsible-clip {
+  grid-template-rows: 1fr;
+}
+[data-slot='collapsible'][data-state='closed'] .collapsible-clip {
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard),
+    visibility 0s linear var(--motion-duration-normal);
+}
+.collapsible-clip-clip {
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* ===== 结构性动画:侧栏与上下文面板折叠/展开时网格列宽平滑过渡 =====
    时长跟随动效风格节奏;拖拽把手调整宽度时暂停(is-resizing),保证跟手。 */
