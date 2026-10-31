@@ -12,7 +12,7 @@ const router = useRouter();
     <Card class="panel w-full max-w-md text-center">
       <CardContent>
         <p class="eyebrow">404</p>
-        <h1 class="mt-2 text-2xl font-semibold">没有这个观测页面</h1>
+        <h1 class="mt-2 text-2xl font-semibold tracking-tight">没有这个观测页面</h1>
         <p class="mt-3 text-sm text-muted-foreground">
           链接可能已失效，或对应群已经被删除。
         </p>

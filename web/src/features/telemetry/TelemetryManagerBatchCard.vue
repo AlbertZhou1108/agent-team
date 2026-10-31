@@ -165,7 +165,7 @@ function recipientKindLabel(
             >{{ batch.inputBatch.merge.sourceCount }} 个来源</Badge
           >
         </div>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-2xs text-muted-foreground">
           来源成员：{{
             batch.inputBatch.sourceActors
               .map(actor => `${actor.actorName}（${actor.messageIds.length}）`)
@@ -195,12 +195,12 @@ function recipientKindLabel(
             <Badge variant="secondary">{{ message.kindLabel }}</Badge>
             <span class="font-medium">{{ message.recipientName }}</span>
             <Badge variant="outline">{{ message.recipientKindLabel }}</Badge>
-            <span class="break-all font-mono text-[10px] text-muted-foreground">{{
+            <span class="break-all font-mono text-2xs text-muted-foreground">{{
               message.messageId
             }}</span>
           </li>
         </ul>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-2xs text-muted-foreground">
           输出触达仅用于相关性判断，不改变执行归属，也不拆分整批消耗。
         </p>
       </section>

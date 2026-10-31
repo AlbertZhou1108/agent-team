@@ -131,7 +131,7 @@ const roleLabels: Record<
             }}</span>
           </li>
         </ul>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-2xs text-muted-foreground">
           来源成员：{{
             batch.inputBatch.sourceActors
               .map(actor => `${actor.actorName}（${actor.messageIds.length}）`)
@@ -219,7 +219,7 @@ const roleLabels: Record<
           </li>
         </ul>
       </details>
-      <p v-if="batch.attempts.some(attempt => attempt.metrics === null)" class="text-[11px] text-muted-foreground">
+      <p v-if="batch.attempts.some(attempt => attempt.metrics === null)" class="text-2xs text-muted-foreground">
         部分尝试无独立指标视图（null），null 不等于 0，不推断为未消耗；其已知用量仍在批次指标内。缺失原因示例：{{
           missingReasonLabel('not_captured')
         }}。

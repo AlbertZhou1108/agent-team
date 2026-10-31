@@ -28,7 +28,7 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
         >
       </div>
     </div>
-    <p class="text-[11px] text-muted-foreground">
+    <p class="text-2xs text-muted-foreground">
       {{
         note ??
         '本视图按消息触发来源统计，仅含单一来源批次；合并批次不拆分、不重复计入。它不能与成员执行归属总量相加。'

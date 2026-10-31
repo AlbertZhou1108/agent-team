@@ -54,7 +54,7 @@ function capabilitySummary(host: string): string {
         <HelpPopover title="消耗统计口径"><p>按已观测 Token 汇总，不同宿主的采集范围可能不同；未采集显示为“未采集”。</p></HelpPopover>
 
       </div>
-      <span class="text-[11px] text-muted-foreground"
+      <span class="text-2xs text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
@@ -89,7 +89,7 @@ function capabilitySummary(host: string): string {
         :coverage="selectedMember.coverage"
       >
         <template #footer>
-          <div class="flex flex-wrap items-center gap-1 text-[11px]">
+          <div class="flex flex-wrap items-center gap-1 text-2xs">
             <Badge variant="outline">{{ capabilitySummary(selectedMember.executor.host) }}</Badge>
           </div>
         </template>

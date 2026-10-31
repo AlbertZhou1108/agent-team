@@ -111,7 +111,7 @@ function clearFilters() {
         <Badge variant="secondary">成员侧 ≠ 管理者侧</Badge>
         <Badge variant="outline">管理者侧 ≠ 协调总量</Badge>
       </div>
-      <span class="text-[11px] text-muted-foreground"
+      <span class="text-2xs text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
@@ -119,15 +119,15 @@ function clearFilters() {
     <div class="flex items-center gap-1" data-manager-non-additive><p class="text-xs text-muted-foreground">成员侧与管理侧不可相加；管理侧不可与主 Agent 协调总量相加。</p><HelpPopover title="统计口径"><p>成员侧与管理侧并排展示，互不相加；管理者侧是相关性视图，不能与主 Agent 协调会话总量相加。本页不提供任何合计数字；共享批次整批展示一次、不拆分。</p></HelpPopover></div>
 
     <div class="grid gap-2 sm:grid-cols-2">
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      <label class="flex flex-col gap-1 text-2xs text-muted-foreground">
         开始时间（包含）
         <Input v-model="fromInput" type="datetime-local" data-manager-from />
       </label>
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      <label class="flex flex-col gap-1 text-2xs text-muted-foreground">
         结束时间（不包含）
         <Input v-model="toInput" type="datetime-local" data-manager-to />
       </label>
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      <label class="flex flex-col gap-1 text-2xs text-muted-foreground">
         每页批次数（1–100）
         <Input
           v-model="limit"
@@ -150,7 +150,7 @@ function clearFilters() {
         >
       </div>
     </div>
-    <p v-if="data" class="text-[11px] text-muted-foreground">
+    <p v-if="data" class="text-2xs text-muted-foreground">
       范围：{{ formatTimestamp(data.range.from) }} 至
       {{ formatTimestamp(data.range.to) }}（结束不包含）
     </p>
@@ -210,7 +210,7 @@ function clearFilters() {
           <Badge variant="secondary">共享 {{ data.summary.sharedManagerBatchIds.length }}</Badge>
           <Badge variant="outline">共享批次整批展示</Badge>
         </div>
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-2xs text-muted-foreground">
           {{ data.summary.note }}
         </p>
 

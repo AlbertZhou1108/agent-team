@@ -63,7 +63,7 @@ function capabilityCount(
         <Badge variant="outline">不触发采集</Badge>
         <Badge variant="outline">只读</Badge>
       </div>
-      <span class="text-[11px] text-muted-foreground"
+      <span class="text-2xs text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>

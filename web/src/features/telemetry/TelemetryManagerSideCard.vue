@@ -83,7 +83,7 @@ withDefaults(
         "
       />
       <TelemetryCoveragePanel :coverage="coverage" />
-      <p v-if="note" class="text-[11px] text-muted-foreground">{{ note }}</p>
+      <p v-if="note" class="text-2xs text-muted-foreground">{{ note }}</p>
 
       <Separator />
       <section class="flex min-w-0 flex-col gap-2">
@@ -114,7 +114,7 @@ withDefaults(
               首次观测 {{ formatTimestamp(session.firstObservedAt) }} · 重置
               {{ formatTimestamp(session.resetAt) }}
             </p>
-            <dl class="grid grid-cols-1 gap-1 text-[11px]">
+            <dl class="grid grid-cols-1 gap-1 text-2xs">
               <div
                 v-for="key in ['inputTokensTotal', 'outputTokens', 'totalTokens'] as const"
                 :key="key"
@@ -126,7 +126,7 @@ withDefaults(
                 </dd>
               </div>
             </dl>
-            <p class="text-[11px] text-muted-foreground">
+            <p class="text-2xs text-muted-foreground">
               session 消耗为该物理 session 的累计视图，包含该 session 的全部回合，不按成员相关性过滤，不能与上方相关性汇总相加。
             </p>
           </div>

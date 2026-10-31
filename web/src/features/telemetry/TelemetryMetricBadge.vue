@@ -40,7 +40,7 @@ const title = computed(
     :key="label"
     :variant="metric.value == null ? 'outline' : 'secondary'"
     :title="title"
-    :class="compact ? 'text-[10px]' : undefined"
+    :class="compact ? 'text-2xs' : undefined"
     >{{ label }}</Badge
   >
 </template>

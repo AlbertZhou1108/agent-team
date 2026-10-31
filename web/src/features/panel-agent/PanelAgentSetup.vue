@@ -95,7 +95,7 @@ const principles = [
               <p class="eyebrow">LOCAL PANEL AGENT</p>
               <Badge variant="default">全局单例</Badge>
             </div>
-            <h1 class="mt-2 text-2xl font-semibold">
+            <h1 class="mt-2 text-2xl font-semibold tracking-tight">
               {{ agent ? '编辑 Panel Agent' : '创建 Panel Agent' }}
             </h1>
             <p v-if="!agent" class="mt-2 text-sm text-muted-foreground">配置私人助手，按需参与团队协作。</p>

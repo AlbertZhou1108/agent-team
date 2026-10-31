@@ -216,7 +216,7 @@ onBeforeUnmount(() => {
     <div class="team-home-inner">
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="flex flex-col gap-2">
-          <h1 class="text-2xl font-semibold">团队</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
         </div>
         <Button as-child variant="outline">
           <RouterLink :to="{ name: 'panel-agent' }"

@@ -194,7 +194,7 @@ function modalityLabel(model: CatalogModel) {
             @update:model-value="previewEffort"
             @value-commit="commitEffort"
           />
-          <div class="mt-2 flex justify-between text-[10px] text-muted-foreground">
+          <div class="mt-2 flex justify-between text-2xs text-muted-foreground">
             <span>{{ efforts[0] ? effortLabel(efforts[0].id) : '' }}</span>
             <span>{{ efforts.at(-1) ? effortLabel(efforts.at(-1)!.id) : '' }}</span>
           </div>

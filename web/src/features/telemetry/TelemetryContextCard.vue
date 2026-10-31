@@ -49,7 +49,7 @@ const metrics = computed(() =>
         class="flex min-w-0 flex-col gap-0.5"
         :data-context-metric-key="item.key"
       >
-        <dt class="text-[11px] text-muted-foreground">{{ item.label }}</dt>
+        <dt class="text-2xs text-muted-foreground">{{ item.label }}</dt>
         <dd class="flex min-w-0 flex-wrap items-center gap-1">
           <span class="text-sm font-medium tabular-nums">{{
             contextMetricDisplay(item.metric, item.key)
@@ -58,7 +58,7 @@ const metrics = computed(() =>
         </dd>
       </div>
     </dl>
-    <p class="text-[11px] text-muted-foreground">
+    <p class="text-2xs text-muted-foreground">
       模型：
       {{
         contextReference.model
@@ -67,7 +67,7 @@ const metrics = computed(() =>
       }}
       · 采样：{{ formatTimestamp(contextReference.sampledAt) }}
     </p>
-    <p class="text-[11px] text-muted-foreground">
+    <p class="text-2xs text-muted-foreground">
       最近请求输入与窗口容量是采样值，不是累计消耗，也不预测下一次请求占用。
     </p>
   </section>

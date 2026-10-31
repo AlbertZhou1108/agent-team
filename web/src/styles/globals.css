@@ -5,6 +5,8 @@
 @theme inline {
   --font-sans: "Geist Variable", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "Fira Code", "SFMono-Regular", Consolas, monospace;
+  /* 命名微字号:辅助微标签的统一一档(原 text-[11px]/text-[10px] 散值收敛于此)。 */
+  --text-2xs: 0.6875rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
