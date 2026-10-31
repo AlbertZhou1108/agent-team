@@ -24,8 +24,22 @@ import type {
   TelemetryCoordinationResponse,
   TelemetryMembersResponse,
   TelemetryManagerConversationResponse,
+  ThemePackRecord,
   TurnTrace,
 } from './raw-types';
+import type { UserThemePack } from '@/theme/tokens';
+
+/** 服务端主题包行 → 前端包:light/dark JSON 字符串解析失败时丢弃该行(运行时回落内置主题)。 */
+function parseThemePackRecord(record: ThemePackRecord): UserThemePack | null {
+  try {
+    const light = JSON.parse(record.light) as UserThemePack['light'];
+    const dark = JSON.parse(record.dark) as UserThemePack['dark'];
+    if (!light || typeof light !== 'object' || !dark || typeof dark !== 'object') return null;
+    return { id: record.id, name: record.name, light, dark, created: record.created, updated: record.updated };
+  } catch {
+    return null;
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -134,6 +148,19 @@ export const api = {
   },
   deleteModelPolicyPreset(id: string) {
     return mutate<{ deleted: string }>(`/api/model-policy/presets/${encodeURIComponent(id)}/delete`, {});
+  },
+  themePacks(signal?: AbortSignal) {
+    return request<ThemePackRecord[]>('/api/theme-packs', signal).then(rows =>
+      rows
+        .map(parseThemePackRecord)
+        .filter((pack): pack is UserThemePack => pack !== null),
+    );
+  },
+  createThemePack(body: { name: string; light: string; dark: string }) {
+    return mutate<ThemePackRecord>('/api/theme-packs', body);
+  },
+  deleteThemePack(id: string) {
+    return mutate<{ deleted: string }>(`/api/theme-packs/${encodeURIComponent(id)}/delete`, {});
   },
   panelAgent(signal?: AbortSignal, summary = false) {
     return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined, current: 1 }), signal);

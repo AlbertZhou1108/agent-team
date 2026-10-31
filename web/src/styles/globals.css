@@ -23,6 +23,16 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-code: var(--code);
+  --color-code-foreground: var(--code-foreground);
+  --color-scrim: var(--scrim);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,6 +60,16 @@
   --border: #e4e4e7;
   --input: #d4d4d8;
   --ring: #71717a;
+  --destructive-foreground: #ffffff;
+  --success: oklch(0.63 0.17 150);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.67 0.16 70);
+  --warning-foreground: oklch(0.985 0 0);
+  --info: oklch(0.55 0.2 262);
+  --info-foreground: oklch(0.985 0 0);
+  --code: #18181b;
+  --code-foreground: #e4e4e7;
+  --scrim: oklch(0 0 0 / 65%);
 }
 
 .dark {
@@ -72,6 +92,16 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.72 0.19 150);
+  --success-foreground: oklch(0.205 0 0);
+  --warning: oklch(0.77 0.16 75);
+  --warning-foreground: oklch(0.205 0 0);
+  --info: oklch(0.62 0.19 260);
+  --info-foreground: oklch(0.205 0 0);
+  --code: oklch(0.13 0 0);
+  --code-foreground: oklch(0.9 0 0);
+  --scrim: oklch(0 0 0 / 70%);
 }
 
 @layer base {
@@ -624,7 +654,13 @@ button {
 .status-dot {
   width: 7px;
   height: 7px;
+  border-radius: 999px;
 }
+
+/* 连接状态点配色(此前被引用但从未定义,状态点一直不可见)。 */
+.status-online { background: var(--success); }
+.status-error { background: var(--destructive); }
+.status-connecting { background: var(--warning); }
 
 .message-row {
   display: flex;

@@ -107,6 +107,16 @@ export interface ModelPolicyPreset {
   updated: string;
 }
 
+/** 服务端存储的主题包:light/dark 是 JSON 字符串,由 client 层解析后交付。 */
+export interface ThemePackRecord {
+  id: string;
+  name: string;
+  light: string;
+  dark: string;
+  created: string;
+  updated: string;
+}
+
 export interface ModelPolicyDefaults {
   smart: {
     performance: string;

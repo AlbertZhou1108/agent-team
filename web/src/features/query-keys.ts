@@ -6,6 +6,7 @@ export const queryKeys = {
   home: ['home-summary'] as const,
   policy: ['model-policy'] as const,
   defaults: ['model-policy-defaults'] as const,
+  themePacks: ['theme-packs'] as const,
   panelState: ['panel-agent', 'state'] as const,
   unread: ['panel-agent', 'unread'] as const,
   group: (id: string) => ['group', id] as const,

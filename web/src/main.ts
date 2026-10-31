@@ -4,7 +4,9 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query';
 import App from './App.vue';
 import { installTabCache } from './shared/api/tab-cache';
 import { router } from './app/router';
-import { applyColorMode, usePreferencesStore } from './stores/preferences';
+import { resolveDark, usePreferencesStore } from './stores/preferences';
+import { applyTheme } from './theme/apply';
+import { resolveThemePack, resolveTokens } from './theme/resolve';
 import '@fontsource-variable/noto-sans-sc';
 import '@fontsource-variable/geist';
 import '@fontsource/fira-code/400.css';
@@ -50,13 +52,24 @@ try {
   app.use(VueQueryPlugin, { queryClient });
 
   const preferences = usePreferencesStore(pinia);
-  applyColorMode(preferences.colorMode);
 
-  const media = window.matchMedia('(prefers-color-scheme: dark)');
-  const handleSystemTheme = () => {
-    if (preferences.colorMode === 'system') applyColorMode('system');
-  };
-  media.addEventListener('change', handleSystemTheme);
+  // 首帧同步应用:用选中包的快照兜底,避免自定义主题在请求返回前闪默认色;
+  // 之后的全部变更(偏好、包列表、系统明暗)由 App.vue 的主题应用收口处理。
+  const snapshotPacks = preferences.themePackSnapshot
+    ? [
+        {
+          id: preferences.themePack,
+          name: '',
+          light: preferences.themePackSnapshot.light,
+          dark: preferences.themePackSnapshot.dark,
+        },
+      ]
+    : [];
+  const isDark = resolveDark(preferences.colorMode);
+  applyTheme(
+    resolveTokens(resolveThemePack(preferences.themePack, snapshotPacks), isDark),
+    isDark,
+  );
 
   app.mount('#app');
 } catch (error) {
