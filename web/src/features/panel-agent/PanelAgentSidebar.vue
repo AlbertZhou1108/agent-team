@@ -106,7 +106,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
 <template>
   <aside class="agent-side" aria-label="Panel Agent 团队信息">
   <CollapsibleRightSidebar v-model:collapsed="ui.contextCollapsed" :collapsed-actions="sidebarActions" @action="openSidebarSection" class="flex-1" @update:collapsed="ui.persist()">
-    <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4">
+    <div class="panel-side-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4">
     <Collapsible
       v-model:open="teamsOpen"
       class="flex min-w-0 shrink-0 flex-col gap-4"

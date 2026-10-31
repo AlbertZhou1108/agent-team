@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { CollapsibleContentProps } from "reka-ui"
+import type { HTMLAttributes } from "vue"
 import { CollapsibleContent } from "reka-ui"
 
-const props = defineProps<CollapsibleContentProps>()
+const props = defineProps<CollapsibleContentProps & { class?: HTMLAttributes["class"] }>()
 </script>
 
 <template>

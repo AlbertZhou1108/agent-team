@@ -526,6 +526,16 @@ button {
   background: var(--card);
 }
 
+/* 折叠动画所在的滚动容器:常驻滚动条槽位,避免内容增减时滚动条
+   挤压宽度造成重排反馈(展开动画瞬态滚动条的根因)。 */
+.agent-side,
+.panel-side-scroll,
+.message-stream,
+.context-scroll,
+.team-home {
+  scrollbar-gutter: stable;
+}
+
 .group-sidebar-collapsed {
   align-items: center;
   padding-inline: 8px;
@@ -1498,6 +1508,10 @@ html[data-density='loose'] {
   --density-composer-pad: 14px 18px 16px;
   --density-context-pad: 20px;
 }
+
+/* ===== 折叠内容动画:展开/收起关键帧(高度按开启时实测值) =====
+   滚动容器配 scrollbar-gutter: stable 预留槽位,避免动画中滚动条
+   出现/消失引发的宽度反馈与测量过冲(瞬态滚动条 bug)。 */
 
 /* ===== 结构性动画:侧栏与上下文面板折叠/展开时网格列宽平滑过渡 =====
    时长跟随动效风格节奏;拖拽把手调整宽度时暂停(is-resizing),保证跟手。 */
