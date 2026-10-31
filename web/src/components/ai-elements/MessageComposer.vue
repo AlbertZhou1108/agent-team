@@ -230,7 +230,12 @@ function keyboardResize(event: KeyboardEvent) {
 </template>
 
 <style scoped>
-/* 简洁输入区:单行输入 + 操作。与展开态共用输入组件的视觉,只是高度收敛。 */
+/* 简洁输入区:单行输入 + 操作。与展开态共用输入组件的视觉,只是高度收敛;
+   内边距对齐展开态(.agent-ai-composer 的 10/14/12),避免在 px-0 的帧容器里贴边。 */
+.agent-composer-compact {
+  padding: 0 14px 12px;
+}
+
 .agent-composer-compact :deep([data-slot="input-group"]) {
   height: 44px;
 }
