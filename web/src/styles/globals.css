@@ -536,6 +536,15 @@ button {
   scrollbar-gutter: stable;
 }
 
+/* 折叠动画进行中:隐藏所在滚动容器的滚动条(动画start/end 经
+   CollapsibleContent 加减此类),结束且仍溢出时滚动条平静重现。 */
+.collapse-scroll-suppressed {
+  scrollbar-width: none;
+}
+.collapse-scroll-suppressed::-webkit-scrollbar {
+  display: none;
+}
+
 .group-sidebar-collapsed {
   align-items: center;
   padding-inline: 8px;
