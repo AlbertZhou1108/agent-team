@@ -43,6 +43,11 @@ describe('preferences appearance', () => {
       themePackSnapshot: null,
       motionPreference: 'soft',
       materialPreference: 'solid',
+      density: 'compact',
+      readingSize: 'standard',
+      readingLeading: 'standard',
+      readingWidth: 'standard',
+      codeSize: 'standard',
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
@@ -57,6 +62,14 @@ describe('preferences appearance', () => {
   it('falls back to solid material when the saved value is unknown', () => {
     stubStorage(JSON.stringify({ materialPreference: 'hologram' }));
     expect(usePreferencesStore().materialPreference).toBe('solid');
+  });
+
+  it('falls back to standard reading values when the saved values are unknown', () => {
+    stubStorage(JSON.stringify({ readingSize: 'huge', readingWidth: 999, codeSize: null }));
+    const store = usePreferencesStore();
+    expect(store.readingSize).toBe('standard');
+    expect(store.readingWidth).toBe('standard');
+    expect(store.codeSize).toBe('standard');
   });
 
   it('migrates the legacy theme preference as color mode', () => {

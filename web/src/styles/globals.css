@@ -456,7 +456,7 @@
 }
 
 .conversation-message-body {
-  width: min(100%, 820px);
+  width: min(100%, var(--reading-width, 820px));
 }
 
 .conversation-message p {
@@ -1298,9 +1298,11 @@ button {
   }
 }
 
-/* Rich message content follows the typography examples with semantic tokens. */
+/* Rich message content follows the typography examples with semantic tokens.
+   字号/行距来自阅读设置(--reading-*),由外观收口写到 <html>;默认与原 16px/leading-7 一致。 */
 .markdown-content {
-  @apply leading-7;
+  font-size: var(--reading-size, 1rem);
+  line-height: var(--reading-leading, 1.75);
 }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
@@ -1324,8 +1326,8 @@ button {
 .markdown-content [align="right"] { text-align: right; }
 .markdown-content blockquote { @apply my-4 border-l-2 pl-4 text-muted-foreground; }
 .markdown-content a { @apply underline underline-offset-4; }
-.markdown-content :not(pre) > code { @apply rounded bg-muted px-1 py-0.5 font-mono text-sm; }
-.markdown-content pre { @apply my-4 overflow-x-auto rounded-md bg-muted p-4 font-mono text-sm; }
+.markdown-content :not(pre) > code { @apply rounded bg-muted px-1 py-0.5 font-mono text-sm; font-size: var(--code-size, 0.875rem); }
+.markdown-content pre { @apply my-4 overflow-x-auto rounded-md bg-muted p-4 font-mono text-sm; font-size: var(--code-size, 0.875rem); }
 .markdown-content hr { @apply my-6 border-border; }
 
 .record-panel-scroll [data-record-row] > summary {
@@ -1424,6 +1426,16 @@ html[data-material='glass'] .agent-ai-composer {
     -webkit-backdrop-filter: none;
   }
 }
+
+/* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 ===== */
+html[data-density='compact'] .message-stream { padding: 14px 12px; }
+html[data-density='compact'] .conversation-header { min-height: 52px; padding: 8px 12px; }
+html[data-density='compact'] .agent-ai-composer { padding: 8px 12px 10px; }
+html[data-density='compact'] .context-scroll { padding: 12px; }
+html[data-density='loose'] .message-stream { padding: 32px 20px; }
+html[data-density='loose'] .conversation-header { min-height: 70px; padding: 14px 18px; }
+html[data-density='loose'] .agent-ai-composer { padding: 14px 18px 16px; }
+html[data-density='loose'] .context-scroll { padding: 20px; }
 
 /* Interaction notifications keep their preview bounded and the destination action separate. */
 [data-sonner-toast].interaction-notice {

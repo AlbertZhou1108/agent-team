@@ -1,7 +1,20 @@
 import { defineStore } from 'pinia';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
-import { isMaterialPreference, type MaterialPreference } from '@/theme/apply';
+import {
+  isCodeSize,
+  isDensity,
+  isMaterialPreference,
+  isReadingLeading,
+  isReadingSize,
+  isReadingWidth,
+  type CodeSize,
+  type Density,
+  type MaterialPreference,
+  type ReadingLeading,
+  type ReadingSize,
+  type ReadingWidth,
+} from '@/theme/apply';
 import type { ThemeTokens } from '@/theme/tokens';
 
 export type ColorMode = 'dark' | 'light' | 'system';
@@ -18,6 +31,11 @@ interface PreferencesState {
   themePackSnapshot: ThemePackSnapshot | null;
   motionPreference: MotionPreference;
   materialPreference: MaterialPreference;
+  density: Density;
+  readingSize: ReadingSize;
+  readingLeading: ReadingLeading;
+  readingWidth: ReadingWidth;
+  codeSize: CodeSize;
   showReasoning: boolean;
   showRawPayloads: boolean;
   refreshInterval: number;
@@ -43,6 +61,11 @@ function load(): PreferencesState {
     themePackSnapshot: null,
     motionPreference: 'system',
     materialPreference: 'solid',
+    density: 'standard',
+    readingSize: 'standard',
+    readingLeading: 'standard',
+    readingWidth: 'standard',
+    codeSize: 'standard',
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
@@ -70,6 +93,13 @@ function load(): PreferencesState {
       materialPreference: isMaterialPreference(saved.materialPreference)
         ? saved.materialPreference
         : fallback.materialPreference,
+      density: isDensity(saved.density) ? saved.density : fallback.density,
+      readingSize: isReadingSize(saved.readingSize) ? saved.readingSize : fallback.readingSize,
+      readingLeading: isReadingLeading(saved.readingLeading)
+        ? saved.readingLeading
+        : fallback.readingLeading,
+      readingWidth: isReadingWidth(saved.readingWidth) ? saved.readingWidth : fallback.readingWidth,
+      codeSize: isCodeSize(saved.codeSize) ? saved.codeSize : fallback.codeSize,
       showReasoning: saved.showReasoning ?? fallback.showReasoning,
       showRawPayloads: saved.showRawPayloads ?? fallback.showRawPayloads,
       refreshInterval: saved.refreshInterval ?? fallback.refreshInterval,
@@ -109,6 +139,14 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     setMaterialPreference(materialPreference: MaterialPreference) {
       this.materialPreference = materialPreference;
+      this.persist();
+    },
+    setDensity(density: Density) {
+      this.density = density;
+      this.persist();
+    },
+    setReading(preference: Partial<Pick<PreferencesState, 'readingSize' | 'readingLeading' | 'readingWidth' | 'codeSize'>>) {
+      Object.assign(this, preference);
       this.persist();
     },
     toggleReasoning() {

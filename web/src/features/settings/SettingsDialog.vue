@@ -51,7 +51,14 @@ import HostStatuses from './HostStatuses.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
-import { isMaterialPreference } from '@/theme/apply';
+import {
+  isCodeSize,
+  isDensity,
+  isMaterialPreference,
+  isReadingLeading,
+  isReadingSize,
+  isReadingWidth,
+} from '@/theme/apply';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
@@ -97,6 +104,34 @@ const motionOptions: Array<{ value: MotionPreference; label: string }> = [
 const materialOptions: Array<{ value: 'solid' | 'glass'; label: string }> = [
   { value: 'solid', label: '默认实色' },
   { value: 'glass', label: '磨砂玻璃' },
+];
+
+const densityOptions: Array<{ value: 'compact' | 'standard' | 'loose'; label: string }> = [
+  { value: 'compact', label: '紧凑' },
+  { value: 'standard', label: '标准' },
+  { value: 'loose', label: '宽松' },
+];
+
+const readingSizeOptions: Array<{ value: 'standard' | 'large' | 'xlarge'; label: string }> = [
+  { value: 'standard', label: '标准' },
+  { value: 'large', label: '大' },
+  { value: 'xlarge', label: '特大' },
+];
+
+const readingLeadingOptions: Array<{ value: 'standard' | 'relaxed'; label: string }> = [
+  { value: 'standard', label: '标准' },
+  { value: 'relaxed', label: '宽松' },
+];
+
+const readingWidthOptions: Array<{ value: 'standard' | 'wide' | 'full'; label: string }> = [
+  { value: 'standard', label: '标准' },
+  { value: 'wide', label: '宽' },
+  { value: 'full', label: '全宽' },
+];
+
+const codeSizeOptions: Array<{ value: 'standard' | 'large'; label: string }> = [
+  { value: 'standard', label: '标准' },
+  { value: 'large', label: '大' },
 ];
 
 // ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
@@ -308,6 +343,36 @@ function selectMotionPreference(value: unknown) {
 function selectMaterialPreference(value: unknown) {
   if (isMaterialPreference(value)) {
     preferences.setMaterialPreference(value);
+  }
+}
+
+function selectDensity(value: unknown) {
+  if (isDensity(value)) {
+    preferences.setDensity(value);
+  }
+}
+
+function selectReadingSize(value: unknown) {
+  if (isReadingSize(value)) {
+    preferences.setReading({ readingSize: value });
+  }
+}
+
+function selectReadingLeading(value: unknown) {
+  if (isReadingLeading(value)) {
+    preferences.setReading({ readingLeading: value });
+  }
+}
+
+function selectReadingWidth(value: unknown) {
+  if (isReadingWidth(value)) {
+    preferences.setReading({ readingWidth: value });
+  }
+}
+
+function selectCodeSize(value: unknown) {
+  if (isCodeSize(value)) {
+    preferences.setReading({ codeSize: value });
   }
 }
 
@@ -618,6 +683,70 @@ watch(
                 <span>{{ item.label }}</span>
               </ToggleGroupItem>
             </ToggleGroup>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <div>
+              <h3 class="text-sm font-semibold">密度</h3>
+              <p class="mt-1 text-xs text-muted-foreground">调整间距与留白，不改变正文大小。</p>
+            </div>
+            <ToggleGroup
+              type="single"
+              :model-value="preferences.density"
+              :spacing="2"
+              class="grid w-full grid-cols-3"
+              @update:model-value="selectDensity"
+            >
+              <ToggleGroupItem
+                v-for="item in densityOptions"
+                :key="item.value"
+                :value="item.value"
+                variant="outline"
+                class="min-w-0 text-xs"
+              >
+                <span>{{ item.label }}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <div>
+              <h3 class="text-sm font-semibold">阅读</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                只作用于会话正文与 Markdown 内容，独立于外观其他维度。
+              </p>
+            </div>
+            <div class="grid w-full gap-4 sm:grid-cols-2">
+              <div v-for="group in [
+                  { label: '字号', value: preferences.readingSize, options: readingSizeOptions, select: selectReadingSize },
+                  { label: '行距', value: preferences.readingLeading, options: readingLeadingOptions, select: selectReadingLeading },
+                  { label: '内容宽度', value: preferences.readingWidth, options: readingWidthOptions, select: selectReadingWidth },
+                  { label: '代码字号', value: preferences.codeSize, options: codeSizeOptions, select: selectCodeSize },
+                ]"
+                :key="group.label"
+                class="flex flex-col gap-2"
+              >
+                <p class="text-xs text-muted-foreground">{{ group.label }}</p>
+                <ToggleGroup
+                  type="single"
+                  :model-value="group.value"
+                  :spacing="2"
+                  class="grid w-full"
+                  :class="group.options.length > 2 ? 'grid-cols-3' : 'grid-cols-2'"
+                  @update:model-value="group.select"
+                >
+                  <ToggleGroupItem
+                    v-for="item in group.options"
+                    :key="item.value"
+                    :value="item.value"
+                    variant="outline"
+                    class="min-w-0 px-1 text-xs"
+                  >
+                    <span>{{ item.label }}</span>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+            </div>
           </section>
 
           <section class="flex flex-col gap-3">
