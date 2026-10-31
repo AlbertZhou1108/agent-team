@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   loadAppearancePresets,
   saveAppearancePresets,
+  type AppearancePreset,
 } from './presets';
 
-const validPreset = {
+const validPreset: AppearancePreset = {
   id: 'preset-1',
   name: '夜间',
   colorMode: 'dark',
