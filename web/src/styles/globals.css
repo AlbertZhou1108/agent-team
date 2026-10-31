@@ -409,15 +409,15 @@
 
 .conversation-header {
   display: flex;
-  min-height: 62px;
+  min-height: var(--density-header-min, 62px);
   align-items: center;
   gap: 11px;
-  padding: 11px 16px;
+  padding: var(--density-header-pad, 11px 16px);
 }
 
 .agent-ai-composer {
   position: relative;
-  padding: 10px 14px 12px;
+  padding: var(--density-composer-pad, 10px 14px 12px);
 }
 
 .agent-composer-resize-handle {
@@ -654,7 +654,7 @@ button {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 24px 16px;
+  padding: var(--density-stream-pad, 24px 16px);
 }
 
 .message-content > * + * {
@@ -681,7 +681,7 @@ button {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: var(--density-context-pad, 16px);
 }
 
 .field-select {
@@ -1365,6 +1365,13 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
 html[data-motion='soft'] { --motion-pace: 1.35; }
 html[data-motion='lively'] { --motion-pace: 0.7; }
 
+/* 弹层进出(弹窗/浮层/下拉/选择/提示)跟随动效风格节奏;
+   简洁档即组件默认时长,reduced 仍由全局 kill-switch 压制。 */
+html[data-motion='soft'] :is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='popover-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='tooltip-content']),
+html[data-motion='lively'] :is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='popover-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='tooltip-content']) {
+  animation-duration: calc(0.2s * var(--motion-pace, 1));
+}
+
 /* ===== 材质:默认实色;glass 从当前配色派生,只作用于共享表面角色 ===== */
 /* 应用背景的静态低干扰环境光斑,供半透明表面模糊取样;不随内容滚动、不做动画。 */
 html[data-material='glass'] body::before {
@@ -1374,14 +1381,16 @@ html[data-material='glass'] body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(42rem 42rem at 12% -8%, color-mix(in oklch, var(--primary) 9%, transparent), transparent 70%),
-    radial-gradient(50rem 50rem at 105% 18%, color-mix(in oklch, var(--info) 8%, transparent), transparent 70%),
-    radial-gradient(46rem 46rem at 50% 118%, color-mix(in oklch, var(--success) 7%, transparent), transparent 70%);
+    radial-gradient(42rem 42rem at 12% -8%, color-mix(in oklch, var(--primary) 13%, transparent), transparent 70%),
+    radial-gradient(50rem 50rem at 105% 18%, color-mix(in oklch, var(--info) 11%, transparent), transparent 70%),
+    radial-gradient(46rem 46rem at 50% 118%, color-mix(in oklch, var(--success) 10%, transparent), transparent 70%);
 }
 
-/* 导航与上下文面板:明显但克制的玻璃;选中与焦点仍由组件样式保证。 */
+/* 导航与上下文面板:明显但克制的玻璃;选中与焦点仍由组件样式保证。
+   [data-material-sample] 是设置页样例钩子,与真实表面消费同一规则。 */
 html[data-material='glass'] .group-sidebar,
-html[data-material='glass'] .context-panel {
+html[data-material='glass'] .context-panel,
+html[data-material='glass'] [data-material-sample='nav'] {
   background: color-mix(in oklch, var(--card) 74%, transparent);
   backdrop-filter: blur(18px) saturate(1.08);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
@@ -1389,7 +1398,9 @@ html[data-material='glass'] .context-panel {
 
 /* 会话顶部与输入区:局部玻璃,控件边界与文字保持稳定。 */
 html[data-material='glass'] .conversation-header,
-html[data-material='glass'] .agent-ai-composer {
+html[data-material='glass'] .agent-ai-composer,
+html[data-material='glass'] [data-material-sample='header'],
+html[data-material='glass'] [data-material-sample='composer'] {
   background: color-mix(in oklch, var(--background) 66%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -1400,13 +1411,16 @@ html[data-material='glass'] .agent-ai-composer {
 /* 效果不可用或用户要求降低透明度时回落实色:同配色,保留边界与层级。 */
 @supports not (backdrop-filter: blur(1px)) {
   html[data-material='glass'] .group-sidebar,
-  html[data-material='glass'] .context-panel {
+  html[data-material='glass'] .context-panel,
+  html[data-material='glass'] [data-material-sample='nav'] {
     background: var(--card);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
   html[data-material='glass'] .conversation-header,
-  html[data-material='glass'] .agent-ai-composer {
+  html[data-material='glass'] .agent-ai-composer,
+  html[data-material='glass'] [data-material-sample='header'],
+  html[data-material='glass'] [data-material-sample='composer'] {
     background: var(--background);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -1414,28 +1428,178 @@ html[data-material='glass'] .agent-ai-composer {
 }
 @media (prefers-reduced-transparency: reduce) {
   html[data-material='glass'] .group-sidebar,
-  html[data-material='glass'] .context-panel {
+  html[data-material='glass'] .context-panel,
+  html[data-material='glass'] [data-material-sample='nav'] {
     background: var(--card);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
   html[data-material='glass'] .conversation-header,
-  html[data-material='glass'] .agent-ai-composer {
+  html[data-material='glass'] .agent-ai-composer,
+  html[data-material='glass'] [data-material-sample='header'],
+  html[data-material='glass'] [data-material-sample='composer'] {
     background: var(--background);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 }
 
-/* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 ===== */
-html[data-density='compact'] .message-stream { padding: 14px 12px; }
-html[data-density='compact'] .conversation-header { min-height: 52px; padding: 8px 12px; }
-html[data-density='compact'] .agent-ai-composer { padding: 8px 12px 10px; }
-html[data-density='compact'] .context-scroll { padding: 12px; }
-html[data-density='loose'] .message-stream { padding: 32px 20px; }
-html[data-density='loose'] .conversation-header { min-height: 70px; padding: 14px 18px; }
-html[data-density='loose'] .agent-ai-composer { padding: 14px 18px 16px; }
-html[data-density='loose'] .context-scroll { padding: 20px; }
+/* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 =====
+   密度以 CSS 变量下发,真实表面与设置页样例消费同一组变量。 */
+html[data-density='compact'] {
+  --density-stream-pad: 14px 12px;
+  --density-header-min: 52px;
+  --density-header-pad: 8px 12px;
+  --density-composer-pad: 8px 12px 10px;
+  --density-context-pad: 12px;
+}
+html[data-density='standard'] {
+  --density-stream-pad: 24px 16px;
+  --density-header-min: 62px;
+  --density-header-pad: 11px 16px;
+  --density-composer-pad: 10px 14px 12px;
+  --density-context-pad: 16px;
+}
+html[data-density='loose'] {
+  --density-stream-pad: 32px 20px;
+  --density-header-min: 70px;
+  --density-header-pad: 14px 18px;
+  --density-composer-pad: 14px 18px 16px;
+  --density-context-pad: 20px;
+}
+
+/* ===== 外观样例:设置页内的微缩会话界面,实时反映材质/密度/阅读/动效草稿 ===== */
+.appearance-sample {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(18rem 12rem at 18% -10%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 70%),
+    radial-gradient(16rem 12rem at 95% 115%, color-mix(in oklch, var(--info) 14%, transparent), transparent 70%),
+    var(--background);
+}
+
+.appearance-sample-nav {
+  display: flex;
+  min-height: 96px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--density-context-pad, 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.appearance-sample-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--success);
+}
+
+.appearance-sample-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appearance-sample-header {
+  display: flex;
+  min-height: var(--density-header-min, 62px);
+  align-items: center;
+  padding: var(--density-header-pad, 11px 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.appearance-sample-stream {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--density-stream-pad, 24px 16px);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.appearance-sample-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.appearance-sample-avatar {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--secondary);
+}
+
+.appearance-sample-text {
+  min-width: 0;
+  font-size: 0.6875rem;
+}
+
+.appearance-sample-chip {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  animation: sample-enter calc(0.3s * var(--motion-pace, 1)) ease-out;
+}
+
+@keyframes sample-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.appearance-sample-composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: var(--density-composer-pad, 10px 14px 12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.appearance-sample-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.appearance-sample-replay:hover {
+  color: var(--foreground);
+}
 
 /* Interaction notifications keep their preview bounded and the destination action separate. */
 [data-sonner-toast].interaction-notice {

@@ -51,6 +51,7 @@ import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import HostStatuses from './HostStatuses.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
+import AppearanceSample from './AppearanceSample.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import {
@@ -760,6 +761,7 @@ watch(
               <TabsTrigger value="teams">团队管理</TabsTrigger>
             </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
+          <AppearanceSample />
           <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div class="min-w-0">
@@ -843,7 +845,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">动效</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                跟随系统时响应系统的减少动态效果偏好；明确选择后以应用内为准。
+                作用于弹窗、下拉、折叠与加载动画的节奏；跟随系统时响应系统偏好，明确选择后以应用内为准。
               </p>
             </div>
             <ToggleGroup
@@ -869,7 +871,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">材质</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                玻璃作用于导航与上下文面板；阅读区与浮层保持实色，效果不可用时自动回落。
+                玻璃作用于导航与上下文面板（见顶部样例）；阅读区与浮层保持实色，效果不可用时自动回落。
               </p>
             </div>
             <ToggleGroup
@@ -894,7 +896,7 @@ watch(
           <section class="flex flex-col gap-3">
             <div>
               <h3 class="text-sm font-semibold">密度</h3>
-              <p class="mt-1 text-xs text-muted-foreground">调整间距与留白，不改变正文大小。</p>
+              <p class="mt-1 text-xs text-muted-foreground">调整会话区与列表的间距留白（见顶部样例），不改变正文大小。</p>
             </div>
             <ToggleGroup
               type="single"
