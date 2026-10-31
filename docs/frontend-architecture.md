@@ -43,6 +43,24 @@
 | 密度 | `data-density` | `--density-*` 5 个变量 | 共享表面 padding/min-height | 加一档变量组,消费面自动跟随 |
 | 阅读 | `--reading-*`/`--code-size` 内联 | CSS 变量 | .markdown-content、正文宽度、代码字号 | 加一档映射值 |
 
+### 九机制:逻辑框架的技术投影
+
+逻辑框架([设计逻辑框架](design-logic-framework.md))的每个概念都推演出一个技术承载物;推演判据:逻辑的每条规则都要能指出"谁在技术层执行它"。九机制及现状:
+
+| 机制 | 承载物 | 完成度 |
+| --- | --- | --- |
+| M1 角色注册表与接口 | SURFACE_ROLE_REGISTRY(含可供性需求)+ data-surface | 完整 |
+| M2 材质规格表 | theme/materials.ts(每大类 × 每角色:基材/工艺/参数 + 运动签名) | 完整 |
+| M3 阶段化解析链 | application.ts apply()(环境第 0 步 + 依赖序分段) | 完整 |
+| M4 消费变量族 | --surface-*/--state-*/--density-*/--reading-*/--motion-* | 完整 |
+| M5 跨方面联合解析 | 材质运动签名经 data-material-spring 对动效契约变量的材质级重映射 | 完整(机制;新大类按需填充) |
+| M6 状态差量系统 | --state-* 令牌 + [role-statecharts](role-statecharts.md) 差量登记 | 完整 |
+| M7 治理检查 | scripts/check-design.mjs(接入 npm run check) | 完整 |
+| M8 角色状态图文档 | docs/role-statecharts.md | 完整 |
+| M9 生命周期与离场渲染 | Vue Transition 按需包裹 + CSS 挂载动画 | 按需(离开动画无全覆盖) |
+
+预留扩展:编舞时序令牌(stagger)、组件级令牌(克制使用)、页面级场景密度覆盖(Carbon productive/expressive 启示)。
+
 ## 4. 表面角色体系(材质的作用域机制)
 
 **材质永远作用于"角色",不作用于"组件"。** 表面以 `data-surface` 属性声明角色;材质大类在规格表(`theme/materials.ts`)中为每个角色声明"基材 × 工艺 × 参数(+ 运动签名)",由 applier 解析为 `--surface-{role}-*` 变量供表面消费。没有角色的表面永远走主题基线(实色);组件不需要知道任何材质的存在。

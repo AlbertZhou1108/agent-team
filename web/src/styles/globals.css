@@ -1413,6 +1413,14 @@ html[data-motion='lively'] {
   --motion-ease-standard: var(--motion-ease-spring);
 }
 
+/* 材质签名对动效词汇的否决权:物理上不允许弹性的材质(纸/水泥等)
+   把弹性曲线压回标准曲线 —— 由材质大类的运动声明经 applier 写为
+   data-material-spring,此处统一消费。 */
+html[data-material-spring='suppress'] {
+  --motion-ease-spring: var(--motion-ease-standard);
+  --motion-ease-out: var(--motion-ease-standard);
+}
+
 /* 弹层进出(弹窗/浮层/下拉/选择/提示)统一消费 normal 档时长;
    简洁档即 220ms 基准,柔和/灵动经 pace 缩放,reduced 仍由 kill-switch 压制。 */
 html[data-motion='soft'] :is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='popover-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='tooltip-content']),

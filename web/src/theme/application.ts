@@ -23,15 +23,18 @@ export function startThemeApplication() {
   });
 
   const apply = () => {
+    // 解析链(设计逻辑框架 §5):环境约束(第 0 步,媒体查询与监听)之后 ——
+    // 明暗 → 主题 → 密度 → 排印 → 材质 → 行为。行为最后解析,
+    // 以便读到材质签名与布局尺度。
     const isDark = resolveDark(preferences.colorMode);
     const pack = resolveThemePack(preferences.themePack, packsQuery.data.value ?? []);
-    applyTheme(resolveTokens(pack, isDark), isDark);
+    applyTheme(resolveTokens(pack, isDark), isDark); // 明暗 + 主题(样式)
+    applyDensity(preferences.density); // 密度(布局)
+    applyReading(preferences); // 排印(阅读)
+    applyMaterial(preferences.materialPreference); // 材质(表面规格 + 运动签名)
     applyMotion(
       resolveMotionStyle(preferences.motionPreference, systemReducedMotion()),
-    );
-    applyMaterial(preferences.materialPreference);
-    applyDensity(preferences.density);
-    applyReading(preferences);
+    ); // 行为(动效,最后解析)
   };
 
   watchEffect(apply);

@@ -63,6 +63,10 @@ export function applyMaterial(preference: MaterialPreference): void {
     root.style.removeProperty(`--surface-${role}-blur`);
   }
   root.dataset.material = effective.id;
+  // 材质运动签名:写为属性供动效契约的材质级重映射消费
+  // (如禁止弹性的材质把 --motion-ease-spring 压回标准曲线,见 globals.css)。
+  root.dataset.materialSpring = effective.motion.spring;
+  root.dataset.materialSignature = effective.motion.signature;
   for (const [role, finish] of Object.entries(effective.roles)) {
     if (finish.bg) root.style.setProperty(`--surface-${role}-bg`, finish.bg);
     if (finish.image) root.style.setProperty(`--surface-${role}-image`, finish.image);
