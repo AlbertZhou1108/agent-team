@@ -58,6 +58,7 @@ import {
   applyDensity,
   applyMaterial,
   applyMotion,
+  applyReading,
   applyTheme,
   isCodeSize,
   isDensity,
@@ -154,8 +155,8 @@ const codeSizeOptions: Array<{ value: 'standard' | 'large'; label: string }> = [
   { value: 'large', label: '大' },
 ];
 
-// ===== 外观统一编辑:改动先进草稿并即时预览;「应用外观」才写入偏好,「取消」恢复已保存状态 =====
-// 旧的"主题点击即保存"已迁移到此流程,避免一部分维度预览、一部分立即保存。
+// ===== 外观统一编辑:改动(含阅读设置)先进草稿并即时预览;「应用外观」才写入偏好,「取消」恢复已保存状态 =====
+// 旧的"主题点击即保存"已迁移到此流程;阅读不参与组合预设与恢复默认,但同样要应用后才生效。
 const APPEARANCE_DEFAULTS = {
   colorMode: 'system' as const,
   themePack: CLASSIC_THEME_ID,
@@ -170,6 +171,10 @@ const appearanceDraft = reactive({
   materialPreference: preferences.materialPreference,
   motionPreference: preferences.motionPreference,
   density: preferences.density,
+  readingSize: preferences.readingSize,
+  readingLeading: preferences.readingLeading,
+  readingWidth: preferences.readingWidth,
+  codeSize: preferences.codeSize,
 });
 const activeComboId = ref<string | null>(null);
 const appearancePresets = ref<AppearancePreset[]>(loadAppearancePresets());
@@ -188,6 +193,7 @@ function previewAppearance() {
   applyMaterial(appearanceDraft.materialPreference);
   applyMotion(resolveMotionStyle(appearanceDraft.motionPreference, systemReducedMotion()));
   applyDensity(appearanceDraft.density);
+  applyReading(appearanceDraft);
 }
 watch(appearanceDraft, previewAppearance, { deep: true });
 
@@ -198,6 +204,10 @@ function savedAppearance() {
     materialPreference: preferences.materialPreference,
     motionPreference: preferences.motionPreference,
     density: preferences.density,
+    readingSize: preferences.readingSize,
+    readingLeading: preferences.readingLeading,
+    readingWidth: preferences.readingWidth,
+    codeSize: preferences.codeSize,
   };
 }
 
@@ -223,6 +233,12 @@ function commitAppearance() {
   preferences.setMaterialPreference(appearanceDraft.materialPreference);
   preferences.setMotionPreference(appearanceDraft.motionPreference);
   preferences.setDensity(appearanceDraft.density);
+  preferences.setReading({
+    readingSize: appearanceDraft.readingSize,
+    readingLeading: appearanceDraft.readingLeading,
+    readingWidth: appearanceDraft.readingWidth,
+    codeSize: appearanceDraft.codeSize,
+  });
 }
 
 function cancelAppearance() {
@@ -494,25 +510,25 @@ function selectDensity(value: unknown) {
 
 function selectReadingSize(value: unknown) {
   if (isReadingSize(value)) {
-    preferences.setReading({ readingSize: value });
+    appearanceDraft.readingSize = value;
   }
 }
 
 function selectReadingLeading(value: unknown) {
   if (isReadingLeading(value)) {
-    preferences.setReading({ readingLeading: value });
+    appearanceDraft.readingLeading = value;
   }
 }
 
 function selectReadingWidth(value: unknown) {
   if (isReadingWidth(value)) {
-    preferences.setReading({ readingWidth: value });
+    appearanceDraft.readingWidth = value;
   }
 }
 
 function selectCodeSize(value: unknown) {
   if (isCodeSize(value)) {
-    preferences.setReading({ codeSize: value });
+    appearanceDraft.codeSize = value;
   }
 }
 
@@ -773,7 +789,7 @@ watch(
                   >自定义组合</span>
                 </div>
                 <p class="mt-1 text-xs text-muted-foreground">
-                  保存明暗、主题、材质、动效与密度的组合；更改先预览，应用后生效，阅读设置独立。
+                  保存明暗、主题、材质、动效与密度的组合（不含阅读）；更改先预览，点「应用外观」后生效。
                 </p>
               </div>
               <div class="flex flex-none items-center gap-2">
@@ -921,7 +937,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">阅读</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                只作用于会话正文与 Markdown 内容，独立于外观其他维度。
+                只作用于会话正文与 Markdown 内容；不参与组合预设，与其它外观一样应用后生效。
               </p>
             </div>
             <div class="grid w-full gap-4 sm:grid-cols-2">
