@@ -48,6 +48,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import HostStatuses from './HostStatuses.vue';
+import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
@@ -654,6 +655,10 @@ watch(
                 @update:model-value="preferences.setShowReasoning(Boolean($event))"
               />
             </div>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <AttachmentSettings />
           </section>
 
           <section class="flex flex-col gap-3 pt-6">

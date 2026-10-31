@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import { interactionView } from './interactions.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
+import { attachmentError } from './attachments.mjs';
+import { ensureDefaultPanelWorkspace } from './default-workspace.mjs';
 import { telemetryObservation } from './telemetry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 
@@ -82,6 +84,15 @@ export class PanelSessions {
       controller: this.bus.teamController(group.id),
     }));
   }
+  // 历史行附加结构化附件 DTO:只对确有附件的消息逐条补齐,避免每条消息都查库。
+  withPanelAttachments(agentId, rows) {
+    const bound = new Set(
+      this.bus.store.all('SELECT DISTINCT panel_message_id FROM attachments WHERE panel_agent_id=? AND panel_message_id IS NOT NULL', agentId)
+        .map(row => row.panel_message_id),
+    );
+    if (!bound.size) return rows;
+    return rows.map(row => (bound.has(row.id) ? { ...row, attachments: this.bus.attachmentDescribeMessage(agentId, row.id) } : row));
+  }
   panelAgentState(summary = false) {
     const agent = this.bus.panelAgent();
     if (!agent) return { agent: null, sessions: [], teams: [], conversation: [] };
@@ -93,11 +104,14 @@ export class PanelSessions {
       notifications: this.bus.store.all('SELECT * FROM panel_updates WHERE panel_agent_id=? ORDER BY created DESC LIMIT 100', agent.id).map(row => this.bus.panelUpdate(row)),
       sessions: this.bus.store.all('SELECT id,context,group_id,session,updated FROM panel_sessions WHERE panel_agent_id=? ORDER BY created', agent.id),
       teams: this.bus.panelTeamViews(),
-      conversation: this.bus.store.all(
-        `SELECT * FROM (
-          SELECT ${summary ? 'seq,id,role,created,active_team_id' : '*'} FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 200
-        ) ORDER BY seq`,
+      conversation: this.withPanelAttachments(
         agent.id,
+        this.bus.store.all(
+          `SELECT * FROM (
+            SELECT ${summary ? 'seq,id,role,created,active_team_id' : '*'} FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 200
+          ) ORDER BY seq`,
+          agent.id,
+        ),
       ),
       running: [...this.bus.running.values()]
         .filter(item => item.endpoint.context === 'panel-private' || item.endpoint.context === 'panel-coordination')
@@ -127,16 +141,19 @@ export class PanelSessions {
     if (before > 0) { where += ' AND seq<?'; params.push(before); }
     const rows = this.bus.store.all("SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND " + where + ' ORDER BY seq DESC LIMIT 201', ...params);
     const hasMore = rows.length > 200;
-    const messages = rows.slice(0, 200).reverse();
+    const messages = this.withPanelAttachments(agent.id, rows.slice(0, 200).reverse());
     return { messages, nextBefore: hasMore ? messages[0].seq : null, bootId: this.bus.panelBootId };
   }
   panelConversation(after = 0) {
     const agent = this.bus.panelAgent();
     if (!agent) return { messages: [], nextAfter: after };
-    const messages = this.bus.store.all(
-      "SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND seq>? ORDER BY seq LIMIT 200",
+    const messages = this.withPanelAttachments(
       agent.id,
-      after,
+      this.bus.store.all(
+        "SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND seq>? ORDER BY seq LIMIT 200",
+        agent.id,
+        after,
+      ),
     );
     return { messages, nextAfter: messages.at(-1)?.seq ?? after };
   }
@@ -147,7 +164,12 @@ export class PanelSessions {
     if (!['read-only', 'workspace-write', 'full-access'].includes(access)) throw new Error('Panel Agent 访问级别无效');
     this.bus.requireHost(host);
     this.bus.requirePanelAccess(host, access);
-    const panelWorkspace = this.bus.panelWorkspace(workspace, access);
+    // 未指定私人工作区时使用跨系统默认目录:开箱即用,不必先手动选择。
+    // 附件副本与此无关——它们统一存放在数据目录 attachments/ 下,不污染工作区。
+    const panelWorkspace = this.bus.panelWorkspace(
+      typeof workspace === 'string' && workspace.trim() ? workspace : ensureDefaultPanelWorkspace(),
+      access,
+    );
     const catalog = await this.bus.modelCatalog({ refresh: true });
     const hostCatalog = catalog.hosts.find(item => item.host === host && item.ok && item.catalog);
     if (!hostCatalog) throw new Error('Panel Agent 宿主没有可用模型目录');
@@ -196,9 +218,12 @@ export class PanelSessions {
     const nextAccess = access === undefined ? currentAccess : access;
     if (!['read-only', 'workspace-write', 'full-access'].includes(nextAccess)) throw new Error('Panel Agent 访问级别无效');
     this.bus.requirePanelAccess(nextHost, nextAccess);
+    // 与创建一致:未指定或清空工作区都回落跨系统默认目录,Panel Agent 始终有工作区可用。
     const nextWorkspace = workspace === undefined
-      ? (agent.workspace ?? null)
-      : this.bus.panelWorkspace(workspace, nextAccess);
+      ? (agent.workspace ?? ensureDefaultPanelWorkspace())
+      : (typeof workspace === 'string' && workspace.trim()
+          ? this.bus.panelWorkspace(workspace, nextAccess)
+          : ensureDefaultPanelWorkspace());
     if (nextAccess !== 'read-only' && !nextWorkspace) throw new Error('工作区写入和完全权限需要设置私人工作区');
     const catalog = await this.bus.modelCatalog({ refresh: true });
     const hostCatalog = catalog.hosts.find(item => item.host === nextHost && item.ok && item.catalog);
@@ -575,6 +600,7 @@ export class PanelSessions {
     prompt,
     activeTeamId = null,
     inputs = [],
+    attachments = [],
     onAccepted = () => {},
   }) {
     if (this.bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行');
@@ -736,6 +762,8 @@ export class PanelSessions {
       tools: panelToolsFor(session.context),
       policy,
       previousPolicy,
+      // 结构化附件输入:含服务端解析的副本路径,仅供 adapter 内部使用;不进用户可见正文。
+      attachments,
       signal: abort.signal,
       modelSelection: {
         model_provider: panelAgent.model_provider ?? null,
@@ -981,15 +1009,106 @@ export class PanelSessions {
   }
 
 
-  async panelPrivateTurn(text, activeTeamId = null) {
+  // 稳定的请求指纹:正文与附件顺序共同构成;同 ID 不同内容必须被拒绝。
+  panelRequestHash(text, attachmentIds) {
+    return createHash('sha256').update(JSON.stringify({ text, attachmentIds })).digest('hex');
+  }
+
+  isUniqueViolation(error) {
+    return error?.errstr?.includes('SQLITE_CONSTRAINT') || String(error?.message ?? '').includes('UNIQUE constraint failed');
+  }
+
+  // 幂等重试:返回原请求的用户消息及其后的回复状态,不再创建消息或触发回合。
+  replayPanelRequest(panelAgentId, request) {
+    const message = this.bus.store.get('SELECT * FROM panel_messages WHERE id=?', request.panel_message_id);
+    const reply = message
+      ? this.bus.store.get(
+          "SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND seq>? AND role='assistant' ORDER BY seq DESC LIMIT 1",
+          panelAgentId,
+          message.seq,
+        )
+      : null;
+    return {
+      message: message ?? null,
+      reply: reply ?? null,
+      result: { replayed: true },
+      activeTeamId: message?.active_team_id ?? null,
+    };
+  }
+
+  async panelPrivateTurn({ text, activeTeamId = null, clientMessageId = null, attachmentIds = [] }) {
     const panelAgent = this.bus.panelAgent();
     if (!panelAgent) throw new Error('Panel Agent 尚未创建');
-    if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('Panel Agent 输入无效');
+    if (typeof text !== 'string' || text.length > 48000) throw new Error('Panel Agent 输入无效');
     if (activeTeamId) throw new Error('团队对话已迁移到团队协作会话，请从团队页面发送');
-    const user = this.bus.store.panelAppend(panelAgent.id, 'private', 'user', text.trim(), null);
+    if (!Array.isArray(attachmentIds) || attachmentIds.some(id => typeof id !== 'string' || !id)) throw new Error('附件列表无效');
+
+    const prompt = text.trim();
+    // 正文和附件都为空才拒绝;附件-only 是合法消息。
+    if (!prompt && !attachmentIds.length) throw new Error('消息内容不能为空');
+
+    // 幂等层:clientMessageId 缺省时保持旧客户端兼容,不写 request 记录。
+    let payloadHash = null;
+    if (clientMessageId != null) {
+      if (typeof clientMessageId !== 'string' || !clientMessageId.trim() || clientMessageId.length > 200) throw new Error('clientMessageId 无效');
+      payloadHash = this.panelRequestHash(prompt, attachmentIds);
+      const existing = this.bus.store.get(
+        'SELECT * FROM panel_message_requests WHERE panel_agent_id=? AND client_message_id=?',
+        panelAgent.id,
+        clientMessageId,
+      );
+      if (existing) {
+        if (existing.payload_hash !== payloadHash) {
+          throw attachmentError('conflict', '同一消息 ID 已用于不同的正文或附件,请刷新会话后重新发送');
+        }
+        return this.replayPanelRequest(panelAgent.id, existing);
+      }
+    }
+
+    const settings = this.bus.store.attachmentSettings();
+    if (attachmentIds.length > settings.maxFilesPerMessage) {
+      throw new Error(`附件数量超过单条消息上限 ${settings.maxFilesPerMessage}`);
+    }
+
+    // 提交顺序固定:一个事务内验证附件、创建用户消息、写入有序关联和 request 记录;提交成功后才调宿主。
+    let user;
+    try {
+      this.bus.store.transaction(() => {
+        user = this.bus.store.panelAppend(panelAgent.id, 'private', 'user', prompt, null);
+        if (attachmentIds.length) this.bus.attachments.bindTx(panelAgent.id, user.id, attachmentIds);
+        if (clientMessageId != null) {
+          this.bus.store.run(
+            'INSERT INTO panel_message_requests(panel_agent_id,client_message_id,payload_hash,panel_message_id,created_at) VALUES(?,?,?,?,?)',
+            panelAgent.id,
+            clientMessageId,
+            payloadHash,
+            user.id,
+            new Date().toISOString(),
+          );
+        }
+      });
+    } catch (error) {
+      // 并发同 ID 提交:唯一键冲突时按幂等语义回放或拒绝。
+      if (clientMessageId != null && this.isUniqueViolation(error)) {
+        const existing = this.bus.store.get(
+          'SELECT * FROM panel_message_requests WHERE panel_agent_id=? AND client_message_id=?',
+          panelAgent.id,
+          clientMessageId,
+        );
+        if (existing) {
+          if (existing.payload_hash !== payloadHash) {
+            throw attachmentError('conflict', '同一消息 ID 已用于不同的正文或附件,请刷新会话后重新发送');
+          }
+          return this.replayPanelRequest(panelAgent.id, existing);
+        }
+      }
+      throw error;
+    }
+
+    // 宿主调用前准备附件输入;文件缺失在此明确报错,不悄悄只发文字。
+    const preparedAttachments = attachmentIds.length ? this.bus.attachmentPrepare(panelAgent.id, attachmentIds) : [];
     const session = this.bus.store.panelSession(panelAgent.id, 'private');
     const updates = [];
-    const prompt = text.trim();
     let accepted = false;
     let acceptedTurnId = null;
     try {
@@ -999,6 +1118,7 @@ export class PanelSessions {
         sourceUserMessageId: user.id,
         prompt,
         activeTeamId: null,
+        attachments: preparedAttachments,
         onAccepted: turnId => {
           accepted = true;
           acceptedTurnId = turnId;
@@ -1126,7 +1246,7 @@ export class PanelSessions {
       this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
       return;
     }
-    void this.bus.panelPrivateTurn(text, null).catch(() => {});
+    void this.bus.panelPrivateTurn({ text }).catch(() => {});
   }
   // 私人会话忙碌期间积压的互动答复/动作结果,在会话空闲后按序补投。
   flushPanelPrivateDeliveries() {
@@ -1136,7 +1256,7 @@ export class PanelSessions {
     const session = this.bus.store.panelSession(agent.id, 'private');
     if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
     const item = this.panelPrivateDeliveries.shift();
-    void this.bus.panelPrivateTurn(item.text, null).catch(() => {});
+    void this.bus.panelPrivateTurn({ text: item.text }).catch(() => {});
   }
 
   panelUnknown(groupId = null) {

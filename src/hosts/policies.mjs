@@ -64,3 +64,15 @@ export function codexSandboxConfig(policy, workspace) {
 export function policyObservation(host, policy, detail) {
   return { host, requested: policy, mechanism: detail, scope: '宿主工具和执行限制；非整进程绝对隔离', verified: 'configuration-applied', externalAccess: '文件策略不等于全部外部访问限制' };
 }
+
+// 附件只服务于 Panel 私人会话;communication 投递路径不接收附件输入,也不因此扩大权限。
+export function panelAttachmentsAllowed(policy) {
+  return Boolean(policy?.access);
+}
+
+// 附件内部文件清单:只出现在宿主调用输入中,绝不写回用户可见正文或浏览器消息。
+export function attachmentManifest(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (!list.length) return '';
+  return list.map(item => `[attachment:${item.id}] ${item.mediaType} ${item.name} -> ${item.path}`).join('\n');
+}

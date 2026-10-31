@@ -109,6 +109,8 @@ export function toPanelMessageViews(rows: PanelMessage[], agentName: string): Me
     kind: row.role === 'system' ? 'system' : 'send',
     text: row.text,
     createdAt: row.created,
+    // 结构化附件随消息映射;没有附件字段的行保持视图精简。
+    ...(row.attachments?.length ? { attachments: row.attachments } : {}),
   }));
 }
 

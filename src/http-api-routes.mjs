@@ -1,7 +1,32 @@
 import { telemetryOverview } from './telemetry-overview.mjs';
 import { chooseDirectory } from './directory-picker.mjs';
 import { interactionView } from './bus.mjs';
+import { attachmentError, ATTACHMENT_IMAGE_TYPES } from './attachments.mjs';
 // Each declaration owns matching, allowed methods, archived access and dispatch.
+
+// 附件路由的状态码映射:错误 JSON 统一为稳定 {code,error},前端只展示 error。
+const ATTACHMENT_STATUS = {
+    payload_too_large: 413,
+    unsupported_media_type: 415,
+    invalid_content: 422,
+    invalid_request: 400,
+    not_found: 404,
+    conflict: 409,
+    attachment_missing: 422,
+    storage_unavailable: 500,
+};
+
+function writeAttachmentJson(response, status, payload) {
+    if (response.headersSent || response.writableEnded) return;
+    response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify(payload));
+}
+
+function writeAttachmentError(response, error) {
+    const status = ATTACHMENT_STATUS[error?.code] ?? 500;
+    writeAttachmentJson(response, status, { code: error?.code ?? 'internal_error', error: error?.message ?? '附件处理失败' });
+}
+
 export function apiRoutes(context) {
     const { bus, url, request, fail, failJson, readJsonBody, cursor, response, panelEventStreams } = context;
     const teamEventsMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/events$/);
@@ -170,6 +195,17 @@ export function apiRoutes(context) {
                 }
                 return value;
             } },
+        { methods: ["GET", "POST"], archived: false, matches: url => (url.pathname === '/api/settings/attachments'), handle: async () => {
+                let value;
+                if (request.method === 'POST') {
+                    if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
+                        return fail(415, '需要 application/json');
+                    value = bus.updateAttachmentSettings(await readJsonBody(request));
+                }
+                else
+                    value = bus.attachmentSettings();
+                return value;
+            } },
         { methods: ["POST"], archived: true, matches: url => (/^\/api\/teams\/[^/]+\/(?:archive|restore)$/.test(url.pathname)), handle: async () => {
                 let value;
                 if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
@@ -189,8 +225,23 @@ export function apiRoutes(context) {
                     value = await bus.createPanelAgent(body);
                 else if (url.pathname === '/api/panel-agent/update')
                     value = await bus.updatePanelAgent(body);
-                else if (url.pathname === '/api/panel-agent/messages')
-                    value = await bus.panelPrivateTurn(body.text, body.activeTeamId ?? null);
+                else if (url.pathname === '/api/panel-agent/messages') {
+                    // clientMessageId 缺省保持旧客户端兼容;带 ID 时按幂等语义回放或 409。
+                    try {
+                        value = await bus.panelPrivateTurn({
+                            text: body.text,
+                            activeTeamId: body.activeTeamId ?? null,
+                            clientMessageId: body.clientMessageId ?? null,
+                            attachmentIds: Array.isArray(body.attachmentIds) ? body.attachmentIds : [],
+                        });
+                    } catch (error) {
+                        if (error?.code) {
+                            writeAttachmentError(response, error);
+                            return;
+                        }
+                        throw error;
+                    }
+                }
                 else if (url.pathname === '/api/panel-agent/stop')
                     value = await bus.stopPanel();
                 else if (url.pathname === '/api/panel-agent/resolve-runtime')
@@ -215,6 +266,75 @@ export function apiRoutes(context) {
                         return fail(404, 'Not found');
                 }
                 return value;
+            } },
+        { methods: ["POST"], archived: false, matches: url => (url.pathname === '/api/panel-agent/attachments'), handle: async () => {
+                // 上传:原始字节流直达附件模块,不经 readJsonBody;响应由本路由自行写入。
+                const panelAgent = bus.panelAgent();
+                if (!panelAgent) {
+                    writeAttachmentError(response, attachmentError('not_found', 'Panel Agent 未创建'));
+                    return;
+                }
+                let name;
+                try {
+                    const header = request.headers['x-agent-team-filename'];
+                    if (typeof header !== 'string' || !header) throw attachmentError('invalid_request', '缺少 X-Agent-Team-Filename 头');
+                    name = decodeURIComponent(header);
+                } catch (error) {
+                    writeAttachmentError(response, error?.code ? error : attachmentError('invalid_request', 'X-Agent-Team-Filename 必须是百分号编码的文件名'));
+                    return;
+                }
+                try {
+                    // 类型由服务端按文件扩展名判定;Content-Type 头仅作参考,不再参与校验。
+                    const uploaded = await bus.attachmentUpload(panelAgent.id, request, { name });
+                    if (response.headersSent) return;
+                    response.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8' });
+                    response.end(JSON.stringify(uploaded));
+                } catch (error) {
+                    writeAttachmentError(response, error);
+                }
+                return;
+            } },
+        { methods: ["GET"], archived: false, matches: url => /^\/api\/panel-agent\/attachments\/[^/]+$/.test(url.pathname), handle: async () => {
+                // 下载/预览:图片 inline,文本 attachment;始终 nosniff,不执行上传内容。
+                const panelAgent = bus.panelAgent();
+                if (!panelAgent) {
+                    writeAttachmentError(response, attachmentError('not_found', 'Panel Agent 未创建'));
+                    return;
+                }
+                const id = url.pathname.split('/').pop();
+                try {
+                    const attachment = bus.attachmentRead(panelAgent.id, id);
+                    const isImage = Object.hasOwn(ATTACHMENT_IMAGE_TYPES, attachment.mediaType);
+                    const asciiName = attachment.name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+                    response.writeHead(200, {
+                        'Content-Type': isImage ? attachment.mediaType : 'text/plain; charset=utf-8',
+                        'Content-Length': attachment.size,
+                        'Content-Disposition': `${isImage ? 'inline' : 'attachment'}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+                    });
+                    attachment.stream.on('error', () => response.destroy());
+                    response.on('close', () => attachment.stream.destroy());
+                    attachment.stream.pipe(response);
+                } catch (error) {
+                    writeAttachmentError(response, error);
+                }
+                return;
+            } },
+        { methods: ["DELETE"], archived: false, matches: url => /^\/api\/panel-agent\/attachments\/[^/]+$/.test(url.pathname), handle: async () => {
+                // 删除:只允许未发送草稿;已绑定或不存在统一 404。
+                const panelAgent = bus.panelAgent();
+                if (!panelAgent) {
+                    writeAttachmentError(response, attachmentError('not_found', 'Panel Agent 未创建'));
+                    return;
+                }
+                const id = url.pathname.split('/').pop();
+                try {
+                    bus.attachmentDiscard(panelAgent.id, id);
+                    response.writeHead(204);
+                    response.end();
+                } catch (error) {
+                    writeAttachmentError(response, error);
+                }
+                return;
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/telemetry/overview'), handle: async () => {
                 let value;

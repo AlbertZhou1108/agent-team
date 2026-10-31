@@ -90,21 +90,32 @@ const baseAgent = {
 };
 
 test('Panel access configuration is validated before persistence', async t => {
+  // 默认工作区落在临时 HOME 下,不污染真实 Documents。
+  const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
+  const previousHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  t.after(() => {
+    process.env.HOME = previousHome;
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
   const { bus, workspace } = await fixture(t);
   await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'invalid' }), /访问级别无效/);
-  await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'workspace-write' }), /需要设置私人工作区/);
+  // 未提供工作区:按系统默认目录自动供给,创建成功(见 default-workspace 模块)。
   await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'workspace-write', workspace: join(workspace, 'missing') }), /不存在/);
   await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'read-only', workspace: bus.store.directory }), /数据目录/);
 
   const created = await bus.createPanelAgent({ ...baseAgent, access: 'read-only' });
   assert.equal(created.agent.access, 'read-only');
-  assert.equal(created.agent.workspace, null);
+  assert.equal(created.agent.workspace, join(fakeHome, 'Documents', 'AgentTeam'), '默认工作区开箱即用');
 
-  await assert.rejects(bus.updatePanelAgent({ access: 'workspace-write' }), /需要设置私人工作区/);
+  // 显式提供的工作区仍按原样校验。
   const updated = await bus.updatePanelAgent({ access: 'workspace-write', workspace });
   assert.equal(updated.agent.access, 'workspace-write');
   assert.equal(updated.agent.workspace, workspace);
   await assert.rejects(bus.updatePanelAgent({ access: 'full-access', workspace: join(workspace, 'missing') }), /不存在/);
+  // 清空工作区 = 回落默认目录,而不是允许 null。
+  const reset = await bus.updatePanelAgent({ workspace: '' });
+  assert.equal(reset.agent.workspace, join(fakeHome, 'Documents', 'AgentTeam'));
 });
 
 test('Panel access rejects hosts without the required capability', async t => {
@@ -128,7 +139,7 @@ test('Panel private turns use the user-level access and workspace while coordina
   const agent = created.agent;
   bus.takeoverTeam(group.id, 0);
 
-  await bus.panelPrivateTurn('private hello', null);
+  await bus.panelPrivateTurn({ text: 'private hello' });
   const privateCall = calls.find(call => call.context === 'panel-private' && call.prompt === 'private hello');
   assert.ok(privateCall);
   assert.equal(privateCall.workspace, workspace);
@@ -322,4 +333,28 @@ test('DSH patch and policy plugin carry the full-access and read-only tiers', as
   assert.deepEqual(readOnly.appends.find(item => item.key === 'sandbox/mode').value, { mode: 'read-only' });
   assert.ok(!readOnly.restrictions[0].allow.includes('write'));
   assert.ok(readOnly.restrictions[0].allow.includes('bash'));
+});
+
+test('panel agent creation falls back to the per-OS default workspace', async t => {
+  // 用临时 HOME 隔离:默认目录落在临时目录里,不污染用户真实 Documents。
+  const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
+  const previousHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  t.after(() => {
+    process.env.HOME = previousHome;
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
+
+  const { bus } = await fixture(t);
+  // 未提供 workspace:创建时自动使用默认目录并确保存在。
+  const state = await bus.createPanelAgent({ ...baseAgent });
+  const workspace = state.agent.workspace;
+  assert.ok(workspace && workspace.startsWith(fakeHome), '默认工作区位于用户目录下');
+  assert.equal(workspace, join(fakeHome, 'Documents', 'AgentTeam'));
+  assert.ok(await import('node:fs').then(fs => fs.existsSync(workspace)), '默认工作区已创建');
+  // 显式提供的工作区仍然按原样校验使用。
+  const explicit = mkdtempSync(join(tmpdir(), 'agent-explicit-ws-'));
+  t.after(() => rmSync(explicit, { recursive: true, force: true }));
+  const updated = await bus.updatePanelAgent({ workspace: explicit, access: 'workspace-write' });
+  assert.equal(updated.agent.workspace, explicit);
 });

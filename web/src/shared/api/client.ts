@@ -1,7 +1,9 @@
 import type { PanelMessagePage } from './raw-types';
 import type { UnreadProjection, RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTaskEntry } from './raw-types';
 import type {
+  AttachmentSettings,
   HostStatus,
+  UploadedAttachment,
   Group,
   GroupCommunicationSummary,
   HistoryRow,
@@ -83,6 +85,17 @@ async function mutate<T>(path: string, body: unknown): Promise<T> {
   return jsonRequest<T>(path, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 
+async function throwAttachmentError(response: Response): Promise<never> {
+  let message = `请求失败(${response.status})`;
+  try {
+    const payload = (await response.json()) as { code?: string; error?: string };
+    if (payload && typeof payload.error === 'string' && payload.error) message = payload.error;
+  } catch {
+    // 错误体不是 JSON 时保持默认消息。
+  }
+  throw new ApiError(response.status, message);
+}
+
 function query(path: string, values: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
@@ -162,6 +175,34 @@ export const api = {
   deleteThemePack(id: string) {
     return mutate<{ deleted: string }>(`/api/theme-packs/${encodeURIComponent(id)}/delete`, {});
   },
+  attachmentSettings(signal?: AbortSignal) {
+    return request<AttachmentSettings>('/api/settings/attachments', signal);
+  },
+  updateAttachmentSettings(body: { maxFileBytes: number; maxFilesPerMessage: number; maxImagePixels: number }) {
+    return mutate<AttachmentSettings>('/api/settings/attachments', body);
+  },
+  // 附件路由返回稳定 {code,error};这里安全解析,前端只展示 error 文本。
+  attachmentUrl(id: string) {
+    return `/api/panel-agent/attachments/${encodeURIComponent(id)}`;
+  },
+  async uploadAttachment(file: File, signal?: AbortSignal): Promise<UploadedAttachment> {
+    const response = await fetch('/api/panel-agent/attachments', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Agent-Team-Filename': encodeURIComponent(file.name),
+      },
+      body: file,
+      signal,
+    });
+    if (!response.ok) await throwAttachmentError(response);
+    return (await response.json()) as UploadedAttachment;
+  },
+  async discardAttachment(id: string): Promise<void> {
+    const response = await fetch(this.attachmentUrl(id), { method: 'DELETE', credentials: 'same-origin' });
+    if (!response.ok) await throwAttachmentError(response);
+  },
   panelAgent(signal?: AbortSignal, summary = false) {
     return request<PanelAgentState>(query('/api/panel-agent', { summary: summary ? 1 : undefined, current: 1 }), signal);
   },
@@ -188,8 +229,13 @@ export const api = {
   }) {
     return mutate<PanelAgentState>('/api/panel-agent/update', body);
   },
-  panelMessage(text: string, activeTeamId?: string | null) {
-    return mutate<{ reply: unknown; result: string; activeTeamId?: string | null }>('/api/panel-agent/messages', { text, activeTeamId: activeTeamId ?? null });
+  panelMessage(text: string, activeTeamId?: string | null, options: { clientMessageId?: string; attachmentIds?: string[] } = {}) {
+    return mutate<{ reply: unknown; result: unknown; activeTeamId?: string | null; message?: unknown }>('/api/panel-agent/messages', {
+      text,
+      activeTeamId: activeTeamId ?? null,
+      ...(options.clientMessageId ? { clientMessageId: options.clientMessageId } : {}),
+      ...(options.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
+    });
   },
   stopPanel() {
     return mutate<{ stopped: string[] }>('/api/panel-agent/stop', {});

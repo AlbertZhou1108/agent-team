@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
-import { executionPolicy, claudeExecutionConfig, policyObservation, sandboxMode } from './policies.mjs';
+import { executionPolicy, claudeExecutionConfig, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
@@ -176,7 +176,14 @@ export function createClaudeHost({
       if (endpoint.session) args.push('--resume', endpoint.session);
       if (selectedModel) args.push('--model', selectedModel);
       if (selectedEffort) args.push('--effort', selectedEffort);
-      args.push('--', prompt);
+      // TXT/PNG 均走已验证的 Read 工具;清单只进宿主输入,不回写用户正文。
+      if ((context.attachments ?? []).length && !panelAttachmentsAllowed(context.policy)) {
+        throw new Error('当前会话模式不支持附件输入');
+      }
+      const attachmentManifestText = attachmentManifest(context.attachments);
+      args.push('--', attachmentManifestText
+        ? `${prompt}\n\n[附件文件清单 - 请用 Read 工具读取以下文件]\n${attachmentManifestText}`
+        : prompt);
       context.onPolicy?.(policyObservation('claude', policy, { builtins, allowed, mode: 'dontAsk', sandbox: settings.sandbox ?? null, panelAccess: context.policy?.access ?? null }));
       let result, sessionId = endpoint.session;
       let assistantModel = null;
@@ -399,7 +406,15 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       });
       const args = ['headless', '--patch', files.dsh, '--json'];
       if (endpoint.session) args.push('--session-id', endpoint.session);
-      args.push(`${instructions}\n\n当前输入：\n${prompt}`);
+      // TXT/PNG 走 headless read/read_image;清单只进宿主输入,不回写用户正文。
+      if ((context.attachments ?? []).length && !panelAttachmentsAllowed(context.policy)) {
+        throw new Error('当前会话模式不支持附件输入');
+      }
+      const attachmentManifestText = attachmentManifest(context.attachments);
+      const turnPrompt = attachmentManifestText
+        ? `${prompt}\n\n[附件文件清单 - 请用 read/read_image 工具读取以下文件]\n${attachmentManifestText}`
+        : prompt;
+      args.push(`${instructions}\n\n当前输入：\n${turnPrompt}`);
       context.onPolicy?.(policyObservation('dsh', policy, { sessionPolicy: sandboxMode(policy.mode), agentScopedToolRestriction: true, approval: 'never' }));
       let text, end, streamedText = '';
       const turnStarts = new Map();

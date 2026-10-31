@@ -27,6 +27,7 @@ import { usePanelAgentStore } from '@/stores/panel-agent';
 import { reuseMessageViews, toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
 import type { MessageView } from '@/shared/models/view-types';
 import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
+import type { ComposerAttachment } from '@/components/ai-elements/MessageComposer.vue';
 
 const props = defineProps<{
   agent: PanelAgent;
@@ -45,6 +46,8 @@ const props = defineProps<{
   hosts: AvailableHost[];
   catalogLoading: boolean;
   modelSaving: boolean;
+  /** 输入框附件草稿与上传/移除回调,由 Panel 层持有。 */
+  attachments?: ComposerAttachment[];
 }>();
 const draft = defineModel<string>('draft', { required: true });
 const activeTeamId = defineModel<string>('activeTeamId', { required: true });
@@ -54,6 +57,8 @@ const emit = defineEmits<{
   stop: [];
   edit: [];
   updateModel: [form: PanelAgentForm];
+  attach: [files: File[]];
+  removeAttachment: [localId: string];
 }>();
 
 const globalContextKey = '__global__';
@@ -197,6 +202,9 @@ const suggestions = [
         :hosts="hosts"
         :catalog-loading="catalogLoading"
         :model-saving="modelSaving"
+        :attachments="attachments"
+        @attach="emit('attach', $event)"
+        @remove-attachment="emit('removeAttachment', $event)"
         @submit="emit('send')"
         @stop="emit('stop')"
         @edit="emit('edit')"

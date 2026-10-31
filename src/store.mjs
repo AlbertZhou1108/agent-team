@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -59,6 +60,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(owner_id,group_id));
       CREATE TABLE IF NOT EXISTS model_policy_presets(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS theme_packs(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,light TEXT NOT NULL,dark TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS attachment_settings(singleton INTEGER PRIMARY KEY CHECK(singleton=1),max_file_bytes INTEGER NOT NULL,max_files INTEGER NOT NULL,max_image_pixels INTEGER NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,original_name TEXT NOT NULL,media_type TEXT NOT NULL CHECK(media_type IN ('text/plain','image/png','image/jpeg')),size INTEGER NOT NULL,storage_name TEXT NOT NULL,created_at TEXT NOT NULL,panel_message_id TEXT REFERENCES panel_messages(id) ON DELETE CASCADE,ordinal INTEGER);
+      CREATE TABLE IF NOT EXISTS panel_message_requests(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,client_message_id TEXT NOT NULL,payload_hash TEXT NOT NULL,panel_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,created_at TEXT NOT NULL,PRIMARY KEY(panel_agent_id,client_message_id));
       CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
       CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
@@ -67,7 +71,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS panel_messages_agent ON panel_messages(panel_agent_id,seq);
       CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
       CREATE INDEX IF NOT EXISTS panel_history_session ON panel_history(session_id,seq);
-      CREATE INDEX IF NOT EXISTS panel_history_turn ON panel_history(turn_id,seq);`);
+      CREATE INDEX IF NOT EXISTS panel_history_turn ON panel_history(turn_id,seq);
+      CREATE INDEX IF NOT EXISTS attachments_message ON attachments(panel_message_id);
+      CREATE INDEX IF NOT EXISTS attachments_agent ON attachments(panel_agent_id);`);
     for (const [name, definition] of [
       ['model_provider', 'TEXT'],
       ['model', 'TEXT'],
@@ -160,6 +166,7 @@ export class Store {
     for (const table of flowTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`);
     this.migrateInteractions();
     this.migrateAgentTasks();
+    this.migrateAttachments();
     for (const [table, column] of [
       ['members', 'joined_goal_version'], ['members', 'removed_goal_version'],
       ['runtime_attempts', 'contract_version'], ['runtime_attempts', 'goal_id'],
@@ -175,6 +182,21 @@ export class Store {
         this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
       }
     }
+  }
+  // attachments 的 media_type CHECK 扩展(image/jpeg)走重建:SQLite 不能改 CHECK。
+  migrateAttachments() {
+    const info = this.all('PRAGMA table_info(attachments)');
+    if (!info.length) return;
+    const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='attachments'")?.sql ?? '';
+    if (tableSql.includes("'image/jpeg'")) return;
+    this.transaction(() => {
+      this.db.exec(`ALTER TABLE attachments RENAME TO attachments_legacy;
+        CREATE TABLE attachments(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,original_name TEXT NOT NULL,media_type TEXT NOT NULL CHECK(media_type IN ('text/plain','image/png','image/jpeg')),size INTEGER NOT NULL,storage_name TEXT NOT NULL,created_at TEXT NOT NULL,panel_message_id TEXT REFERENCES panel_messages(id) ON DELETE CASCADE,ordinal INTEGER);
+        INSERT INTO attachments(id,panel_agent_id,original_name,media_type,size,storage_name,created_at,panel_message_id,ordinal) SELECT id,panel_agent_id,original_name,media_type,size,storage_name,created_at,panel_message_id,ordinal FROM attachments_legacy;
+        DROP TABLE attachments_legacy;
+        CREATE INDEX IF NOT EXISTS attachments_message ON attachments(panel_message_id);
+        CREATE INDEX IF NOT EXISTS attachments_agent ON attachments(panel_agent_id);`);
+    });
   }
   // agent_tasks 主键从 owner_id 演进为 (owner_id,group_id):
   // Panel Agent 在多个团队各有一份任务列表,单列主键会让跨团队写入互相覆盖。
@@ -245,6 +267,29 @@ export class Store {
   }
   panelAgent() {
     return this.get('SELECT * FROM panel_agents ORDER BY created LIMIT 1') ?? null;
+  }
+  // 消息附件查询(纯 DB);availability 由附件模块结合文件现状补充。
+  panelAttachments(messageId) {
+    return this.all('SELECT id,original_name,media_type,size,storage_name FROM attachments WHERE panel_message_id=? ORDER BY ordinal', messageId);
+  }
+  // 附件上传设置:空表读取默认值,首次保存 upsert;校验收口在 attachment-settings.mjs。
+  attachmentSettings() {
+    const row = this.get('SELECT max_file_bytes,max_files,max_image_pixels,updated FROM attachment_settings WHERE singleton=1');
+    if (!row) return { ...DEFAULT_ATTACHMENT_SETTINGS, updated: null };
+    return serializeAttachmentSettings(row);
+  }
+  updateAttachmentSettings(value) {
+    const settings = normalizeAttachmentSettings(value);
+    const now = new Date().toISOString();
+    this.run(
+      `INSERT INTO attachment_settings(singleton,max_file_bytes,max_files,max_image_pixels,updated) VALUES(1,?,?,?,?)
+       ON CONFLICT(singleton) DO UPDATE SET max_file_bytes=excluded.max_file_bytes,max_files=excluded.max_files,max_image_pixels=excluded.max_image_pixels,updated=excluded.updated`,
+      settings.maxFileBytes,
+      settings.maxFilesPerMessage,
+      settings.maxImagePixels,
+      now,
+    );
+    return this.attachmentSettings();
   }
   panelSession(panelAgentId, context, groupId = null) {
     const existing = context === 'private'

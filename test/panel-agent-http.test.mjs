@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
 
@@ -174,4 +175,95 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
     body: 'hello',
   });
   assert.equal(plainText.status, 415);
+});
+
+test('panel messages accept clientMessageId with attachments and replay idempotently', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'panel-att-http-'));
+  const workspace = mkdtempSync(join(tmpdir(), 'panel-att-ws-'));
+  const server = await startServer({ directory, hosts: new Map([['fake', fakeHost]]) });
+  t.after(async () => {
+    await server.close();
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  const bus = server.bus;
+  const base = new URL(server.url).origin;
+  await fetch(base + '/api/panel-agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Panel Agent',
+      host: 'fake',
+      model_provider: 'fake-provider',
+      model: 'fake-model',
+      reasoning_effort: 'low',
+      workspace,
+      access: 'workspace-write',
+    }),
+  });
+  await until(() => !bus.running.size);
+
+  // 经生产上传接口取得附件。
+  const upload = await fetch(base + '/api/panel-agent/attachments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', 'X-Agent-Team-Filename': encodeURIComponent('http.txt') },
+    body: 'attachment via http',
+  });
+  assert.equal(upload.status, 201);
+  const { id: attachmentId } = await upload.json();
+
+  // 附件-only + clientMessageId 发送。
+  const clientMessageId = randomUUID();
+  const send = await fetch(base + '/api/panel-agent/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '', activeTeamId: null, clientMessageId, attachmentIds: [attachmentId] }),
+  });
+  assert.equal(send.status, 200);
+  const sent = await send.json();
+  assert.ok(sent.message.id);
+  await until(() => !bus.running.size);
+
+  // 同 ID 同 payload 重试:返回同一消息,不再触发回合。
+  const retry = await fetch(base + '/api/panel-agent/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '', activeTeamId: null, clientMessageId, attachmentIds: [attachmentId] }),
+  });
+  assert.equal(retry.status, 200);
+  const replayed = await retry.json();
+  assert.equal(replayed.message.id, sent.message.id);
+  assert.equal(replayed.result.replayed, true);
+  assert.equal(bus.store.get("SELECT COUNT(*) AS count FROM panel_messages WHERE role='user'").count, 1);
+
+  // 同 ID 不同正文 → 409 稳定错误。
+  const conflict = await fetch(base + '/api/panel-agent/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '别的正文', activeTeamId: null, clientMessageId }),
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).code, 'conflict');
+
+  // 未知附件 ID → 404 稳定错误,不进入宿主回合。
+  const missing = await fetch(base + '/api/panel-agent/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '带坏附件', attachmentIds: [randomUUID()] }),
+  });
+  assert.equal(missing.status, 404);
+
+  // 旧客户端(无 clientMessageId、无附件)继续通过。
+  const legacy = await fetch(base + '/api/panel-agent/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'legacy text', activeTeamId: null }),
+  });
+  assert.equal(legacy.status, 200);
+
+  // 会话行携带附件 DTO。
+  const state = await (await fetch(base + '/api/panel-agent')).json();
+  const row = state.conversation.find(message => message.id === sent.message.id);
+  assert.deepEqual(row.attachments.map(item => item.id), [attachmentId]);
+  assert.deepEqual(Object.keys(row.attachments[0]).sort(), ['availability', 'id', 'mediaType', 'name', 'size']);
 });

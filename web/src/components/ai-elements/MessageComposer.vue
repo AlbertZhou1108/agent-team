@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { createComposerActions } from './composer-actions';
-import { ArrowUp, ChevronDown, ChevronUp, LoaderCircle, Square } from '@lucide/vue';
+import { ArrowUp, ChevronDown, ChevronUp, FileText, LoaderCircle, Paperclip, Square, X } from '@lucide/vue';
 import {
   InputGroup,
   InputGroupAddon,
@@ -10,7 +10,18 @@ import {
   InputGroupTextarea,
 } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
+import { ATTACHMENT_ACCEPT } from '@/shared/attachment-types';
 import { useUiStore } from '@/stores/ui';
+export type ComposerAttachmentStatus = 'uploading' | 'ready' | 'failed';
+
+export type ComposerAttachment = {
+  localId: string;
+  name: string;
+  size: number;
+  status: ComposerAttachmentStatus;
+  error?: string;
+};
+
 const props = withDefaults(defineProps<{
   sending: boolean;
   disabled?: boolean;
@@ -19,12 +30,15 @@ const props = withDefaults(defineProps<{
   /** 发送按钮在运行中转为停止按钮;不支持停止的宿主保持加载态。 */
   stoppable?: boolean;
   stopping?: boolean;
+  /** 附件草稿列表;提供时展示回形针、拖入区域与附件条。 */
+  attachments?: ComposerAttachment[];
 }>(), {
   disabled: false,
   placeholder: '输入消息…',
   label: '消息',
   stoppable: false,
   stopping: false,
+  attachments: undefined,
 });
 const draft = defineModel<string>({ required: true });
 const ui = useUiStore();
@@ -32,11 +46,61 @@ const resizing = ref(false);
 const textarea = ref<{ $el?: HTMLTextAreaElement } | null>(null);
 const compactInput = ref<{ $el?: HTMLInputElement } | null>(null);
 let resize: { startY: number; startHeight: number } | undefined;
-const emit = defineEmits<{ submit: []; stop: [] }>();
+const emit = defineEmits<{ submit: []; stop: []; attach: [files: File[]]; removeAttachment: [localId: string] }>();
 const { submit, onKeydown } = createComposerActions(
-  () => ({ draft: draft.value, sending: props.sending, disabled: props.disabled }),
+  () => ({ draft: draft.value, sending: props.sending, disabled: props.disabled, hasAttachments: Boolean(props.attachments?.length) }),
   () => emit('submit'),
 );
+
+// 附件上传中或失败时禁止发送;移除失败文件后即可发送剩余内容。
+const attachmentsBusy = computed(() => Boolean(props.attachments?.some(item => item.status !== 'ready')));
+const canSubmit = computed(() => {
+  if (attachmentsBusy.value) return false;
+  const hasText = Boolean(draft.value.trim());
+  const hasAttachments = Boolean(props.attachments?.length);
+  return (hasText || hasAttachments) && !props.sending && !props.disabled;
+});
+const collapsedAttachmentCount = computed(() => props.attachments?.length ?? 0);
+const canAttach = computed(() => Boolean(props.attachments));
+
+function formatAttachmentSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const fileInput = ref<HTMLInputElement | null>(null);
+function pickFiles() {
+  fileInput.value?.click();
+}
+function onFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (files.length) emit('attach', files);
+}
+let dragDepth = 0;
+const dragging = ref(false);
+function onDragEnter(event: DragEvent) {
+  if (!props.attachments || event.dataTransfer?.types?.includes('Files') === false) return;
+  dragDepth += 1;
+  dragging.value = true;
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dragging.value = false;
+}
+function onDragOver(event: DragEvent) {
+  if (dragging.value) event.preventDefault();
+}
+function onDrop(event: DragEvent) {
+  dragDepth = 0;
+  dragging.value = false;
+  if (!props.attachments) return;
+  event.preventDefault();
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.length) emit('attach', files);
+}
 
 // 折叠是两种输入形态的切换,不是只读预览:两种形态都能继续输入与发送。
 const collapsed = computed({
@@ -99,7 +163,22 @@ function keyboardResize(event: KeyboardEvent) {
     v-if="collapsed"
     class="agent-composer-compact"
     @submit.prevent="submit"
+    @dragenter="onDragEnter"
+    @dragleave="onDragLeave"
+    @dragover="onDragOver"
+    @drop="onDrop"
   >
+    <!-- 折叠态仍显示附件数量;点它展开完整输入区管理附件。 -->
+    <button
+      v-if="collapsedAttachmentCount"
+      type="button"
+      class="mb-1 flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+      aria-label="展开输入区管理附件"
+      @click="expand"
+    >
+      <Paperclip class="size-3" />
+      <span class="tabular-nums">{{ collapsedAttachmentCount }} 个附件</span>
+    </button>
     <InputGroup>
       <InputGroupInput
         ref="compactInput"
@@ -140,7 +219,7 @@ function keyboardResize(event: KeyboardEvent) {
           type="submit"
           size="icon-sm"
           variant="default"
-          :disabled="!draft.trim() || sending || disabled"
+          :disabled="!canSubmit"
           :aria-label="sending ? '发送中' : '发送'"
         >
           <LoaderCircle v-if="sending" class="animate-spin" />
@@ -148,12 +227,26 @@ function keyboardResize(event: KeyboardEvent) {
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>
+    <input
+      v-if="canAttach"
+      ref="fileInput"
+      type="file"
+      class="hidden"
+      multiple
+      :accept="ATTACHMENT_ACCEPT"
+      :aria-label="'选择附件文件'"
+      @change="onFileChange"
+    />
   </form>
   <form
     v-else
-    :class="cn('agent-ai-composer', resizing && 'is-resizing')"
+    :class="cn('agent-ai-composer', resizing && 'is-resizing', dragging && 'is-dragging')"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
+    @dragenter="onDragEnter"
+    @dragleave="onDragLeave"
+    @dragover="onDragOver"
+    @drop="onDrop"
   >
       <div
         class="agent-composer-resize-handle"
@@ -171,13 +264,51 @@ function keyboardResize(event: KeyboardEvent) {
         @lostpointercapture="endResize"
         @keydown="keyboardResize"
       />
+      <!-- 附件条:每个文件显示名称、大小、上传状态与移除;键盘可操作。 -->
+      <div
+        v-if="attachments?.length"
+        class="flex flex-wrap gap-2 pb-2"
+        role="list"
+        :aria-label="'待发送附件'"
+      >
+        <div
+          v-for="attachment in attachments"
+          :key="attachment.localId"
+          role="listitem"
+          class="flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
+          :class="attachment.status === 'failed' ? 'border-destructive/50 text-destructive' : ''"
+        >
+          <LoaderCircle v-if="attachment.status === 'uploading'" class="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+          <FileText v-else class="size-3.5 shrink-0 text-muted-foreground" />
+          <span class="min-w-0 max-w-48 truncate" :title="attachment.name">{{ attachment.name }}</span>
+          <span class="shrink-0 text-muted-foreground">{{ formatAttachmentSize(attachment.size) }}</span>
+          <span
+            v-if="attachment.status === 'uploading'"
+            class="shrink-0 text-muted-foreground"
+          >上传中…</span>
+          <span
+            v-else-if="attachment.status === 'failed'"
+            class="shrink-0"
+            :title="attachment.error"
+          >上传失败</span>
+          <button
+            type="button"
+            class="shrink-0 rounded-sm p-0.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            :aria-label="`移除附件 ${attachment.name}`"
+            :title="`移除附件 ${attachment.name}`"
+            @click="emit('removeAttachment', attachment.localId)"
+          >
+            <X class="size-3.5" />
+          </button>
+        </div>
+      </div>
       <InputGroup>
         <InputGroupTextarea
           ref="textarea"
           v-model="draft"
           rows="2"
           maxlength="48000"
-          :placeholder="placeholder"
+          :placeholder="dragging ? '松开以添加附件' : placeholder"
           :aria-label="label"
           :disabled="disabled"
           class="max-h-none min-h-20 flex-none field-sizing-fixed"
@@ -188,6 +319,17 @@ function keyboardResize(event: KeyboardEvent) {
         <InputGroupAddon align="block-end" class="flex-nowrap">
           <slot name="controls" />
           <div class="ml-auto flex flex-none items-center gap-2">
+            <InputGroupButton
+              v-if="canAttach"
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="添加附件"
+              title="添加附件(文本文件或 PNG/JPEG 图片)"
+              @click="pickFiles"
+            >
+              <Paperclip />
+            </InputGroupButton>
             <InputGroupButton
               type="button"
               size="icon-sm"
@@ -217,7 +359,7 @@ function keyboardResize(event: KeyboardEvent) {
               type="submit"
               size="icon-sm"
               variant="default"
-              :disabled="!draft.trim() || sending || disabled"
+              :disabled="!canSubmit"
               :aria-label="sending ? '发送中' : '发送'"
             >
               <LoaderCircle v-if="sending" class="animate-spin" />
@@ -226,6 +368,16 @@ function keyboardResize(event: KeyboardEvent) {
           </div>
         </InputGroupAddon>
       </InputGroup>
+      <input
+        v-if="canAttach"
+        ref="fileInput"
+        type="file"
+        class="hidden"
+        multiple
+        :accept="ATTACHMENT_ACCEPT"
+        :aria-label="'选择附件文件'"
+        @change="onFileChange"
+      />
     </form>
 </template>
 
@@ -238,6 +390,11 @@ function keyboardResize(event: KeyboardEvent) {
 
 .agent-composer-compact :deep([data-slot="input-group"]) {
   height: 44px;
+}
+
+.agent-ai-composer.is-dragging :deep([data-slot="input-group"]) {
+  outline: 2px dashed var(--color-ring, currentColor);
+  outline-offset: 2px;
 }
 
 .agent-composer-compact :deep([data-slot="input-group-control"]) {

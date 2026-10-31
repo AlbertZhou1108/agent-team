@@ -2,7 +2,8 @@ import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { createCliLifecycle } from './lifecycle.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
-import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation } from './policies.mjs';
+import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
+import { ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
 
@@ -15,6 +16,15 @@ function sameSessionConfiguration(previous, signature) {
       && Array.isArray(before.tools)
       && isDeepStrictEqual([...before.tools].sort(), [...after.tools].sort());
   } catch { return false; }
+}
+
+// turn/start 输入:正文保持用户原文;文本走受控内部文件清单(模型用文件工具读取),
+// PNG/JPEG 附加原生 localImage;清单与图片只进宿主调用输入,不回写消息正文。
+export function codexTurnInput(prompt, attachments = []) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const images = list.filter(item => Object.hasOwn(ATTACHMENT_IMAGE_TYPES, item.mediaType)).map(item => ({ type: 'localImage', path: item.path }));
+  const manifest = attachmentManifest(list.filter(item => item.mediaType === 'text/plain'));
+  return [{ type: 'text', text: manifest ? `${prompt}\n\n[附件文件清单]\n${manifest}` : prompt }, ...images];
 }
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
@@ -243,6 +253,10 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       if (signal.aborted) throw new Error('回合已中断');
       const policy = executionPolicy(context);
       if (policy.mode !== 'communication' && !policy.allowShell) throw new Error('Codex项目操作需要允许沙箱命令；请调整群策略或成员安排');
+      // 附件能力边界:communication 投递不接收附件;不可用附件已在执行前由附件模块拒绝。
+      if ((context.attachments ?? []).length && !panelAttachmentsAllowed(context.policy)) {
+        throw new Error('当前会话模式不支持附件输入');
+      }
       const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace);
       // 模型与思考强度走 turn/start 的逐回合覆盖（协议语义：对本回合及后续回合生效），
       // 不进 config/签名：会话中途调整配置不再要求 reset-session。
@@ -283,7 +297,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
       signal.addEventListener('abort', interrupt, { once: true });
       try {
         if (signal.aborted) throw new Error('回合已中断');
-        turn = (await request('turn/start', { threadId: thread, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never', sandboxPolicy: turnSandboxPolicy, ...turnOverrides })).turn;
+        turn = (await request('turn/start', { threadId: thread, input: codexTurnInput(prompt, context.attachments), approvalPolicy: 'never', sandboxPolicy: turnSandboxPolicy, ...turnOverrides })).turn;
         context.onNativeTurn(turn.id);
         live.currentNativeTurnId = turn.id;
         onAccepted();

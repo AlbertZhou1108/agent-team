@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +43,7 @@ function hostFixture(calls = []) {
         context: context.endpoint.context,
         groupId: context.endpoint.group_id,
         prompt: context.prompt,
+        attachments: (context.attachments ?? []).map(item => ({ id: item.id, name: item.name, mediaType: item.mediaType, hasPath: typeof item.path === 'string' && item.path.length > 0 })),
       });
       context.onSession(context.endpoint.session ?? context.endpoint.id);
       if (context.endpoint.context === 'profile') {
@@ -66,13 +68,14 @@ async function fixture(t) {
   return { directory, calls, bus };
 }
 
-async function createAgent(bus) {
+async function createAgent(bus, workspace = null) {
   return bus.createPanelAgent({
     name: 'Panel Agent',
     host: 'fake',
     model_provider: 'fake-provider',
     model: 'fake-model',
     reasoning_effort: 'low',
+    ...(workspace ? { workspace, access: 'workspace-write' } : {}),
   });
 }
 
@@ -282,6 +285,7 @@ test('legacy notifications do not wake an idle private host', async t => {
         context: context.endpoint.context,
         groupId: context.endpoint.group_id,
         prompt: context.prompt,
+        attachments: (context.attachments ?? []).map(item => ({ id: item.id, name: item.name, mediaType: item.mediaType, hasPath: typeof item.path === 'string' && item.path.length > 0 })),
       });
       if (context.endpoint.context === 'panel-private' && context.prompt === 'BUSY') {
         context.onSession(context.endpoint.session ?? context.endpoint.id);
@@ -307,7 +311,7 @@ test('legacy notifications do not wake an idle private host', async t => {
   await createAgent(bus);
   bus.takeoverTeam(group.id, 0);
 
-  const privateTurn = bus.panelPrivateTurn('BUSY', null);
+  const privateTurn = bus.panelPrivateTurn({ text: 'BUSY' });
   await until(() => typeof releasePrivate === 'function');
   const update = bus.publishPanelUpdate({
     panelAgentId: bus.panelAgent().id,
@@ -406,7 +410,7 @@ test('private creation forwards to its team coordination and receives an explici
  }};
  bus=new Bus({directory,hosts:new Map([['fake',host]])}); bus.start();
  t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true});});
- const state=await createAgent(bus); const response=await bus.panelPrivateTurn('create and run',null);
+ const state=await createAgent(bus); const response=await bus.panelPrivateTurn({ text: 'create and run' });
  await until(()=>!bus.running.size);
  const requests=bus.panelAgentState().requests; assert.equal(requests.length,1);
  assert.equal(requests[0].source_user_message_id,response.message.id);
@@ -482,7 +486,7 @@ test('private team-context input is rejected rather than opening a second team c
  const {bus,directory}=await fixture(t); await createAgent(bus);
  const group=confirmedGroup(bus,{name:'legacy',workspace:directory,lead:{name:'lead',host:'fake'}});
  await until(()=>!bus.running.size);
- await assert.rejects(bus.panelPrivateTurn('legacy write',group.id),/团队对话已迁移/);
+ await assert.rejects(bus.panelPrivateTurn({ text: 'legacy write', activeTeamId: group.id }),/团队对话已迁移/);
  assert.equal(bus.store.all("SELECT * FROM panel_messages WHERE active_team_id=?",group.id).length,0);
 });
 
@@ -501,9 +505,9 @@ test('unknown Panel Agent runtime blocks the session until the user verifies it 
     'unknown',
     new Date().toISOString(),
   );
-  await assert.rejects(bus.panelPrivateTurn('must wait', null), /待核实运行/);
+  await assert.rejects(bus.panelPrivateTurn({ text: 'must wait' }), /待核实运行/);
   bus.resolvePanelRuntime('unknown-panel-turn', '用户确认宿主进程已停止');
-  const result = await bus.panelPrivateTurn('resume', null);
+  const result = await bus.panelPrivateTurn({ text: 'resume' });
   assert.equal(result.result, 'panel reply');
 });
 
@@ -513,7 +517,7 @@ test('Panel Agent identity, private conversation and session survive restart', a
   let bus = new Bus({ directory, hosts });
   bus.start();
   await createAgent(bus);
-  await bus.panelPrivateTurn('persist me', null);
+  await bus.panelPrivateTurn({ text: 'persist me' });
   const before = bus.panelAgentState();
   const sessionBefore = bus.store.panelSession(before.agent.id, 'private').session;
   await bus.close();
@@ -587,4 +591,116 @@ test('service restart separates all private history from current messages and pa
  assert.equal(bus.panelMessagePage().messages.length,1);
  assert.equal(bus.queryUnread(true).messages.length,1);
  assert.equal(bus.panelMessagePage({history:true}).messages.length,200);
+});
+
+test('panel private turns bind attachments, record requests and replay idempotently', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-att-'));
+  const workspace = mkdtempSync(join(tmpdir(), 'agent-team-panel-ws-'));
+  const calls = [];
+  const host = hostFixture(calls);
+  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  const state = await createAgent(bus, workspace);
+  const agentId = state.agent.id;
+  await until(() => !bus.running.size);
+
+  const first = await bus.attachmentUpload(agentId, Buffer.from('alpha content'), { name: 'a.txt', mediaType: 'text/plain' });
+  const second = await bus.attachmentUpload(agentId, Buffer.from('beta content'), { name: 'b.txt', mediaType: 'text/plain' });
+
+  // 附件-only 消息成功,按用户顺序绑定;宿主收到结构化输入(含内部路径)。
+  const clientMessageId = randomUUID();
+  const sent = await bus.panelPrivateTurn({ text: '', clientMessageId, attachmentIds: [first.id, second.id] });
+  assert.ok(sent.message.id);
+  await until(() => !bus.running.size);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].prompt, '');
+  assert.deepEqual(calls[0].attachments, [
+    { id: first.id, name: 'a.txt', mediaType: 'text/plain', hasPath: true },
+    { id: second.id, name: 'b.txt', mediaType: 'text/plain', hasPath: true },
+  ]);
+
+  // 绑定与 request 记录持久化;会话行携带附件 DTO(不含路径)。
+  assert.deepEqual(bus.store.panelAttachments(sent.message.id).map(row => row.id), [first.id, second.id]);
+  const conversationRow = bus.panelBrowserState().conversation.find(row => row.id === sent.message.id);
+  assert.deepEqual(conversationRow.attachments.map(row => row.id), [first.id, second.id]);
+  assert.deepEqual(Object.keys(conversationRow.attachments[0]).sort(), ['availability', 'id', 'mediaType', 'name', 'size']);
+  // 附件路径不泄漏到浏览器可见状态;用户正文保持原文(附件-only 为空)。
+  assert.equal(conversationRow.text, '');
+  assert.ok(!JSON.stringify(bus.panelBrowserState().conversation).includes(workspace), '会话行不泄漏工作区路径');
+
+  // 同 ID 同 payload 重试:同一 messageId,不新增消息/回合/request。
+  const replay = await bus.panelPrivateTurn({ text: '', clientMessageId, attachmentIds: [first.id, second.id] });
+  assert.equal(replay.message.id, sent.message.id);
+  assert.equal(replay.result.replayed, true);
+  await until(() => !bus.running.size);
+  assert.equal(calls.length, 1, '重试不触发第二条回合');
+  assert.equal(bus.store.all('SELECT 1 FROM panel_message_requests WHERE client_message_id=?', clientMessageId).length, 1);
+  assert.equal(bus.store.get("SELECT COUNT(*) AS count FROM panel_messages WHERE panel_agent_id=? AND role='user'", agentId).count, 1);
+
+  // 同 ID 改正文、改附件集合、改顺序 → 409 语义冲突。
+  for (const mutated of [
+    { text: '改成别的', clientMessageId, attachmentIds: [first.id] },
+    { text: '', clientMessageId, attachmentIds: [first.id] },
+    { text: '', clientMessageId, attachmentIds: [second.id, first.id] },
+  ]) {
+    await assert.rejects(
+      () => bus.panelPrivateTurn(mutated),
+      error => error.code === 'conflict',
+    );
+  }
+
+  // 已绑定附件不能用于第二条消息。
+  await assert.rejects(
+    () => bus.panelPrivateTurn({ text: '再发一次', attachmentIds: [first.id] }),
+    error => error.code === 'conflict',
+  );
+
+  // 畸形/跨 agent 附件在 host.run 前拒绝,不产生 turn。
+  const turnsBefore = bus.store.all('SELECT 1 FROM panel_turns').length;
+  await assert.rejects(() => bus.panelPrivateTurn({ text: '坏的', attachmentIds: [randomUUID()] }), error => error.code === 'not_found');
+  assert.equal(bus.store.all('SELECT 1 FROM panel_turns').length, turnsBefore);
+
+  // 空正文且空附件拒绝;旧式纯文本请求继续通过。
+  await assert.rejects(() => bus.panelPrivateTurn({ text: '   ' }), /消息内容不能为空/);
+  const plain = await bus.panelPrivateTurn({ text: 'plain text' });
+  assert.ok(plain.message.id);
+  await until(() => !bus.running.size);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].attachments, []);
+});
+
+test('attachment metadata survives a service restart', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-team-panel-att-restart-'));
+  const workspace = mkdtempSync(join(tmpdir(), 'agent-team-panel-ws2-'));
+  let bus = new Bus({ directory, hosts: new Map([['fake', hostFixture()]]) });
+  bus.start();
+  t.after(async () => {
+    await bus.close();
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  const state = await createAgent(bus, workspace);
+  const uploaded = await bus.attachmentUpload(state.agent.id, Buffer.from('restart me'), { name: 'r.txt', mediaType: 'text/plain' });
+  const clientMessageId = randomUUID();
+  const sent = await bus.panelPrivateTurn({ text: '', clientMessageId, attachmentIds: [uploaded.id] });
+  await until(() => !bus.running.size);
+  const hosts = bus.hosts;
+  await bus.close();
+
+  bus = new Bus({ directory, hosts });
+  bus.start();
+  const row = bus.panelMessagePage({ history: true }).messages.find(message => message.id === sent.message.id);
+  assert.ok(row, '重启后历史行仍在');
+  assert.deepEqual(row.attachments.map(item => ({ id: item.id, name: item.name, availability: item.availability })), [
+    { id: uploaded.id, name: 'r.txt', availability: 'available' },
+  ]);
+  // request 记录同样持久:同 ID 重试仍回放原消息,不再创建新消息。
+  const replay = await bus.panelPrivateTurn({ text: '', clientMessageId, attachmentIds: [uploaded.id] });
+  assert.equal(replay.message.id, sent.message.id);
+  assert.equal(replay.result.replayed, true);
 });

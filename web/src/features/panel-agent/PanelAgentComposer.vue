@@ -8,13 +8,16 @@ import { InputGroupButton } from '@/components/ui/input-group';
 import type { PanelAgent } from '@/shared/api/raw-types';
 import PanelAgentModelSelector from './PanelAgentModelSelector.vue';
 import type { AvailableHost, PanelAgentForm } from './types';
-defineProps<{
+import type { ComposerAttachment } from '@/components/ai-elements/MessageComposer.vue';
+const props = defineProps<{
   agent: PanelAgent;
   sending: boolean;
   stopping: boolean;
   hosts: AvailableHost[];
   catalogLoading: boolean;
   modelSaving: boolean;
+  /** 输入框附件草稿;来自 Panel Agent store 的内存态。 */
+  attachments?: ComposerAttachment[];
 }>();
 const draft = defineModel<string>({ required: true });
 const form = defineModel<PanelAgentForm>('form', { required: true });
@@ -23,6 +26,8 @@ const emit = defineEmits<{
   stop: [];
   edit: [];
   updateModel: [form: PanelAgentForm];
+  attach: [files: File[]];
+  removeAttachment: [localId: string];
 }>();
 </script>
 <template>
@@ -30,6 +35,8 @@ const emit = defineEmits<{
   <MessageComposer v-model="draft" :sending="sending" :stoppable="true" :stopping="stopping"
     label="Panel Agent 消息"
     placeholder="询问团队状态，或让 Panel Agent 准备一个新团队…"
+    :attachments="props.attachments"
+    @attach="emit('attach', $event)" @remove-attachment="emit('removeAttachment', $event)"
     @submit="emit('submit')" @stop="emit('stop')">
     <template #controls>
       <PanelAgentModelSelector v-model:form="form" :hosts="hosts" size="sm"

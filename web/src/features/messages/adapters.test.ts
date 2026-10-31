@@ -180,3 +180,28 @@ describe('reuseMessageViews', () => {
     expect(reused[0]).toBe(first[0]);
   });
 });
+
+describe('panel message attachment mapping', () => {
+  it('carries structured attachments into the message view without touching text', async () => {
+    const { toPanelMessageViews } = await import('./adapters');
+    const rows = [
+      {
+        seq: 1, id: 'm1', panel_agent_id: 'p1', context: 'private', role: 'user',
+        text: '看附件', active_team_id: null, created: '2026-10-31T00:00:00.000Z',
+        attachments: [
+          { id: 'a1', name: 'notes.txt', mediaType: 'text/plain', size: 12, availability: 'available' },
+          { id: 'a2', name: 'shot.png', mediaType: 'image/png', size: 2048, availability: 'missing' },
+        ],
+      },
+      {
+        seq: 2, id: 'm2', panel_agent_id: 'p1', context: 'private', role: 'assistant',
+        text: '回复', active_team_id: null, created: '2026-10-31T00:00:01.000Z',
+      },
+    ] as never;
+    const views = toPanelMessageViews(rows, '助手');
+    expect(views[0].attachments).toHaveLength(2);
+    expect(views[0].attachments?.[1]).toMatchObject({ id: 'a2', availability: 'missing' });
+    expect(views[0].text).toBe('看附件');
+    expect(views[1].attachments).toBeUndefined();
+  });
+});

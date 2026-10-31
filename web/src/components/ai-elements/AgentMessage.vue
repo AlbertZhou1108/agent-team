@@ -2,6 +2,7 @@
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { computed } from 'vue';
 import { Bot, Copy, Ellipsis, Megaphone, MessageSquareText } from '@lucide/vue';
+import MessageAttachments from './MessageAttachments.vue';
 import { useClipboard } from '@vueuse/core';
 import type { MessageView } from '@/shared/models/view-types';
 import { Badge } from '@/components/ui/badge';
@@ -166,6 +167,7 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
           <MarkdownRenderer v-if="useMarkdown" :content="message.text" :defer="Boolean(pending)" />
         </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
+        <MessageAttachments v-if="message.attachments?.length" :attachments="message.attachments" />
         <slot name="footer" :message="message" />
       </BubbleContent>
     </Bubble>

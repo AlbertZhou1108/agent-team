@@ -24,6 +24,7 @@ import {
 } from './model-policy.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { Interactions } from './interactions.mjs';
+import { Attachments } from './attachments.mjs';
 import { PanelSessions } from './panel-sessions.mjs';
 
 export { interactionView } from './interactions.mjs';
@@ -52,6 +53,7 @@ export class Bus extends EventEmitter {
     this.modelCatalogPending = null;
     this.toolStreams = new ToolStreams(this);
     this.interactions = new Interactions(this);
+    this.attachments = new Attachments(this);
     this.panel = new PanelSessions(this);
     this.lifecycle = new GroupLifecycle(this);
     this.dispatch = new MessageDispatch(this);
@@ -72,6 +74,7 @@ export class Bus extends EventEmitter {
     this.teamDirectives.recoverOutputs();
     // Serving the panel does not implicitly resume historical work.
     this.store.run("UPDATE panel_turns SET state='unknown',ended=? WHERE state='running'", new Date().toISOString());
+    this.startAttachmentCleanup();
     this.pumpPanelUpdates();
     this.pump();
   }
@@ -327,6 +330,35 @@ export class Bus extends EventEmitter {
     // 跨设备删除后,其他端解析不到该 id 时自动回落内置主题。
     this.store.run('DELETE FROM theme_packs WHERE id=?', id);
     return { deleted: id };
+  }
+  attachmentSettings() {
+    return this.store.attachmentSettings();
+  }
+  updateAttachmentSettings(value) {
+    return this.store.updateAttachmentSettings(value);
+  }
+  // 附件模块薄转发;bindTx 只允许在 Store transaction 内经 bus.attachments 调用。
+  attachmentUpload(...args) { return this.attachments.upload(...args); }
+  attachmentRead(...args) { return this.attachments.read(...args); }
+  attachmentDiscard(...args) { return this.attachments.discard(...args); }
+  attachmentPrepare(...args) { return this.attachments.prepare(...args); }
+  attachmentDescribeMessage(...args) { return this.attachments.describeMessage(...args); }
+  attachmentCleanup(...args) { return this.attachments.cleanup(...args); }
+  startAttachmentCleanup() {
+    // best-effort:启动清一次(.part 全清),之后每小时一次;失败只记录,不影响通信启动。
+    try {
+      this.attachments.cleanup(new Date(), { partMaxAgeMs: 0 });
+    } catch (error) {
+      console.error('[attachments] 启动清理失败:', error.message);
+    }
+    this.attachmentCleanupTimer = setInterval(() => {
+      try {
+        this.attachments.cleanup(new Date());
+      } catch (error) {
+        console.error('[attachments] 定期清理失败:', error.message);
+      }
+    }, 60 * 60 * 1000);
+    this.attachmentCleanupTimer.unref();
   }
   defaultModelSelection(hostName) {
     const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
@@ -589,6 +621,10 @@ export class Bus extends EventEmitter {
   // 但侧栏需要的团队/成员列表并不随团队变化,单独提供以免整棵侧栏闪一次空态。
   async close() {
     this.closing = true;
+    if (this.attachmentCleanupTimer) {
+      clearInterval(this.attachmentCleanupTimer);
+      this.attachmentCleanupTimer = null;
+    }
     await this.stopWhere(() => true);
     await Promise.allSettled([...this.hosts.values()].map(host => host.close?.()));
     // 停止所有回合后缓冲里可能还有尾段增量,必须在关闭数据库前落盘。

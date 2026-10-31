@@ -15,6 +15,8 @@ import type {
   PanelTeamView,
 } from '@/shared/api/raw-types';
 import { api } from '@/shared/api/client';
+import { useQuery } from '@tanstack/vue-query';
+import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
 import { frameBatch } from '@/features/messages/frame-batch';
 import { usePanelAgentStore } from '@/stores/panel-agent';
@@ -178,6 +180,7 @@ onBeforeUnmount(() => {
 const sending = computed(
   () =>
     panelState.submitting ||
+    panelState.attachments.some((item) => item.status === 'uploading') ||
     Boolean(
       privateSessionId.value &&
         panel.value?.running.some(
@@ -358,9 +361,26 @@ async function updateAgentModel(next: PanelAgentForm) {
   }
 }
 
+// 附件上传限额来自服务端设置;前端只做预检,服务端在提交时最终校验。
+const attachmentSettingsQuery = useQuery({
+  queryKey: queryKeys.attachmentSettings,
+  queryFn: ({ signal }) => api.attachmentSettings(signal),
+});
+
+async function onAttach(files: File[]) {
+  const error = await panelState.addAttachmentFiles(files, attachmentSettingsQuery.data.value);
+  if (error) toast.error(error);
+}
+
+async function onRemoveAttachment(localId: string) {
+  await panelState.removeAttachment(localId);
+}
+
 async function sendMessage() {
   const text = panelState.draft.trim();
-  if (!text || sending.value || !panel.value?.agent) return;
+  // 附件-only 也是合法消息;上传中或失败时不发送。
+  if ((!text && !panelState.attachments.length) || sending.value || !panel.value?.agent) return;
+  if (panelState.attachments.some((item) => item.status !== 'ready')) return;
   actionError.value = '';
   try {
     const pending = panelState.sendMessage(text, null);
@@ -566,6 +586,9 @@ watch(
           :hosts="availableHosts"
           :catalog-loading="catalogLoading"
           :model-saving="modelSaving"
+          :attachments="panelState.attachments"
+          @attach="onAttach"
+          @remove-attachment="onRemoveAttachment"
           @send="sendMessage"
           @stop="stopTurn"
           @edit="beginEdit"

@@ -17,4 +17,13 @@ describe('shared message composer actions', () => {
     state.disabled = false; state.draft = '  '; actions.submit();
     expect(send).not.toHaveBeenCalled();
   });
+  it('allows attachment-only submission without text', () => {
+    const send = vi.fn();
+    const state = { draft: '', sending: false, disabled: false, hasAttachments: true };
+    const actions = createComposerActions(() => state, send);
+    actions.submit();
+    state.hasAttachments = false;
+    actions.submit();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });

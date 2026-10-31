@@ -84,7 +84,7 @@ test('Panel streaming state accumulates deltas and is replaced by the durable fi
   const events = [];
   bus.on('panel-stream', event => events.push(event));
 
-  const pending = bus.panelPrivateTurn('stream this');
+  const pending = bus.panelPrivateTurn({ text: 'stream this' });
   await until(() => bus.panelAgentState().streaming?.[0]?.text === '你好');
   const active = bus.panelAgentState().streaming[0];
   assert.equal(active.context, 'private');
@@ -197,7 +197,7 @@ test('Panel stream exposes the run phase and clears it after a tool call', async
   const events = [];
   bus.on('panel-stream', event => events.push(event));
 
-  const pending = bus.panelPrivateTurn('check phase');
+  const pending = bus.panelPrivateTurn({ text: 'check phase' });
   await until(() => bus.panelAgentState().streaming?.[0]?.text === '好');
   // 先放行并等回合收尾,再做断言:断言失败时不会把宿主的等待 promise 永久悬空。
   const livePhase = bus.panelAgentState().streaming[0].runPhase;

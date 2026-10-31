@@ -1,3 +1,5 @@
+import type { MessageAttachment } from '@/shared/api/raw-types';
+
 export type StepKind =
   | 'input'
   | 'output'
@@ -44,4 +46,6 @@ export interface MessageView {
   kind: 'send' | 'note' | 'system';
   text: string;
   createdAt: string;
+  /** 结构化消息附件;只有携带附件的用户消息才有。 */
+  attachments?: MessageAttachment[];
 }

@@ -142,6 +142,7 @@ const principles = [
 
             <Field :data-invalid="workspaceMissing || undefined">
               <FieldLabel for="panel-agent-workspace">私人工作区</FieldLabel>
+              <FieldDescription>附件副本存放在框架数据目录,不会写入工作区;不选择时使用系统默认工作区。</FieldDescription>
               <div class="flex min-w-0 items-center gap-2">
                 <Input id="panel-agent-workspace" :model-value="form.workspace" readonly
                   class="min-w-0 flex-1" placeholder="尚未选择文件夹" :title="form.workspace"

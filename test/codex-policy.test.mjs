@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCodexHost } from '../src/hosts/codex.mjs';
@@ -140,4 +140,104 @@ createInterface({ input: process.stdin }).on('line', line => {
     modelSelection: { model_provider: null, model: 'model-b', reasoning_effort: 'high' },
   });
   assert.equal(JSON.parse(signature).config.model_reasoning_effort, undefined);
+});
+
+test('attachment policy helpers gate private sessions and build internal manifests', async () => {
+  const { attachmentManifest, panelAttachmentsAllowed } = await import('../src/hosts/policies.mjs');
+  const { codexTurnInput } = await import('../src/hosts/codex.mjs');
+
+  // 只有带 access 的私人策略允许附件;communication 不扩大。
+  assert.equal(panelAttachmentsAllowed({ mode: 'communication', allowShell: false }), false);
+  assert.equal(panelAttachmentsAllowed({ mode: 'read-only', allowShell: true, access: 'read-only' }), true);
+  assert.equal(panelAttachmentsAllowed({}), false);
+  assert.equal(panelAttachmentsAllowed(null), false);
+
+  // 清单包含 id/type/name/path;空清单返回空串。
+  const manifest = attachmentManifest([
+    { id: 'a1', mediaType: 'text/plain', name: 'a.txt', path: '/ws/.agent-team/attachments/a1' },
+  ]);
+  assert.ok(manifest.includes('[attachment:a1] text/plain a.txt -> /ws/.agent-team/attachments/a1'));
+  assert.equal(attachmentManifest([]), '');
+  assert.equal(attachmentManifest(undefined), '');
+
+  // Codex turn 输入:正文保持原文,TXT 清单内嵌,PNG 附加 localImage。
+  const input = codexTurnInput('看看附件', [
+    { id: 'a1', mediaType: 'text/plain', name: 'a.txt', path: '/ws/att/a1' },
+    { id: 'p1', mediaType: 'image/png', name: 'p.png', path: '/ws/att/p1' },
+  ]);
+  assert.equal(input.length, 2);
+  assert.equal(input[0].type, 'text');
+  assert.ok(input[0].text.startsWith('看看附件'));
+  assert.ok(input[0].text.includes('[attachment:a1] text/plain a.txt -> /ws/att/a1'));
+  assert.deepEqual(input[1], { type: 'localImage', path: '/ws/att/p1' });
+  // 无附件时正文原样;多个 PNG 保持顺序。
+  assert.deepEqual(codexTurnInput('plain', []).map(item => item.text), ['plain']);
+  const many = codexTurnInput('x', [
+    { id: 'p1', mediaType: 'image/png', name: '1.png', path: '/p1' },
+    { id: 'p2', mediaType: 'image/png', name: '2.png', path: '/p2' },
+  ]);
+  assert.deepEqual(many.slice(1), [{ type: 'localImage', path: '/p1' }, { type: 'localImage', path: '/p2' }]);
+});
+
+test('Codex adapter forwards attachments as localImage items and refuses them in communication mode', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-codex-attach-'));
+  const fake = join(directory, 'fake-codex.mjs');
+  writeFileSync(fake, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+import { writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+const record = value => writeFileSync(join(dirname(process.argv[1]), 'turn-inputs.jsonl'), JSON.stringify(value) + '\\n', { flag: 'a' });
+createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  if (row.method === 'initialize') return send({ id: row.id, result: {} });
+  if (row.method === 'config/read') return send({ id: row.id, result: { config: { mcp_servers: {} } } });
+  if (row.method === 'thread/start') return send({ id: row.id, result: { thread: { id: 'thread-att' }, model: 'test', modelProvider: 'test', reasoningEffort: null } });
+  if (row.method === 'turn/start') {
+    record(row.params.input);
+    send({ id: row.id, result: { turn: { id: 'turn-att' } } });
+    setImmediate(() => send({ method: 'turn/completed', params: { threadId: 'thread-att', turn: { id: 'turn-att', status: 'completed' } } }));
+    return;
+  }
+  if (row.method === 'turn/interrupt') return send({ id: row.id, result: {} });
+});
+`);
+  chmodSync(fake, 0o700);
+  const host = createCodexHost({ command: fake });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+
+  const attachments = [
+    { id: 'a1', mediaType: 'text/plain', name: 'a.txt', path: join(directory, 'att', 'a1') },
+    { id: 'p1', mediaType: 'image/png', name: 'p.png', path: join(directory, 'att', 'p1') },
+  ];
+  const base = {
+    endpoint: { id: 'endpoint', key: 'key', session: null },
+    turnId: 'framework-turn',
+    workspace: directory,
+    prompt: '读取附件',
+    instructions: 'Use tools.',
+    tools: [],
+    attachments,
+    signal: new AbortController().signal,
+    onSession() {},
+    onAccepted() {},
+    onNativeTurn() {},
+    onModel() {},
+    onEvent() {},
+    onTool: async () => ({}),
+  };
+
+  // 私人会话(read-only + allowShell,带 access):PNG → localImage,TXT → 内部清单,顺序保留。
+  await host.run({ ...base, policy: { mode: 'read-only', allowShell: true, access: 'read-only', domain: 'project' } });
+  const recorded = JSON.parse(readFileSync(join(directory, 'turn-inputs.jsonl'), 'utf8').trim().split('\n').at(-1));
+  assert.equal(recorded[0].type, 'text');
+  assert.ok(recorded[0].text.startsWith('读取附件'));
+  assert.ok(recorded[0].text.includes('[attachment:a1] text/plain a.txt -> '));
+  assert.deepEqual(recorded[1], { type: 'localImage', path: attachments[1].path });
+
+  // communication 模式带附件:执行前明确拒绝,不进入宿主回合。
+  await assert.rejects(
+    host.run({ ...base, policy: { mode: 'communication', allowShell: false } }),
+    /不支持附件输入/,
+  );
 });

@@ -125,6 +125,43 @@ export interface ModelPolicyDefaults {
   user: string;
 }
 
+/** 附件上传设置:API 始终传字节/像素/个数,前端负责 MiB/MP 单位换算;从未保存时 updated 为 null。 */
+export interface AttachmentSettings {
+  maxFileBytes: number;
+  maxFilesPerMessage: number;
+  maxImagePixels: number;
+  updated: string | null;
+}
+
+/** 附件上传响应:只含展示元数据,不含本机路径或存储名。 */
+export interface UploadedAttachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  size: number;
+}
+
+/** 消息附件 DTO:服务端按文件现状给出 availability;不含路径或存储名。 */
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  size: number;
+  availability: 'available' | 'missing';
+}
+
+export interface PanelMessage {
+  seq: number;
+  id: string;
+  panel_agent_id: string;
+  context: 'private' | 'coordination';
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  active_team_id: string | null;
+  created: string;
+  attachments?: MessageAttachment[];
+}
+
 export interface SessionEndpoint {
   id: string;
   group_id: string;
