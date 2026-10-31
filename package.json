@@ -26,7 +26,7 @@
     "test:web": "vitest run --config web/vite.config.ts",
     "typecheck:backend": "tsc -p tsconfig.backend.json",
     "lint:backend": "eslint src test scripts",
-    "check": "node scripts/check.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend"
+    "check": "node scripts/check.mjs && node scripts/check-design.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend"
   },
   "dependencies": {
     "@lucide/vue": "^1.60.0",

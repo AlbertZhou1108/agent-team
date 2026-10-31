@@ -115,7 +115,7 @@ const truncatedContent = computed(() => {
       <button
         v-else-if="attachment.availability === 'available'"
         type="button"
-        class="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+        class="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
         :aria-label="`预览文本附件 ${attachment.name}`"
         :title="`${attachment.name}（${formatAttachmentSize(attachment.size)}，点击预览）`"
         @click="openText(attachment)"

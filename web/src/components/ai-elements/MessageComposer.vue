@@ -172,7 +172,7 @@ function keyboardResize(event: KeyboardEvent) {
     <button
       v-if="collapsedAttachmentCount"
       type="button"
-      class="mb-1 flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+      class="mb-1 flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
       aria-label="展开输入区管理附件"
       @click="expand"
     >

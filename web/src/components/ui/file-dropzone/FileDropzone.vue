@@ -68,7 +68,7 @@ function onChange(event: Event) {
     :class="
       cn(
         'flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border p-4 text-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-        dragging ? 'border-primary bg-accent/50' : 'hover:bg-accent/50',
+        dragging ? 'border-primary bg-(--state-pressed)' : 'hover:bg-(--state-hover)',
         props.disabled && 'pointer-events-none opacity-50',
         props.class,
       )

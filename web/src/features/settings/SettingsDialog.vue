@@ -941,7 +941,7 @@ watch(
                       class="flex w-36 shrink-0 flex-col gap-1.5 rounded-md border p-2 shadow-xs"
                       :class="preferences.themePack === pack.id
                         ? 'border-input bg-accent text-accent-foreground'
-                        : 'border-input bg-transparent hover:bg-accent/50'"
+                        : 'border-input bg-transparent hover:bg-(--state-hover)'"
                     >
                       <button
                         type="button"
@@ -984,7 +984,7 @@ watch(
                     </div>
                     <button
                       type="button"
-                      class="flex w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed p-2 text-muted-foreground transition-colors outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+                      class="flex w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed p-2 text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
                       @click="beginAddTheme"
                     >
                       <Upload class="size-4" />
@@ -1113,7 +1113,7 @@ watch(
                 <CollapsibleTrigger as-child>
                   <button
                     type="button"
-                    class="flex min-w-0 flex-1 appearance-none items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground transition-colors outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50"
+                    class="flex min-w-0 flex-1 appearance-none items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
                     style="border: 0"
                     :aria-expanded="presetsOpen"
                   >
@@ -1138,7 +1138,7 @@ watch(
                     class="flex items-center gap-2 rounded-md border p-2 shadow-xs"
                     :class="isPresetSelected(preset)
                       ? 'border-input bg-accent text-accent-foreground'
-                      : 'border-input bg-transparent hover:bg-accent/50'"
+                      : 'border-input bg-transparent hover:bg-(--state-hover)'"
                   >
                   <template v-if="renamingPreset?.id === preset.id">
                     <form class="flex min-w-0 flex-1 items-center gap-2" @submit.prevent="submitRenamePreset">

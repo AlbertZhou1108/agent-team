@@ -48,6 +48,9 @@
   --radius: 0.5rem;
   --background: oklch(1 0 0);
   --foreground: #111827;
+  /* 状态层(差量制):交互状态 = 默认 + 固定透明度的叠加层。 */
+  --state-hover: color-mix(in oklch, var(--accent) 50%, transparent);
+  --state-pressed: color-mix(in oklch, var(--accent) 70%, transparent);
   --card: oklch(1 0 0);
   --card-foreground: #111827;
   --popover: oklch(1 0 0);
@@ -80,6 +83,8 @@
   color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
+  --state-hover: color-mix(in oklch, var(--accent) 50%, transparent);
+  --state-pressed: color-mix(in oklch, var(--accent) 70%, transparent);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);

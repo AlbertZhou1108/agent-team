@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Archive, Ellipsis, PenLine, Pin, FolderMinus } from '@lucide/vue';
+import { TEAM_COLORS } from '@/shared/team-colors';
 import {
   DropdownMenu as DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -40,13 +41,7 @@ function shift(direction: number) {
   if (props.folder) org.reorderFolder(props.id, target, direction > 0);
   else org.reorderTeams([props.id], target, direction > 0, props.allIds ?? []);
 }
-const colors = [
-  { label: '红色', value: '#ef4444' },
-  { label: '橙色', value: '#f59e0b' },
-  { label: '绿色', value: '#22c55e' },
-  { label: '蓝色', value: '#3b82f6' },
-  { label: '紫色', value: '#a855f7' },
-];
+const colors = TEAM_COLORS;
 </script>
 <template>
   <DropdownMenuRoot>
