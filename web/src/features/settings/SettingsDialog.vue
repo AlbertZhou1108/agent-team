@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import HelpPopover from '@/components/panel/HelpPopover.vue';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
 import {
@@ -15,6 +15,7 @@ import {
   Sun,
   Trash2,
   Upload,
+  X,
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type {
@@ -52,6 +53,10 @@ import AttachmentSettings from './AttachmentSettings.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import {
+  applyDensity,
+  applyMaterial,
+  applyMotion,
+  applyTheme,
   isCodeSize,
   isDensity,
   isMaterialPreference,
@@ -59,6 +64,17 @@ import {
   isReadingSize,
   isReadingWidth,
 } from '@/theme/apply';
+import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
+import { resolveThemePack, resolveTokens } from '@/theme/resolve';
+import {
+  APPEARANCE_PRESET_MAX,
+  APPEARANCE_PRESET_NAME_MAX,
+  loadAppearancePresets,
+  newPresetId,
+  saveAppearancePresets,
+  type AppearancePreset,
+} from '@/theme/presets';
+import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
@@ -134,6 +150,125 @@ const codeSizeOptions: Array<{ value: 'standard' | 'large'; label: string }> = [
   { value: 'large', label: '大' },
 ];
 
+// ===== 外观统一编辑:改动先进草稿并即时预览;「应用外观」才写入偏好,「取消」恢复已保存状态 =====
+// 旧的"主题点击即保存"已迁移到此流程,避免一部分维度预览、一部分立即保存。
+const APPEARANCE_DEFAULTS = {
+  colorMode: 'system' as const,
+  themePack: CLASSIC_THEME_ID,
+  materialPreference: 'solid' as const,
+  motionPreference: 'system' as const,
+  density: 'standard' as const,
+};
+
+const appearanceDraft = reactive({
+  colorMode: preferences.colorMode,
+  themePack: preferences.themePack,
+  materialPreference: preferences.materialPreference,
+  motionPreference: preferences.motionPreference,
+  density: preferences.density,
+});
+const activeComboId = ref<string | null>(null);
+const appearancePresets = ref<AppearancePreset[]>(loadAppearancePresets());
+const presetName = ref('');
+const deletingCombo = ref<AppearancePreset | null>(null);
+
+// 主题色板跟随草稿明暗,预览阶段即换版。
+const themePreviewDark = computed(() => resolveDark(appearanceDraft.colorMode));
+
+function previewAppearance() {
+  const isDark = resolveDark(appearanceDraft.colorMode);
+  const pack = resolveThemePack(appearanceDraft.themePack, allThemePacks.value);
+  // 预设引用的主题缺失时按维度回落,并把最终选择如实显示在界面上。
+  appearanceDraft.themePack = pack.id;
+  applyTheme(resolveTokens(pack, isDark), isDark);
+  applyMaterial(appearanceDraft.materialPreference);
+  applyMotion(resolveMotionStyle(appearanceDraft.motionPreference, systemReducedMotion()));
+  applyDensity(appearanceDraft.density);
+}
+watch(appearanceDraft, previewAppearance, { deep: true });
+
+function savedAppearance() {
+  return {
+    colorMode: preferences.colorMode,
+    themePack: preferences.themePack,
+    materialPreference: preferences.materialPreference,
+    motionPreference: preferences.motionPreference,
+    density: preferences.density,
+  };
+}
+
+const appearanceDirty = computed(() => {
+  const saved = savedAppearance();
+  return (Object.keys(saved) as Array<keyof typeof saved>).some(
+    (key) => saved[key] !== appearanceDraft[key],
+  );
+});
+
+function syncAppearanceFromStore() {
+  Object.assign(appearanceDraft, savedAppearance());
+  activeComboId.value = null;
+}
+
+function commitAppearance() {
+  preferences.setColorMode(appearanceDraft.colorMode);
+  const pack = allThemePacks.value.find((item) => item.id === appearanceDraft.themePack);
+  preferences.setThemePack(
+    appearanceDraft.themePack,
+    pack ? { light: pack.light, dark: pack.dark } : null,
+  );
+  preferences.setMaterialPreference(appearanceDraft.materialPreference);
+  preferences.setMotionPreference(appearanceDraft.motionPreference);
+  preferences.setDensity(appearanceDraft.density);
+}
+
+function cancelAppearance() {
+  syncAppearanceFromStore();
+  previewAppearance();
+}
+
+function restoreAppearanceDefaults() {
+  Object.assign(appearanceDraft, APPEARANCE_DEFAULTS);
+  activeComboId.value = null;
+}
+
+function savePreset() {
+  const name = presetName.value.trim();
+  if (!name) return;
+  const preset: AppearancePreset = {
+    id: newPresetId(),
+    name: name.slice(0, APPEARANCE_PRESET_NAME_MAX),
+    colorMode: appearanceDraft.colorMode,
+    themePack: appearanceDraft.themePack,
+    materialPreference: appearanceDraft.materialPreference,
+    motionPreference: appearanceDraft.motionPreference,
+    density: appearanceDraft.density,
+  };
+  appearancePresets.value = [...appearancePresets.value, preset].slice(-APPEARANCE_PRESET_MAX);
+  saveAppearancePresets(appearancePresets.value);
+  presetName.value = '';
+  activeComboId.value = preset.id;
+}
+
+function applyPreset(preset: AppearancePreset) {
+  Object.assign(appearanceDraft, {
+    colorMode: preset.colorMode,
+    themePack: preset.themePack,
+    materialPreference: preset.materialPreference,
+    motionPreference: preset.motionPreference,
+    density: preset.density,
+  });
+  activeComboId.value = preset.id;
+}
+
+function confirmDeleteCombo() {
+  const preset = deletingCombo.value;
+  if (!preset) return;
+  appearancePresets.value = appearancePresets.value.filter((item) => item.id !== preset.id);
+  saveAppearancePresets(appearancePresets.value);
+  if (activeComboId.value === preset.id) activeComboId.value = null;
+  deletingCombo.value = null;
+}
+
 // ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
 const themePacksQuery = useQuery({
   queryKey: queryKeys.themePacks,
@@ -144,11 +279,9 @@ const allThemePacks = computed(() => [...BUILTIN_THEME_PACKS, ...userThemePacks.
 const themeOpen = ref(true);
 const isBuiltinTheme = (pack: ThemePack) =>
   BUILTIN_THEME_PACKS.some((item) => item.id === pack.id);
-// 色板预览跟随当前明暗模式:只依赖 colorMode,切换显示模式即换版。
-const themePreviewDark = computed(() => resolveDark(preferences.colorMode));
-// 选中即生效并缓存快照(刷新首帧用),无需保存按钮。
+// 色板预览跟随草稿明暗模式;选择进入草稿,「应用外观」后才写入偏好。
 function selectTheme(pack: ThemePack) {
-  preferences.setThemePack(pack.id, { light: pack.light, dark: pack.dark });
+  appearanceDraft.themePack = pack.id;
 }
 function themeSwatches(pack: ThemePack) {
   const tokens = themePreviewDark.value ? pack.dark : pack.light;
@@ -312,6 +445,9 @@ function reset() {
   };
   rememberModeDraft();
   error.value = '';
+  // 外观草稿回到已保存状态,预览与偏好保持一致。
+  syncAppearanceFromStore();
+  previewAppearance();
 }
 
 function selectMode(next: ModelPolicy['mode']) {
@@ -330,25 +466,25 @@ function selectPolicyMode(value: unknown) {
 
 function selectColorMode(value: unknown) {
   if (value === 'dark' || value === 'light' || value === 'system') {
-    preferences.setColorMode(value);
+    appearanceDraft.colorMode = value;
   }
 }
 
 function selectMotionPreference(value: unknown) {
   if (isMotionPreference(value)) {
-    preferences.setMotionPreference(value);
+    appearanceDraft.motionPreference = value;
   }
 }
 
 function selectMaterialPreference(value: unknown) {
   if (isMaterialPreference(value)) {
-    preferences.setMaterialPreference(value);
+    appearanceDraft.materialPreference = value;
   }
 }
 
 function selectDensity(value: unknown) {
   if (isDensity(value)) {
-    preferences.setDensity(value);
+    appearanceDraft.density = value;
   }
 }
 
@@ -565,7 +701,12 @@ watch(
     props.defaults,
   ],
   () => {
-    if (props.open || props.embedded) reset();
+    if (props.open || props.embedded) {
+      reset();
+    } else {
+      // 关闭设置且未应用的预览不留存:恢复已保存外观。
+      cancelAppearance();
+    }
   },
   { immediate: true },
 );
@@ -607,15 +748,70 @@ watch(
           </div>
         </CardHeader>
 
-        <CardContent class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-6">
+          <CardContent class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-6">
           <HostStatuses :active="open || Boolean(embedded)" />
+          <section class="flex flex-col gap-3">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-semibold">组合预设</h3>
+                  <span
+                    v-if="appearanceDirty"
+                    class="rounded-full border px-2 py-0.5 text-2xs text-muted-foreground"
+                  >自定义组合</span>
+                </div>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  保存明暗、主题、材质、动效与密度的组合；更改先预览，应用后生效，阅读设置独立。
+                </p>
+              </div>
+              <div class="flex flex-none items-center gap-2">
+                <Button variant="ghost" size="sm" :disabled="!appearanceDirty" @click="cancelAppearance">取消</Button>
+                <Button variant="outline" size="sm" @click="restoreAppearanceDefaults">恢复默认</Button>
+                <Button size="sm" :disabled="!appearanceDirty" @click="commitAppearance">应用外观</Button>
+              </div>
+            </div>
+            <div v-if="appearancePresets.length" class="flex flex-wrap gap-2">
+              <div
+                v-for="preset in appearancePresets"
+                :key="preset.id"
+                class="flex items-center gap-0"
+              >
+                <Button
+                  :variant="activeComboId === preset.id ? 'secondary' : 'outline'"
+                  size="sm"
+                  class="rounded-r-none"
+                  @click="applyPreset(preset)"
+                >{{ preset.name }}</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="rounded-l-none border-l-0 px-1.5"
+                  :aria-label="`删除预设 ${preset.name}`"
+                  @click="deletingCombo = preset"
+                ><X class="size-3.5" /></Button>
+              </div>
+            </div>
+            <p v-else class="text-xs text-muted-foreground">
+              还没有预设：调整下方各维度后，在这里保存为命名组合，之后一键应用。
+            </p>
+            <div class="flex items-center gap-2">
+              <Input
+                v-model="presetName"
+                placeholder="预设名称"
+                class="h-8 max-w-48"
+                :maxlength="APPEARANCE_PRESET_NAME_MAX"
+              />
+              <Button variant="outline" size="sm" :disabled="!presetName.trim()" @click="savePreset">保存当前组合</Button>
+            </div>
+          </section>
+
           <section class="flex flex-col gap-3">
             <div>
               <h3 class="text-sm font-semibold">显示模式</h3>
             </div>
             <ToggleGroup
               type="single"
-              :model-value="preferences.colorMode"
+              :model-value="appearanceDraft.colorMode"
               :spacing="2"
               class="display-mode-group grid w-full grid-cols-3"
               @update:model-value="selectColorMode"
@@ -642,7 +838,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="preferences.motionPreference"
+              :model-value="appearanceDraft.motionPreference"
               :spacing="2"
               class="grid w-full grid-cols-5"
               @update:model-value="selectMotionPreference"
@@ -668,7 +864,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="preferences.materialPreference"
+              :model-value="appearanceDraft.materialPreference"
               :spacing="2"
               class="grid w-full grid-cols-2"
               @update:model-value="selectMaterialPreference"
@@ -692,7 +888,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="preferences.density"
+              :model-value="appearanceDraft.density"
               :spacing="2"
               class="grid w-full grid-cols-3"
               @update:model-value="selectDensity"
@@ -755,7 +951,7 @@ watch(
                 <div>
                   <h3 class="text-sm font-semibold">主题</h3>
                   <p class="mt-1 text-xs text-muted-foreground">
-                    点击卡片即切换，与深色模式组合生效；自定义主题删除后可重新上传。
+                    点击卡片进入预览，与深色模式组合生效；「应用外观」后保存，自定义主题删除后可重新上传。
                   </p>
                 </div>
                 <CollapsibleTrigger as-child>
@@ -792,7 +988,7 @@ watch(
                       <button
                         type="button"
                         class="flex appearance-none text-left"
-                        :aria-pressed="preferences.themePack === pack.id"
+                        :aria-pressed="appearanceDraft.themePack === pack.id"
                         :title="`使用「${pack.name}」`"
                         @click="selectTheme(pack)"
                       >
@@ -1219,6 +1415,15 @@ watch(
       destructive
       @confirm="confirmDeletePreset"
       @cancel="deletingPreset = null"
+    />
+    <ConfirmDialog
+      :open="deletingCombo !== null"
+      :title="`删除预设「${deletingCombo?.name ?? ''}」？`"
+      description="删除后不可恢复；外观当前状态不受影响。"
+      confirm-text="删除"
+      destructive
+      @confirm="confirmDeleteCombo"
+      @cancel="deletingCombo = null"
     />
     <ConfirmDialog
       :open="deletingTheme !== null"
