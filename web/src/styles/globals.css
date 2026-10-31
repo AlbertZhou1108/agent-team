@@ -399,6 +399,7 @@
   gap: 11px;
   padding: var(--density-header-pad, 11px 16px);
   background-color: var(--surface-action-bg, transparent);
+  background-image: var(--surface-action-image, none);
   backdrop-filter: var(--surface-action-blur, none);
   -webkit-backdrop-filter: var(--surface-action-blur, none);
 }
@@ -407,6 +408,7 @@
   position: relative;
   padding: var(--density-composer-pad, 10px 14px 12px);
   background-color: var(--surface-action-bg, transparent);
+  background-image: var(--surface-action-image, none);
   backdrop-filter: var(--surface-action-blur, none);
   -webkit-backdrop-filter: var(--surface-action-blur, none);
 }

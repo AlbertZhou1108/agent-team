@@ -59,11 +59,13 @@ export function applyMaterial(preference: MaterialPreference): void {
   // 先清空上一大类的表面变量再写入,切换无残留。
   for (const role of SURFACE_ROLES) {
     root.style.removeProperty(`--surface-${role}-bg`);
+    root.style.removeProperty(`--surface-${role}-image`);
     root.style.removeProperty(`--surface-${role}-blur`);
   }
   root.dataset.material = effective.id;
   for (const [role, finish] of Object.entries(effective.roles)) {
     if (finish.bg) root.style.setProperty(`--surface-${role}-bg`, finish.bg);
+    if (finish.image) root.style.setProperty(`--surface-${role}-image`, finish.image);
     if (finish.blur) root.style.setProperty(`--surface-${role}-blur`, finish.blur);
   }
 }

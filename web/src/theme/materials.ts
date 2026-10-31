@@ -17,9 +17,10 @@ export const SURFACE_ROLES = [
 
 export type SurfaceRole = (typeof SURFACE_ROLES)[number];
 
-/** 单个角色的表面渲染:背景 + 可选的模糊/饱和处理(缺省 = 主题基线,实色)。 */
+/** 单个角色的表面渲染:背景(可含工艺渐变)+ 可选的模糊/饱和/高光通道(缺省 = 主题基线,实色)。 */
 export interface SurfaceFinish {
   bg?: string;
+  image?: string;
   blur?: string;
 }
 
@@ -32,10 +33,14 @@ export interface MaterialCategory {
 /** 默认实色:所有角色走主题基线,不写任何表面变量。 */
 const SOLID: MaterialCategory = { id: 'solid', label: '默认实色', roles: {} };
 
-/** 磨砂玻璃:容器/导航磨砂工艺,会话操作区更通透(液态倾向)。 */
+/**
+ * 玻璃:容器/导航用磨砂工艺(安静退后),会话操作区用液态工艺
+ * (更透、更清、顶部高光 —— 职能需要强"可按/可输入"暗示)。
+ * 运动签名(注释,待动效契约消费):高光沿表面缓慢流动,回弹低阻尼。
+ */
 const GLASS: MaterialCategory = {
   id: 'glass',
-  label: '磨砂玻璃',
+  label: '玻璃',
   roles: {
     'nav-panel': {
       bg: 'color-mix(in oklch, var(--card) 74%, transparent)',
@@ -46,8 +51,10 @@ const GLASS: MaterialCategory = {
       blur: 'blur(18px) saturate(1.08)',
     },
     action: {
-      bg: 'color-mix(in oklch, var(--background) 66%, transparent)',
-      blur: 'blur(14px)',
+      bg: 'color-mix(in oklch, var(--background) 55%, transparent)',
+      image:
+        'linear-gradient(180deg, color-mix(in oklch, var(--foreground) 7%, transparent), transparent 46%)',
+      blur: 'blur(8px) saturate(1.25)',
     },
   },
 };
