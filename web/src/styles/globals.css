@@ -365,6 +365,12 @@
   min-height: 0;
 }
 
+.agent-workspace-side-collapsed {
+  grid-template-columns: minmax(0, 1fr) 60px;
+}
+
+
+
 .conversation-workspace {
   display: flex;
   min-width: 0;
@@ -439,7 +445,8 @@
 
 @media (max-width: 980px) {
   .agent-create-layout,
-  .agent-workspace {
+  .agent-workspace,
+  .agent-workspace-side-collapsed {
     grid-template-columns: 1fr;
   }
 
@@ -1152,23 +1159,7 @@ button {
   .workspace-shell.context-is-collapsed {
     grid-template-columns: minmax(0, 1fr) 60px;
   }
-  .context-panel-collapsed {
-    align-items: center;
-  }
-  .context-panel-collapsed .context-tabs {
-    flex-direction: column;
-    gap: 8px;
-  }
-  .context-panel-collapsed .context-tab {
-    flex: none;
-  }
-  .context-panel-collapsed .context-collapse-footer {
-    margin-top: auto;
-    padding-inline: 8px;
-  }
-  .context-panel-collapsed .sidebar-collapse-button {
-    justify-content: center;
-  }
+
 }
 
 .notification-stack {
@@ -1242,26 +1233,19 @@ button {
   position: relative;
 }
 
+.team-navigation > * {
+  flex-shrink: 0;
+}
+
 .team-folder {
-  margin: 6px 0;
-  /* 分区独立滚动:内容自适应高度,超过份额上限后子列表内部滚动,互不影响;
-     不用均分拉伸,避免内容少的分区被撑出大片空白。 */
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
-  max-height: 60%;
-  min-height: 0;
-}
-.team-folder-collapsed {
-  flex: 0 0 auto;
-  max-height: none;
-  min-height: 0;
+  margin: 6px 0;
 }
 .team-folder-children {
-  margin-left: 10px;
-  padding-left: 5px;
-  min-height: 0;
-  overflow-y: auto;
+  margin: 2px 0 6px 26px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 .team-section-label {
   padding: 8px 6px;
@@ -1269,19 +1253,6 @@ button {
 .team-root-drop {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
-  max-height: 60%;
-  min-height: 0;
-}
-.team-root-children {
-  min-height: 0;
-  overflow-y: auto;
-}
-.team-pinned-scroll {
-  flex: 0 1 auto;
-  max-height: 30%;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .team-root-separator {

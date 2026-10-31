@@ -19,7 +19,7 @@ import {
   MessagesSquare,
   PanelRightOpen,
 } from '@lucide/vue';
-import SidebarCollapseButton from '@/app/layouts/SidebarCollapseButton.vue';
+import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
@@ -939,9 +939,15 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           @lostpointercapture="endResize"
           @keydown="keyboardResize($event, 'right')"
         />
-        <Card
+        <CollapsibleRightSidebar
+          v-model:collapsed="ui.contextCollapsed"
+          :collapsed-actions="contextTabs"
+          :active-action="contextPanel"
+          desktop-only-toggle
+          @update:collapsed="ui.persist()"
+          @action="setContextPanel"
           :class="[
-            'context-panel pb-0',
+            'context-panel',
             ui.inspectorOpen && 'context-panel-open',
             ui.contextCollapsed && 'context-panel-collapsed',
           ]"
@@ -972,18 +978,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 ><component :is="item.icon" />{{ item.label }}</TabsTrigger
               >
             </TabsList>
-            <div v-else class="context-tabs">
-              <Button
-                v-for="item in contextTabs"
-                :key="item.value"
-                :variant="contextPanel === item.value ? 'secondary' : 'ghost'"
-                size="icon"
-                :aria-label="item.label"
-                :title="item.label"
-                @click="setContextPanel(item.value)"
-                ><component :is="item.icon"
-              /></Button>
-            </div>
             <TabsContent
               v-if="contextVisible"
               :value="contextPanel"
@@ -1050,10 +1044,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
               />
             </TabsContent>
           </Tabs>
-          <div class="context-collapse-footer hidden w-full shrink-0 px-3 pb-px xl:block">
-            <SidebarCollapseButton side="right" :collapsed="ui.contextCollapsed" @toggle="ui.toggleContext()" />
-          </div>
-        </Card>
+        </CollapsibleRightSidebar>
       </div>
     </main>
     <ConfirmDialog

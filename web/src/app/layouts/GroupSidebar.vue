@@ -11,6 +11,7 @@ import { useTeamOrganization } from '@/stores/team-organization';
 import {
   Bot,
   Folder,
+  FolderOpen,
   FolderPlus,
   ChevronDown,
   ChevronRight,
@@ -378,7 +379,7 @@ function submitRenameFolder() {
     </form>
     <nav
       v-if="!ui.sidebarCollapsed"
-      class="team-navigation mt-2 min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
       aria-label="团队列表"
       @dragover.prevent
       @drop="drop($event)"
@@ -389,7 +390,7 @@ function submitRenameFolder() {
         置顶
         <template #indicator><component :is="org.sections.pinned ? ChevronRight : ChevronDown" /></template>
       </SidebarEntry>
-      <div v-if="!org.sections.pinned && pinned.length" class="team-pinned-scroll">
+      <div v-if="!org.sections.pinned && pinned.length" class="team-pinned-children">
       <TeamRow :all-ids="groups.map(group => group.id)"
         v-for="group in pinned"
         :key="group.id"
@@ -425,7 +426,7 @@ function submitRenameFolder() {
         >
           <SidebarEntry :title="folder.name" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
             {{ folder.name }}
-            <template #icon><Folder /></template>
+            <template #icon><component :is="folder.collapsed ? Folder : FolderOpen" /></template>
             <template #indicator><component :is="folder.collapsed ? ChevronRight : ChevronDown" /></template>
             <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder @rename="beginRenameFolder(folder.id, folder.name)" /></template>
           </SidebarEntry>

@@ -20,6 +20,7 @@ import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
 import { frameBatch } from '@/features/messages/frame-batch';
 import { usePanelAgentStore } from '@/stores/panel-agent';
+import { useUiStore } from '@/stores/ui';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
@@ -29,6 +30,7 @@ import type { AvailableHost, PanelAgentForm } from './types';
 const router = useRouter();
 const route = useRoute();
 const panelState = usePanelAgentStore();
+const ui = useUiStore();
 const panelQuery = usePanelAgentQuery();
 const interactionsQuery = usePanelInteractionsQuery();
 const panel = computed(() => panelQuery.data.value ?? null);
@@ -566,7 +568,7 @@ watch(
         @retry="loadCatalog(true)"
       />
 
-      <div v-else class="agent-workspace">
+      <div v-else class="agent-workspace" :class="{ 'agent-workspace-side-collapsed': ui.contextCollapsed }">
         <PanelAgentChat
           v-model:draft="draft"
           v-model:active-team-id="activeTeamId"
