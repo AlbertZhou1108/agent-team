@@ -162,9 +162,9 @@ const principles = [
               </FieldError>
             </Field>
 
-            <p v-if="actionError" class="error-banner" role="alert">
-              {{ actionError }}
-            </p>
+            <Alert v-if="actionError" variant="destructive" class="error-banner" role="alert">
+              <AlertDescription>{{ actionError }}</AlertDescription>
+            </Alert>
             <div class="flex flex-wrap gap-2">
               <Button type="submit" :disabled="!canSave">
                 <LoaderCircle

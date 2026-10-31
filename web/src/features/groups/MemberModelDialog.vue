@@ -101,10 +101,8 @@ watch(
 
 async function submit(reset: boolean) {
   if (!props.member || busy.value) return;
-  if (!reset && !form.model) {
-    toast.error('请先选择模型');
-    return;
-  }
+  // 未选模型时按钮已禁用并带原因提示,这里只做兜底拦截,不再弹 toast。
+  if (!reset && !form.model) return;
   busy.value = true;
   try {
     const member = await api.updateMemberModel(props.member.group_id, props.member.id, reset
@@ -139,7 +137,11 @@ async function submit(reset: boolean) {
       </div>
       <DialogFooter class="flex-row justify-between gap-2 sm:justify-between">
         <Button variant="outline" :disabled="busy || loading" @click="submit(true)">恢复宿主默认</Button>
-        <Button :disabled="busy || loading || !form.model" @click="submit(false)">保存调整</Button>
+        <Button
+          :disabled="busy || loading || !form.model"
+          :title="!form.model ? '请先选择模型' : undefined"
+          @click="submit(false)"
+        >保存调整</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
