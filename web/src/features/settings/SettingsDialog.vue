@@ -155,8 +155,8 @@ const codeSizeOptions: Array<{ value: 'standard' | 'large'; label: string }> = [
   { value: 'large', label: '大' },
 ];
 
-// ===== 外观统一编辑:改动(含阅读设置)先进草稿并即时预览;「应用外观」才写入偏好,「取消」恢复已保存状态 =====
-// 旧的"主题点击即保存"已迁移到此流程;阅读不参与组合预设与恢复默认,但同样要应用后才生效。
+// ===== 外观设置:所有选项点击即写入偏好并立即生效(2026-10-31 用户决策,取消预览+应用确认) =====
+// 阅读不参与组合预设与恢复默认;组合预设覆盖明暗/主题/材质/动效/密度五维。
 const APPEARANCE_DEFAULTS = {
   colorMode: 'system' as const,
   themePack: CLASSIC_THEME_ID,
@@ -165,90 +165,36 @@ const APPEARANCE_DEFAULTS = {
   density: 'standard' as const,
 };
 
-const appearanceDraft = reactive({
-  colorMode: preferences.colorMode,
-  themePack: preferences.themePack,
-  materialPreference: preferences.materialPreference,
-  motionPreference: preferences.motionPreference,
-  density: preferences.density,
-  readingSize: preferences.readingSize,
-  readingLeading: preferences.readingLeading,
-  readingWidth: preferences.readingWidth,
-  codeSize: preferences.codeSize,
-});
-const activeComboId = ref<string | null>(null);
 const appearancePresets = ref<AppearancePreset[]>(loadAppearancePresets());
 const presetName = ref('');
 const deletingCombo = ref<AppearancePreset | null>(null);
 
-// 主题色板跟随草稿明暗,预览阶段即换版。
-const themePreviewDark = computed(() => resolveDark(appearanceDraft.colorMode));
-
-function previewAppearance() {
-  const isDark = resolveDark(appearanceDraft.colorMode);
-  const pack = resolveThemePack(appearanceDraft.themePack, allThemePacks.value);
-  // 预设引用的主题缺失时按维度回落,并把最终选择如实显示在界面上。
-  appearanceDraft.themePack = pack.id;
-  applyTheme(resolveTokens(pack, isDark), isDark);
-  applyMaterial(appearanceDraft.materialPreference);
-  applyMotion(resolveMotionStyle(appearanceDraft.motionPreference, systemReducedMotion()));
-  applyDensity(appearanceDraft.density);
-  applyReading(appearanceDraft);
-}
-watch(appearanceDraft, previewAppearance, { deep: true });
-
-function savedAppearance() {
-  return {
-    colorMode: preferences.colorMode,
-    themePack: preferences.themePack,
-    materialPreference: preferences.materialPreference,
-    motionPreference: preferences.motionPreference,
-    density: preferences.density,
-    readingSize: preferences.readingSize,
-    readingLeading: preferences.readingLeading,
-    readingWidth: preferences.readingWidth,
-    codeSize: preferences.codeSize,
-  };
-}
-
-const appearanceDirty = computed(() => {
-  const saved = savedAppearance();
-  return (Object.keys(saved) as Array<keyof typeof saved>).some(
-    (key) => saved[key] !== appearanceDraft[key],
+// 当前五维与某个预设完全一致时高亮该预设;手动逐项调整后如实反映匹配结果。
+const activeComboId = computed(() => {
+  const match = appearancePresets.value.find(
+    (preset) =>
+      preset.colorMode === preferences.colorMode &&
+      preset.themePack === preferences.themePack &&
+      preset.materialPreference === preferences.materialPreference &&
+      preset.motionPreference === preferences.motionPreference &&
+      preset.density === preferences.density,
   );
+  return match ? match.id : null;
 });
 
-function syncAppearanceFromStore() {
-  Object.assign(appearanceDraft, savedAppearance());
-  activeComboId.value = null;
-}
-
-function commitAppearance() {
-  preferences.setColorMode(appearanceDraft.colorMode);
-  const pack = allThemePacks.value.find((item) => item.id === appearanceDraft.themePack);
-  preferences.setThemePack(
-    appearanceDraft.themePack,
-    pack ? { light: pack.light, dark: pack.dark } : null,
-  );
-  preferences.setMaterialPreference(appearanceDraft.materialPreference);
-  preferences.setMotionPreference(appearanceDraft.motionPreference);
-  preferences.setDensity(appearanceDraft.density);
-  preferences.setReading({
-    readingSize: appearanceDraft.readingSize,
-    readingLeading: appearanceDraft.readingLeading,
-    readingWidth: appearanceDraft.readingWidth,
-    codeSize: appearanceDraft.codeSize,
-  });
-}
-
-function cancelAppearance() {
-  syncAppearanceFromStore();
-  previewAppearance();
-}
+// 主题色板跟随当前明暗模式。
+const themePreviewDark = computed(() => resolveDark(preferences.colorMode));
 
 function restoreAppearanceDefaults() {
-  Object.assign(appearanceDraft, APPEARANCE_DEFAULTS);
-  activeComboId.value = null;
+  preferences.setColorMode(APPEARANCE_DEFAULTS.colorMode);
+  const classic = allThemePacks.value.find((item) => item.id === CLASSIC_THEME_ID);
+  preferences.setThemePack(
+    CLASSIC_THEME_ID,
+    classic ? { light: classic.light, dark: classic.dark } : null,
+  );
+  preferences.setMaterialPreference(APPEARANCE_DEFAULTS.materialPreference);
+  preferences.setMotionPreference(APPEARANCE_DEFAULTS.motionPreference);
+  preferences.setDensity(APPEARANCE_DEFAULTS.density);
 }
 
 function savePreset() {
@@ -257,27 +203,25 @@ function savePreset() {
   const preset: AppearancePreset = {
     id: newPresetId(),
     name: name.slice(0, APPEARANCE_PRESET_NAME_MAX),
-    colorMode: appearanceDraft.colorMode,
-    themePack: appearanceDraft.themePack,
-    materialPreference: appearanceDraft.materialPreference,
-    motionPreference: appearanceDraft.motionPreference,
-    density: appearanceDraft.density,
+    colorMode: preferences.colorMode,
+    themePack: preferences.themePack,
+    materialPreference: preferences.materialPreference,
+    motionPreference: preferences.motionPreference,
+    density: preferences.density,
   };
   appearancePresets.value = [...appearancePresets.value, preset].slice(-APPEARANCE_PRESET_MAX);
   saveAppearancePresets(appearancePresets.value);
   presetName.value = '';
-  activeComboId.value = preset.id;
 }
 
 function applyPreset(preset: AppearancePreset) {
-  Object.assign(appearanceDraft, {
-    colorMode: preset.colorMode,
-    themePack: preset.themePack,
-    materialPreference: preset.materialPreference,
-    motionPreference: preset.motionPreference,
-    density: preset.density,
-  });
-  activeComboId.value = preset.id;
+  // 预设引用的主题缺失时按维度回落到内置主题,并把最终选择如实保存与显示。
+  const pack = resolveThemePack(preset.themePack, allThemePacks.value);
+  preferences.setColorMode(preset.colorMode);
+  preferences.setThemePack(pack.id, { light: pack.light, dark: pack.dark });
+  preferences.setMaterialPreference(preset.materialPreference);
+  preferences.setMotionPreference(preset.motionPreference);
+  preferences.setDensity(preset.density);
 }
 
 function confirmDeleteCombo() {
@@ -285,7 +229,6 @@ function confirmDeleteCombo() {
   if (!preset) return;
   appearancePresets.value = appearancePresets.value.filter((item) => item.id !== preset.id);
   saveAppearancePresets(appearancePresets.value);
-  if (activeComboId.value === preset.id) activeComboId.value = null;
   deletingCombo.value = null;
 }
 
@@ -299,9 +242,9 @@ const allThemePacks = computed(() => [...BUILTIN_THEME_PACKS, ...userThemePacks.
 const themeOpen = ref(true);
 const isBuiltinTheme = (pack: ThemePack) =>
   BUILTIN_THEME_PACKS.some((item) => item.id === pack.id);
-// 色板预览跟随草稿明暗模式;选择进入草稿,「应用外观」后才写入偏好。
+// 色板预览跟随当前明暗模式;点击即切换并缓存快照(刷新首帧用)。
 function selectTheme(pack: ThemePack) {
-  appearanceDraft.themePack = pack.id;
+  preferences.setThemePack(pack.id, { light: pack.light, dark: pack.dark });
 }
 function themeSwatches(pack: ThemePack) {
   const tokens = themePreviewDark.value ? pack.dark : pack.light;
@@ -465,9 +408,6 @@ function reset() {
   };
   rememberModeDraft();
   error.value = '';
-  // 外观草稿回到已保存状态,预览与偏好保持一致。
-  syncAppearanceFromStore();
-  previewAppearance();
 }
 
 function selectMode(next: ModelPolicy['mode']) {
@@ -486,49 +426,49 @@ function selectPolicyMode(value: unknown) {
 
 function selectColorMode(value: unknown) {
   if (value === 'dark' || value === 'light' || value === 'system') {
-    appearanceDraft.colorMode = value;
+    preferences.setColorMode(value);
   }
 }
 
 function selectMotionPreference(value: unknown) {
   if (isMotionPreference(value)) {
-    appearanceDraft.motionPreference = value;
+    preferences.setMotionPreference(value);
   }
 }
 
 function selectMaterialPreference(value: unknown) {
   if (isMaterialPreference(value)) {
-    appearanceDraft.materialPreference = value;
+    preferences.setMaterialPreference(value);
   }
 }
 
 function selectDensity(value: unknown) {
   if (isDensity(value)) {
-    appearanceDraft.density = value;
+    preferences.setDensity(value);
   }
 }
 
 function selectReadingSize(value: unknown) {
   if (isReadingSize(value)) {
-    appearanceDraft.readingSize = value;
+    preferences.setReading({ readingSize: value });
   }
 }
 
 function selectReadingLeading(value: unknown) {
   if (isReadingLeading(value)) {
-    appearanceDraft.readingLeading = value;
+    preferences.setReading({ readingLeading: value });
   }
 }
 
 function selectReadingWidth(value: unknown) {
   if (isReadingWidth(value)) {
-    appearanceDraft.readingWidth = value;
+    preferences.setReading({ readingWidth: value });
   }
 }
 
 function selectCodeSize(value: unknown) {
   if (isCodeSize(value)) {
-    appearanceDraft.codeSize = value;
+    preferences.setReading({ codeSize: value });
   }
 }
 
@@ -721,12 +661,7 @@ watch(
     props.defaults,
   ],
   () => {
-    if (props.open || props.embedded) {
-      reset();
-    } else {
-      // 关闭设置且未应用的预览不留存:恢复已保存外观。
-      cancelAppearance();
-    }
+    if (props.open || props.embedded) reset();
   },
   { immediate: true },
 );
@@ -783,19 +718,13 @@ watch(
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <h3 class="text-sm font-semibold">组合预设</h3>
-                  <span
-                    v-if="appearanceDirty"
-                    class="rounded-full border px-2 py-0.5 text-2xs text-muted-foreground"
-                  >自定义组合</span>
                 </div>
                 <p class="mt-1 text-xs text-muted-foreground">
-                  保存明暗、主题、材质、动效与密度的组合（不含阅读）；更改先预览，点「应用外观」后生效。
+                  保存明暗、主题、材质、动效与密度的组合（不含阅读）；所有外观选项点击即生效。
                 </p>
               </div>
               <div class="flex flex-none items-center gap-2">
-                <Button variant="ghost" size="sm" :disabled="!appearanceDirty" @click="cancelAppearance">取消</Button>
                 <Button variant="outline" size="sm" @click="restoreAppearanceDefaults">恢复默认</Button>
-                <Button size="sm" :disabled="!appearanceDirty" @click="commitAppearance">应用外观</Button>
               </div>
             </div>
             <div v-if="appearancePresets.length" class="flex flex-wrap gap-2">
@@ -839,7 +768,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="appearanceDraft.colorMode"
+              :model-value="preferences.colorMode"
               :spacing="2"
               class="display-mode-group grid w-full grid-cols-3"
               @update:model-value="selectColorMode"
@@ -866,7 +795,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="appearanceDraft.motionPreference"
+              :model-value="preferences.motionPreference"
               :spacing="2"
               class="grid w-full grid-cols-5"
               @update:model-value="selectMotionPreference"
@@ -892,7 +821,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="appearanceDraft.materialPreference"
+              :model-value="preferences.materialPreference"
               :spacing="2"
               class="grid w-full grid-cols-2"
               @update:model-value="selectMaterialPreference"
@@ -916,7 +845,7 @@ watch(
             </div>
             <ToggleGroup
               type="single"
-              :model-value="appearanceDraft.density"
+              :model-value="preferences.density"
               :spacing="2"
               class="grid w-full grid-cols-3"
               @update:model-value="selectDensity"
@@ -937,7 +866,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">阅读</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                只作用于会话正文与 Markdown 内容；不参与组合预设，与其它外观一样应用后生效。
+                只作用于会话正文与 Markdown 内容；点击即生效，不参与组合预设。
               </p>
             </div>
             <div class="grid w-full gap-4 sm:grid-cols-2">
@@ -979,7 +908,7 @@ watch(
                 <div>
                   <h3 class="text-sm font-semibold">主题</h3>
                   <p class="mt-1 text-xs text-muted-foreground">
-                    点击卡片进入预览，与深色模式组合生效；「应用外观」后保存，自定义主题删除后可重新上传。
+                    点击卡片即切换，与深色模式组合生效；自定义主题删除后可重新上传。
                   </p>
                 </div>
                 <CollapsibleTrigger as-child>
@@ -1016,7 +945,7 @@ watch(
                       <button
                         type="button"
                         class="flex appearance-none text-left"
-                        :aria-pressed="appearanceDraft.themePack === pack.id"
+                        :aria-pressed="preferences.themePack === pack.id"
                         :title="`使用「${pack.name}」`"
                         @click="selectTheme(pack)"
                       >
