@@ -95,11 +95,14 @@ test('Panel access configuration is validated before persistence', async t => {
   // 与 macOS/Windows 的期望路径不同;回退分支由 default-workspace.test.mjs 单独覆盖。
   const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
   mkdirSync(join(fakeHome, 'Documents'));
-  const previousHome = process.env.HOME;
+  // os.homedir() 在 Windows 读 USERPROFILE、其余平台读 HOME,两者都要替换。
+  const previousHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   t.after(() => {
-    process.env.HOME = previousHome;
-    rmSync(fakeHome, { recursive: true, force: true });
+    process.env.HOME = previousHome.HOME;
+    process.env.USERPROFILE = previousHome.USERPROFILE;
+    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const { bus, workspace } = await fixture(t);
   await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'invalid' }), /访问级别无效/);
@@ -343,19 +346,21 @@ test('panel agent creation falls back to the per-OS default workspace', async t 
   // 补建 Documents 以在三个平台走同一主分支;Linux 的 XDG 回退见 default-workspace.test.mjs。
   const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
   mkdirSync(join(fakeHome, 'Documents'));
-  const previousHome = process.env.HOME;
+  // os.homedir() 在 Windows 读 USERPROFILE、其余平台读 HOME,两者都要替换。
+  const previousHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   t.after(() => {
-    process.env.HOME = previousHome;
-    rmSync(fakeHome, { recursive: true, force: true });
+    process.env.HOME = previousHome.HOME;
+    process.env.USERPROFILE = previousHome.USERPROFILE;
+    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   const { bus } = await fixture(t);
   // 未提供 workspace:创建时自动使用默认目录并确保存在。
   const state = await bus.createPanelAgent({ ...baseAgent });
   const workspace = state.agent.workspace;
-  assert.ok(workspace && workspace.startsWith(fakeHome), '默认工作区位于用户目录下');
-  assert.equal(workspace, join(fakeHome, 'Documents', 'AgentTeam'));
+  assert.equal(workspace, join(fakeHome, 'Documents', 'AgentTeam'), '默认工作区落在临时 HOME 下');
   assert.ok(await import('node:fs').then(fs => fs.existsSync(workspace)), '默认工作区已创建');
   // 显式提供的工作区仍然按原样校验使用。
   const explicit = mkdtempSync(join(tmpdir(), 'agent-explicit-ws-'));

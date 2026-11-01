@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { defaultPanelWorkspace, ensureDefaultPanelWorkspace } from '../src/default-workspace.mjs';
 
 test('default panel workspace adapts to the platform and documents presence', () => {
+  // 路径拼接跟随运行平台的分隔符:断言用 join 构造,不写死分隔符。
   // macOS/Windows:Documents 下的用户可见目录。
   assert.equal(
     defaultPanelWorkspace({ home: '/Users/demo', platform: 'darwin' }),
-    '/Users/demo/Documents/AgentTeam',
+    join('/Users/demo', 'Documents', 'AgentTeam'),
   );
   assert.equal(
     defaultPanelWorkspace({ home: 'C:\\Users\\demo', platform: 'win32' }),
@@ -19,7 +20,7 @@ test('default panel workspace adapts to the platform and documents presence', ()
   // Linux:Documents 缺席(无桌面环境)时回退 XDG 数据目录。
   assert.equal(
     defaultPanelWorkspace({ home: '/home/demo', platform: 'linux' }),
-    '/home/demo/.local/share/agent-team/workspace',
+    join('/home/demo', '.local', 'share', 'agent-team', 'workspace'),
   );
 
   // Linux 桌面环境存在 Documents:同样使用用户可见目录。

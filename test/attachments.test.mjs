@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, chmodSync, writeFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startServer } from '../src/server.mjs';
 import { PNG } from 'pngjs';
@@ -79,8 +79,11 @@ test('upload stores UUID copy with metadata, permissions and no .part leftover',
   const files = readdirSync(attachmentsRoot(directory));
   assert.deepEqual(files, [row.storage_name]);
   const fileStat = statSync(join(attachmentsRoot(directory), row.storage_name));
-  assert.equal(fileStat.mode & 0o777, 0o600, '附件文件应为 0600');
-  assert.equal(statSync(attachmentsRoot(directory)).mode & 0o777, 0o700, '附件目录应为 0700');
+  // Windows 不表达 POSIX 权限位(chmod 只切只读),0600/0700 只在 POSIX 平台可断言。
+  if (process.platform !== 'win32') {
+    assert.equal(fileStat.mode & 0o777, 0o600, '附件文件应为 0600');
+    assert.equal(statSync(attachmentsRoot(directory)).mode & 0o777, 0o700, '附件目录应为 0700');
+  }
 
   // read 返回元数据与原始字节流,不暴露路径。
   const read = bus.attachmentRead(agentId, uploaded.id);
@@ -389,7 +392,7 @@ test('startup-style part sweep removes stale temp files and keeps fresh ones on 
 
   writeFileSync(fresh, 'partial');
   bus.attachmentCleanup(new Date());
-  assert.deepEqual(readdirSync(root).sort(), [seed.id, fresh.split('/').pop()].sort(), '周期清理保留新鲜 .part');
+  assert.deepEqual(readdirSync(root).sort(), [seed.id, basename(fresh)].sort(), '周期清理保留新鲜 .part');
 });
 
 test('upload failure cleans up: disk write failure and db insert failure leave nothing behind', async t => {
@@ -397,14 +400,18 @@ test('upload failure cleans up: disk write failure and db insert failure leave n
   const root = attachmentsRoot(directory);
   const seed = await bus.attachmentUpload(agentId, textBuffer('seed'), { name: 'seed.txt' });
 
-  // 写盘失败:根目录只读,上传失败且不留记录。
-  chmodSync(root, 0o500);
+  // 写盘失败:附件根目录位置被同名文件占据,mkdir 必然失败,上传不留记录。
+  // 不用 chmod 只读:Windows 的 chmod 只切只读属性,不阻止新建文件。
+  const parked = `${root}.parked`;
+  renameSync(root, parked);
+  writeFileSync(root, 'not a directory');
   try {
     await assert.rejects(
       () => bus.attachmentUpload(agentId, textBuffer('no room'), { name: 'nope.txt' }),
     );
   } finally {
-    chmodSync(root, 0o700);
+    unlinkSync(root);
+    renameSync(parked, root);
   }
   assert.equal(bus.store.all('SELECT 1 FROM attachments WHERE original_name=?', 'nope.txt').length, 0);
 
