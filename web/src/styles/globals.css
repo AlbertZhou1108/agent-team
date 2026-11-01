@@ -1437,12 +1437,30 @@ html[data-motion='lively'] :is([data-slot='dialog-content'], [data-slot='dialog-
   -webkit-backdrop-filter: var(--surface-action-blur, none);
 }
 
-/* 玻璃专属环境画布直接绘在 body 上,避免负层级伪元素被页面背景遮住。
-   背景固定,表面从同一画布取样;其他材质保留 app-shell 的统一实色底。 */
+/* 玻璃专属环境画布:底色留在 body(html 无自有背景,body 的背景传播到
+   画布,于是根元素的负层级伪元素恰好落在画布底色之上、全部内容之下)。
+   多色光斑绘在根伪元素上缓慢漂移:transform 动画走合成器,不触发重绘,
+   不改变表面取样几何(玻璃 backdrop 从同一画布取样);放大出血避免漂移露边。
+   时长经 --motion-pace 缩放(简洁档 160s 单程,柔和更慢、灵动更快),
+   减少档由全局 kill-switch 压平;表面受光仍只由交互驱动,不循环扫光。 */
 html[data-material-effect='glass'] body {
   background-color: color-mix(in oklab, var(--muted) 40%, var(--background));
+}
+
+html[data-material-effect='glass']::before {
+  content: '';
+  position: fixed;
+  inset: -8%;
+  z-index: -1;
+  pointer-events: none;
   background-image: var(--component-environment-image);
-  background-attachment: fixed;
+  animation: glass-environment-drift calc(160s * var(--motion-pace, 1)) ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes glass-environment-drift {
+  from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.02); }
+  to { transform: translate3d(1.2%, 0.8%, 0) scale(1.05); }
 }
 
 html[data-material-effect='glass'] .app-shell {

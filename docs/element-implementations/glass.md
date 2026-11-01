@@ -18,6 +18,7 @@
 - [glass-refraction.ts](../../web/src/theme/glass-refraction.ts) 为已接入角色建立背景滤镜；[refraction-map.ts](../../web/src/theme/refraction-map.ts) 生成圆角边缘法线图，中心保持中性采样。
 - 导航、上下文、会话操作区、浮层与独立输入控件按角色适配；输入控件嵌在已声明表面内时复用父层光学，避免重复折射。
 - [glass-light.ts](../../web/src/theme/glass-light.ts) 提供交互驱动的局部受光；静止时不循环扫光，减少动态效果时关闭该交互光效。
+- 环境光斑绘在根画布伪元素上缓慢漂移（globals.css `glass-environment-drift`）：合成器 transform 动画，时长经动效 pace 缩放，减少档由全局 kill-switch 压平；表面受光不受影响，仍只由交互驱动。
 - ResizeObserver 更新几何，动态浮层自动接入；移除表面、切换材质和卸载时清理。原型保存在本地分支 codex/prototype-liquid-glass-refraction-20261101。
 
 ## 回退与其它维度
