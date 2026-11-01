@@ -15,7 +15,6 @@ import {
   Sun,
   Trash2,
   Upload,
-  X,
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type {
@@ -58,18 +57,8 @@ import {
   isReadingSize,
   isReadingWidth,
 } from '@/theme/apply';
-import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
-import { resolveThemePack, resolveTokens } from '@/theme/resolve';
-import { DESIGN_PRESETS, isDesignPresetId, legacyDesignPreset } from '@/theme/design-presets';
+import { DESIGN_PRESETS, isDesignPresetId } from '@/theme/design-presets';
 import { MATERIAL_CATEGORIES } from '@/theme/materials';
-import {
-  APPEARANCE_PRESET_MAX,
-  APPEARANCE_PRESET_NAME_MAX,
-  loadAppearancePresets,
-  newPresetId,
-  saveAppearancePresets,
-  type AppearancePreset,
-} from '@/theme/presets';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import { queryKeys } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
@@ -149,7 +138,7 @@ const codeSizeOptions: Array<{ value: 'standard' | 'large'; label: string }> = [
 ];
 
 // ===== 外观设置:所有选项点击即写入偏好并立即生效(2026-10-31 用户决策,取消预览+应用确认) =====
-// 阅读不参与组合预设与恢复默认;组合预设覆盖明暗/主题/材质/动效/密度五维。
+// 阅读独立于外观,不参与恢复默认;恢复默认重置明暗/主题/材质/动效/密度五维。
 const APPEARANCE_DEFAULTS = {
   colorMode: 'system' as const,
   themePack: CLASSIC_THEME_ID,
@@ -157,24 +146,6 @@ const APPEARANCE_DEFAULTS = {
   motionPreference: 'system' as const,
   density: 'standard' as const,
 };
-
-const appearancePresets = ref<AppearancePreset[]>(loadAppearancePresets());
-const presetName = ref('');
-const deletingCombo = ref<AppearancePreset | null>(null);
-
-// 当前五维与某个预设完全一致时高亮该预设;手动逐项调整后如实反映匹配结果。
-const activeComboId = computed(() => {
-  const match = appearancePresets.value.find(
-    (preset) =>
-      (preset.designPreset ?? legacyDesignPreset(preset.materialPreference)) === preferences.designPreset &&
-      preset.colorMode === preferences.colorMode &&
-      preset.themePack === preferences.themePack &&
-      preset.materialPreference === preferences.materialPreference &&
-      preset.motionPreference === preferences.motionPreference &&
-      preset.density === preferences.density,
-  );
-  return match ? match.id : null;
-});
 
 // 主题色板跟随当前明暗模式。
 const themePreviewDark = computed(() => resolveDark(preferences.colorMode));
@@ -190,43 +161,6 @@ function restoreAppearanceDefaults() {
   preferences.setMaterialPreference(APPEARANCE_DEFAULTS.materialPreference);
   preferences.setMotionPreference(APPEARANCE_DEFAULTS.motionPreference);
   preferences.setDensity(APPEARANCE_DEFAULTS.density);
-}
-
-function savePreset() {
-  const name = presetName.value.trim();
-  if (!name) return;
-  const preset: AppearancePreset = {
-    id: newPresetId(),
-    designPreset: preferences.designPreset,
-    name: name.slice(0, APPEARANCE_PRESET_NAME_MAX),
-    colorMode: preferences.colorMode,
-    themePack: preferences.themePack,
-    materialPreference: preferences.materialPreference,
-    motionPreference: preferences.motionPreference,
-    density: preferences.density,
-  };
-  appearancePresets.value = [...appearancePresets.value, preset].slice(-APPEARANCE_PRESET_MAX);
-  saveAppearancePresets(appearancePresets.value);
-  presetName.value = '';
-}
-
-function applyPreset(preset: AppearancePreset) {
-  preferences.setDesignPreset(preset.designPreset ?? legacyDesignPreset(preset.materialPreference), false);
-  // 预设引用的主题缺失时按维度回落到内置主题,并把最终选择如实保存与显示。
-  const pack = resolveThemePack(preset.themePack, allThemePacks.value);
-  preferences.setColorMode(preset.colorMode);
-  preferences.setThemePack(pack.id, { light: pack.light, dark: pack.dark });
-  preferences.setMaterialPreference(preset.materialPreference);
-  preferences.setMotionPreference(preset.motionPreference);
-  preferences.setDensity(preset.density);
-}
-
-function confirmDeleteCombo() {
-  const preset = deletingCombo.value;
-  if (!preset) return;
-  appearancePresets.value = appearancePresets.value.filter((item) => item.id !== preset.id);
-  saveAppearancePresets(appearancePresets.value);
-  deletingCombo.value = null;
 }
 
 // ===== 主题包:内置(不可删) + 用户上传(可删),同一轨道混排 =====
@@ -711,61 +645,16 @@ watch(
             </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
           <section class="flex flex-col gap-3">
-            <h3 class="text-sm font-semibold">设计预设</h3>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 class="text-sm font-semibold">设计预设</h3>
+              <Button variant="outline" size="sm" @click="restoreAppearanceDefaults">恢复默认</Button>
+            </div>
             <ToggleGroup presentation="segmented" type="single" :model-value="preferences.designPreset" variant="outline" aria-label="设计预设" @update:model-value="value => { if (isDesignPresetId(value)) preferences.setDesignPreset(value); }">
               <ToggleGroupItem v-for="preset in DESIGN_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</ToggleGroupItem>
             </ToggleGroup>
-            <p class="text-xs text-muted-foreground">选择预设后仍可单独调整配色、材质、动效和密度，保留你的阅读设置。</p>
+            <p class="text-xs text-muted-foreground">选择预设后仍可单独调整配色、材质、动效和密度，保留你的阅读设置；恢复默认回到出厂外观基线（不含阅读）。</p>
           </section>
           <AppearanceSample />
-          <section class="flex flex-col gap-3">
-            <div class="flex flex-wrap items-start justify-between gap-2">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <h3 class="text-sm font-semibold">组合预设</h3>
-                </div>
-                <p class="mt-1 text-xs text-muted-foreground">
-                  保存明暗、主题、材质、动效与密度的组合（不含阅读）；所有外观选项点击即生效。
-                </p>
-              </div>
-              <div class="flex flex-none items-center gap-2">
-                <Button variant="outline" size="sm" @click="restoreAppearanceDefaults">恢复默认</Button>
-              </div>
-            </div>
-            <div v-if="appearancePresets.length" class="flex flex-wrap gap-2">
-              <div
-                v-for="preset in appearancePresets"
-                :key="preset.id"
-                class="flex items-center gap-0"
-              >
-                <Button
-                  :variant="activeComboId === preset.id ? 'secondary' : 'outline'"
-                  size="sm"
-                  class="rounded-r-none"
-                  @click="applyPreset(preset)"
-                >{{ preset.name }}</Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="rounded-l-none border-l-0 px-1.5"
-                  :aria-label="`删除预设 ${preset.name}`"
-                  @click="deletingCombo = preset"
-                ><X class="size-3.5" /></Button>
-              </div>
-            </div>
-            <p v-else class="text-xs text-muted-foreground">
-              还没有预设：调整下方各维度后，在这里保存为命名组合，之后一键应用。
-            </p>
-            <div class="flex items-center gap-2">
-              <Input
-                v-model="presetName"
-                placeholder="预设名称"
-                class="h-8 max-w-48"
-                :maxlength="APPEARANCE_PRESET_NAME_MAX"
-              />
-              <Button variant="outline" size="sm" :disabled="!presetName.trim()" @click="savePreset">保存当前组合</Button>
-            </div>
-          </section>
 
           <section class="flex flex-col gap-3">
             <div>
@@ -821,7 +710,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">材质</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                玻璃作用于导航、上下文面板、会话操作区与菜单弹窗；阅读区保持实色，效果不可用时自动回落。
+                玻璃作用于导航、上下文面板、会话操作区与菜单弹窗；阅读区保持实色，效果不可用时自动回落。圆角与按压触感随材质内化，不随预设改变。
               </p>
             </div>
             <ToggleGroup presentation="segmented"
@@ -871,7 +760,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">阅读</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                只作用于会话正文与 Markdown 内容；点击即生效，不参与组合预设。
+                只作用于会话正文与 Markdown 内容；点击即生效，独立于外观设置与恢复默认。
               </p>
             </div>
             <div class="grid w-full gap-4 sm:grid-cols-2">
@@ -1350,15 +1239,6 @@ watch(
       destructive
       @confirm="confirmDeletePreset"
       @cancel="deletingPreset = null"
-    />
-    <ConfirmDialog
-      :open="deletingCombo !== null"
-      :title="`删除预设「${deletingCombo?.name ?? ''}」？`"
-      description="删除后不可恢复；外观当前状态不受影响。"
-      confirm-text="删除"
-      destructive
-      @confirm="confirmDeleteCombo"
-      @cancel="deletingCombo = null"
     />
     <ConfirmDialog
       :open="deletingTheme !== null"

@@ -1,6 +1,6 @@
 # 前端分层架构:样式与外观的技术组织
 
-2026-11-01 配置入口：[公共组件配置与设计预设](component-configuration.md)。`component-contract.ts` 声明五维默认参数，`design-presets.ts` 组合预设并解析差量，`materials.ts` 提供材质配方。`applyAppearance()` 同时服务首帧和响应式更新。共享组件消费 `--component-*`，不判断预设 ID；设置页选择配置，个人阅读偏好独立保留。新增预设在已有能力范围内只增加配置；新增引擎效果仍须实现能力。本次状态以覆盖台账为准，下文历史缺口由台账更新。
+2026-11-01 配置入口：[公共组件配置与设计预设](component-configuration.md)。`component-contract.ts` 声明五维默认参数，`design-presets.ts` 定义设计预设并解析差量，`materials.ts` 提供材质配方。`applyAppearance()` 同时服务首帧和响应式更新。共享组件消费 `--component-*`，不判断预设 ID；设置页选择配置，个人阅读偏好独立保留。新增预设在已有能力范围内只增加配置；新增引擎效果仍须实现能力。本次状态以覆盖台账为准，下文历史缺口由台账更新。
 
 本文说明前端样式的分层结构与外观维度的传播机制,回答"我想改 X 应该改哪一层"。上游是[设计逻辑框架](design-logic-framework.md)(元素的逻辑描述模型:方面、状态、角色、决策层级 —— 本文各层是该框架的技术投影);设计规则(应该长什么样)见 [DESIGN.md](../DESIGN.md)。配套使用:先逻辑定位方面与决策层级，再按[元素规格](element-specifications.md)确定用途与状态，按[元素实现说明](element-implementations/README.md)选择具体呈现，最后在本表定位代码层级；接入情况独立记录到[覆盖台账](element-implementation-coverage.md)。
 
