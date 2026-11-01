@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import PanelState from '@/components/panel/PanelState.vue';
 import RecordPanel from '@/components/panel/RecordPanel.vue';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { computed, ref } from 'vue';
-import { Activity, ArrowLeftRight, Braces, Database, Gauge, LoaderCircle, ChevronRight } from '@lucide/vue';
+import { Activity, ArrowLeftRight, Braces, Database, Gauge, LoaderCircle } from '@lucide/vue';
 import type {
   Member,
   ModelObservation,
@@ -40,8 +41,8 @@ const props = defineProps<{
 }>();
 
 const expandedRecords = ref(new Set<string>());
-function toggleRecord(key: string, event: Event) {
-  if ((event.target as HTMLDetailsElement).open) expandedRecords.value.add(key);
+function toggleRecord(key: string, open: boolean) {
+  if (open) expandedRecords.value.add(key);
   else expandedRecords.value.delete(key);
 }
 
@@ -157,10 +158,10 @@ function prettyEvent(value: string) {
             /></Button>
           </div>
         </div>
-        <details class="text-xs text-muted-foreground">
-          <summary class="w-fit cursor-pointer">会话标识</summary>
+        <Disclosure>
+          <template #summary>会话标识</template>
           <p class="mt-2 break-all font-mono">{{ endpoint.id }}</p>
-        </details>
+        </Disclosure>
       </header>
       <Tabs
         :model-value="tab"
@@ -181,10 +182,8 @@ function prettyEvent(value: string) {
             <TraceTimeline v-if="tab === 'trace'" :turns="turns" />
             <RecordPanel v-else-if="tab === 'events'" title="原始事件" :count="historyRows.length" description="宿主实际输出的事件流，可能包含宿主自身的截断。">
               <PanelState v-if="!historyRows.length" :icon="Braces" title="暂无原始事件" />
-              <details v-for="row in historyRows" :key="row.seq" @toggle="toggleRecord('event:' + row.seq, $event)" class="group" data-record-row>
-                <summary
-                  class="flex cursor-pointer items-center gap-2 py-2 text-xs"
-                >
+              <Disclosure v-for="row in historyRows" :key="row.seq" @update:open="toggleRecord('event:' + row.seq, $event)" class="group" data-record-row>
+                <template #summary>
                   <span class="text-muted-foreground tabular-nums"
                     >#{{ row.seq }}</span
                   ><span class="min-w-0 flex-1 truncate font-mono">{{
@@ -193,10 +192,10 @@ function prettyEvent(value: string) {
                   ><time class="text-muted-foreground tabular-nums">{{
                     new Date(row.created).toLocaleTimeString('zh-CN')
                   }}</time>
-                  <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
-                </summary>
+
+                </template>
                 <CodeBlock v-if="expandedRecords.has('event:' + row.seq)" :code="prettyEvent(row.event)" max-height="16rem" />
-              </details>
+              </Disclosure>
             </RecordPanel>
             <div v-else-if="tab === 'models'" class="flex flex-col gap-6">
               <section class="flex flex-col gap-4">
@@ -234,16 +233,14 @@ function prettyEvent(value: string) {
               <Separator />
               <RecordPanel title="观测记录" :count="observations.length">
                 <PanelState v-if="!observations.length" :icon="Database" title="暂无模型观测" description="配置值与实际观测可能不同，以宿主报告为准。" />
-                <details
+                <Disclosure
                   v-for="observation in observations"
                   :key="observation.seq"
-                  @toggle="toggleRecord('model:' + observation.seq, $event)"
+                  @update:open="toggleRecord('model:' + observation.seq, $event)"
                   data-record-row
                   class="group"
                 >
-                  <summary
-                    class="flex cursor-pointer items-start gap-2 py-2 text-xs"
-                  >
+                  <template #summary>
                     <span class="text-muted-foreground"
                       >#{{ observation.seq }}</span
                     ><span class="min-w-0 flex-1 break-words"
@@ -255,14 +252,14 @@ function prettyEvent(value: string) {
                         observation.phase
                       }}</span></span
                     >
-                    <ChevronRight class="size-4 shrink-0 group-open:rotate-90" />
-                  </summary>
+
+                  </template>
                   <CodeBlock
                     v-if="expandedRecords.has('model:' + observation.seq)"
                     :code="JSON.stringify(observation, null, 2)"
                     max-height="12rem"
                   />
-                </details>
+                </Disclosure>
               </RecordPanel>
             </div>
             <div v-else-if="tab === 'usage'" class="flex flex-col gap-4">

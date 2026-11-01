@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -89,13 +90,13 @@ function capabilityCount(
       title="暂无能力声明"
       description="当前群涉及的宿主适配器尚未返回能力声明。"
     />
-    <Card
+    <Card size="compact"
       v-for="host in data?.hosts ?? []"
       :key="host.host"
-      class="min-w-0 gap-3 py-4"
+      class="min-w-0"
       :data-capability-host="host.host"
     >
-      <CardHeader class="gap-1 px-4">
+      <CardHeader>
         <CardTitle class="flex flex-wrap items-center gap-2 text-sm">
           {{ host.host }}
           <Badge variant="outline"
@@ -112,16 +113,15 @@ function capabilityCount(
           >共 {{ capabilityKeys.length }} 个统一指标字段</CardDescription
         >
       </CardHeader>
-      <CardContent class="px-4">
-        <details class="text-xs">
-          <summary class="w-fit cursor-pointer">展开 12 项能力明细</summary>
+      <CardContent>
+        <Disclosure>
+          <template #summary>展开 12 项能力明细</template>
           <ul class="mt-2 flex flex-col gap-2">
             <li
               v-for="key in capabilityKeys"
               :key="key"
-              class="rounded-lg border p-2"
               :data-capability-key="key"
-            >
+            ><Card size="compact"><CardContent class="flex min-w-0 flex-col gap-2">
               <div class="flex flex-wrap items-center gap-1">
                 <span class="font-medium">{{ rowLabel(key) }}</span>
                 <Badge :variant="capabilityVariant(host.metrics[key].capability)">{{
@@ -145,9 +145,9 @@ function capabilityCount(
               <p v-if="host.metrics[key].note" class="text-muted-foreground">
                 说明：{{ host.metrics[key].note }}
               </p>
-            </li>
+            </CardContent></Card></li>
           </ul>
-        </details>
+        </Disclosure>
       </CardContent>
     </Card>
   </div>

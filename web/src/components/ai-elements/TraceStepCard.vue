@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import {
   AlertTriangle,
   Brain,
   CheckCircle2,
-  ChevronRight,
   CircleDot,
   Clock3,
   Database,
@@ -54,8 +54,8 @@ const hidden = computed(
 </script>
 
 <template>
-  <details v-if="!hidden" class="trace-step group">
-    <summary>
+  <Disclosure v-if="!hidden" class="trace-step group">
+    <template #summary>
       <span class="flex shrink-0 items-center text-muted-foreground">
         <component :is="icon" class="size-4" />
       </span>
@@ -76,10 +76,8 @@ const hidden = computed(
         class="size-4 shrink-0 text-muted-foreground"
         aria-label="已完成"
       />
-      <ChevronRight
-        class="size-3.5 shrink-0 text-muted-foreground group-open:rotate-90"
-      />
-    </summary>
+
+    </template>
     <div
       v-if="step.summary || step.detail || step.raw.length"
       class="mt-2 flex flex-col gap-3 pb-2 pl-6"
@@ -102,23 +100,21 @@ const hidden = computed(
         "
         max-height="14rem"
       />
-      <details
+      <Disclosure
         v-if="
           (preferences.showRawPayloads || step.kind === 'unknown') &&
           step.raw.length
         "
         class="raw-step"
       >
-        <summary
-          class="cursor-pointer px-1 py-1 font-mono text-muted-foreground"
-        >
+        <template #summary>
           原始事件 · {{ step.sourceEvents.join(', #') }}
-        </summary>
+        </template>
         <CodeBlock
           :code="JSON.stringify(step.raw, null, 2)"
           max-height="16rem"
         />
-      </details>
+      </Disclosure>
     </div>
-  </details>
+  </Disclosure>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { compactNumber, numeric } from './visuals';
 import {
@@ -67,8 +68,8 @@ function recipientKindLabel(
 </script>
 
 <template>
-  <details class="min-w-0 rounded-lg border p-3">
-    <summary class="flex cursor-pointer flex-col gap-1 text-xs">
+  <Disclosure variant="card" class="min-w-0">
+    <template #summary>
       <span class="flex items-center justify-between gap-3">
         <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
         <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
@@ -79,9 +80,9 @@ function recipientKindLabel(
         <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
         <span>展开执行详情</span>
       </span>
-    </summary>
-  <Card
-    class="min-w-0 gap-3 py-4"
+    </template>
+  <Card size="compact"
+    class="min-w-0"
     :data-batch-id="batch.batchId"
     :data-manager-batch-id="batch.batchId"
     :data-side="batch.side"
@@ -95,7 +96,7 @@ function recipientKindLabel(
         : 'none'
     "
   >
-    <CardHeader class="gap-1 px-4">
+    <CardHeader>
       <CardTitle class="break-all text-sm">
         {{ batch.frameworkTurnId }}
       </CardTitle>
@@ -113,7 +114,7 @@ function recipientKindLabel(
         }}</Badge>
       </CardDescription>
     </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4 px-4">
+    <CardContent class="flex min-w-0 flex-col gap-4">
       <div class="flex flex-wrap gap-1">
         <Badge
           v-for="label in mergeLabels"
@@ -225,10 +226,10 @@ function recipientKindLabel(
         </AlertDescription>
       </Alert>
 
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer">
+      <Disclosure>
+        <template #summary>
           来源与完整性 · 批次 {{ completenessLabel(batch.completeness) }}
-        </summary>
+        </template>
         <div class="mt-2 flex flex-col gap-1">
           <p v-if="batch.completeness !== 'complete'">
             未完整批次不补零；缺失字段显示“—”与原因。
@@ -248,8 +249,8 @@ function recipientKindLabel(
             </Badge>
           </div>
         </div>
-      </details>
+      </Disclosure>
     </CardContent>
   </Card>
-  </details>
+  </Disclosure>
 </template>

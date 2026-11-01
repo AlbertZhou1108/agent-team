@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Disclosure } from '@/components/ui/disclosure';
 import { Badge } from '@/components/ui/badge';
 import type { TelemetrySourceSubtotal } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
@@ -18,9 +20,10 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+  <Card size="compact">
+    <CardHeader>
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h4 class="text-xs font-semibold">来源分析（不与执行归属相加）</h4>
+      <CardTitle>来源分析（不与执行归属相加）</CardTitle>
       <div class="flex flex-wrap gap-1">
         <Badge variant="outline">合并批次 {{ mergedBatchIds.length }}</Badge>
         <Badge variant="outline"
@@ -28,6 +31,8 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
         >
       </div>
     </div>
+    </CardHeader>
+    <CardContent class="flex min-w-0 flex-col gap-3">
     <p class="text-2xs text-muted-foreground">
       {{
         note ??
@@ -37,13 +42,13 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
     <p v-if="!subtotals.length" class="text-xs text-muted-foreground">
       暂无可归入来源小计的单一来源批次。
     </p>
-    <details
+    <Disclosure
       v-for="subtotal in subtotals"
       :key="subtotal.sourceActorId"
-      class="rounded-lg border p-2 text-xs"
+      variant="card"
       :data-source-actor-id="subtotal.sourceActorId"
     >
-      <summary class="flex cursor-pointer flex-wrap items-center gap-1">
+      <template #summary>
         <span class="font-medium">{{ subtotal.sourceActorName }}</span>
         <Badge variant="outline"
           >{{ subtotal.includedBatchIds.length }} 批次</Badge
@@ -64,7 +69,7 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
           · {{ metricLabel('totalTokens') }}
           {{ metricDisplay(subtotal.totals.totalTokens, 'totalTokens') }}</span
         >
-      </summary>
+      </template>
       <div class="mt-3">
         <TelemetryMetricGrid
           :metrics="subtotal.totals"
@@ -72,6 +77,7 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
           :columns="2"
         />
       </div>
-    </details>
-  </section>
+    </Disclosure>
+    </CardContent>
+  </Card>
 </template>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
-import { ChevronsUpDown } from '@lucide/vue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
 import { compactNumber } from './visuals';
 type Team = { id:string;name:string;status:string;metrics:TelemetryMetrics;expectedTurns:number;tokenBatches:number };
@@ -71,15 +71,16 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
 </script>
 <template>
   <section class="flex min-w-0 flex-col gap-4" aria-label="全局数据总览">
-    <Collapsible v-model:open="overviewOpen" class="flex min-w-0 flex-col gap-4">
-      <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-sm font-medium">数据总览</h2><div class="flex gap-1"><ToggleGroup type="single" :model-value="String(days)" aria-label="统计时间范围" @update:model-value="value => { if (value) days = Number(value); }"><ToggleGroupItem v-for="n in [1,7,30]" :key="n" :value="String(n)">{{n===1?'今天':`近 ${n} 天`}}</ToggleGroupItem></ToggleGroup><CollapsibleTrigger as-child><Button variant="ghost" size="icon-sm" :aria-label="overviewOpen?'收起数据总览':'展开数据总览'"><ChevronsUpDown /></Button></CollapsibleTrigger></div></div>
-      <CollapsibleContent class="flex min-w-0 flex-col gap-6">
+    <Disclosure :heading-level="2" v-model:open="overviewOpen" >
+<template #summary>数据总览</template>
+<template #actions><ToggleGroup type="single" :model-value="String(days)" aria-label="统计时间范围" @update:model-value="value => { if (value) days = Number(value); }"><ToggleGroupItem v-for="n in [1,7,30]" :key="n" :value="String(n)">{{n===1?'今天':`近 ${n} 天`}}</ToggleGroupItem></ToggleGroup></template>
+<div class="flex min-w-0 flex-col gap-6">
     <p v-if="query.isPending.value" class="text-sm text-muted-foreground">正在汇总数据…</p>
     <Alert v-else-if="query.isError.value" variant="destructive"><AlertDescription>汇总加载失败<Button variant="outline" size="sm" @click="query.refetch()">重试</Button></AlertDescription></Alert>
     <template v-if="data">
       <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="item in [{label:'团队',value:data.counts.teams},{label:'成员',value:data.counts.members},{label:'运行中回合',value:data.counts.running},{label:'已观测 Token',value:data.totals.totalTokens.value}]" :key="item.label" class="flex flex-col gap-1"><dt class="text-xs text-muted-foreground">{{item.label}}</dt><dd class="text-2xl font-semibold tabular-nums">{{number(item.value)}}</dd></div></dl>
       <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Card class="min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="flex min-w-0 flex-col gap-3">
+        <Card size="compact" class="min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="flex min-w-0 flex-col gap-3">
           <div v-if="overviewActive && overviewTotals" class="flex flex-wrap items-start justify-between gap-3" aria-live="polite" aria-atomic="true" data-testid="trend-selection">
             <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{time(overviewTotals.from)}} – {{time(overviewTotals.to)}} · 整个时间轴</span><span class="font-medium tabular-nums">{{overviewTotals.observed?`${overviewTotals.sum.toLocaleString()} Token`:'暂无 Token 观测'}}</span><span class="text-xs text-muted-foreground">共 {{overviewTotals.batches}} 个观测回合{{overviewTotals.complete?'':' · 采集不完整'}}；点击柱形可查看单时段</span></div>
           </div>
@@ -106,11 +107,11 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
           </svg>
           <div class="flex justify-between text-xs text-muted-foreground"><span>{{time(data.series[0]!.from)}}</span><span>{{time(data.series.at(-1)!.to)}}</span></div>
         </CardContent></Card>
-        <Card class="min-w-0"><CardHeader><CardTitle>团队消耗</CardTitle></CardHeader><CardContent class="flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto"><p v-if="!ranks.length" class="text-sm text-muted-foreground">暂无团队</p><Button v-for="team in ranks" :key="team.id" variant="ghost" class="h-auto min-w-0 justify-start px-0" @click="emit('select',team.id)"><span class="flex w-full min-w-0 flex-col gap-2"><span class="flex min-w-0 justify-between gap-3"><span class="truncate">{{team.name}}</span><span class="shrink-0 tabular-nums">{{number(team.metrics.totalTokens.value)}}<span v-if="team.expectedTurns>team.tokenBatches || (team.metrics.totalTokens.value!==null && team.metrics.totalTokens.completeness!=='complete')" class="text-xs text-muted-foreground"> · 部分</span></span></span><Progress v-if="team.metrics.totalTokens.value!==null" :model-value="Number(team.metrics.totalTokens.value)/max*100" :aria-label="`${team.name}：${team.metrics.totalTokens.value} token`" class="h-2" /><span v-else class="text-left text-xs text-muted-foreground">暂无 Token 观测</span></span></Button></CardContent></Card>
+        <Card size="compact" class="min-w-0"><CardHeader><CardTitle>团队消耗</CardTitle></CardHeader><CardContent class="flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto"><p v-if="!ranks.length" class="text-sm text-muted-foreground">暂无团队</p><Button v-for="team in ranks" :key="team.id" variant="ghost" class="h-auto min-w-0 justify-start px-0" @click="emit('select',team.id)"><span class="flex w-full min-w-0 flex-col gap-2"><span class="flex min-w-0 justify-between gap-3"><span class="truncate">{{team.name}}</span><span class="shrink-0 tabular-nums">{{number(team.metrics.totalTokens.value)}}<span v-if="team.expectedTurns>team.tokenBatches || (team.metrics.totalTokens.value!==null && team.metrics.totalTokens.completeness!=='complete')" class="text-xs text-muted-foreground"> · 部分</span></span></span><Progress v-if="team.metrics.totalTokens.value!==null" :model-value="Number(team.metrics.totalTokens.value)/max*100" :aria-label="`${team.name}：${team.metrics.totalTokens.value} token`" class="h-2" /><span v-else class="text-left text-xs text-muted-foreground">暂无 Token 观测</span></span></Button></CardContent></Card>
       </div>
-      <Card><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div><details class="text-xs text-muted-foreground"><summary class="cursor-pointer">输入、输出与缓存</summary><dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4"><div v-for="key in (['inputTokensTotal','outputTokens','cacheReadTokens','cacheReadRatio'] as const)" :key="key"><dt>{{ {inputTokensTotal:'输入',outputTokens:'输出',cacheReadTokens:'缓存读取（输入的子集）',cacheReadRatio:'缓存读取占输入'}[key] }}</dt><dd>{{key==='cacheReadRatio'&&data.totals[key].value!==null?`${(Number(data.totals[key].value)*100).toFixed(1)}%`:number(data.totals[key].value)}}</dd></div></dl></details></CardContent></Card>
+      <Card size="compact"><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div><Disclosure><template #summary>输入、输出与缓存</template><dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4"><div v-for="key in (['inputTokensTotal','outputTokens','cacheReadTokens','cacheReadRatio'] as const)" :key="key"><dt>{{ {inputTokensTotal:'输入',outputTokens:'输出',cacheReadTokens:'缓存读取（输入的子集）',cacheReadRatio:'缓存读取占输入'}[key] }}</dt><dd>{{key==='cacheReadRatio'&&data.totals[key].value!==null?`${(Number(data.totals[key].value)*100).toFixed(1)}%`:number(data.totals[key].value)}}</dd></div></dl></Disclosure></CardContent></Card>
     </template>
-      </CollapsibleContent>
-    </Collapsible>
+      </div>
+</Disclosure>
   </section>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import TelemetryOverview from '@/features/telemetry/TelemetryOverview.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
@@ -22,7 +23,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ArrowUpRight,
   Bot,
-  ChevronsUpDown,
   Folder,
   LoaderCircle,
   Pin,
@@ -40,11 +40,7 @@ import {
   InputGroupButton,
 } from '@/components/ui/input-group';
 import { Button } from '@/components/ui/button';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTeamOrganization } from '@/stores/team-organization';
 
@@ -239,12 +235,9 @@ onBeforeUnmount(() => {
       >
 
       <section aria-labelledby="team-home-list-title">
-        <Collapsible v-model:open="teamsOpen" class="flex flex-col gap-4">
-          <div class="flex flex-wrap items-center justify-between gap-4">
-            <h2 id="team-home-list-title" class="text-sm font-medium">
-              团队目录
-            </h2>
-            <InputGroup class="w-full sm:w-64 sm:ml-auto">
+        <Disclosure :heading-level="2" v-model:open="teamsOpen" >
+<template #summary><span id="team-home-list-title">团队目录</span><Badge v-if="pinnedCount" variant="secondary"><Pin />{{ pinnedCount }} 个置顶</Badge></template>
+<template #actions><InputGroup class="w-full sm:w-64 sm:ml-auto">
               <InputGroupAddon><Search /></InputGroupAddon>
               <InputGroupInput
                 v-model="search"
@@ -254,21 +247,8 @@ onBeforeUnmount(() => {
               <InputGroupAddon v-if="search" align="inline-end">
                 <InputGroupButton size="icon-xs" aria-label="清空搜索" @click="search = ''"><X /></InputGroupButton>
               </InputGroupAddon>
-            </InputGroup>
-            <div class="flex items-center gap-2">
-              <Badge v-if="pinnedCount" variant="secondary"
-                ><Pin />{{ pinnedCount }} 个置顶</Badge
-              >
-              <CollapsibleTrigger as-child
-                ><Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="teamsOpen ? '收起全部团队' : '展开全部团队'"
-                  ><ChevronsUpDown /></Button
-              ></CollapsibleTrigger>
-            </div>
-          </div>
-          <CollapsibleContent>
+            </InputGroup></template>
+
             <Empty v-if="loading || !groups.length">
               <EmptyHeader
                 ><EmptyMedia variant="icon"
@@ -304,6 +284,7 @@ onBeforeUnmount(() => {
                   :key="group.id"
                   variant="outline"
                   class="team-home-card flex-nowrap"
+                  data-component="content-surface"
                   :draggable="!search.trim() && !isHomePinned(group.id)"
                   :title="
                     isHomePinned(group.id)
@@ -374,8 +355,8 @@ onBeforeUnmount(() => {
                 </Item>
               </ItemGroup>
             </ScrollArea>
-          </CollapsibleContent>
-        </Collapsible>
+
+</Disclosure>
       </section>
     </div>
   </div>

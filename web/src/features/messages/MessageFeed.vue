@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import type { MessageFeedProps } from './message-feed-types';
 import PanelState from '@/components/panel/PanelState.vue';
@@ -124,6 +125,8 @@ const messageIds = computed(() => {
         >
       </div>
     </template>
+    <template #bar-top><slot name="bar-top" /></template>
+    <template #bar-bottom><slot name="bar-bottom" /></template>
     <div v-if="hasNextPage" class="flex justify-center py-2">
       <Button variant="outline" size="sm" :disabled="fetchingNextPage" @click="emit('loadMore')">
         <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
@@ -131,8 +134,8 @@ const messageIds = computed(() => {
       </Button>
     </div>
     <div v-for="group in renderGroups" :key="group.id" class="chat-message">
-      <details v-if="group.stack" class="notification-stack">
-        <summary>
+      <Disclosure v-if="group.stack" class="notification-stack">
+        <template #summary>
           <span class="font-medium"
             >系统通知
             <span class="text-xs text-muted-foreground"
@@ -145,7 +148,7 @@ const messageIds = computed(() => {
           <span class="notification-collapse text-xs text-muted-foreground"
             >收起</span
           >
-        </summary>
+        </template>
         <div class="flex flex-col gap-2 p-3">
           <AgentMessage
             v-for="message in group.messages"
@@ -153,7 +156,7 @@ const messageIds = computed(() => {
             :message="message"
           />
         </div>
-      </details>
+      </Disclosure>
       <template v-else-if="group.fanout">
         <MessageTrace
           :message-id="group.messages[0]!.id"

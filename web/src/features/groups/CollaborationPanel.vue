@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
-import { ChevronRight, Undo2 } from '@lucide/vue';
+import { Undo2 } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -98,9 +99,9 @@ async function restoreTeam() {
         </div>
       </section>
 
-      <details class="overview-tasks group">
-        <summary class="flex cursor-pointer list-none items-center gap-2">
-          <ChevronRight class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+      <Disclosure class="overview-tasks group">
+        <template #summary>
+
           <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
             任务面板
           </h3>
@@ -108,7 +109,7 @@ async function restoreTeam() {
           <span v-else class="text-xs font-normal text-muted-foreground">
             {{ (props.tasks ?? []).length ? '暂无进行中任务' : '未使用' }}
           </span>
-        </summary>
+        </template>
         <div class="scrollbar-thin mt-3 max-h-[45vh] overflow-y-auto pr-1">
           <TasksPanel
             :tasks="props.tasks ?? []"
@@ -116,7 +117,7 @@ async function restoreTeam() {
             :panel-agent="props.panelAgent ?? null"
           />
         </div>
-      </details>
+      </Disclosure>
 
       <section v-if="summary.unknown.length" class="flex flex-col gap-2">
         <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">

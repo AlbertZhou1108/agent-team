@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePanelAgentStore } from '@/stores/panel-agent';
@@ -8,7 +9,6 @@ import type { PanelMessage, TeamRequest, PanelAgentState } from '@/shared/api/ra
 import {
   ArrowUpRight,
   Bell,
-  ChevronsUpDown,
   CheckCheck,
   CircleAlert,
   MoreHorizontal,
@@ -20,11 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -105,19 +101,11 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
 
 <template>
   <aside class="agent-side" aria-label="Panel Agent 团队信息">
-  <CollapsibleRightSidebar v-model:collapsed="ui.contextCollapsed" :collapsed-actions="sidebarActions" @action="openSidebarSection" class="flex-1" data-surface="context-panel" @update:collapsed="ui.persist()">
+  <CollapsibleRightSidebar v-model:collapsed="ui.contextCollapsed" :collapsed-actions="sidebarActions" @action="openSidebarSection" class="flex-1" @update:collapsed="ui.persist()">
     <div class="panel-side-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4">
-    <Collapsible
-      v-model:open="teamsOpen"
-      class="flex min-w-0 shrink-0 flex-col gap-4"
-    >
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <h2 ref="teamsHeading" tabindex="-1" class="flex items-center gap-2 text-sm font-semibold"><Users class="size-4" />团队关系</h2>
-          <Badge>{{ teams.length }}</Badge>
-        </div>
-        <div class="flex items-center gap-1">
-          <Tooltip>
+    <Disclosure :heading-level="2" v-model:open="teamsOpen" class="shrink-0">
+<template #summary><span ref="teamsHeading" tabindex="-1" class="flex items-center gap-2"><Users />团队关系</span><Badge>{{ teams.length }}</Badge></template>
+<template #actions><Tooltip>
             <TooltipTrigger as-child>
               <span class="inline-flex" :tabindex="hasUnread ? undefined : 0" :aria-label="hasUnread ? undefined : '全部已读，当前没有未读消息'">
                 <Button variant="ghost" size="icon-sm" :disabled="!hasUnread" aria-label="全部已读" @click="panelState.markAllPanelRead(messages.filter(message => message.active_team_id == null)); panelState.syncReceiptReads(requests, true)">
@@ -126,18 +114,8 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
               </span>
             </TooltipTrigger>
             <TooltipContent>将全局私人会话和请求回执标为已读</TooltipContent>
-          </Tooltip>
-        <CollapsibleTrigger as-child>
-          <Button variant="ghost" size="icon-sm">
-            <ChevronsUpDown />
-            <span class="sr-only">{{
-              teamsOpen ? '收起团队关系' : '展开团队关系'
-            }}</span>
-          </Button>
-        </CollapsibleTrigger>
-        </div>
-      </div>
-      <CollapsibleContent class="flex min-h-0 flex-col gap-4">
+          </Tooltip></template>
+<div class="flex min-h-0 flex-col gap-4">
         <ScrollArea
           class="w-full"
           item-selector="[data-team-relation-item]"
@@ -236,27 +214,22 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
             </Item>
           </ItemGroup>
         </ScrollArea>
-      </CollapsibleContent>
-    </Collapsible>
+      </div>
+</Disclosure>
 
       <Separator />
-      <Collapsible v-model:open="notificationsOpen" class="flex min-w-0 shrink-0 flex-col gap-4">
-        <div class="flex items-center justify-between gap-2">
-          <h2 ref="notificationsHeading" tabindex="-1" class="flex items-center gap-2 text-sm font-semibold"><Bell class="size-4" />团队来源通知 <Badge variant="secondary">{{ notifications.length }}</Badge></h2>
-          <CollapsibleTrigger as-child>
-            <Button variant="ghost" size="icon-sm" aria-label="展开或收起团队来源通知"><ChevronsUpDown /></Button>
-          </CollapsibleTrigger>
-        </div>
-        <CollapsibleContent>
+      <Disclosure :heading-level="2" v-model:open="notificationsOpen" class="shrink-0">
+<template #summary><span ref="notificationsHeading" tabindex="-1" class="flex items-center gap-2"><Bell />团队来源通知</span><Badge variant="secondary">{{ notifications.length }}</Badge></template>
+
           <p v-if="!notifications.length" class="text-sm text-muted-foreground">暂无团队来源通知。</p>
           <div v-else class="flex max-h-64 flex-col gap-3 overflow-y-auto">
-            <div v-for="notification in notifications" :key="notification.id" class="flex min-w-0 flex-col gap-2 rounded-lg border p-3 text-sm">
+            <Card v-for="notification in notifications" :key="notification.id" size="compact"><CardContent class="flex min-w-0 flex-col gap-3 text-sm">
               <p class="whitespace-pre-wrap wrap-anywhere">{{ notification.text }}</p>
               <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
-            </div>
+            </CardContent></Card>
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+
+</Disclosure>
 
     <Card v-if="unknown.length" class="shrink-0">
       <CardHeader><CardTitle>待核实运行</CardTitle></CardHeader>

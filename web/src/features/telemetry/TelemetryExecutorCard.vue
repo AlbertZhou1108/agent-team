@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import {
   Card,
   CardContent,
@@ -33,8 +34,8 @@ defineProps<{
 </script>
 
 <template>
-  <Card class="min-w-0 gap-4 py-4" :data-executor-id="executor.memberId">
-    <CardHeader class="gap-1 px-4">
+  <Card size="compact" class="min-w-0 " :data-executor-id="executor.memberId">
+    <CardHeader>
       <CardTitle class="flex flex-wrap items-center gap-2 text-sm">
         <span class="min-w-0 truncate" :title="title ?? executor.name">{{ title ?? executor.name }}</span>
         <Badge variant="outline">{{ executor.host }}</Badge>
@@ -48,11 +49,11 @@ defineProps<{
         {{ physicalSessions.length }} 个物理 session · 按执行归属汇总
       </CardDescription>
     </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4 px-4">
+    <CardContent class="flex min-w-0 flex-col gap-4">
       <p v-if="batchCount === 0 && totals.totalTokens.value == null" class="text-xs text-muted-foreground">暂无执行观测</p>
       <TelemetryMetricGrid v-else :metrics="totals" />
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer">上下文、会话与采集详情</summary>
+      <Disclosure>
+        <template #summary>上下文、会话与采集详情</template>
         <div class="mt-3 flex max-h-[min(28rem,60vh)] min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="上下文、会话与采集详情内容" tabindex="0">
       <TelemetryContextCard :context-reference="contextReference" />
       <TelemetryCoveragePanel :coverage="coverage" />
@@ -71,19 +72,19 @@ defineProps<{
         >
           暂无物理 session 观测。
         </p>
-        <details
+        <Disclosure
           v-for="session in physicalSessions"
           :key="session.instanceId"
-          class="rounded-lg border p-2 text-xs"
+          variant="card"
           :data-session-id="session.instanceId"
         >
-          <summary class="flex cursor-pointer flex-wrap items-center gap-1">
+          <template #summary>
             <Badge variant="outline">{{ session.host }}</Badge>
             <Badge variant="secondary">{{
               sessionStatusLabel(session.status)
             }}</Badge>
             <span class="font-mono break-all">{{ session.instanceId }}</span>
-          </summary>
+          </template>
           <div class="mt-3 flex flex-col gap-3">
             <p class="text-muted-foreground">
               sessionKey {{ session.sessionKey }} · endpoint
@@ -103,11 +104,11 @@ defineProps<{
             />
             <TelemetryCoveragePanel :coverage="session.coverage" />
           </div>
-        </details>
+        </Disclosure>
       </section>
       <slot name="footer" />
         </div>
-      </details>
+      </Disclosure>
     </CardContent>
   </Card>
 </template>

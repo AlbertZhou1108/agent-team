@@ -24,12 +24,13 @@ defineSlots<{
   default?: () => unknown;
   footer?: () => unknown;
   composer?: () => unknown;
+  'bar-top'?: () => unknown;
+  'bar-bottom'?: () => unknown;
 }>();
 </script>
 
 <template>
   <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-    <slot name="header" />
     <slot name="context" />
     <div class="flex min-h-0 flex-1">
       <ConversationScroller
@@ -40,7 +41,11 @@ defineSlots<{
         :stream-class="streamClass"
         :content-class="contentClass"
       >
+        <!-- 工具栏随内容滚动(在滚动区内、顶栏之下);bar-* 透传给 sticky 栏。 -->
+        <slot name="header" />
         <slot />
+        <template #bar-top><slot name="bar-top" /></template>
+        <template #bar-bottom><slot name="bar-bottom" /></template>
       </ConversationScroller>
     </div>
     <slot name="footer" />

@@ -23,6 +23,8 @@ const SURFACE_ROLES = new Set([
   'media',
 ]);
 
+const COMPONENT_VARIABLES = new Set([...readFileSync(join(srcDir, 'theme/component-contract.ts'), 'utf8').matchAll(/['"](--component-[a-z-]+)['"]:/g)].map(match => match[1]));
+
 // 豁免:未接线的引擎组件、测试文件、数据级色板(内容而非样式)。
 const EXEMPT_PATHS = [
   /components\/ui\/message-scroller\//,
@@ -31,6 +33,24 @@ const EXEMPT_PATHS = [
 ];
 
 const CHECKS = [
+  {
+    name: '折叠必须复用 Disclosure / Collapsible，不能另写 details',
+    pattern: /<(?:details|summary)\b/,
+    scopes: ['components', 'features', 'pages', 'app'],
+  },
+  {
+    name: '组件变量未在五维契约注册',
+    pattern: /--component-[a-z-]+/,
+    scopes: ['components', 'features', 'pages', 'app', 'styles'],
+    validate: match => COMPONENT_VARIABLES.has(match[0]),
+    extract: match => match[0],
+  },
+  {
+    name: '公共组件不得判断设计预设(应消费解析参数)',
+    pattern: /from ['"][^'"]*theme\/design-presets|data-design-preset/,
+    scopes: ['components', 'app'],
+  },
+
   {
     name: '字面量动效时长(应消费 --motion-duration-*)',
     pattern: /duration-\[\d|duration-\d+/,
@@ -43,7 +63,15 @@ const CHECKS = [
   },
   {
     name: 'data-surface 取值未注册',
-    pattern: /data-surface="([^"]+)"/,
+    // (?<![:\w]) 只匹配字面量,放过 :data-surface="role" 这类绑定(Surface 组件内部)。
+    pattern: /(?<![:\w])data-surface="([^"]+)"/,
+    scopes: ['components', 'features', 'pages', 'app'],
+    validate: (match) => SURFACE_ROLES.has(match[1]),
+    extract: (match) => match[1],
+  },
+  {
+    name: 'Surface role 取值未注册',
+    pattern: /<Surface\b[^>]*\b(?<!:)role="([^"]+)"/,
     scopes: ['components', 'features', 'pages', 'app'],
     validate: (match) => SURFACE_ROLES.has(match[1]),
     extract: (match) => match[1],

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -207,8 +208,8 @@ async function loadMore() {
         >
       </section>
 
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
+      <Disclosure>
+        <template #summary>来源归因与去重口径</template>
         <div class="mt-3">
       <TelemetrySourceSubtotals
         v-if="summary"
@@ -218,7 +219,7 @@ async function loadMore() {
       />
 
         </div>
-      </details>
+      </Disclosure>
 
       <TelemetryBatchList
         v-if="summary"

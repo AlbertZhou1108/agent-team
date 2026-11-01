@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Input } from '@/components/ui/input';
+import { Surface } from '@/components/surface';
 import { computed, ref, watch } from 'vue';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
 import AgentTeamLogo from './AgentTeamLogo.vue';
@@ -274,8 +275,7 @@ function submitRenameFolder() {
 </script>
 
 <template>
-  <aside
-    data-surface="nav-panel"
+  <Surface role="nav-panel" as="aside"
     :class="
       cn('group-sidebar', ui.sidebarCollapsed && 'group-sidebar-collapsed')
     "
@@ -291,55 +291,23 @@ function submitRenameFolder() {
     </div>
 
     <nav aria-label="主导航" class="mt-6 flex flex-col gap-1">
-      <Button
-        :variant="homeActive ? 'secondary' : 'ghost'"
-        size="sm"
-        :class="
-          cn(
-            'home-nav-button w-full justify-start px-2',
-            homeActive && 'home-nav-button-active',
-          )
-        "
-        :aria-current="homeActive ? 'page' : undefined"
-        title="主页"
-        @click="emit('select', '')"
+      <SidebarEntry :current="homeActive" :collapsed="ui.sidebarCollapsed" title="主页" @activate="emit('select', '')">
+        <template #icon><House /></template>
+        主页
+      </SidebarEntry>
+      <SidebarEntry
+        :current="agentActive"
+        :collapsed="ui.sidebarCollapsed"
+        :label="agentUnreadCount ? `Panel Agent，${agentUnreadCount} 条新消息` : 'Panel Agent'"
+        :title="agentUnreadCount ? `Panel Agent（${agentUnreadCount} 条新消息）` : 'Panel Agent'"
+        @activate="emit('openAgent')"
       >
-        <House data-icon="inline-start" />
-        <span v-if="!ui.sidebarCollapsed">主页</span>
-      </Button>
-      <Button
-        :variant="agentActive ? 'secondary' : 'ghost'"
-        size="sm"
-        :class="
-          cn(
-            'home-nav-button relative w-full justify-start px-2',
-            agentActive && 'home-nav-button-active',
-          )
-        "
-        :aria-current="agentActive ? 'page' : undefined"
-        :aria-label="
-          agentUnreadCount
-            ? `Panel Agent，${agentUnreadCount} 条新消息`
-            : 'Panel Agent'
-        "
-        :title="
-          agentUnreadCount
-            ? `Panel Agent（${agentUnreadCount} 条新消息）`
-            : 'Panel Agent'
-        "
-        @click="emit('openAgent')"
-      >
-        <Bot data-icon="inline-start" />
-        <span v-if="!ui.sidebarCollapsed">Panel Agent</span>
-        <Badge
-          v-if="agentUnreadCount"
-          variant="default"
-          class="sidebar-unread-count"
-          aria-hidden="true"
-        >
-          {{ agentUnreadLabel }}
-        </Badge>
-      </Button>
+        <template #icon><Bot /></template>
+        Panel Agent
+        <template v-if="agentUnreadCount" #indicator>
+          <Badge variant="default" class="sidebar-unread-count" aria-hidden="true">{{ agentUnreadLabel }}</Badge>
+        </template>
+      </SidebarEntry>
     </nav>
     <div
       v-if="!ui.sidebarCollapsed"
@@ -388,11 +356,10 @@ function submitRenameFolder() {
       @dragend="clearDrag"
       @dragleave="leaveNavigation"
     >
-      <SidebarEntry v-if="pinned.length" title="置顶" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="org.toggleSection('pinned')">
+      <SidebarEntry v-if="pinned.length" title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="org.toggleSection('pinned')">
         置顶
-        <template #indicator><component :is="org.sections.pinned ? ChevronRight : ChevronDown" /></template>
       </SidebarEntry>
-      <div v-if="!org.sections.pinned && pinned.length" class="team-pinned-children">
+      <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length"><div class="team-pinned-children">
       <TeamRow :all-ids="groups.map(group => group.id)"
         v-for="group in pinned"
         :key="group.id"
@@ -408,7 +375,7 @@ function submitRenameFolder() {
         @archive="emit('archive', group.id)"
         :class="insertionClass(group.id, 'team')"
       />
-      </div>
+      </div></CollapseReveal>
       <section
         v-for="folder in org.folders"
         :key="folder.id"
@@ -426,10 +393,9 @@ function submitRenameFolder() {
           draggable="true"
           @dragstart="dragFolder(folder.id, $event)"
         >
-          <SidebarEntry :title="folder.name" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
+          <SidebarEntry :title="folder.name" :controls="`sidebar-folder-${folder.id}`" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
             {{ folder.name }}
             <template #icon><component :is="folder.collapsed ? Folder : FolderOpen" /></template>
-            <template #indicator><component :is="folder.collapsed ? ChevronRight : ChevronDown" /></template>
             <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder @rename="beginRenameFolder(folder.id, folder.name)" /></template>
           </SidebarEntry>
         </div>
@@ -452,7 +418,7 @@ function submitRenameFolder() {
             >
           </div>
         </form>
-        <CollapseReveal :show="!folder.collapsed">
+        <CollapseReveal :id="`sidebar-folder-${folder.id}`" :show="!folder.collapsed">
           <div :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
             <TeamRow :all-ids="groups.map(group => group.id)"
               v-for="group in folderTeams(folder.id)"
@@ -492,14 +458,14 @@ function submitRenameFolder() {
         <SidebarEntry
           v-if="rootTeams.length"
           title="未分组"
+          controls="sidebar-ungrouped-content"
           :expanded="!org.sections.ungrouped"
           :active="org.sections.ungrouped && rootTeams.some(g => g.id === currentGroupId)"
           @activate="org.toggleSection('ungrouped')"
         >
           未分组
-          <template #indicator><component :is="org.sections.ungrouped ? ChevronRight : ChevronDown" /></template>
         </SidebarEntry>
-        <div v-if="!org.sections.ungrouped && rootTeams.length" class="team-root-children">
+        <CollapseReveal id="sidebar-ungrouped-content" :show="!org.sections.ungrouped && !!rootTeams.length"><div class="team-root-children">
         <TeamRow :all-ids="groups.map(group => group.id)"
           v-for="group in rootTeams"
           :key="group.id"
@@ -515,7 +481,7 @@ function submitRenameFolder() {
           @archive="emit('archive', group.id)"
           :class="insertionClass(group.id, 'team')"
         />
-        </div>
+        </div></CollapseReveal>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"
@@ -561,24 +527,12 @@ function submitRenameFolder() {
     </div>
 
     <div class="sidebar-actions">
-      <Button
-        :variant="settingsActive ? 'secondary' : 'ghost'"
-        size="sm"
-        :class="
-          cn(
-            'home-nav-button w-full justify-start px-2',
-            settingsActive && 'home-nav-button-active',
-          )
-        "
-        :aria-current="settingsActive ? 'page' : undefined"
-        :title="ui.sidebarCollapsed ? '设置' : '打开设置'"
-        @click="emit('openSettings')"
-      >
-        <Settings2 />
-        <span v-if="!ui.sidebarCollapsed">设置</span>
-      </Button>
+      <SidebarEntry :current="settingsActive" :collapsed="ui.sidebarCollapsed" label="设置" :title="ui.sidebarCollapsed ? '设置' : '打开设置'" @activate="emit('openSettings')">
+        <template #icon><Settings2 /></template>
+        设置
+      </SidebarEntry>
 
       <SidebarCollapseButton side="left" :collapsed="ui.sidebarCollapsed" @toggle="ui.toggleSidebar()" />
     </div>
-  </aside>
+  </Surface>
 </template>

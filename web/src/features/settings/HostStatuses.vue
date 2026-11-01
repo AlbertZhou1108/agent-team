@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
@@ -81,12 +82,12 @@ async function install(host: HostStatus) {
       </Button>
     </div>
     <Alert v-if="statuses.error.value" variant="destructive">
-      <AlertDescription>检测失败，请检查服务连接后重新检测。<details><summary>错误详情</summary><pre class="whitespace-pre-wrap break-words">{{ message(statuses.error.value) }}</pre></details></AlertDescription>
+      <AlertDescription>检测失败，请检查服务连接后重新检测。<Disclosure><template #summary>错误详情</template><pre class="whitespace-pre-wrap break-words">{{ message(statuses.error.value) }}</pre></Disclosure></AlertDescription>
     </Alert>
     <p v-if="statuses.isPending.value" role="status" class="text-sm text-muted-foreground">正在检测适配器…</p>
     <Alert v-if="installations.error.value" variant="destructive"><AlertDescription>安装进度暂时无法更新，以下可能是上次记录。请检查服务连接。
       <Button type="button" variant="outline" size="sm" :disabled="refreshing" @click="refresh">重试</Button>
-      <details><summary>错误详情</summary><pre class="whitespace-pre-wrap break-words">{{ message(installations.error.value) }}</pre></details>
+      <Disclosure><template #summary>错误详情</template><pre class="whitespace-pre-wrap break-words">{{ message(installations.error.value) }}</pre></Disclosure>
     </AlertDescription></Alert>
     <Empty v-if="statuses.isSuccess.value && !hosts.length"><EmptyHeader><EmptyTitle>暂无可检测的适配器</EmptyTitle><EmptyDescription>请在服务中配置适配器后重新检测。</EmptyDescription></EmptyHeader></Empty>
     <ItemGroup class="gap-2" aria-live="polite">
@@ -96,9 +97,9 @@ async function install(host: HostStatus) {
           <p v-if="host.installation || busy(host)" role="status" class="text-xs text-muted-foreground">
             {{ phases[host.installation?.phase ?? 'checking'] }}
           </p>
-          <details v-if="host.reason" class="text-xs text-muted-foreground"><summary>检测详情</summary><pre class="whitespace-pre-wrap break-words">{{ host.reason }}</pre></details>
+          <Disclosure v-if="host.reason"><template #summary>检测详情</template><pre class="whitespace-pre-wrap break-words">{{ host.reason }}</pre></Disclosure>
           <Alert v-if="failures[host.name] || host.installation?.reason" variant="destructive">
-            <AlertDescription>安装未完成。请查看详情，修正安装条件后重试。<details><summary>错误详情</summary><pre class="whitespace-pre-wrap break-words">{{ failures[host.name] || host.installation?.reason }}</pre></details></AlertDescription>
+            <AlertDescription>安装未完成。请查看详情，修正安装条件后重试。<Disclosure><template #summary>错误详情</template><pre class="whitespace-pre-wrap break-words">{{ failures[host.name] || host.installation?.reason }}</pre></Disclosure></AlertDescription>
           </Alert>
         </ItemContent>
         <p v-if="host.status === 'missing'" class="text-xs text-muted-foreground">安装到运行服务的机器，{{ host.name === 'claude' ? '使用官方安装脚本' : '使用 npm 全局安装' }}。</p>

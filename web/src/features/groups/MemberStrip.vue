@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  Item,
-  ItemGroup,
-  ItemMedia,
-  ItemContent,
-  ItemTitle,
-  ItemDescription,
-} from '@/components/ui/item';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
 import { Radio, SlidersVertical, Users } from '@lucide/vue';
@@ -27,37 +20,32 @@ const emit = defineEmits<{
 
 <template>
   <PanelState v-if="!members.length" :icon="Users" title="暂无成员" />
-  <ItemGroup v-else class="gap-2">
-    <Item
+  <div v-else class="flex flex-col gap-3">
+    <Card
       v-for="member in members"
       :key="member.id"
-      variant="outline"
-      class="items-start"
+      size="compact"
     >
-      <ItemMedia
+      <CardHeader>
+      <div class="flex min-w-0 items-start gap-3">
+      <div
         ><Avatar
           ><AvatarFallback>{{
             member.name.slice(0, 1)
           }}</AvatarFallback></Avatar
-        ></ItemMedia
+        ></div
       >
-      <ItemContent>
-        <ItemTitle>{{ member.name }}<Badge v-if="member.role === 'lead' && member.name !== '主 Agent'" variant="outline">主 Agent</Badge></ItemTitle>
-        <ItemDescription
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <CardTitle>{{ member.name }}<Badge v-if="member.role === 'lead' && member.name !== '主 Agent'" variant="outline">主 Agent</Badge></CardTitle>
+        <CardDescription
           >{{ member.host }} ·
           {{ member.model_provider ? `${member.model_provider}/` : ''
-          }}{{ member.model ?? '默认模型' }}</ItemDescription
+          }}{{ member.model ?? '默认模型' }}</CardDescription
         >
-        <ItemDescription v-if="member.reasoning_effort"
-          >思考强度 · {{ member.reasoning_effort }}</ItemDescription
+        <CardDescription v-if="member.reasoning_effort"
+          >思考强度 · {{ member.reasoning_effort }}</CardDescription
         >
-        <ExpandableText
-          v-if="member.profile"
-          class="mt-2 text-sm text-muted-foreground"
-          :lines="3"
-          :text="member.profile"
-        />
-      </ItemContent>
+      </div>
       <div
         class="flex flex-col items-end gap-2"
         v-if="
@@ -71,6 +59,7 @@ const emit = defineEmits<{
           ><Radio />运行中</Badge
         >
       </div>
+      <CardAction>
       <Button
         variant="ghost"
         size="icon-xs"
@@ -81,6 +70,17 @@ const emit = defineEmits<{
       >
         <SlidersVertical />
       </Button>
-    </Item>
-  </ItemGroup>
+      </CardAction>
+      </div>
+      </CardHeader>
+      <CardContent v-if="member.profile">
+        <ExpandableText
+          v-if="member.profile"
+          class="mt-2 text-sm text-muted-foreground"
+          :lines="3"
+          :text="member.profile"
+        />
+      </CardContent>
+    </Card>
+  </div>
 </template>

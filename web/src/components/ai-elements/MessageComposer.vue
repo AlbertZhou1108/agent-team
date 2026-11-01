@@ -10,6 +10,7 @@ import {
   InputGroupTextarea,
 } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
+import { Surface } from '@/components/surface';
 import { ATTACHMENT_ACCEPT } from '@/shared/attachment-types';
 import { useUiStore } from '@/stores/ui';
 export type ComposerAttachmentStatus = 'uploading' | 'ready' | 'failed';
@@ -238,10 +239,8 @@ function keyboardResize(event: KeyboardEvent) {
       @change="onFileChange"
     />
   </form>
-  <form
-    v-else
+  <Surface v-else role="action" as="form"
     :class="cn('agent-ai-composer', resizing && 'is-resizing', dragging && 'is-dragging')"
-    data-surface="action"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
     @dragenter="onDragEnter"
@@ -379,14 +378,14 @@ function keyboardResize(event: KeyboardEvent) {
         :aria-label="'选择附件文件'"
         @change="onFileChange"
       />
-    </form>
+    </Surface>
 </template>
 
 <style scoped>
 /* 简洁输入区:单行输入 + 操作。与展开态共用输入组件的视觉,只是高度收敛;
    内边距对齐展开态(.agent-ai-composer 的 10/14/12),避免在 px-0 的帧容器里贴边。 */
 .agent-composer-compact {
-  padding: 0 14px 12px;
+  padding: 0 16px 12px;
 }
 
 .agent-composer-compact :deep([data-slot="input-group"]) {

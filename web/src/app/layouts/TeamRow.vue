@@ -30,7 +30,7 @@ const emit = defineEmits<{
     @dragleave="emit('leave', $event)"
     @drop="emit('reorder', $event)"
   >
-    <SidebarEntry :color="org.teams[group.id]?.color" :active="active || selected" :current="active" :title="`${group.name} · ${group.id}`" @activate="emit('select', $event)">
+    <SidebarEntry :color="org.teams[group.id]?.color" :active="active" :current="active" :selected="selected" :pressed="selected" :title="`${group.name} · ${group.id}`" @activate="emit('select', $event)">
       {{ collapsed ? group.name.slice(0, 1) : group.name }}
       <template v-if="!collapsed" #actions><TeamMenu :id="group.id" :all-ids="allIds" :name="group.name" :archived="group.state === 'archived'" @archive="emit('archive')" /></template>
     </SidebarEntry>

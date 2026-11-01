@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { Clock3 } from '@lucide/vue';
@@ -63,8 +64,8 @@ const stepCount = computed(() =>
 </script>
 
 <template>
-  <details class="inline-trace text-xs text-muted-foreground" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
-    <summary><Clock3 class="size-3.5" />执行轨迹</summary>
+  <Disclosure class="inline-trace" @update:open="expanded = $event">
+    <template #summary><Clock3 class="size-3.5" />执行轨迹</template>
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value || (turnId && turnQuery.isPending.value)" loading title="正在读取执行轨迹" />
       <PanelState v-else-if="traceQuery.isError.value || turnQuery.isError.value" title="轨迹加载失败">
@@ -76,5 +77,5 @@ const stepCount = computed(() =>
         <TraceTimeline :turns="turns" />
       </div>
     </template>
-  </details>
+  </Disclosure>
 </template>

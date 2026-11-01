@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
@@ -6,7 +7,6 @@ import { toast } from 'vue-sonner';
 import {
   Archive,
   ArrowLeft,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -29,11 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -55,11 +51,6 @@ import AppearanceSample from './AppearanceSample.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import {
-  applyDensity,
-  applyMaterial,
-  applyMotion,
-  applyReading,
-  applyTheme,
   isCodeSize,
   isDensity,
   isMaterialPreference,
@@ -69,6 +60,7 @@ import {
 } from '@/theme/apply';
 import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
 import { resolveThemePack, resolveTokens } from '@/theme/resolve';
+import { DESIGN_PRESETS, isDesignPresetId, legacyDesignPreset } from '@/theme/design-presets';
 import { MATERIAL_CATEGORIES } from '@/theme/materials';
 import {
   APPEARANCE_PRESET_MAX,
@@ -174,6 +166,7 @@ const deletingCombo = ref<AppearancePreset | null>(null);
 const activeComboId = computed(() => {
   const match = appearancePresets.value.find(
     (preset) =>
+      (preset.designPreset ?? legacyDesignPreset(preset.materialPreference)) === preferences.designPreset &&
       preset.colorMode === preferences.colorMode &&
       preset.themePack === preferences.themePack &&
       preset.materialPreference === preferences.materialPreference &&
@@ -187,6 +180,7 @@ const activeComboId = computed(() => {
 const themePreviewDark = computed(() => resolveDark(preferences.colorMode));
 
 function restoreAppearanceDefaults() {
+  preferences.setDesignPreset('classic', false);
   preferences.setColorMode(APPEARANCE_DEFAULTS.colorMode);
   const classic = allThemePacks.value.find((item) => item.id === CLASSIC_THEME_ID);
   preferences.setThemePack(
@@ -203,6 +197,7 @@ function savePreset() {
   if (!name) return;
   const preset: AppearancePreset = {
     id: newPresetId(),
+    designPreset: preferences.designPreset,
     name: name.slice(0, APPEARANCE_PRESET_NAME_MAX),
     colorMode: preferences.colorMode,
     themePack: preferences.themePack,
@@ -216,6 +211,7 @@ function savePreset() {
 }
 
 function applyPreset(preset: AppearancePreset) {
+  preferences.setDesignPreset(preset.designPreset ?? legacyDesignPreset(preset.materialPreference), false);
   // 预设引用的主题缺失时按维度回落到内置主题,并把最终选择如实保存与显示。
   const pack = resolveThemePack(preset.themePack, allThemePacks.value);
   preferences.setColorMode(preset.colorMode);
@@ -680,6 +676,7 @@ watch(
     <div :class="embedded ? 'settings-page' : undefined">
       <component
         :is="embedded ? Card : DialogContent"
+        :data-surface="embedded ? 'context-panel' : 'overlay'"
         v-if="open || embedded"
         :class="
           embedded
@@ -713,6 +710,13 @@ watch(
               <TabsTrigger value="teams">团队管理</TabsTrigger>
             </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
+          <section class="flex flex-col gap-3">
+            <h3 class="text-sm font-semibold">设计预设</h3>
+            <ToggleGroup presentation="segmented" type="single" :model-value="preferences.designPreset" variant="outline" aria-label="设计预设" @update:model-value="value => { if (isDesignPresetId(value)) preferences.setDesignPreset(value); }">
+              <ToggleGroupItem v-for="preset in DESIGN_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</ToggleGroupItem>
+            </ToggleGroup>
+            <p class="text-xs text-muted-foreground">选择预设后仍可单独调整配色、材质、动效和密度，保留你的阅读设置。</p>
+          </section>
           <AppearanceSample />
           <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-start justify-between gap-2">
@@ -767,7 +771,7 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">显示模式</h3>
             </div>
-            <ToggleGroup
+            <ToggleGroup presentation="segmented"
               type="single"
               :model-value="preferences.colorMode"
               :spacing="2"
@@ -794,7 +798,7 @@ watch(
                 作用于弹窗、下拉、折叠与加载动画的节奏；跟随系统时响应系统偏好，明确选择后以应用内为准。
               </p>
             </div>
-            <ToggleGroup
+            <ToggleGroup presentation="segmented"
               type="single"
               :model-value="preferences.motionPreference"
               :spacing="2"
@@ -817,14 +821,14 @@ watch(
             <div>
               <h3 class="text-sm font-semibold">材质</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                玻璃作用于导航与上下文面板（见顶部样例）；阅读区与浮层保持实色，效果不可用时自动回落。
+                玻璃作用于导航、上下文面板、会话操作区与菜单弹窗；阅读区保持实色，效果不可用时自动回落。
               </p>
             </div>
-            <ToggleGroup
+            <ToggleGroup presentation="segmented"
               type="single"
               :model-value="preferences.materialPreference"
               :spacing="2"
-              class="grid w-full grid-cols-2"
+              class="grid w-full grid-cols-3"
               @update:model-value="selectMaterialPreference"
             >
               <ToggleGroupItem
@@ -844,7 +848,7 @@ watch(
               <h3 class="text-sm font-semibold">密度</h3>
               <p class="mt-1 text-xs text-muted-foreground">调整会话区与列表的间距留白（见顶部样例），不改变正文大小。</p>
             </div>
-            <ToggleGroup
+            <ToggleGroup presentation="segmented"
               type="single"
               :model-value="preferences.density"
               :spacing="2"
@@ -881,7 +885,7 @@ watch(
                 class="flex flex-col gap-2"
               >
                 <p class="text-xs text-muted-foreground">{{ group.label }}</p>
-                <ToggleGroup
+                <ToggleGroup presentation="segmented"
                   type="single"
                   :model-value="group.value"
                   :spacing="2"
@@ -904,22 +908,10 @@ watch(
           </section>
 
           <section class="flex flex-col gap-3">
-            <Collapsible v-model:open="themeOpen" class="flex min-w-0 flex-col gap-3">
-              <div class="flex items-center justify-between gap-2">
-                <div>
-                  <h3 class="text-sm font-semibold">主题</h3>
-                  <p class="mt-1 text-xs text-muted-foreground">
-                    点击卡片即切换，与深色模式组合生效；自定义主题删除后可重新上传。
-                  </p>
-                </div>
-                <CollapsibleTrigger as-child>
-                  <Button variant="ghost" size="sm" :aria-label="themeOpen ? '收起主题' : '展开主题'">
-                    <span class="tabular-nums">{{ allThemePacks.length }}</span>
-                    <ChevronDown v-if="themeOpen" /><ChevronRight v-else />
-                  </Button>
-                </CollapsibleTrigger>
-              </div>
-              <CollapsibleContent class="flex flex-col gap-2">
+            <Disclosure :heading-level="3" v-model:open="themeOpen" >
+<template #summary><span>主题</span><Badge>{{ allThemePacks.length }}</Badge></template>
+<template #description>点击卡片即切换，与深色模式组合生效；自定义主题删除后可重新上传。</template>
+<div class="flex flex-col gap-2">
                 <div class="flex items-center gap-1">
                   <Button
                     variant="ghost"
@@ -1001,8 +993,8 @@ watch(
                     <ChevronRight />
                   </Button>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              </div>
+</Disclosure>
           </section>
           </TabsContent>
 
@@ -1108,25 +1100,10 @@ watch(
             </div>
 
             <!-- 用户配置:分组标题与左侧栏一致(整行可折叠,箭头在右) + 固定高度滚动 -->
-            <Collapsible v-if="mode === 'user'" v-model:open="presetsOpen" class="flex flex-col gap-2">
-              <div class="flex w-full min-w-0 items-center gap-1">
-                <CollapsibleTrigger as-child>
-                  <button
-                    type="button"
-                    class="flex min-w-0 flex-1 appearance-none items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
-                    style="border: 0"
-                    :aria-expanded="presetsOpen"
-                  >
-                    <span class="min-w-0 flex-1 truncate">用户配置</span>
-                    <span class="font-mono text-xs font-normal">{{ listedPresets.length }}</span>
-                    <component :is="presetsOpen ? ChevronDown : ChevronRight" class="shrink-0" />
-                  </button>
-                </CollapsibleTrigger>
-                <Button size="sm" class="shrink-0" @click="beginCreatePreset">
-                  创建配置
-                </Button>
-              </div>
-              <CollapsibleContent class="flex flex-col gap-2">
+            <Disclosure :heading-level="3" v-model:open="presetsOpen" v-if="mode === 'user'">
+<template #summary><span>用户配置</span><Badge>{{ listedPresets.length }}</Badge></template>
+<template #actions><Button size="sm" @click="beginCreatePreset">创建配置</Button></template>
+<div class="flex flex-col gap-2">
                 <!-- 空态判断用 listedPresets:内置"默认规则"始终在列,不能被空态一起隐藏 -->
                 <p v-if="!listedPresets.length" class="px-2 text-xs leading-5 text-muted-foreground">
                   点「创建配置」新建一份可复用的策略配置；配置数量不限。
@@ -1192,8 +1169,8 @@ watch(
                   </template>
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              </div>
+</Disclosure>
 
           </section>
 
@@ -1205,25 +1182,13 @@ watch(
           <TabsContent value="teams" class="flex flex-col gap-6">
 
           <section class="flex flex-col gap-3 pt-6">
-            <Collapsible v-model:open="archivedOpen" class="flex min-w-0 flex-col gap-3">
-            <div class="flex items-center justify-between gap-2">
-              <div>
-              <h3 class="text-sm font-semibold">归档团队</h3>
-              <p class="mt-1 text-xs text-muted-foreground">
-                归档团队不再接收消息；恢复后可继续沟通。
-              </p>
-              </div>
-              <CollapsibleTrigger v-if="archivedTeams?.length" as-child>
-                <Button variant="ghost" size="sm" :aria-label="archivedOpen ? '收起归档团队' : '展开归档团队'">
-                  <span class="tabular-nums">{{ archivedTeams.length }}</span>
-                  <ChevronDown v-if="archivedOpen" /><ChevronRight v-else />
-                </Button>
-              </CollapsibleTrigger>
-            </div>
+            <Disclosure :heading-level="3" :open="!archivedTeams?.length || archivedOpen" :disabled="!archivedTeams?.length" @update:open="archivedOpen = $event">
+<template #summary><span>归档团队</span><Badge>{{ archivedTeams?.length ?? 0 }}</Badge></template>
+<template #description>归档团队不再接收消息；恢复后可继续沟通。</template>
             <Empty v-if="!archivedTeams?.length">
               <EmptyHeader><EmptyTitle>没有归档团队</EmptyTitle></EmptyHeader>
             </Empty>
-            <CollapsibleContent v-else>
+
             <div class="flex max-h-72 flex-col gap-2 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="归档团队列表" tabindex="0">
               <div
                 v-for="team in archivedTeams"
@@ -1252,8 +1217,8 @@ watch(
                 >
               </div>
             </div>
-            </CollapsibleContent>
-            </Collapsible>
+
+</Disclosure>
           </section>
           </TabsContent>
           </Tabs>

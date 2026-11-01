@@ -3,8 +3,8 @@ import { createSSRApp, defineComponent, h } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import ConversationWorkspace from './ConversationWorkspace.vue';
 
-vi.mock('@/components/ai-elements/ConversationFrame.vue', () => ({ default: defineComponent({ props: ['readonly'], setup: (props, { slots }) => () => h('section', [slots.default?.(), !props.readonly ? slots.composer?.() : null]) }) }));
-vi.mock('./MessageFeed.vue', () => ({ default: defineComponent({ props: ['messages', 'groupSystemMessages', 'streamSource', 'markdown'], setup: (props, { slots }) => () => h('div', { 'data-grouped': String(props.groupSystemMessages), 'data-markdown': String(props.markdown) }, [slots.empty?.(), slots.footer?.({ message: props.messages[0] })]) }) }));
+vi.mock('@/components/ai-elements/ConversationFrame.vue', () => ({ default: defineComponent({ setup: (_props, { slots }) => () => h('section', [slots.default?.()]) }) }));
+vi.mock('./MessageFeed.vue', () => ({ default: defineComponent({ props: ['messages', 'groupSystemMessages', 'streamSource', 'markdown'], setup: (props, { slots }) => () => h('div', { 'data-grouped': String(props.groupSystemMessages), 'data-markdown': String(props.markdown) }, [slots['bar-top']?.(), slots.empty?.(), slots.footer?.({ message: props.messages[0] }), slots['bar-bottom']?.()]) }) }));
 
 function render(readonly: boolean, stream: () => []) {
   return renderToString(createSSRApp({ render: () => h(ConversationWorkspace, { heading: '会话', messages: [{ id: 'one' }] as any, selectedPair: '', readonly, streamSource: stream }, { composer: () => h('textarea', { 'aria-label': '草稿' }), footer: ({ message }: any) => h('span', { 'data-receipt': message.id }, '回执'), actions: () => h('button', '模型设置') }) }));

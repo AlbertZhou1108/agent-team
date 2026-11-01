@@ -12,12 +12,12 @@ function load() {
       sidebarWidth: 248,
       contextWidth: 360,
       composerHeight: 96,
-      composerCollapsed: false,
+      composerCollapsed: true,
       runCardCollapsed: false,
       ...JSON.parse(localStorage.getItem(storageKey) ?? '{}'),
     };
   } catch {
-    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: false, runCardCollapsed: false };
+    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true, runCardCollapsed: false };
   }
 }
 

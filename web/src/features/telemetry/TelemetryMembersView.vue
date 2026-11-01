@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +26,12 @@ const capabilitiesQuery = useTelemetryCapabilitiesQuery(
 
 const data = computed(() => query.data.value);
 const selectedId = ref('');
-watch(() => props.groupId, () => { selectedId.value = ''; });
+const detailsOpen = ref(false);
+watch(() => props.groupId, () => { selectedId.value = ''; detailsOpen.value = false; });
+function selectMember(id: string) {
+  selectedId.value = id;
+  detailsOpen.value = true;
+}
 const selectedMember = computed(() => data.value?.members.find(m => m.executor.memberId === selectedId.value)
   ?? [...(data.value?.members ?? [])].sort((a, b) => (numeric(b.totals.totalTokens) ?? -1) - (numeric(a.totals.totalTokens) ?? -1))[0]);
 const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
@@ -75,9 +81,9 @@ function capabilitySummary(host: string): string {
       title="暂无成员遥测"
     />
     <template v-else>
-      <TelemetryMemberComparison :members="data.members" :selected-id="selectedMember?.executor.memberId" @select="selectedId = $event" />
-      <details v-if="selectedMember" :open="Boolean(selectedId)" class="text-sm">
-        <summary class="cursor-pointer py-2">{{ selectedMember.executor.name }} · 执行详情</summary>
+      <TelemetryMemberComparison :members="data.members" :selected-id="selectedMember?.executor.memberId" @select="selectMember" />
+      <Disclosure v-if="selectedMember" v-model:open="detailsOpen">
+        <template #summary>{{ selectedMember.executor.name }} · 执行详情</template>
       <TelemetryExecutorCard
         v-if="selectedMember"
         :key="selectedMember.executor.memberId"
@@ -94,10 +100,10 @@ function capabilitySummary(host: string): string {
           </div>
         </template>
       </TelemetryExecutorCard>
-      </details>
+      </Disclosure>
 
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
+      <Disclosure>
+        <template #summary>来源归因与去重口径</template>
         <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="data.sourceAnalysis.actors"
@@ -107,16 +113,16 @@ function capabilitySummary(host: string): string {
       />
 
         </div>
-      </details>
+      </Disclosure>
 
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer font-medium">
+      <Disclosure>
+        <template #summary>
           宿主采集能力
-        </summary>
+        </template>
         <div class="mt-3">
           <TelemetryCapabilitiesView :group-id="groupId" />
         </div>
-      </details>
+      </Disclosure>
     </template>
   </div>
 </template>

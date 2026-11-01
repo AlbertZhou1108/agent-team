@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -44,8 +45,8 @@ function display(key: keyof TelemetryMetrics) {
       <span class="shrink-0 text-xs text-muted-foreground">缓存读取占输入</span>
       <Progress :model-value="cache" :aria-label="`缓存读取占输入 ${cache.toFixed(1)}%`" class="h-1.5" />
     </div>
-    <details v-if="showDetail" class="text-xs text-muted-foreground">
-      <summary class="w-fit cursor-pointer">全部指标与来源</summary>
+    <Disclosure v-if="showDetail">
+      <template #summary>全部指标与来源</template>
       <dl class="mt-3 flex max-h-[min(24rem,50vh)] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="全部指标与来源内容" tabindex="0">
         <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-col gap-1">
           <div class="flex flex-wrap items-center justify-between gap-2 text-foreground"><dt>{{ METRIC_LABELS[key] }}</dt><dd>{{ metricDisplay(metrics[key], key) }} <TelemetryMetricBadge :metric="metrics[key]" compact /></dd></div>
@@ -56,6 +57,6 @@ function display(key: keyof TelemetryMetrics) {
           <span>采样：{{ formatTimestamp(metrics[key].observedAt) }}</span>
         </div>
       </dl>
-    </details>
+    </Disclosure>
   </div>
 </template>

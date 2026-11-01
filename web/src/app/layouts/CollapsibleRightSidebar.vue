@@ -2,6 +2,7 @@
 import type { Component } from 'vue';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Surface } from '@/components/surface';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
 
 withDefaults(defineProps<{
@@ -17,7 +18,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <Card class="min-h-0 min-w-0 gap-4 overflow-hidden py-4">
+  <!-- 本组件职能上就是上下文面板载体:角色天然固有,经 Surface 写入契约。 -->
+  <Surface role="context-panel" :as="Card" class="min-h-0 min-w-0 gap-4 overflow-hidden py-4">
     <div v-show="!collapsed" class="flex min-h-0 flex-1 flex-col">
       <slot />
     </div>
@@ -40,5 +42,5 @@ const emit = defineEmits<{
         @toggle="emit('update:collapsed', !collapsed)"
       />
     </div>
-  </Card>
+  </Surface>
 </template>

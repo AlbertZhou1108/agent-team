@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -73,8 +74,8 @@ async function loadMore() {
         >
       </section>
 
-      <details class="text-xs text-muted-foreground">
-        <summary class="w-fit cursor-pointer">来源归因与去重口径</summary>
+      <Disclosure>
+        <template #summary>来源归因与去重口径</template>
         <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="summary.sourceSubtotals"
@@ -83,7 +84,7 @@ async function loadMore() {
       />
 
         </div>
-      </details>
+      </Disclosure>
 
       <TelemetryBatchList
         :batches="query.batches.value"

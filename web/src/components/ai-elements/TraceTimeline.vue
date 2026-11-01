@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import PanelState from '@/components/panel/PanelState.vue';
 import RecordPanel from '@/components/panel/RecordPanel.vue';
 import { ItemGroup } from '@/components/ui/item';
@@ -60,12 +61,12 @@ defineProps<{ turns: TurnView[] }>();
           />
         </div>
         <template v-if="turn.id !== 'unknown'" #footer>
-        <details
-          class="text-xs text-muted-foreground"
+        <Disclosure
+
         >
-          <summary class="w-fit cursor-pointer">回合标识</summary>
+          <template #summary>回合标识</template>
           <p class="mt-2 break-all font-mono">{{ turn.id }}</p>
-        </details>
+        </Disclosure>
         </template>
     </RecordPanel>
     <PanelState v-if="!turns.length" :icon="CircleDot" title="暂无执行轨迹" description="会话开始执行后，步骤和结果会显示在这里。" />

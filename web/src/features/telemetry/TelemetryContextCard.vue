@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { computed } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import type { TelemetryContextReference } from '@/shared/api/raw-types';
@@ -32,13 +33,16 @@ const metrics = computed(() =>
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
+  <Card size="compact">
+    <CardHeader>
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h4 class="text-xs font-semibold">
+      <CardTitle>
         {{ title ?? '上下文参考（最近请求采样）' }}
-      </h4>
+      </CardTitle>
       <Badge variant="outline">不可相加</Badge>
     </div>
+    </CardHeader>
+    <CardContent class="flex min-w-0 flex-col gap-3">
     <dl
       class="grid gap-x-3 gap-y-2"
       :class="columns === 1 ? 'grid-cols-1' : 'grid-cols-3'"
@@ -70,5 +74,6 @@ const metrics = computed(() =>
     <p class="text-2xs text-muted-foreground">
       最近请求输入与窗口容量是采样值，不是累计消耗，也不预测下一次请求占用。
     </p>
-  </section>
+    </CardContent>
+  </Card>
 </template>

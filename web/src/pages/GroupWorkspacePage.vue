@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -843,7 +844,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       @lostpointercapture="endResize"
       @keydown="keyboardResize($event, 'left')"
     />
-    <main class="min-w-0 bg-muted/40 p-3 sm:p-4">
+    <main class="min-w-0 p-3 sm:p-4 xl:pl-0">
       <SettingsDialog
         v-if="isSettingsRoute"
         :open="true"
@@ -945,7 +946,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           :collapsed-actions="contextTabs"
           :active-action="contextPanel"
           desktop-only-toggle
-          data-surface="context-panel"
           @update:collapsed="ui.persist()"
           @action="setContextPanel"
           :class="[
@@ -998,8 +998,8 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 class="flex flex-col gap-5"
               >
                 <TelemetryMembersView :group-id="groupId" />
-                <details class="text-sm text-muted-foreground">
-                  <summary class="w-fit cursor-pointer">成员资料与模型（{{ currentMembers.length }}）</summary>
+                <Disclosure>
+                  <template #summary>成员资料与模型（{{ currentMembers.length }}）</template>
                   <div class="mt-3">
                 <MemberStrip
                   :members="currentMembers"
@@ -1008,7 +1008,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   @edit-model="openMemberModelDialog"
                 />
                       </div>
-                    </details>
+                    </Disclosure>
                   </div>
               <SessionList
                 v-else-if="contextPanel === 'sessions'"

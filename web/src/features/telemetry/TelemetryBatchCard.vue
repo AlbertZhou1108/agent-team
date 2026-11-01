@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { compactNumber, numeric } from './visuals';
 import {
@@ -43,8 +44,8 @@ const roleLabels: Record<
 </script>
 
 <template>
-  <details class="min-w-0 rounded-lg border p-3">
-    <summary class="flex cursor-pointer flex-col gap-1 text-xs">
+  <Disclosure variant="card" class="min-w-0">
+    <template #summary>
       <span class="flex items-center justify-between gap-3">
         <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
         <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
@@ -55,13 +56,13 @@ const roleLabels: Record<
         <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
         <span>展开执行详情</span>
       </span>
-    </summary>
-  <Card
-    class="min-w-0 gap-3 py-4"
+    </template>
+  <Card size="compact"
+    class="min-w-0"
     :class="shared ? 'border-primary/50' : undefined"
     :data-batch-id="batch.batchId"
   >
-    <CardHeader class="gap-1 px-4">
+    <CardHeader>
       <CardTitle class="break-all text-sm">
         {{ batch.frameworkTurnId }}
       </CardTitle>
@@ -75,7 +76,7 @@ const roleLabels: Record<
         }}</Badge>
       </CardDescription>
     </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4 px-4">
+    <CardContent class="flex min-w-0 flex-col gap-4">
       <div class="flex flex-wrap gap-1">
         <Badge
           v-for="label in mergeLabels"
@@ -162,10 +163,10 @@ const roleLabels: Record<
         </AlertDescription>
       </Alert>
 
-      <details class="text-xs">
-        <summary class="w-fit cursor-pointer">
+      <Disclosure>
+        <template #summary>
           尝试视图（{{ batch.attempts.length }}）· 不与批次指标相加
-        </summary>
+        </template>
         <div class="mt-2 flex flex-col gap-2">
           <p v-if="!batch.attempts.length" class="text-muted-foreground">
             无尝试级记录。
@@ -173,8 +174,7 @@ const roleLabels: Record<
           <div
             v-for="attempt in batch.attempts"
             :key="attempt.attemptId"
-            class="rounded-lg border p-2"
-          >
+          ><Card size="compact"><CardContent class="flex min-w-0 flex-col gap-2">
             <div class="flex flex-wrap items-center gap-1">
               <span class="font-mono break-all">{{ attempt.attemptId }}</span>
               <Badge variant="outline">{{ batchStateLabel(attempt.state) }}</Badge>
@@ -195,14 +195,14 @@ const roleLabels: Record<
             <p v-else class="mt-2 text-muted-foreground">
               无独立尝试级指标视图；已知部分保留在批次指标中。null 不等于 0，不推断为未消耗。
             </p>
-          </div>
+          </CardContent></Card></div>
         </div>
-      </details>
+      </Disclosure>
 
-      <details class="text-xs">
-        <summary class="w-fit cursor-pointer">
+      <Disclosure>
+        <template #summary>
           来源回查（{{ batch.provenance.length }}）
-        </summary>
+        </template>
         <ul class="mt-2 flex flex-col gap-1">
           <li
             v-for="(item, index) in batch.provenance"
@@ -218,7 +218,7 @@ const roleLabels: Record<
             无来源记录。
           </li>
         </ul>
-      </details>
+      </Disclosure>
       <p v-if="batch.attempts.some(attempt => attempt.metrics === null)" class="text-2xs text-muted-foreground">
         部分尝试无独立指标视图（null），null 不等于 0，不推断为未消耗；其已知用量仍在批次指标内。缺失原因示例：{{
           missingReasonLabel('not_captured')
@@ -226,5 +226,5 @@ const roleLabels: Record<
       </p>
     </CardContent>
   </Card>
-  </details>
+  </Disclosure>
 </template>
