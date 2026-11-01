@@ -393,24 +393,31 @@
 }
 
 .conversation-header {
+  /* 顶栏钉在全宽滚动口上沿;ScrollArea 的覆盖式滚动条不占布局槽位。 */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
   display: flex;
   min-height: var(--density-header-min, 62px);
   align-items: center;
   gap: 11px;
   padding: var(--density-header-pad, 11px 16px);
-  background-color: var(--surface-action-bg, transparent);
-  background-image: var(--surface-action-image, none);
-  backdrop-filter: var(--surface-action-blur, none);
-  -webkit-backdrop-filter: var(--surface-action-blur, none);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+
+/* 底栏 sticky 载体:滚动列的直接子元素。sticky 元素只能在包含块内移动,
+   所以钉住的是这层 wrapper 而非输入区组件自身 —— 组件常自带根 wrapper,
+   内层 sticky 会被约束得没有粘住余量。 */
+.conversation-bar-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
 }
 
 .agent-ai-composer {
   position: relative;
   padding: var(--density-composer-pad, 10px 14px 12px);
-  background-color: var(--surface-action-bg, transparent);
-  background-image: var(--surface-action-image, none);
-  backdrop-filter: var(--surface-action-blur, none);
-  -webkit-backdrop-filter: var(--surface-action-blur, none);
 }
 
 .agent-composer-resize-handle {
@@ -497,6 +504,7 @@ button {
 
 .app-shell {
   display: grid;
+  background: color-mix(in oklab, var(--muted) 40%, var(--background));
   grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
   min-height: 100vh;
 }
@@ -506,26 +514,27 @@ button {
 }
 
 .group-sidebar {
+  /* 与右栏同语言:浮起的圆角卡片,不再全高直角贴边。
+     高度用 dvh 而非 vh:跟随真实可见视口(宿主浏览器收缩 chrome 时
+     vh 会大于可见区,卡片下方会露出一段页面底色)。 */
   position: sticky;
-  top: 0;
+  top: var(--component-sidebar-inset, 12px);
   z-index: 20;
   display: flex;
-  height: 100vh;
+  height: calc(100dvh - var(--component-sidebar-inset, 12px) * 2);
   min-width: 0;
   flex-direction: column;
+  margin: var(--component-sidebar-inset, 12px);
+  border: 1px solid var(--border);
+  border-radius: var(--component-panel-radius, var(--radius, 0.5rem));
   padding: 20px 12px;
   overflow: hidden;
-  border-right: 1px solid var(--border);
-  background: var(--surface-nav-panel-bg, var(--card));
-  backdrop-filter: var(--surface-nav-panel-blur, none);
-  -webkit-backdrop-filter: var(--surface-nav-panel-blur, none);
 }
 
 /* 折叠动画所在的滚动容器:常驻滚动条槽位,避免内容增减时滚动条
    挤压宽度造成重排反馈(展开动画瞬态滚动条的根因)。 */
 .agent-side,
 .panel-side-scroll,
-.message-stream,
 .context-scroll,
 .team-home {
   scrollbar-gutter: stable;
@@ -559,7 +568,7 @@ button {
   margin-left: auto;
 }
 
-.group-sidebar-collapsed .home-nav-button .sidebar-unread-count {
+[data-component='navigation-item'][data-collapsed='true'] .sidebar-unread-count {
   position: absolute;
   top: 0;
   right: 0;
@@ -567,7 +576,8 @@ button {
   transform: translate(28%, -28%);
 }
 
-.group-sidebar-collapsed .home-nav-button {
+[data-component='navigation-item'][data-collapsed='true'] {
+  padding-inline: 0;
   justify-content: center;
 }
 
@@ -609,7 +619,7 @@ button {
 .workspace-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--context-width, 360px);
-  gap: 12px;
+  gap: var(--component-panel-gap, 12px);
   height: calc(100vh - 32px);
   min-height: 620px;
 }
@@ -658,18 +668,20 @@ button {
 .jump-to-bottom {
   position: absolute;
   left: 50%;
-  bottom: 16px;
-  /* 高于消息悬浮操作簇(z-10),避免视口底部重叠时被遮挡。 */
+  /* 锚在底栏(输入区)上沿:垂直偏移由 ConversationScroller 按底栏实高注入
+     (内联 bottom),拖拽输入区高度时按钮跟随。 */
   z-index: 20;
   transform: translateX(-50%);
 }
 
 .message-stream {
+  scrollbar-gutter: auto;
   min-width: 0;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: var(--density-stream-pad, 24px 16px);
+  /* 内边距移到 message-content:滚动区本体零内边距,sticky 顶/底栏
+     才能贴满帧宽,内容也才能从栏下满幅穿过。 */
 }
 
 .message-content > * + * {
@@ -682,9 +694,6 @@ button {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  background-color: var(--surface-context-panel-bg, var(--card));
-  backdrop-filter: var(--surface-context-panel-blur, none);
-  -webkit-backdrop-filter: var(--surface-context-panel-blur, none);
 }
 
 .context-header {
@@ -963,27 +972,16 @@ button {
   justify-content: flex-end;
 }
 
-.inline-trace > details {
+.inline-trace > [data-slot="disclosure"] {
   width: 100%;
 }
 
-.inline-trace-right > details {
+.inline-trace-right > [data-slot="disclosure"] {
   width: 100%;
   max-width: none;
 }
 
-.inline-trace summary {
-  display: flex;
-  width: fit-content;
-  cursor: pointer;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 5px;
-}
 
-.inline-trace summary::-webkit-details-marker {
-  display: none;
-}
 
 .inline-trace-loading {
   display: flex;
@@ -1058,18 +1056,7 @@ button {
   padding: 3px 4px;
 }
 
-.trace-step > summary {
-  display: flex;
-  list-style: none;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 7px 5px;
-}
 
-.trace-step > summary::-webkit-details-marker,
-.event-row > summary::-webkit-details-marker {
-  display: none;
-}
 
 .trace-icon {
   display: grid;
@@ -1083,9 +1070,7 @@ button {
   padding: 8px 2px;
 }
 
-.event-row > summary {
-  padding: 4px;
-}
+
 
 .inspector-section {
 }
@@ -1185,7 +1170,7 @@ button {
     max-width: 88%;
   }
 
-  .inline-trace-right > details {
+  .inline-trace-right > [data-slot="disclosure"] {
     max-width: 88%;
   }
 }
@@ -1201,23 +1186,15 @@ button {
   width: 100%;
   margin-bottom: 6px;
 }
-.notification-stack > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  cursor: pointer;
-  padding: 14px;
-}
-.inline-trace .trace-step > summary {
+
+.inline-trace .trace-step > [data-slot="disclosure-trigger"] {
   width: 100%;
 }
 .notification-stack .notification-collapse,
-.notification-stack[open] .notification-expand {
+.notification-stack[data-state="open"] .notification-expand {
   display: none;
 }
-.notification-stack[open] .notification-collapse {
+.notification-stack[data-state="open"] .notification-collapse {
   display: inline;
 }
 
@@ -1240,7 +1217,10 @@ button {
     touch-action: none;
   }
   .left-resize-handle {
-    left: calc(var(--sidebar-width, 248px) - 4px);
+    /* 卡片右边缘位于列宽减去 12px 外边距处，8px 热区居中覆盖边缘。 */
+    left: calc(var(--sidebar-width, 248px) - 16px);
+    top: 12px;
+    bottom: 12px;
     position: fixed;
   }
   .right-resize-handle {
@@ -1302,6 +1282,7 @@ button {
 .message-content {
   width: 100%;
   min-width: 0;
+  padding: var(--density-stream-pad, 24px 16px);
 }
 
 .context-tabs {
@@ -1349,7 +1330,7 @@ button {
 .markdown-content pre { @apply my-4 overflow-x-auto rounded-md bg-muted p-4 font-mono text-sm; font-size: var(--code-size, 0.875rem); }
 .markdown-content hr { @apply my-6 border-border; }
 
-.record-panel-scroll [data-record-row] > summary {
+.record-panel-scroll [data-record-row] > [data-slot='disclosure-header'] [data-slot='disclosure-trigger'] {
   min-height: 2.75rem;
   align-items: center;
 }
@@ -1428,20 +1409,115 @@ html[data-motion='lively'] :is([data-slot='dialog-content'], [data-slot='dialog-
   animation-duration: var(--motion-duration-normal);
 }
 
-/* ===== 材质:表面参数由材质大类规格表(theme/materials.ts)经 applier 写成 --surface-{role}-* 变量,表面按角色消费变量(见 .group-sidebar / .context-panel / .conversation-header / .agent-ai-composer 与样例卡)。本文件只保留大类级的纯 CSS 艺术(环境光斑);环境回落由 applier 探测处理。===== */
-/* 应用背景的静态低干扰环境光斑,供半透明表面模糊取样;不随内容滚动、不做动画。 */
-html[data-material='glass'] body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(42rem 42rem at 12% -8%, color-mix(in oklch, var(--primary) 13%, transparent), transparent 70%),
-    radial-gradient(50rem 50rem at 105% 18%, color-mix(in oklch, var(--info) 11%, transparent), transparent 70%),
-    radial-gradient(46rem 46rem at 50% 118%, color-mix(in oklch, var(--success) 10%, transparent), transparent 70%);
+/* ===== 材质:表面参数由材质大类规格表(theme/materials.ts)经 applier 写成
+   --surface-{role}-* 变量,表面按 data-surface 角色统一消费(下方属性选择器,
+   通常由 Surface 组件写入)。语义类只承载布局,不各自消费表面变量。
+   本文件只保留大类级的纯 CSS 艺术(环境光斑);环境回落由 applier 探测处理。===== */
+/* 表面角色消费:未在规格表声明的角色回落主题基线(实色)。新角色首次接线时在此补消费规则。 */
+[data-surface='nav-panel'] {
+  background: var(--surface-nav-panel-bg, var(--card));
+  background-image: var(--surface-nav-panel-image, none);
+  backdrop-filter: var(--surface-nav-panel-blur, none);
+  -webkit-backdrop-filter: var(--surface-nav-panel-blur, none);
 }
 
+[data-surface='context-panel'] {
+  background-color: var(--surface-context-panel-bg, var(--card));
+  background-image: var(--surface-context-panel-image, none);
+  backdrop-filter: var(--surface-context-panel-blur, none);
+  -webkit-backdrop-filter: var(--surface-context-panel-blur, none);
+}
+
+[data-surface='action'] {
+  /* overlay 结构下内容会从操作区下穿过,实色回落必须是实色
+     (否则实色材质下消息文字会从栏下透出);玻璃值由规格表提供。 */
+  background-color: var(--surface-action-bg, var(--card));
+  background-image: var(--surface-action-image, none);
+  backdrop-filter: var(--surface-action-blur, none);
+  -webkit-backdrop-filter: var(--surface-action-blur, none);
+}
+
+/* 玻璃专属环境画布直接绘在 body 上,避免负层级伪元素被页面背景遮住。
+   背景固定,表面从同一画布取样;其他材质保留 app-shell 的统一实色底。 */
+html[data-material-effect='glass'] body {
+  background-color: color-mix(in oklab, var(--muted) 40%, var(--background));
+  background-image: var(--component-environment-image);
+  background-attachment: fixed;
+}
+
+html[data-material-effect='glass'] .app-shell {
+  background: transparent;
+}
+
+/* 静态受光只留低强度明暗,不画整圈白线。交互光源由 glass-light.ts
+   按局部坐标阻尼跟随,不播放循环扫光、不改变布局或正文几何。 */
+html[data-material-effect='glass'] {
+  --glass-rim: var(--component-light-rim);
+  --glass-depth: var(--component-light-depth);
+  --glass-edge: var(--component-light-edge);
+  --glass-light: var(--component-light-image);
+}
+
+html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay']) {
+  border-color: var(--glass-rim);
+  box-shadow: var(--glass-edge), var(--glass-depth);
+}
+
+html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel']) {
+  background-image: var(--glass-light);
+}
+
+/* 上下文面板提供局部边缘绘制坐标;导航/操作区/浮层本来已有 sticky、
+   relative 或 fixed 定位,不覆盖它们。掏空遮罩使高光只落在一像素曲面边缘,
+   不覆盖文字,不拦截拖拽或点击。不支持遮罩合成时只保留基础表面。 */
+html[data-material-effect='glass'] [data-surface='context-panel'] {
+  position: relative;
+}
+
+@supports (mask-composite: exclude) or (-webkit-mask-composite: xor) {
+  html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay'])::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background:
+      radial-gradient(var(--component-highlight-radius) circle at var(--glass-x, 25%) var(--glass-y, 0%), var(--component-highlight-color), transparent 75%),
+      radial-gradient(240px circle at calc(100% - var(--glass-x, 25%)) calc(100% - var(--glass-y, 0%)), rgb(255 255 255 / 18%), transparent 70%);
+    -webkit-mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
+    mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: calc(var(--component-highlight-rest) + var(--glass-energy, 0) * (1 - var(--component-highlight-rest)));
+  }
+}
+
+html[data-motion='reduced'][data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay'])::after {
+  content: none;
+}
+
+/* 传送到 body 的浮层同样消费角色变量;实色模式不命中这条规则,
+   因此保留各原语自身的 bg-popover/bg-background 与默认阴影。 */
+html[data-material] [data-surface='overlay'] {
+  background-color: var(--surface-overlay-bg, var(--popover));
+  background-image: var(--surface-overlay-image, none);
+  backdrop-filter: var(--surface-overlay-blur, none);
+  -webkit-backdrop-filter: var(--surface-overlay-blur, none);
+}
+
+/* 输入控件的遮蔽强于外层玻璃,前景始终清晰;仅独立控件启用折射,
+   嵌在玻璃面板内的控件沿用父层光学以免多重采样。 */
+html[data-material] [data-surface='input']:not([data-slot='input-group-control']) {
+  background-color: var(--surface-input-bg, var(--card));
+}
+
+/* 折射增强统一按角色启用:SVG 只处理 backdrop,前景不参与位移。
+   未生成滤镜/非 Chromium/降低透明度时保留上方普通玻璃或实色回退。 */
+html[data-material-effect='glass'] [data-glass-refraction='ready'] {
+  backdrop-filter: var(--glass-refraction);
+  -webkit-backdrop-filter: var(--glass-refraction);
+}
 
 /* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 =====
    密度以 CSS 变量下发,真实表面与设置页样例消费同一组变量。 */
@@ -1472,20 +1548,20 @@ html[data-density='loose'] {
    不存在"开启瞬间测量"导致的过冲(展开把下方内容推远再回弹的根因);
    收起结束后延迟 visibility 隐藏,保证收起动画可见。
    reka 内容元素仅作 presence 载体(其内联抑制样式不影响内层过渡)。
-   当前应用无嵌套折叠;若未来出现,祖先选择器需改为就近匹配方案。 */
+   State is local to each content host; nested disclosures remain independent. */
 .collapsible-clip {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard);
+  transition: grid-template-rows var(--component-disclosure-duration) var(--component-disclosure-easing);
 }
-[data-slot='collapsible'][data-state='open'] .collapsible-clip {
+[data-slot='collapsible-content'][data-state='open'] > .collapsible-clip {
   grid-template-rows: 1fr;
 }
-[data-slot='collapsible'][data-state='closed'] .collapsible-clip {
+[data-slot='collapsible-content'][data-state='closed'] > .collapsible-clip {
   visibility: hidden;
   transition:
-    grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard),
-    visibility 0s linear var(--motion-duration-normal);
+    grid-template-rows var(--component-disclosure-duration) var(--component-disclosure-easing),
+    visibility 0s linear var(--component-disclosure-duration);
 }
 .collapsible-clip-clip {
   min-height: 0;
@@ -1498,7 +1574,7 @@ html[data-density='loose'] {
 .collapse-reveal {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard);
+  transition: grid-template-rows var(--component-disclosure-duration) var(--component-disclosure-easing);
 }
 .collapse-reveal[data-open='true'] {
   grid-template-rows: 1fr;
@@ -1506,8 +1582,8 @@ html[data-density='loose'] {
 .collapse-reveal[data-open='false'] {
   visibility: hidden;
   transition:
-    grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard),
-    visibility 0s linear var(--motion-duration-normal);
+    grid-template-rows var(--component-disclosure-duration) var(--component-disclosure-easing),
+    visibility 0s linear var(--component-disclosure-duration);
 }
 .collapse-reveal-clip {
   min-height: 0;
@@ -1535,144 +1611,155 @@ html[data-density='loose'] {
 /* ===== 外观样例:设置页内的微缩会话界面,实时反映材质/密度/阅读/动效草稿 ===== */
 .appearance-sample {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 2fr);
+  gap: var(--component-panel-gap);
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background:
-    radial-gradient(18rem 12rem at 18% -10%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 70%),
-    radial-gradient(16rem 12rem at 95% 115%, color-mix(in oklch, var(--info) 14%, transparent), transparent 70%),
-    var(--background);
-}
-
-.appearance-sample-nav {
-  display: flex;
-  min-height: 96px;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: var(--density-context-pad, 16px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--card);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-}
-
-.appearance-sample-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
-  background: var(--success);
-}
-
-.appearance-sample-main {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.appearance-sample-header {
-  display: flex;
-  min-height: var(--density-header-min, 62px);
-  align-items: center;
-  padding: var(--density-header-pad, 11px 16px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--component-panel-radius);
   background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
+}
+@media (max-width: 640px) {
+  .appearance-sample { grid-template-columns: 1fr; }
 }
 
-.appearance-sample-stream {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 8px;
-  padding: var(--density-stream-pad, 24px 16px);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
+/* 公共组件消费协议:选择器描述组件/部位/状态,不识别设计预设 ID。 */
+[data-slot='button'] {
+  transition-duration: var(--component-feedback-duration);
+}
+[data-component='navigation-item'] {
+  position: relative;
+  border-radius: var(--component-control-radius);
+  padding: var(--component-nav-padding-y) var(--component-nav-padding-x);
+  height: auto;
+  font-size: var(--component-nav-font-size);
+  background: var(--component-nav-bg);
+  transition-duration: var(--component-feedback-duration);
+}
+[data-component='navigation-item'] [data-slot='item-title'] { font-size: inherit; }
+[data-component='navigation-item']:hover { background: var(--state-hover); }
+[data-component='navigation-item'][data-selected='true'] {
+  background: var(--component-nav-selected-bg);
+  border-color: var(--primary);
+}
+[data-component='navigation-item'][data-current='true'] {
+  background: var(--component-nav-current-bg);
+  border-color: var(--component-nav-current-border);
+  box-shadow: var(--component-nav-state-shadow);
+}
+[data-component='navigation-item'][data-current='true']:hover {
+  background: color-mix(in oklch, var(--component-nav-current-bg) 85%, var(--accent));
+}
+[data-component='navigation-item']:active { background: var(--state-pressed); }
+[data-component='navigation-item'][data-current='true']::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 25%;
+  height: 50%;
+  width: var(--component-nav-marker-width);
+  border-radius: var(--component-control-radius);
+  background: var(--component-nav-marker-color);
+  pointer-events: none;
+}
+[data-component='navigation-item'][data-contains-current='true'] { font-weight: 600; }
+[data-part='disclosure-indicator'] {
+  transition: transform var(--component-disclosure-duration) var(--component-disclosure-easing);
+}
+[aria-expanded='true'] > [data-slot='item-actions'] > [data-part='disclosure-indicator'] { transform: rotate(90deg); }
+[data-slot='card']:not([data-surface]), [data-component='content-surface'] {
+  background-color: var(--component-content-bg);
+  background-image: var(--component-content-image);
+  box-shadow: var(--component-content-shadow);
+}
+[data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='overlay'] {
+  border-radius: var(--component-panel-radius);
+}
+[data-surface='context-panel'], [data-surface='overlay'] { box-shadow: var(--component-panel-shadow); }
+.conversation-header h1 { font-size: var(--component-title-font-size); }
+
+[data-slot='tabs-trigger'][data-state='active'] {
+  background: var(--component-tab-active-bg);
+  border-color: var(--component-tab-active-border);
+  border-radius: var(--component-control-radius);
+  box-shadow: var(--component-tab-active-shadow);
 }
 
-.appearance-sample-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+/* Choice state recipes are supplied by presets; focus remains independent. */
+[data-slot='toggle-group'][data-presentation='segmented'] {
+  gap: var(--component-choice-gap);
+  padding: var(--component-choice-track-padding);
+  background: var(--component-choice-track-bg);
+  border-radius: calc(var(--component-control-radius) + var(--component-choice-track-padding));
 }
-
-.appearance-sample-avatar {
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border-radius: 9999px;
-  background: var(--secondary);
-}
-
-.appearance-sample-text {
-  min-width: 0;
-  font-size: 0.6875rem;
-}
-
-.appearance-sample-chip {
-  align-self: flex-start;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  background: var(--secondary);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  animation: sample-enter var(--motion-duration-normal) var(--motion-ease-out);
-}
-
-@keyframes sample-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.appearance-sample-composer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: var(--density-composer-pad, 10px 14px 12px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-}
-
-.appearance-sample-replay {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  cursor: pointer;
-}
-
-.appearance-sample-replay:hover {
+[data-presentation='segmented'] > [data-slot='toggle-group-item'] {
+  border: 1px solid var(--component-choice-border);
+  border-radius: var(--component-control-radius);
+  background: var(--component-choice-bg);
   color: var(--foreground);
+  box-shadow: var(--component-choice-shadow);
+  transition: background-color var(--component-feedback-duration), border-color var(--component-feedback-duration), box-shadow var(--component-feedback-duration);
+}
+[data-presentation='segmented'] > [data-slot='toggle-group-item']:hover {
+  background: var(--component-choice-hover-bg);
+}
+[data-presentation='segmented'] > [data-slot='toggle-group-item'][data-state='on'] {
+  background: var(--component-choice-selected-bg);
+  color: var(--component-choice-selected-fg);
+  border-color: var(--component-choice-selected-border);
+  box-shadow: var(--component-choice-selected-shadow);
+}
+[data-presentation='segmented'] > [data-slot='toggle-group-item']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
-/* Interaction notifications keep their preview bounded and the destination action separate. */
-[data-sonner-toast].interaction-notice {
-  flex-wrap: wrap;
+/* Shared content primitives: pages choose semantic variants, presets own values. */
+[data-slot='card'] {
+  --card-padding: var(--component-card-padding);
+  --card-gap: var(--component-card-gap);
+  --card-title-size: var(--component-card-title-font-size);
 }
-[data-sonner-toast].interaction-notice [data-content] {
+[data-slot='card'][data-size='compact'] {
+  font-size: var(--component-control-font-size);
+  --card-padding: var(--component-card-compact-padding);
+  --card-gap: var(--component-card-compact-gap);
+  --card-title-size: var(--component-card-compact-title-font-size);
+}
+[data-slot='card-title'] { font-size: var(--card-title-size); }
+[data-slot='disclosure'] { min-width: 0; font-size: var(--component-control-font-size); }
+[data-slot='disclosure-header'] { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: var(--component-disclosure-gap); }
+[data-slot='disclosure-title'] { flex: 1; min-width: 0; }
+[data-slot='disclosure-actions'] { display: flex; max-width: 100%; align-items: center; gap: var(--component-disclosure-gap); }
+[data-slot='disclosure-description'] { color: var(--muted-foreground); font-size: var(--component-control-font-size); }
+[data-slot='disclosure-trigger']:disabled { opacity: 0.5; cursor: default; }
+[data-slot='disclosure'][data-variant='card'] {
+  border: 1px solid var(--border);
+  border-radius: var(--component-panel-radius);
+  padding: var(--component-card-compact-padding);
+  color: var(--card-foreground);
+  background-color: var(--component-content-bg);
+  background-image: var(--component-content-image);
+  box-shadow: var(--component-content-shadow);
+}
+[data-slot='disclosure-trigger'] {
+  display: flex;
+  align-items: center;
+  gap: var(--component-disclosure-gap);
   width: 100%;
   min-width: 0;
+  padding-block: var(--component-disclosure-padding-y);
+  text-align: start;
+  font-size: var(--component-disclosure-font-size);
+  font-weight: 500;
+  color: var(--foreground);
+  border-radius: var(--component-control-radius);
+  cursor: pointer;
+  transition: background-color var(--component-feedback-duration);
 }
-[data-sonner-toast].interaction-notice [data-button] {
-  margin-left: auto;
-}
+[data-slot='disclosure-trigger']:hover { background-color: var(--state-hover); }
+[data-slot='disclosure-trigger']:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+[data-slot='disclosure-trigger'] > [data-part='disclosure-indicator'] { width: 1rem; height: 1rem; flex-shrink: 0; }
+[data-slot='disclosure-trigger'][aria-expanded='true'] > [data-part='disclosure-indicator'] { transform: rotate(90deg); }
+[data-slot='disclosure-heading'] { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--component-disclosure-gap); }
+[data-slot='disclosure-content'] { display: flex; min-width: 0; flex-direction: column; gap: var(--component-disclosure-gap); padding-top: var(--component-disclosure-gap); }
+[data-slot='disclosure-content'] > :first-child { margin-top: 0; }

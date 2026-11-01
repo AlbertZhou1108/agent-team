@@ -6,11 +6,18 @@
  * 与共享 Collapsible 同源同节奏(--motion-duration-normal × 风格档),
  * 收起完成后延迟 visibility 隐藏,收起动画可见且内容不可聚焦。
  */
-defineProps<{ show: boolean }>();
+import { ref, watch } from 'vue';
+const props = defineProps<{ show: boolean; id?: string }>();
+const content = ref<HTMLElement>();
+watch(() => props.show, show => {
+  if (!show && props.id && content.value?.contains(document.activeElement)) {
+    document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(props.id)}"]`)?.focus();
+  }
+});
 </script>
 
 <template>
-  <div class="collapse-reveal" :data-open="show" :inert="!show">
+  <div ref="content" :id="id" class="collapse-reveal" :data-open="show" :inert="!show">
     <div class="collapse-reveal-clip">
       <slot />
     </div>

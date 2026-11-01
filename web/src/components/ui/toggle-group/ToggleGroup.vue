@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<ToggleGroupRootProps & {
   variant?: ToggleGroupVariants["variant"]
   size?: ToggleGroupVariants["size"]
   spacing?: number
+  presentation?: 'default' | 'segmented'
 }>(), {
   spacing: 0,
 })
@@ -27,7 +28,7 @@ provide("toggleGroup", {
   spacing: props.spacing,
 })
 
-const delegatedProps = reactiveOmit(props, "class", "size", "variant")
+const delegatedProps = reactiveOmit(props, "class", "size", "variant", "presentation")
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
@@ -38,6 +39,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
     :data-size="size"
     :data-variant="variant"
     :data-spacing="spacing"
+    :data-presentation="presentation || 'default'"
     :style="{
       '--gap': spacing,
     }"
