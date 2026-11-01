@@ -91,7 +91,10 @@ const baseAgent = {
 
 test('Panel access configuration is validated before persistence', async t => {
   // 默认工作区落在临时 HOME 下,不污染真实 Documents。
+  // 同时补建 Documents:Linux CI 无桌面环境时缺少该目录会走 XDG 回退分支,
+  // 与 macOS/Windows 的期望路径不同;回退分支由 default-workspace.test.mjs 单独覆盖。
   const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
+  mkdirSync(join(fakeHome, 'Documents'));
   const previousHome = process.env.HOME;
   process.env.HOME = fakeHome;
   t.after(() => {
@@ -337,7 +340,9 @@ test('DSH patch and policy plugin carry the full-access and read-only tiers', as
 
 test('panel agent creation falls back to the per-OS default workspace', async t => {
   // 用临时 HOME 隔离:默认目录落在临时目录里,不污染用户真实 Documents。
+  // 补建 Documents 以在三个平台走同一主分支;Linux 的 XDG 回退见 default-workspace.test.mjs。
   const fakeHome = mkdtempSync(join(tmpdir(), 'agent-home-'));
+  mkdirSync(join(fakeHome, 'Documents'));
   const previousHome = process.env.HOME;
   process.env.HOME = fakeHome;
   t.after(() => {
