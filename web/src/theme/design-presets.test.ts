@@ -25,7 +25,7 @@ describe('five-dimension component configuration', () => {
     const changed = resolve();
     changed.material.roles['nav-panel']!.refraction!.strength = 999;
     changed.material.motion.signature = 'none';
-    changed.dimensions.style['--component-control-radius'] = '99px';
+    changed.dimensions.material['--component-control-radius'] = '99px';
     changed.variables['--component-content-bg'] = 'red';
     expect(resolve()).toEqual(baseline);
     expect(resolve('paper', 'paper')).not.toEqual(changed);
@@ -34,21 +34,25 @@ describe('five-dimension component configuration', () => {
     const paper = resolve('paper', 'paper');
     const classic = resolve('classic', 'solid');
     const custom: DesignPreset = structuredClone(DESIGN_PRESETS['liquid-glass']);
-    custom.dimensions.style.tokens!['--component-control-radius'] = '19px';
+    custom.dimensions.style.tokens = { '--component-nav-marker-width': '4px' };
     custom.dimensions.typography['--component-title-font-size'] = '1.5rem';
     custom.dimensions.material.roles['nav-panel']!.bg = 'transparent';
-    custom.dimensions.behavior.tokens!['--component-button-press-scale'] = '0.9';
+    custom.dimensions.material.components!['--component-control-radius'] = '19px';
+    custom.dimensions.behavior.tokens = { '--component-feedback-duration': '0.5s' };
     custom.dimensions.layout.tokens = { '--component-panel-gap': '22px' };
     const output = resolveComponentDesign({ presetId: custom.id, preset: custom, material: 'glass', density: 'standard' });
-    expect(output.variables['--component-control-radius']).toBe('19px');
+    expect(output.variables['--component-nav-marker-width']).toBe('4px');
     expect(output.variables['--component-title-font-size']).toBe('1.5rem');
     expect(output.variables['--component-panel-gap']).toBe('22px');
+    expect(output.variables['--component-control-radius']).toBe('19px');
+    expect(output.variables['--component-feedback-duration']).toBe('0.5s');
     expect(output.material.roles['nav-panel']!.bg).toBe('transparent');
     expect(resolve('paper', 'paper')).toEqual(paper);
     expect(resolve('classic', 'solid')).toEqual(classic);
   });
   it('protects shared defaults and built-in recipes from accidental mutation', () => {
     expect(Object.isFrozen(COMPONENT_DEFAULTS.style)).toBe(true);
+    expect(Object.isFrozen(COMPONENT_DEFAULTS.material)).toBe(true);
     expect(Object.isFrozen(DESIGN_PRESETS.paper.dimensions)).toBe(true);
     expect(Object.isFrozen(DESIGN_PRESETS['liquid-glass'].dimensions.material.roles['nav-panel']!.refraction)).toBe(true);
   });
@@ -71,6 +75,17 @@ describe('five-dimension component configuration', () => {
     expect(solid.dimensions.style).toEqual(glass.dimensions.style);
     expect(solid.dimensions.behavior).toEqual(glass.dimensions.behavior);
     expect(solid.dimensions.material['--component-nav-state-shadow']).toBe('none');
+    // 物性随材质:手选实色后 radius/press 回实色基线,不再停留在玻璃值。
+    expect(solid.variables['--component-control-radius']).toBe('var(--radius-md)');
+    expect(solid.variables['--component-button-press-scale']).toBe('0.98');
+  });
+  it('carries material physics (radius, press) with the material, not the preset', () => {
+    const glassOnPaperPreset = resolve('paper', 'glass');
+    expect(glassOnPaperPreset.variables['--component-control-radius']).toBe('var(--radius-lg)');
+    expect(glassOnPaperPreset.variables['--component-button-press-scale']).toBe('0.97');
+    const paperOnGlassPreset = resolve('liquid-glass', 'paper');
+    expect(paperOnGlassPreset.variables['--component-control-radius']).toBe('2px');
+    expect(paperOnGlassPreset.variables['--component-panel-radius']).toBe('3px');
   });
   it('falls back only the effects that need unavailable backdrop support', () => {
     const glass = resolveComponentDesign({ presetId: 'liquid-glass', material: 'glass', density: 'loose', effectsUsable: false });
@@ -83,11 +98,13 @@ describe('five-dimension component configuration', () => {
   it('accepts a new data-only preset without a new component branch', () => {
     const preset: DesignPreset = {
       ...DESIGN_PRESETS.paper, id: 'editorial', label: 'Editorial',
-      dimensions: { ...DESIGN_PRESETS.paper.dimensions, typography: { '--component-title-font-size': '1.25rem' }, style: { ...DESIGN_PRESETS.paper.dimensions.style, tokens: { '--component-control-radius': '2px' } } },
+      dimensions: { ...DESIGN_PRESETS.paper.dimensions, typography: { '--component-title-font-size': '1.25rem' } },
     };
     const output = resolveComponentDesign({ presetId: preset.id, preset, material: 'paper', density: 'standard' });
     expect(output.variables['--component-title-font-size']).toBe('1.25rem');
+    // 物性不随预设携带:radius/press 来自 paper 材质注册表,而非预设差量。
     expect(output.variables['--component-control-radius']).toBe('2px');
+    expect(output.variables['--component-button-press-scale']).toBe('1');
     expect(output.material.id).toBe('paper');
     expect(resolve('classic', 'solid').variables['--component-control-radius']).toBe('var(--radius-md)');
   });

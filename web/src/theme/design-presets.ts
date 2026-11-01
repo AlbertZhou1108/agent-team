@@ -26,17 +26,17 @@ export const DESIGN_PRESETS = freezeConfiguration({
   },
   'liquid-glass': {
     id: 'liquid-glass', label: '液态玻璃', dimensions: {
-      style: { themePack: 'classic', colorMode: 'system', tokens: { '--component-control-radius': 'var(--radius-lg)' } },
+      style: { themePack: 'classic', colorMode: 'system' },
       typography: {}, material: getMaterialCategory('glass'),
-      behavior: { preference: 'soft', tokens: { '--component-button-press-scale': '0.97' } },
+      behavior: { preference: 'soft' },
       layout: { density: 'standard', tokens: { '--component-choice-track-padding': '4px', '--component-choice-gap': '4px' } },
     },
   },
   paper: {
     id: 'paper', label: '纸质', dimensions: {
-      style: { themePack: 'classic', colorMode: 'system', tokens: { '--component-control-radius': 'var(--radius-sm)', '--component-panel-radius': 'var(--radius-md)' } },
+      style: { themePack: 'classic', colorMode: 'system' },
       typography: { '--component-title-font-size': '1.0625rem' }, material: getMaterialCategory('paper'),
-      behavior: { preference: 'simple', tokens: { '--component-button-press-scale': '1' } },
+      behavior: { preference: 'simple' },
       layout: { density: 'standard', tokens: { '--component-nav-padding-x': '14px' } },
     },
   },

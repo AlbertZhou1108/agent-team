@@ -2,8 +2,6 @@
 import { freezeConfiguration } from './configuration-data';
 export const COMPONENT_DEFAULTS = freezeConfiguration({
   style: {
-    '--component-control-radius': 'var(--radius-md)',
-    '--component-panel-radius': 'var(--radius-lg)',
     '--component-nav-marker-width': '2px',
   },
   typography: {
@@ -15,6 +13,11 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-card-compact-title-font-size': '0.875rem',
   },
   material: {
+    // 物性键:圆角与按压幅度是材质的物理身份,随材质内化(玻璃圆润回弹、
+    // 纸质硬朗刚性),预设不得通过 style/behavior 差量改写。
+    '--component-control-radius': 'var(--radius-md)',
+    '--component-panel-radius': 'var(--radius-lg)',
+    '--component-button-press-scale': '0.98',
     '--component-selection-bg': 'var(--accent)',
     '--component-selection-fg': 'var(--accent-foreground)',
     '--component-selection-shadow': 'none',
@@ -41,6 +44,8 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-content-shadow': '0 1px 2px rgb(0 0 0 / 5%)',
     '--component-panel-shadow': 'none',
     '--component-surface-texture': 'none',
+    '--component-desk-bg': 'transparent',
+    '--component-desk-image': 'none',
     '--component-environment-image': 'none',
     '--component-light-image': 'none',
     '--component-light-edge': 'none',
@@ -51,7 +56,6 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-highlight-rest': '0.12',
   },
   behavior: {
-    '--component-button-press-scale': '0.98',
     '--component-feedback-duration': 'var(--motion-duration-fast)',
     '--component-disclosure-duration': 'var(--motion-duration-normal)',
     '--component-disclosure-easing': 'var(--motion-ease-standard)',

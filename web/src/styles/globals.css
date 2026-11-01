@@ -1537,6 +1537,14 @@ html[data-material-effect='glass'] [data-glass-refraction='ready'] {
   -webkit-backdrop-filter: var(--glass-refraction);
 }
 
+/* ===== 纸质专属:只有桌面画布一条。纸不透光、无环境光斑;表面工艺
+   (噪点帘纹、硬偏移投影)全部走规格表 components 变量与通用消费链。
+   桌面是纸的环境层对应物:略深的桌面 + 同族噪点,纸张衬托"放上去"。 */
+html[data-material='paper'] .app-shell {
+  background-color: var(--component-desk-bg);
+  background-image: var(--component-desk-image);
+}
+
 /* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 =====
    密度以 CSS 变量下发,真实表面与设置页样例消费同一组变量。 */
 html[data-density='compact'] {

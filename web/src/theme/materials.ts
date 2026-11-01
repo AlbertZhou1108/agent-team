@@ -66,6 +66,9 @@ const GLASS: MaterialCategory = {
   label: '玻璃',
   effect: 'glass',
   components: {
+    // 玻璃物性:圆润的裁切与低阻尼回弹按压是玻璃物理身份的一部分。
+    '--component-control-radius': 'var(--radius-lg)',
+    '--component-button-press-scale': '0.97',
     '--component-selection-bg': 'light-dark(color-mix(in oklch, var(--card) 90%, transparent), color-mix(in oklch, var(--foreground) 10%, transparent))',
     '--component-selection-fg': 'var(--foreground)',
     '--component-selection-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 60%), rgb(255 255 255 / 12%)), 0 2px 6px rgb(0 0 0 / 7%)',
@@ -121,18 +124,40 @@ const GLASS: MaterialCategory = {
   motion: { spring: 'allow', signature: 'none' },
 };
 
-/** 第二种设计由同一参数协议表达,不需要组件内的 paper 分支。 */
+/**
+ * 纸质:不透明的硬朗承载面 —— 纸不像玻璃圆润光滑透明。
+ * 物理 → 配方:①裁切硬边与刚性按压(圆角 2px/3px、press-scale 1 在
+ * components 内化,预设不得改写);②纸摞在桌上的
+ * 硬偏移投影(0 1px 0 纸边 + 2px/3px 0 位移投影),不是柔和光晕;
+ * ③纤维粗粝 = 双色调 feTurbulence 噪点 + 帘纹横线:黑粒落在浅色纸上
+ * 可见、白粒落在深色纸上可见,同一份值跨明暗主题通用,无需 CSS 分支;
+ * ④桌面画布(desk-*)是纸的环境层对应物:略深的桌面 + 同族噪点,
+ * 纸张靠桌面衬托"放上去"的层次。状态靠墨色密度差与描边,无高光。
+ */
 const PAPER: MaterialCategory = {
   id: 'paper', label: '纸质',
   components: {
+    // 纸质物性:近直角裁切与刚性按压(无缩放)是纸的物理身份。
+    '--component-control-radius': '2px',
+    '--component-panel-radius': '3px',
+    '--component-button-press-scale': '1',
     '--component-nav-current-bg': 'color-mix(in oklch, var(--foreground) 7%, var(--card))',
     '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 12%, var(--card))',
     '--component-nav-state-shadow': 'inset 0 0 0 1px var(--border)',
     '--component-content-bg': 'var(--card)',
     '--component-content-image': 'var(--component-surface-texture)',
-    '--component-content-shadow': '0 2px 0 color-mix(in oklch, var(--foreground) 7%, transparent)',
-    '--component-panel-shadow': '0 2px 6px rgb(0 0 0 / 6%)',
-    '--component-surface-texture': 'repeating-linear-gradient(0deg, color-mix(in oklch, var(--foreground) 1.5%, transparent) 0px, transparent 1px, transparent 4px)',
+    '--component-content-shadow': '0 1px 0 color-mix(in oklch, var(--foreground) 9%, transparent), 2px 2px 0 color-mix(in oklch, var(--foreground) 7%, transparent)',
+    '--component-panel-shadow': '3px 3px 0 color-mix(in oklch, var(--foreground) 8%, transparent)',
+    '--component-surface-texture': [
+      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.07 0\'/%3E%3C/filter%3E%3Crect width=\'160\' height=\'160\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
+      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.07 0\'/%3E%3C/filter%3E%3Crect width=\'160\' height=\'160\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
+      'repeating-linear-gradient(0deg, color-mix(in oklch, var(--foreground) 2%, transparent) 0px, transparent 1px, transparent 4px)',
+    ].join(', '),
+    '--component-desk-bg': 'color-mix(in oklab, var(--muted) 55%, var(--background))',
+    '--component-desk-image': [
+      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'180\' height=\'180\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.5\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0\'/%3E%3C/filter%3E%3Crect width=\'180\' height=\'180\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
+      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'180\' height=\'180\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.5\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.09 0\'/%3E%3C/filter%3E%3Crect width=\'180\' height=\'180\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
+    ].join(', '),
   },
   roles: Object.fromEntries(['nav-panel', 'context-panel', 'action', 'input', 'reading', 'overlay'].map(role => [role, {
     bg: 'var(--card)', image: 'var(--component-surface-texture)',
