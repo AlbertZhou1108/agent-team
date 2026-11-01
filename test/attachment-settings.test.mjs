@@ -7,7 +7,8 @@ import { startServer } from '../src/server.mjs';
 
 async function setup(t, directory = mkdtempSync(join(tmpdir(), 'attachment-settings-'))) {
   const server = await startServer({ directory, hosts: new Map() });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  // Windows 删除仍被占用的目录会报 EPERM;close 后留下短暂句柄时用重试兜底。
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   return { server, url: server.url };
 }
 
@@ -65,13 +66,19 @@ test('attachment settings defaults and updates via bus', async t => {
 
 test('attachment settings persist across restart', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'attachment-settings-'));
-  const first = await setup(t, directory);
-  first.server.bus.updateAttachmentSettings({ maxFileBytes: 2048, maxFilesPerMessage: 3, maxImagePixels: 30_000_000 });
-  await first.server.close();
+  // 两个 server 复用同一目录:teardown 必须只关闭"当前"server 再删目录。
+  // 若沿用 setup() 的 teardown,它会在第二个 server 仍持有数据库文件时删除
+  // 目录(Windows 报 EPERM),且失败后第二个 server 泄漏、事件循环永不排空。
+  let server = await startServer({ directory, hosts: new Map() });
+  t.after(async () => {
+    await server.close();
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  server.bus.updateAttachmentSettings({ maxFileBytes: 2048, maxFilesPerMessage: 3, maxImagePixels: 30_000_000 });
+  await server.close();
 
   // 同目录重建服务:设置值不变(重启持久化),不回落默认。
-  const server = await startServer({ directory, hosts: new Map() });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  server = await startServer({ directory, hosts: new Map() });
   const settings = server.bus.attachmentSettings();
   assert.equal(settings.maxFileBytes, 2048);
   assert.equal(settings.maxFilesPerMessage, 3);
