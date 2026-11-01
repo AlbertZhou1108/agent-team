@@ -14,10 +14,10 @@ describe('shared disclosure contract', () => {
     expect(html.indexOf('Theme choices')).toBeGreaterThan(hiddenContent);
   });
   it('keeps independent actions outside the trigger and respects explicit disabled state', async () => {
-    const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { open: false, defaultOpen: true, disabled: true, headingLevel: 2 }, {
+    const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { defaultOpen: true, disabled: true, headingLevel: 2 }, {
       summary: () => 'Groups', actions: () => h('button', { type: 'button' }, 'Create'), description: () => 'Description', default: () => 'Content',
     }) }));
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
     expect(html).toMatch(/<button[^>]*disabled/);
     const trigger = html.match(/<button[^>]*data-slot="disclosure-trigger"[^>]*>(.*?)<\/button>/s)?.[1];
     expect(trigger).toContain('Groups');
@@ -25,6 +25,14 @@ describe('shared disclosure contract', () => {
     expect(html).toContain('data-slot="disclosure-actions"');
     expect(html).toContain('Description');
     expect(html).toMatch(/<h2 data-slot="disclosure-title"><button/);
+  });
+  it('hides header actions while collapsed - actions scope to the hidden content', async () => {
+    const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { open: false, headingLevel: 2 }, {
+      summary: () => 'Groups', actions: () => h('button', { type: 'button' }, 'Create'), default: () => 'Content',
+    }) }));
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('data-slot="disclosure-actions"');
+    expect(html).not.toContain('Create');
   });
   it('keeps nested state independent and connects each trigger to its own content', async () => {
     const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { defaultOpen: true }, {

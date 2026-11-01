@@ -28,6 +28,7 @@
 
 - E-GROUP 使用共享 Collapsible 或 CollapseReveal，不以裸 v-if 直接切换应当过渡的内容，不增加第三套高度动画。内容终点采用真实布局高度；减少动态效果时直接到达相同终态。
 - CollapseReveal 只提供显隐能力；触发器的 ARIA、键盘及焦点恢复由共用分组实现负责。现有 CollapsibleContent 有嵌套限制，扩展前先检查源码。
+- [Disclosure](../../web/src/components/ui/disclosure/Disclosure.vue) 的头部动作（#actions）只作用于子内容，收起时随内容一起不渲染（不可聚焦、不进可访问树），展开即恢复；使用处不需要也不能再自写开合条件。导航项（SidebarEntry）的菜单动作是 E-NAV 语义，不受此规则约束。
 - E-NAV 先确定默认/current/selected 的基础状态，再叠加悬停或按下反馈；焦点提示独立保留。current + selected 时两个事实均可辨，不叠两块互相遮挡的底色。
 - 实际交互决定 ARIA：当前位置使用 aria-current；aria-selected 只用于适合该属性的复合控件，不能机械加到所有按钮上。
 - 数据刷新不重新播放整卡入场；目录主动作与排序、置顶等次动作继续隔离。

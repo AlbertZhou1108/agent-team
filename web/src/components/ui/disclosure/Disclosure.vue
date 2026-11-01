@@ -25,7 +25,9 @@ function update(value: boolean) {
       <span data-slot="disclosure-heading"><slot name="summary" :open="expanded" /></span>
     </CollapsibleTrigger>
     </component>
-    <div v-if="$slots.actions" data-slot="disclosure-actions"><slot name="actions" :open="expanded" /></div>
+    <!-- 头部动作只作用于子内容,收起时随内容一起不渲染(不可聚焦、不进
+         可访问树);不另设动画,转移终点直接落在目标状态。 -->
+    <div v-if="$slots.actions && expanded" data-slot="disclosure-actions"><slot name="actions" /></div>
     </div>
     <CollapseReveal :id="contentId" :show="expanded">
       <div data-slot="disclosure-content">
