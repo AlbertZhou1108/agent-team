@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { getDesignPreset, isDesignPresetId, legacyDesignPreset, type DesignPresetId } from '@/theme/design-presets';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import {
@@ -26,6 +27,7 @@ export interface ThemePackSnapshot {
 }
 
 interface PreferencesState {
+  designPreset: DesignPresetId;
   colorMode: ColorMode;
   themePack: string;
   themePackSnapshot: ThemePackSnapshot | null;
@@ -56,6 +58,7 @@ function isThemePackSnapshot(value: unknown): value is ThemePackSnapshot {
 
 function load(): PreferencesState {
   const fallback: PreferencesState = {
+    designPreset: 'classic',
     colorMode: 'system',
     themePack: CLASSIC_THEME_ID,
     themePackSnapshot: null,
@@ -78,6 +81,7 @@ function load(): PreferencesState {
     };
     return {
       ...fallback,
+      designPreset: isDesignPresetId(saved.designPreset) ? saved.designPreset : legacyDesignPreset(saved.materialPreference),
       // 遗留:旧版本曾把 colorMode 存在 theme 键下,仅用于迁移;主题包用 themePack 键,两者不冲突。
       colorMode: saved.colorMode ?? saved.theme ?? fallback.colorMode,
       themePack:
@@ -124,6 +128,19 @@ export const usePreferencesStore = defineStore('preferences', {
       localStorage.setItem(storageKey, JSON.stringify(this.$state));
     },
     // 外观应用统一由 theme/application 收口,这里只改偏好并持久化。
+    setDesignPreset(id: DesignPresetId, applyDefaults = true) {
+      const preset = getDesignPreset(id);
+      this.designPreset = id;
+      if (applyDefaults) {
+        this.colorMode = preset.dimensions.style.colorMode;
+        this.themePack = preset.dimensions.style.themePack;
+        this.themePackSnapshot = null;
+        this.materialPreference = preset.dimensions.material.id as MaterialPreference;
+        this.motionPreference = preset.dimensions.behavior.preference;
+        this.density = preset.dimensions.layout.density;
+      }
+      this.persist();
+    },
     setColorMode(colorMode: ColorMode) {
       this.colorMode = colorMode;
       this.persist();

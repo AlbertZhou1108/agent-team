@@ -1,5 +1,6 @@
-import type { MotionStyle } from '@/shared/motion';
-import { getMaterialCategory, SURFACE_ROLES } from './materials';
+import { resolveMotionStyle, systemReducedMotion, type MotionStyle } from '@/shared/motion';
+import { resolveComponentDesign } from './design-presets';
+import { MATERIAL_CATEGORIES, getMaterialCategory, SURFACE_ROLES, type MaterialId, type MaterialCategory } from './materials';
 import { TOKEN_KEYS, type ThemeTokens } from './tokens';
 
 /**
@@ -26,10 +27,10 @@ export function applyMotion(style: MotionStyle): void {
 }
 
 /** 材质选项:默认实色,或一种从当前配色派生的玻璃。 */
-export type MaterialPreference = 'solid' | 'glass';
+export type MaterialPreference = MaterialId;
 
 export function isMaterialPreference(value: unknown): value is MaterialPreference {
-  return value === 'solid' || value === 'glass';
+  return typeof value === 'string' && Object.hasOwn(MATERIAL_CATEGORIES, value);
 }
 
 /** 设备能否呈现表面效果(模糊);不能或用户要求降低透明度时回落实色。 */
@@ -51,11 +52,18 @@ function surfaceEffectsUsable(): boolean {
  * --surface-{role}-* CSS 变量供表面消费。设备不支持或要求降低透明度时,
  * 回落为默认实色(变量不写,表面走主题基线)。
  */
+let appliedMaterial = getMaterialCategory('solid');
+export function getAppliedMaterial(): MaterialCategory { return appliedMaterial; }
+
 export function applyMaterial(preference: MaterialPreference): void {
+  const category = getMaterialCategory(preference);
+  writeMaterial(category.effect === 'glass' && !surfaceEffectsUsable() ? getMaterialCategory('solid') : category);
+}
+function writeMaterial(effective: MaterialCategory): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const category = getMaterialCategory(preference);
-  const effective = surfaceEffectsUsable() ? category : getMaterialCategory('solid');
+  appliedMaterial = effective;
+  root.dataset.materialEffect = effective.effect ?? 'opaque';
   // 先清空上一大类的表面变量再写入,切换无残留。
   for (const role of SURFACE_ROLES) {
     root.style.removeProperty(`--surface-${role}-bg`);
@@ -139,4 +147,27 @@ export function applyReading(preference: ReadingPreference): void {
   root.style.setProperty('--reading-leading', READING_LEADING_VAR[preference.readingLeading]);
   root.style.setProperty('--reading-width', READING_WIDTH_VAR[preference.readingWidth]);
   root.style.setProperty('--code-size', CODE_SIZE_VAR[preference.codeSize]);
+}
+
+/** 首帧和后续偏好更新共用同一完整输出,不在组件内判别预设。 */
+export function applyComponentDesign(preferences: { designPreset?: unknown; materialPreference: string; density: Density }, output?: ReturnType<typeof resolveComponentDesign>): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const resolved = output ?? resolveComponentDesign({ presetId: preferences.designPreset, material: root.dataset.material ?? preferences.materialPreference, density: preferences.density });
+  root.dataset.designPreset = resolved.presetId;
+  for (const [key, value] of Object.entries(resolved.variables)) root.style.setProperty(key, value);
+}
+
+/** 唯一外观应用链:首帧和 watcher 使用同一个解析/输出过程。 */
+export function applyAppearance(preferences: ReadingPreference & {
+  designPreset: unknown; materialPreference: MaterialPreference; density: Density;
+  motionPreference: import('@/shared/motion').MotionPreference;
+}, tokens: ThemeTokens, isDark: boolean): void {
+  const resolved = resolveComponentDesign({ presetId: preferences.designPreset, material: preferences.materialPreference, density: preferences.density, effectsUsable: surfaceEffectsUsable() });
+  applyTheme(tokens, isDark);
+  applyDensity(preferences.density);
+  applyReading(preferences);
+  writeMaterial(resolved.material);
+  applyComponentDesign(preferences, resolved);
+  applyMotion(resolveMotionStyle(preferences.motionPreference, systemReducedMotion()));
 }

@@ -6,8 +6,7 @@ import {
   resolveDark,
   usePreferencesStore,
 } from '@/stores/preferences';
-import { resolveMotionStyle, systemReducedMotion } from '@/shared/motion';
-import { applyDensity, applyMaterial, applyMotion, applyReading, applyTheme } from './apply';
+import { applyAppearance } from './apply';
 import { resolveThemePack, resolveTokens } from './resolve';
 
 /**
@@ -24,17 +23,10 @@ export function startThemeApplication() {
 
   const apply = () => {
     // 解析链(设计逻辑框架 §5):环境约束(第 0 步,媒体查询与监听)之后 ——
-    // 明暗 → 主题 → 密度 → 排印 → 材质 → 行为。行为最后解析,
-    // 以便读到材质签名与布局尺度。
+    // 由统一 applyAppearance 解析并输出;首帧也消费同一过程。
     const isDark = resolveDark(preferences.colorMode);
     const pack = resolveThemePack(preferences.themePack, packsQuery.data.value ?? []);
-    applyTheme(resolveTokens(pack, isDark), isDark); // 明暗 + 主题(样式)
-    applyDensity(preferences.density); // 密度(布局)
-    applyReading(preferences); // 排印(阅读)
-    applyMaterial(preferences.materialPreference); // 材质(表面规格 + 运动签名)
-    applyMotion(
-      resolveMotionStyle(preferences.motionPreference, systemReducedMotion()),
-    ); // 行为(动效,最后解析)
+    applyAppearance(preferences, resolveTokens(pack, isDark), isDark);
   };
 
   watchEffect(apply);

@@ -38,6 +38,7 @@ describe('preferences appearance', () => {
       }),
     );
     expect(usePreferencesStore().$state).toEqual({
+      designPreset: 'classic',
       colorMode: 'light',
       themePack: 'classic',
       themePackSnapshot: null,
@@ -104,4 +105,25 @@ describe('preferences appearance', () => {
     stubStorage(JSON.stringify({ themePack: 'ocean', themePackSnapshot: { light: 'nope' } }));
     expect(usePreferencesStore().themePackSnapshot).toBeNull();
   });
+  it('migrates old glass preferences and keeps explicit dimension overrides after changing density', () => {
+    stubStorage(JSON.stringify({ materialPreference: 'glass', readingSize: 'xlarge' }));
+    const store = usePreferencesStore();
+    expect(store.designPreset).toBe('liquid-glass');
+    store.setDesignPreset('paper');
+    expect(store.materialPreference).toBe('paper');
+    expect(store.readingSize).toBe('xlarge');
+    store.setDensity('compact');
+    expect(store.designPreset).toBe('paper');
+    expect(store.materialPreference).toBe('paper');
+    store.setMaterialPreference('glass');
+    expect(store.designPreset).toBe('paper');
+    expect(store.density).toBe('compact');
+  });
+  it('uses a safe base for unknown design presets without losing other preferences', () => {
+    stubStorage(JSON.stringify({ designPreset: 'missing', materialPreference: 'solid', density: 'loose' }));
+    const store = usePreferencesStore();
+    expect(store.designPreset).toBe('classic');
+    expect(store.density).toBe('loose');
+  });
+
 });

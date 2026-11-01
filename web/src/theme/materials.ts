@@ -1,3 +1,6 @@
+import type { ComponentMaterialTokens } from './component-contract';
+import { freezeConfiguration } from './configuration-data';
+
 /**
  * 材质大类规格表:设计逻辑框架"材质 × 角色"矩阵的可执行形式。
  * 用户只选择大类;每个角色的基材/工艺/参数在此内化,由 applyMaterial
@@ -24,6 +27,7 @@ export interface SurfaceFinish {
   bg?: string;
   image?: string;
   blur?: string;
+  refraction?: { strength: number; edge: number; blur: number };
 }
 
 /** 材质的运动签名:材质对动效词汇的物理约束与专属动效。 */
@@ -39,6 +43,8 @@ export interface MaterialCategory {
   label: string;
   roles: Partial<Record<SurfaceRole, SurfaceFinish>>;
   motion: MaterialMotion;
+  components?: ComponentMaterialTokens;
+  effect?: 'glass';
 }
 
 /** 默认实色:所有角色走主题基线,不写任何表面变量。 */
@@ -50,37 +56,97 @@ const SOLID: MaterialCategory = {
 };
 
 /**
- * 玻璃:容器/导航用磨砂工艺(安静退后),会话操作区用液态工艺
- * (更透、更清、顶部高光 —— 职能需要强"可按/可输入"暗示)。
- * 运动签名:高光沿表面缓慢流动,回弹低阻尼。
+ * 液态玻璃的 Web 近似:导航/上下文统一厚度,操作面更轻,浮层提高遮蔽。
+ * 阅读与输入仍走组件基线,避免玻璃叠玻璃;静止时不播放装饰动画。
+ * 曲面轮光与环境色由全局材质规则补充,不改变任何布局几何。
  */
 const GLASS: MaterialCategory = {
   id: 'glass',
   label: '玻璃',
+  effect: 'glass',
+  components: {
+    '--component-selection-bg': 'light-dark(color-mix(in oklch, var(--card) 90%, transparent), color-mix(in oklch, var(--foreground) 10%, transparent))',
+    '--component-selection-fg': 'var(--foreground)',
+    '--component-selection-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 60%), rgb(255 255 255 / 12%)), 0 2px 6px rgb(0 0 0 / 7%)',
+    '--component-tab-active-bg': 'var(--component-selection-bg)',
+    '--component-tab-active-border': 'transparent',
+    '--component-tab-active-shadow': 'var(--component-selection-shadow)',
+    '--component-choice-track-bg': 'color-mix(in oklch, var(--foreground) 6%, transparent)',
+    '--component-choice-bg': 'transparent',
+    '--component-choice-shadow': 'none',
+    '--component-choice-hover-bg': 'color-mix(in oklch, var(--foreground) 6%, transparent)',
+    '--component-choice-selected-bg': 'var(--component-selection-bg)',
+    '--component-choice-selected-fg': 'var(--component-selection-fg)',
+    '--component-choice-border': 'transparent',
+    '--component-choice-selected-border': 'transparent',
+    '--component-choice-selected-shadow': 'var(--component-selection-shadow)',
+    '--component-nav-current-bg': 'var(--component-selection-bg)',
+    '--component-nav-selected-bg': 'var(--component-selection-bg)',
+    '--component-nav-state-shadow': 'var(--component-selection-shadow)',
+    '--component-content-bg': 'color-mix(in oklch, var(--card) 92%, transparent)',
+    '--component-environment-image': 'radial-gradient(ellipse at 0% 0%, color-mix(in oklch, var(--info) 22%, transparent), transparent 52%), radial-gradient(ellipse at 100% 18%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 55%), radial-gradient(ellipse at 80% 100%, color-mix(in oklch, var(--success) 12%, transparent), transparent 48%)',
+    '--component-light-image': 'radial-gradient(ellipse at var(--glass-x, 25%) var(--glass-y, 0%), rgb(255 255 255 / 4%), transparent 65%), linear-gradient(160deg, rgb(255 255 255 / 2%), transparent 38%, rgb(0 0 0 / 2%))',
+    '--component-light-rim': 'color-mix(in oklch, var(--border) 48%, transparent)',
+    '--component-light-edge': 'inset 0 1px 0 rgb(255 255 255 / 7%), inset 0 -1px 0 rgb(0 0 0 / 8%)',
+    '--component-light-depth': '0 8px 28px rgb(0 0 0 / 9%), 0 2px 5px rgb(0 0 0 / 4%)',
+  },
   roles: {
     'nav-panel': {
-      bg: 'color-mix(in oklch, var(--card) 74%, transparent)',
-      blur: 'blur(18px) saturate(1.08)',
+      bg: 'color-mix(in oklch, var(--card) 54%, transparent)',
+      blur: 'blur(24px) saturate(1.45)',
+      refraction: { strength: 18, edge: 24, blur: 1.5 },
     },
     'context-panel': {
-      bg: 'color-mix(in oklch, var(--card) 74%, transparent)',
-      blur: 'blur(18px) saturate(1.08)',
+      bg: 'color-mix(in oklch, var(--card) 54%, transparent)',
+      blur: 'blur(24px) saturate(1.45)',
+      refraction: { strength: 18, edge: 24, blur: 1.5 },
     },
     action: {
-      bg: 'color-mix(in oklch, var(--background) 55%, transparent)',
-      image:
-        'linear-gradient(180deg, color-mix(in oklch, var(--foreground) 7%, transparent), transparent 46%)',
-      blur: 'blur(8px) saturate(1.25)',
+      bg: 'color-mix(in oklch, var(--card) 46%, transparent)',
+      image: 'var(--glass-light)',
+      blur: 'blur(20px) saturate(1.5)',
+      refraction: { strength: 20, edge: 26, blur: 3 },
+    },
+    input: {
+      bg: 'color-mix(in oklch, var(--card) 82%, transparent)',
+      refraction: { strength: 10, edge: 12, blur: 0.8 },
+    },
+    overlay: {
+      bg: 'color-mix(in oklch, var(--popover) 84%, transparent)',
+      blur: 'blur(28px) saturate(1.3)',
+      refraction: { strength: 14, edge: 20, blur: 3 },
     },
   },
-  motion: { spring: 'allow', signature: 'liquid-flow' },
+  motion: { spring: 'allow', signature: 'none' },
 };
 
-export const MATERIAL_CATEGORIES: Record<string, MaterialCategory> = {
+/** 第二种设计由同一参数协议表达,不需要组件内的 paper 分支。 */
+const PAPER: MaterialCategory = {
+  id: 'paper', label: '纸质',
+  components: {
+    '--component-nav-current-bg': 'color-mix(in oklch, var(--foreground) 7%, var(--card))',
+    '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 12%, var(--card))',
+    '--component-nav-state-shadow': 'inset 0 0 0 1px var(--border)',
+    '--component-content-bg': 'var(--card)',
+    '--component-content-image': 'var(--component-surface-texture)',
+    '--component-content-shadow': '0 2px 0 color-mix(in oklch, var(--foreground) 7%, transparent)',
+    '--component-panel-shadow': '0 2px 6px rgb(0 0 0 / 6%)',
+    '--component-surface-texture': 'repeating-linear-gradient(0deg, color-mix(in oklch, var(--foreground) 1.5%, transparent) 0px, transparent 1px, transparent 4px)',
+  },
+  roles: Object.fromEntries(['nav-panel', 'context-panel', 'action', 'input', 'reading', 'overlay'].map(role => [role, {
+    bg: 'var(--card)', image: 'var(--component-surface-texture)',
+  }])),
+  motion: { spring: 'suppress', signature: 'none' },
+};
+
+export const MATERIAL_CATEGORIES = freezeConfiguration({
   solid: SOLID,
   glass: GLASS,
-};
+  paper: PAPER,
+} satisfies Record<string, MaterialCategory>);
+
+export type MaterialId = keyof typeof MATERIAL_CATEGORIES;
 
 export function getMaterialCategory(id: string): MaterialCategory {
-  return MATERIAL_CATEGORIES[id] ?? SOLID;
+  return Object.hasOwn(MATERIAL_CATEGORIES, id) ? MATERIAL_CATEGORIES[id as MaterialId] : SOLID;
 }
