@@ -2,7 +2,7 @@
 
 本文是设计逻辑框架"交互状态图"的文档化落地:每个表面角色一节,列出状态(节点)、事件与转移(边)、以及每次转移改变的方面。实现时**转移终点必须落在目标状态的解析值上**(转移终点不变式,见设计逻辑框架 §6);动画渲染规格来自动效契约与材质签名。
 
-本文描述现状(组件内已有的行为),不引入状态机库;若某角色的转移逻辑复杂到频繁出缺陷,再考虑机器可读形式。
+本文记录通用状态与共享转移约定，不代表每个使用处均已接入。三类元素的状态含义与组合由[元素规格](element-specifications.md)维护，共用转移与各材质呈现见[实现说明](element-implementations/README.md)，实现差距与证据见[覆盖台账](element-implementation-coverage.md)；不引入状态机库，若转移逻辑复杂到频繁出缺陷再考虑机器可读形式。
 
 **折叠显现原语**:未使用 reka Collapsible 的条件渲染显隐场景,统一接入 `CollapseReveal`(grid-rows 0fr→1fr,与 .collapsible-clip 同源同节奏)。**折叠显现模式的全局唯一实现 = 共享 Collapsible 或 CollapseReveal,禁止第三种**(自写 height 动画/直切)。
 
@@ -72,11 +72,6 @@
 
 以上"行为"列的节奏与缓动,均经动效契约解析:`风格档(能量)⊗ 材质签名(物理词汇)⊗ 用途`。玻璃签名的具体取值见主题 materials.ts 规格表;减少档一律压平。
 
-## 侧栏文件夹(团队导航)
+## 侧栏分组与导航项
 
-| 状态 | 事件 → 转移 | 改变的方面 |
-| --- | --- | --- |
-| 收起 | 点击文件夹 → 折叠显现(CollapseReveal 0fr) | 布局(高度),chevron 差量 |
-| 展开 | 点击文件夹 → 折叠显现(1fr) | 布局(高度),子项可见 |
-
-实现:CollapseReveal 原语(内容常驻,收起后 visibility 隐藏)。
+文件夹、未分组、置顶共用 E-GROUP；团队项与主导航入口的独立状态及组合见 E-NAV，语义定义以[元素规格](element-specifications.md)为准，共享原语选择与转移渲染见[共用实现](element-implementations/README.md)。使用处是否完成接入以[覆盖台账](element-implementation-coverage.md)为准，本页不重复维护源码现状。
