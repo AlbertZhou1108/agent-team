@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Input } from '@/components/ui/input';
+import { Search } from '@lucide/vue';
 import { Surface } from '@/components/surface';
 import { computed, ref, watch } from 'vue';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
@@ -26,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
 import { cn } from '@/lib/utils';
+import { dropSide, type DropSide } from '@/shared/drag-order';
 
 const props = defineProps<{
   groups: Group[];
@@ -54,9 +56,10 @@ const dropTarget = ref<string>();
 const insertion = ref<{
   id: string;
   kind: 'team' | 'folder';
-  after: boolean;
+  side: DropSide;
 }>();
 const dragging = ref<'team' | 'folder'>();
+const draggingFolder = ref<string>();
 const agentUnreadLabel = computed(() =>
   props.agentUnreadCount > 99 ? '99+' : String(props.agentUnreadCount),
 );
@@ -72,6 +75,7 @@ function clearDrag() {
   dropTarget.value = undefined;
   insertion.value = undefined;
   dragging.value = undefined;
+  draggingFolder.value = undefined;
 }
 function showTeamInsertion(id: string, event: DragEvent) {
   dropTarget.value = undefined;
@@ -83,7 +87,7 @@ function showTeamInsertion(id: string, event: DragEvent) {
   insertion.value = {
     id,
     kind: 'team',
-    after: event.clientY > rect.top + rect.height / 2,
+    side: dropSide(event, rect, 'y'),
   };
 }
 function leaveNavigation(event: DragEvent) {
@@ -108,19 +112,17 @@ function overFolder(id: string, event: DragEvent) {
     insertion.value = {
       id,
       kind: 'folder',
-      after: event.clientY > rect.top + rect.height / 2,
+      side: dropSide(event, rect, 'y'),
     };
   } else if (dragging.value === 'team') {
     insertion.value = undefined;
     dropTarget.value = id;
   }
 }
-function insertionClass(id: string, kind: 'team' | 'folder') {
+function insertionSide(id: string, kind: 'team' | 'folder') {
   return insertion.value?.id === id && insertion.value.kind === kind
-    ? insertion.value.after
-      ? 'team-insert-after'
-      : 'team-insert-before'
-    : '';
+    ? insertion.value.side
+    : undefined;
 }
 const sortedTeams = computed(() =>
   [...props.groups].sort((a, b) => {
@@ -171,18 +173,14 @@ function selectTeam(id: string, event: MouseEvent) {
     if (!anchor.value) anchor.value = id;
     return;
   }
-  if (id === props.currentGroupId) {
-    selected.value = [];
-    anchor.value = undefined;
-    emit('select', '');
-    return;
-  }
+  if (id === props.currentGroupId) return;
   selected.value = [id];
   anchor.value = id;
   emit('select', id);
 }
 function startDrag(id: string, event: DragEvent) {
   dragging.value = 'team';
+  draggingFolder.value = undefined;
   if (!selected.value.includes(id)) selected.value = [id];
   event.dataTransfer?.setData(
     'application/x-agent-team-ids',
@@ -203,7 +201,7 @@ function reorderTeam(target: string, event: DragEvent) {
     org.reorderTeams(
       ids.filter((id) => props.groups.some((group) => group.id === id)),
       target,
-      event.clientY > rect.top + rect.height / 2,
+      dropSide(event, rect, 'y') === 'after',
       props.groups.map((group) => group.id),
     );
   } catch {
@@ -214,6 +212,7 @@ function reorderTeam(target: string, event: DragEvent) {
 }
 function dragFolder(id: string, event: DragEvent) {
   dragging.value = 'folder';
+  draggingFolder.value = id;
   event.stopPropagation();
   event.dataTransfer?.setData('application/x-agent-team-folder', id);
   event.dataTransfer?.setData('text/plain', id);
@@ -230,7 +229,7 @@ function dropFolder(target: string, event: DragEvent) {
   const rect = (
     element.querySelector('.team-folder-heading') ?? element
   ).getBoundingClientRect();
-  org.reorderFolder(id, target, event.clientY > rect.top + rect.height / 2);
+  org.reorderFolder(id, target, dropSide(event, rect, 'y') === 'after');
   dropTarget.value = undefined;
   insertion.value = undefined;
 }
@@ -291,6 +290,7 @@ function submitRenameFolder() {
     </div>
 
     <nav aria-label="主导航" class="mt-6 flex flex-col gap-1">
+      <SidebarEntry :collapsed="ui.sidebarCollapsed" title="全局搜索 · ⌘K / Ctrl+K" @activate="ui.searchOpen=true"><template #icon><Search /></template>全局搜索</SidebarEntry>
       <SidebarEntry :current="homeActive" :collapsed="ui.sidebarCollapsed" title="主页" @activate="emit('select', '')">
         <template #icon><House /></template>
         主页
@@ -360,7 +360,7 @@ function submitRenameFolder() {
         置顶
       </SidebarEntry>
       <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length"><div class="team-pinned-children">
-      <TeamRow :all-ids="groups.map(group => group.id)"
+      <TeamRow
         v-for="group in pinned"
         :key="group.id"
         :group="group"
@@ -373,17 +373,19 @@ function submitRenameFolder() {
         @over="showTeamInsertion(group.id, $event)"
         @leave="leaveInsertion"
         @archive="emit('archive', group.id)"
-        :class="insertionClass(group.id, 'team')"
+        data-drop-axis="y"
+        :data-drop-side="insertionSide(group.id, 'team')"
+        :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
       />
       </div></CollapseReveal>
       <section
         v-for="folder in org.folders"
         :key="folder.id"
         class="team-folder"
-        :class="[
-          { 'team-drop-target': dropTarget === folder.id, 'team-folder-collapsed': folder.collapsed },
-          insertionClass(folder.id, 'folder'),
-        ]"
+        :class="{ 'team-folder-collapsed': folder.collapsed }"
+        data-drop-axis="y"
+        :data-drop-side="insertionSide(folder.id, 'folder')"
+        :data-drop-container="dropTarget === folder.id ? 'true' : undefined"
         @dragover.prevent.stop="overFolder(folder.id, $event)"
         @dragleave.self="dropTarget = undefined"
         @drop.stop="dropFolder(folder.id, $event)"
@@ -391,6 +393,7 @@ function submitRenameFolder() {
         <div
           class="team-folder-heading"
           draggable="true"
+          :data-dragging="draggingFolder === folder.id ? 'true' : undefined"
           @dragstart="dragFolder(folder.id, $event)"
         >
           <SidebarEntry :title="folder.name" :controls="`sidebar-folder-${folder.id}`" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
@@ -420,7 +423,7 @@ function submitRenameFolder() {
         </form>
         <CollapseReveal :id="`sidebar-folder-${folder.id}`" :show="!folder.collapsed">
           <div :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
-            <TeamRow :all-ids="groups.map(group => group.id)"
+            <TeamRow
               v-for="group in folderTeams(folder.id)"
               :key="group.id"
               :group="group"
@@ -433,7 +436,9 @@ function submitRenameFolder() {
               @over="showTeamInsertion(group.id, $event)"
               @leave="leaveInsertion"
               @archive="emit('archive', group.id)"
-              :class="insertionClass(group.id, 'team')"
+              data-drop-axis="y"
+              :data-drop-side="insertionSide(group.id, 'team')"
+              :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
             />
             <p
               v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
@@ -453,7 +458,7 @@ function submitRenameFolder() {
           insertion = undefined;
         "
         @drop.stop="drop($event)"
-        :class="{ 'team-drop-target': dropTarget === 'root' }"
+        :data-drop-container="dropTarget === 'root' ? 'true' : undefined"
       >
         <SidebarEntry
           v-if="rootTeams.length"
@@ -466,7 +471,7 @@ function submitRenameFolder() {
           未分组
         </SidebarEntry>
         <CollapseReveal id="sidebar-ungrouped-content" :show="!org.sections.ungrouped && !!rootTeams.length"><div class="team-root-children">
-        <TeamRow :all-ids="groups.map(group => group.id)"
+        <TeamRow
           v-for="group in rootTeams"
           :key="group.id"
           :group="group"
@@ -479,7 +484,9 @@ function submitRenameFolder() {
           @over="showTeamInsertion(group.id, $event)"
           @leave="leaveInsertion"
           @archive="emit('archive', group.id)"
-          :class="insertionClass(group.id, 'team')"
+          data-drop-axis="y"
+          :data-drop-side="insertionSide(group.id, 'team')"
+          :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
         />
         </div></CollapseReveal>
       </div>

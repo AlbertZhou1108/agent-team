@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import { Disclosure } from '@/components/ui/disclosure';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, nextTick, reactive, ref, watch } from 'vue';
@@ -83,6 +84,14 @@ const emit = defineEmits<{
 const preferences = usePreferencesStore();
 // 设置页按用户目标分组:外观/通用/模型策略/团队管理。
 const activeTab = ref('appearance');
+const route = useRoute();
+watch(() => [route.query.section, route.query.setting], async () => {
+  const section=String(route.query.section??'appearance');
+  if(['appearance','general','policy','teams'].includes(section))activeTab.value=section;
+  await nextTick();
+  const setting=String(route.query.setting??'');
+  if(setting)Array.from(document.querySelectorAll('h3')).find(el=>el.textContent?.includes(setting))?.scrollIntoView({block:'center'});
+},{immediate:true});
 const archivedOpen = ref(true);
 const mode = ref<ModelPolicy['mode']>('user');
 const rules = ref('');

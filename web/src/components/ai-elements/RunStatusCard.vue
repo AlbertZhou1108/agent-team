@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Brain, ChevronDown } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
-import { useUiStore } from '@/stores/ui';
 import { identityColor } from '@/features/messages/identity';
+import { Surface } from '@/components/surface';
 import {
   buildRunRows,
   elapsedLabel,
@@ -26,7 +26,6 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [key: string] }>();
 
 const preferences = usePreferencesStore();
-const ui = useUiStore();
 // 计时每秒推进一次;只在卡片存在期间运行,卸载即停止。
 const now = ref(Date.now());
 let ticker: ReturnType<typeof setInterval> | undefined;
@@ -39,13 +38,7 @@ const activeKey = computed(() => {
   const selected = rows.value.find(row => row.key === props.selectedKey);
   return selected?.key ?? rows.value[0]?.key ?? null;
 });
-const collapsed = computed({
-  get: () => ui.runCardCollapsed,
-  set: (value: boolean) => {
-    ui.runCardCollapsed = value;
-    ui.persist();
-  },
-});
+const collapsed = ref(true);
 // 手风琴:同一时间只展开一路思考,避免多路并发时把卡片撑到上限。
 const openReasoning = ref<string | null>(null);
 
@@ -80,7 +73,9 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
 </script>
 
 <template>
-  <div v-if="rows.length" class="run-card" data-testid="run-status-card">
+<!-- 会话操作区表面:与顶栏/输入区同为 action 角色,由材质体系统一渲染底面
+     (实色不透底、玻璃带折射描边、纸质带纹理),本组件只负责布局与内容。 -->
+  <Surface v-if="rows.length" role="action" class="run-card" data-testid="run-status-card">
     <p class="sr-only" role="status" aria-live="polite">{{ liveSummary }}</p>
 
     <div class="run-card-head">
@@ -165,5 +160,5 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         </div>
       </div>
     </template>
-  </div>
+  </Surface>
 </template>

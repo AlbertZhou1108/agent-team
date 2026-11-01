@@ -78,7 +78,7 @@
 | 应用背景 | `body` 固定背景 | 静态环境色;玻璃模式下 app-shell 透明 | 已接入 |
 | 导航面板 | `Surface role="nav-panel"`(GroupSidebar,12px 外边距) | 54% card;边缘折射 18px | 已接入 |
 | 上下文面板 | `Surface role="context-panel"`(右栏、嵌入式设置) | 与导航面板同配方 | 已接入 |
-| 会话操作区 | `Surface role="action"`(header/展开输入区) | 46% card;边缘折射 20px | 已接入 |
+| 会话操作区 | `Surface role="action"`(header/运行状态卡/展开输入区) | 46% card;边缘折射 20px | 已接入 |
 | 输入面 | Input/Textarea/InputGroup/SelectTrigger 原语 | 82% card;独立时折射 10px,嵌套时复用父层光学 | 已接入 |
 | 阅读面 | 正文/代码/表格(bg-card 系) | 实色,前景不参与位移 | 已声明 |
 | 浮层 | Dialog/Popover/DropdownMenu/Select 原语 | 84% popover;折射 14px,更强背景模糊 | 已接入 |

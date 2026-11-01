@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
-import { computed } from 'vue';
-import { Bot, Copy, Ellipsis, Megaphone, MessageSquareText } from '@lucide/vue';
+import { computed, inject, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { referenceContext, parseReferences } from '@/features/messages/references';
+import { Bot, Quote, Copy, Ellipsis, Megaphone, MessageSquareText } from '@lucide/vue';
 import MessageAttachments from './MessageAttachments.vue';
 import { useClipboard } from '@vueuse/core';
 import type { MessageView } from '@/shared/models/view-types';
@@ -36,6 +38,12 @@ const props = withDefaults(
   }>(),
   { compact: false, fanoutRecipients: undefined, markdown: true },
 );
+const references=inject(referenceContext,null);
+const route=useRoute();
+const router=useRouter();
+const quoted=computed(()=>parseReferences(props.message.text));
+function quote(){references?.add({id:props.message.id,seq:props.message.seq,sender:props.message.senderName,text:props.message.text});}
+async function reveal(id:string){const {interaction: _interaction,...rest}=route.query;await router.replace({query:{...rest,message:id}});await nextTick();document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'center'});}
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 
 // 构造 Intl.DateTimeFormat 的成本远高于格式化本身;消息行大列表要反复渲染,提到模块级复用。
@@ -97,6 +105,9 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
       "
     >
       <BubbleContent>
+        <div v-if="quoted.items.length" class="flex flex-col gap-1 pb-2">
+          <Button v-for="item in quoted.items" :key="item.id" variant="outline" size="sm" class="h-auto min-w-0 justify-start" @click="reveal(item.id)"><span class="flex min-w-0 flex-col items-start gap-1"><span>{{item.sender}} · #{{item.seq}}</span><span class="line-clamp-2 break-all text-left">{{item.text}}</span></span></Button>
+        </div>
         <div :class="cn('message-head', compact && 'message-head-compact')">
           <span v-if="message.kind !== 'send'" class="message-icon">
             <component :is="icon" />
@@ -149,6 +160,7 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
               >
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                <DropdownMenuItem v-if="references?.enabled.value && !pending" @select="quote"><Quote />引用消息</DropdownMenuItem>
                 <DropdownMenuItem @select="copy(message.text)"
                   ><Copy />复制内容</DropdownMenuItem
                 >
@@ -162,9 +174,9 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
         <ExpandableText
           v-if="message.text || !props.pending"
           class="message-body text-sm leading-7"
-          :text="message.text"
+          :text="quoted.text"
         >
-          <MarkdownRenderer v-if="useMarkdown" :content="message.text" :defer="Boolean(pending)" />
+          <MarkdownRenderer v-if="useMarkdown" :content="quoted.text" :defer="Boolean(pending)" />
         </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
         <MessageAttachments v-if="message.attachments?.length" :attachments="message.attachments" />

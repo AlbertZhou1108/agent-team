@@ -18,7 +18,6 @@ const props = defineProps<{
   folder?: boolean;
   name: string;
   archived?: boolean;
-  allIds?: string[];
 }>();
 const emit = defineEmits<{ archive: []; rename: [] }>();
 const org = useTeamOrganization();
@@ -27,20 +26,6 @@ const selectedColor = computed(() =>
     ? org.folders.find((item) => item.id === props.id)?.color
     : org.teams[props.id]?.color,
 );
-const peers = computed(() => {
-  const meta = org.teams[props.id];
-  return [...new Set([...org.order, ...(props.allIds ?? [])])].filter(id => (props.allIds ?? []).includes(id) && org.teams[id]?.folder === meta?.folder && Boolean(org.teams[id]?.pinned) === Boolean(meta?.pinned));
-});
-function neighbor(direction: number) {
-  const ids = props.folder ? org.folders.map(item => item.id) : peers.value;
-  return ids[ids.indexOf(props.id) + direction];
-}
-function shift(direction: number) {
-  const target = neighbor(direction);
-  if (!target) return;
-  if (props.folder) org.reorderFolder(props.id, target, direction > 0);
-  else org.reorderTeams([props.id], target, direction > 0, props.allIds ?? []);
-}
 const colors = TEAM_COLORS;
 </script>
 <template>
@@ -71,12 +56,6 @@ const colors = TEAM_COLORS;
         ><template #indicator-icon><span /></template></DropdownMenuCheckboxItem>
       </DropdownMenuGroup>
       <DropdownMenuGroup>
-        <DropdownMenuItem :disabled="!neighbor(-1)" @select="shift(-1)">向前移动</DropdownMenuItem>
-        <DropdownMenuItem :disabled="!neighbor(1)" @select="shift(1)">向后移动</DropdownMenuItem>
-        <template v-if="!folder">
-          <DropdownMenuItem v-for="target in org.folders" :key="target.id" :disabled="org.teams[id]?.folder === target.id" @select="org.move([id], target.id)">移至 {{ target.name }}</DropdownMenuItem>
-          <DropdownMenuItem v-if="org.teams[id]?.folder" @select="org.move([id])">移出文件夹</DropdownMenuItem>
-        </template>
         <DropdownMenuSeparator v-if="!folder" class="team-menu-separator" />
         <DropdownMenuItem
           v-if="!folder"

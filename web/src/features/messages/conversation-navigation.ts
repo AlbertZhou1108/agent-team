@@ -8,3 +8,9 @@ export function teamConversationAfterSend(query: LocationQuery): LocationQuery {
   delete next.message;
   return next;
 }
+
+/** An interaction's source endpoint can be a member/manager pair; its card belongs to the team feed. */
+export function teamConversationSession(query: LocationQuery): string {
+  if (typeof query.interaction === 'string' && query.interaction) return '';
+  return typeof query.session === 'string' ? query.session : '';
+}

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import HomeWorkbench from '@/features/productivity/HomeWorkbench.vue';
+import { Surface } from '@/components/surface';
+import { Card } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
 import TelemetryOverview from '@/features/telemetry/TelemetryOverview.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -19,9 +22,8 @@ import {
   EmptyDescription,
   EmptyContent,
 } from '@/components/ui/empty';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
-  ArrowUpRight,
   Bot,
   Folder,
   LoaderCircle,
@@ -43,6 +45,7 @@ import { Button } from '@/components/ui/button';
 
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTeamOrganization } from '@/stores/team-organization';
+import { dropSide, type DropAxis, type DropSide } from '@/shared/drag-order';
 
 function workspaceLabel(workspace: string) {
   return workspace.split(/[\\/]/).filter(Boolean).slice(-2).join(' / ');
@@ -62,11 +65,9 @@ const emit = defineEmits<{
   retry: [];
 }>();
 
-const teamsOpen = ref(true);
+const teamsOpen = ref(false);
 const draggingId = ref<string>();
-const dropInsertion = ref<{ id: string; after: boolean }>();
-const settledId = ref<string>();
-let settleTimer: ReturnType<typeof setTimeout> | undefined;
+const dropInsertion = ref<{ id: string; side: DropSide; axis: DropAxis }>();
 const organization = useTeamOrganization();
 const sortedGroups = computed(() =>
   [...props.groups].sort((left, right) => {
@@ -111,13 +112,15 @@ function isHomePinned(groupId: string) {
   return organization.homePinned.includes(groupId);
 }
 
+function homeDropAxis(): DropAxis {
+  return window.matchMedia('(max-width: 760px)').matches ? 'y' : 'x';
+}
+
 function startHomeDrag(groupId: string, event: DragEvent) {
   if (isHomePinned(groupId)) {
     event.preventDefault();
     return;
   }
-  settledId.value = undefined;
-  if (settleTimer) clearTimeout(settleTimer);
   draggingId.value = groupId;
   event.dataTransfer?.setData('application/x-agent-team-home-id', groupId);
   event.dataTransfer?.setData('text/plain', groupId);
@@ -137,10 +140,8 @@ function overHomeCard(groupId: string, event: DragEvent) {
   event.stopPropagation();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const after = window.matchMedia('(max-width: 760px)').matches
-    ? event.clientY > rect.top + rect.height / 2
-    : event.clientX > rect.left + rect.width / 2;
-  dropInsertion.value = { id: groupId, after };
+  const axis = homeDropAxis();
+  dropInsertion.value = { id: groupId, side: dropSide(event, rect, axis), axis };
 }
 
 function leaveHomeCard(groupId: string, event: DragEvent) {
@@ -159,7 +160,9 @@ function dropHomeCard(groupId: string, event: DragEvent) {
   event.stopPropagation();
   const movedId = draggingId.value;
   const after =
-    dropInsertion.value?.id === groupId ? dropInsertion.value.after : false;
+    dropInsertion.value?.id === groupId
+      ? dropInsertion.value.side === 'after'
+      : false;
   organization.reorderHomeTeams(
     [movedId],
     groupId,
@@ -167,12 +170,6 @@ function dropHomeCard(groupId: string, event: DragEvent) {
     props.groups.map((group) => group.id),
   );
   clearHomeDrag();
-  settledId.value = movedId;
-  if (settleTimer) clearTimeout(settleTimer);
-  settleTimer = setTimeout(() => {
-    settledId.value = undefined;
-    settleTimer = undefined;
-  }, 620);
 }
 
 const search = ref('');
@@ -188,40 +185,32 @@ const visibleGroups = computed(() => {
   );
 });
 
-function moveHome(id: string, direction: number) {
-  const ids = sortedGroups.value.filter(group => !isHomePinned(group.id)).map(group => group.id);
-  const target = ids[ids.indexOf(id) + direction];
-  if (target) organization.reorderHomeTeams([id], target, direction > 0, props.groups.map(group => group.id));
-}
-function canMoveHome(id: string, direction: number) {
-  const ids = sortedGroups.value.filter(group => !isHomePinned(group.id)).map(group => group.id);
-  return !isHomePinned(id) && !search.value.trim() && Boolean(ids[ids.indexOf(id) + direction]);
-}
 function clearHomeDrag() {
   draggingId.value = undefined;
   dropInsertion.value = undefined;
 }
-
-onBeforeUnmount(() => {
-  if (settleTimer) clearTimeout(settleTimer);
-});
 </script>
 
 <template>
-  <div class="team-home">
+  <Surface role="context-panel" :as="Card" class="team-home min-w-0">
     <div class="team-home-inner">
       <header class="flex flex-wrap items-start justify-between gap-4">
-        <div class="flex flex-col gap-2">
-          <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
-        </div>
-        <Button as-child variant="outline">
-          <RouterLink :to="{ name: 'panel-agent' }"
-            ><Bot data-icon="inline-start" />打开 Panel Agent<ArrowUpRight
-              data-icon="inline-end"
-          /></RouterLink>
-        </Button>
+        <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
       </header>
 
+      <HomeWorkbench>
+        <template #actions>
+          <Button as-child variant="outline" size="icon-sm">
+            <RouterLink
+              :to="{ name: 'panel-agent' }"
+              aria-label="打开 Panel Agent"
+              title="打开 Panel Agent"
+              ><Bot
+            /></RouterLink>
+          </Button>
+        </template>
+      </HomeWorkbench>
+      <Separator />
       <TelemetryOverview @select="emit('select', $event)" />
       <Separator />
 
@@ -286,6 +275,9 @@ onBeforeUnmount(() => {
                   class="team-home-card flex-nowrap"
                   data-component="content-surface"
                   :draggable="!search.trim() && !isHomePinned(group.id)"
+                  :data-dragging="draggingId === group.id ? 'true' : undefined"
+                  :data-drop-axis="dropInsertion?.id === group.id ? dropInsertion.axis : undefined"
+                  :data-drop-side="dropInsertion?.id === group.id ? dropInsertion.side : undefined"
                   :title="
                     isHomePinned(group.id)
                       ? '已置顶团队固定在前面'
@@ -324,19 +316,10 @@ onBeforeUnmount(() => {
                         <Badge v-if="folderNameFor(group.id)" variant="outline"
                           ><Folder />{{ folderNameFor(group.id) }}</Badge
                         >
-                        <Badge
-                          v-if="dropInsertion?.id === group.id"
-                          variant="secondary"
-                          >{{
-                            dropInsertion.after ? '放在后面' : '放在前面'
-                          }}</Badge
-                        >
                       </span>
                     </button>
                   </ItemContent>
-                  <ItemActions class="flex-wrap">
-                    <Button variant="ghost" size="sm" :disabled="!canMoveHome(group.id, -1)" @click="moveHome(group.id, -1)">前移</Button>
-                    <Button variant="ghost" size="sm" :disabled="!canMoveHome(group.id, 1)" @click="moveHome(group.id, 1)">后移</Button>
+                  <ItemActions>
                     <Button
                       type="button"
                       size="icon-sm"
@@ -359,5 +342,5 @@ onBeforeUnmount(() => {
 </Disclosure>
       </section>
     </div>
-  </div>
+  </Surface>
 </template>

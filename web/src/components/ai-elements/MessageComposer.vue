@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, inject, nextTick, ref } from 'vue';
+import ComposerSnippets from '@/features/messages/ComposerSnippets.vue';
+import { referenceContext, referenceText } from '@/features/messages/references';
+import { Button } from '@/components/ui/button';
 import { createComposerActions } from './composer-actions';
 import { ArrowUp, ChevronDown, ChevronUp, FileText, LoaderCircle, Paperclip, Square, X } from '@lucide/vue';
 import {
@@ -43,23 +46,46 @@ const props = withDefaults(defineProps<{
 });
 const draft = defineModel<string>({ required: true });
 const ui = useUiStore();
+const references=inject(referenceContext,null);
+const snippets=ref<{show:()=>void}|null>(null);
+function composerKeydown(event:KeyboardEvent){
+  if(event.key==='/'&&!event.isComposing&&!draft.value){event.preventDefault();snippets.value?.show();return;}
+  onKeydown(event);
+}
+const referenceItems=computed(()=>references?.items.value??[]);
+const preparedDraft=computed(()=>referenceText(referenceItems.value,draft.value));
+async function insertSnippet(text:string){
+  const input=collapsed.value?compactInput.value?.$el:textarea.value?.$el;
+  const start=input?.selectionStart??draft.value.length;
+  const end=input?.selectionEnd??start;
+  draft.value=draft.value.slice(0,start)+text+draft.value.slice(end);
+  await nextTick();
+  const target=collapsed.value?compactInput.value?.$el:textarea.value?.$el;
+  target?.focus();target?.setSelectionRange(start+text.length,start+text.length);
+}
+function prepareSubmit(){
+  if(attachmentsBusy.value || preparedDraft.value.length>48000)return;
+  draft.value=preparedDraft.value;
+  if(references)references.items.value=[];
+  emit('submit');
+}
 const resizing = ref(false);
 const textarea = ref<{ $el?: HTMLTextAreaElement } | null>(null);
 const compactInput = ref<{ $el?: HTMLInputElement } | null>(null);
 let resize: { startY: number; startHeight: number } | undefined;
 const emit = defineEmits<{ submit: []; stop: []; attach: [files: File[]]; removeAttachment: [localId: string] }>();
 const { submit, onKeydown } = createComposerActions(
-  () => ({ draft: draft.value, sending: props.sending, disabled: props.disabled, hasAttachments: Boolean(props.attachments?.length) }),
-  () => emit('submit'),
+  () => ({ draft: preparedDraft.value, sending: props.sending, disabled: props.disabled, hasAttachments: Boolean(props.attachments?.length) }),
+  prepareSubmit,
 );
 
 // 附件上传中或失败时禁止发送;移除失败文件后即可发送剩余内容。
 const attachmentsBusy = computed(() => Boolean(props.attachments?.some(item => item.status !== 'ready')));
 const canSubmit = computed(() => {
   if (attachmentsBusy.value) return false;
-  const hasText = Boolean(draft.value.trim());
+  const hasText = Boolean(preparedDraft.value.trim());
   const hasAttachments = Boolean(props.attachments?.length);
-  return (hasText || hasAttachments) && !props.sending && !props.disabled;
+  return preparedDraft.value.length <= 48000 && (hasText || hasAttachments) && !props.sending && !props.disabled;
 });
 const collapsedAttachmentCount = computed(() => props.attachments?.length ?? 0);
 const canAttach = computed(() => Boolean(props.attachments));
@@ -169,6 +195,10 @@ function keyboardResize(event: KeyboardEvent) {
     @dragover="onDragOver"
     @drop="onDrop"
   >
+    <div v-if="referenceItems.length" class="flex flex-wrap gap-2 pb-2" aria-label="待发送引用">
+      <Button v-for="item in referenceItems" :key="item.id" type="button" variant="outline" size="sm" class="max-w-full" :title="item.text" :aria-label="`移除引用 ${item.sender} #${item.seq}`" @click="references!.items.value=referenceItems.filter(x=>x.id!==item.id)"><span class="truncate">{{item.sender}} · #{{item.seq}} · {{item.text.slice(0,60)}}</span><X /></Button>
+    </div>
+    <p v-if="preparedDraft.length>48000" class="text-sm text-destructive">消息和引用内容超过 48000 字符，请减少引用。</p>
     <!-- 折叠态仍显示附件数量;点它展开完整输入区管理附件。 -->
     <button
       v-if="collapsedAttachmentCount"
@@ -188,9 +218,9 @@ function keyboardResize(event: KeyboardEvent) {
         :placeholder="placeholder"
         :aria-label="label"
         :disabled="disabled"
-        @keydown="onKeydown"
+        @keydown="composerKeydown"
       />
-      <InputGroupAddon align="inline-end" class="gap-1">
+      <InputGroupAddon align="inline-end" class="gap-1"><ComposerSnippets ref="snippets" :current-text="draft" @insert="insertSnippet" />
         <InputGroupButton
           type="button"
           size="icon-sm"
@@ -264,6 +294,10 @@ function keyboardResize(event: KeyboardEvent) {
         @lostpointercapture="endResize"
         @keydown="keyboardResize"
       />
+      <div v-if="referenceItems.length" class="flex flex-wrap gap-2 pb-2" aria-label="待发送引用">
+      <Button v-for="item in referenceItems" :key="item.id" type="button" variant="outline" size="sm" class="max-w-full" :title="item.text" :aria-label="`移除引用 ${item.sender} #${item.seq}`" @click="references!.items.value=referenceItems.filter(x=>x.id!==item.id)"><span class="truncate">{{item.sender}} · #{{item.seq}} · {{item.text.slice(0,60)}}</span><X /></Button>
+    </div>
+    <p v-if="preparedDraft.length>48000" class="text-sm text-destructive">消息和引用内容超过 48000 字符，请减少引用。</p>
       <!-- 附件条:每个文件显示名称、大小、上传状态与移除;键盘可操作。 -->
       <div
         v-if="attachments?.length"
@@ -313,12 +347,12 @@ function keyboardResize(event: KeyboardEvent) {
           :disabled="disabled"
           class="max-h-none min-h-20 flex-none field-sizing-fixed"
           :style="{ height: 'var(--agent-composer-height)' }"
-          @keydown="onKeydown"
+          @keydown="composerKeydown"
         />
         <!-- 控件始终一行:窄列下由模型名截断让位,避免按钮被挤到第二行。 -->
         <InputGroupAddon align="block-end" class="flex-nowrap">
           <slot name="controls" />
-          <div class="ml-auto flex flex-none items-center gap-2">
+          <div class="ml-auto flex flex-none items-center gap-2"><ComposerSnippets ref="snippets" :current-text="draft" @insert="insertSnippet" />
             <InputGroupButton
               v-if="canAttach"
               type="button"

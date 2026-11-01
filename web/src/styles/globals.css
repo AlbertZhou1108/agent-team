@@ -769,6 +769,8 @@ button {
 }
 
 /* 运行状态卡:固定在消息滚动区与输入区之间,汇总当前会话的运行过程。
+   底面与圆角由表面角色(data-surface=action)与 --component-panel-radius
+   契约链统一渲染,随材质自动适配;这里只承载布局与内距。
    高度有上限并在卡内滚动,保证消息区始终留有阅读空间。 */
 .run-card {
   display: flex;
@@ -781,8 +783,7 @@ button {
   padding: 8px 12px;
   margin: 0 14px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: color-mix(in oklch, var(--background) 92%, transparent);
+  border-radius: var(--component-panel-radius);
 }
 
 .run-card-head {
@@ -1274,9 +1275,63 @@ button {
   height: 1px;
   margin: 10px 6px;
 }
-.team-insert-before,
-.team-insert-after {
+
+/* ===== 拖拽反馈:排序/移动共用同一状态模型(源项弱化、落点指示、容器目标) =====
+   落点判定见 web/src/shared/drag-order.ts。插入指示即时跟手,不加过渡;
+   减少动态效果由全局策略统一压制。详见 docs/element-implementations/README.md。 */
+[data-dragging='true'] {
+  opacity: 0.45;
+}
+
+[data-drop-side] {
   position: relative;
+}
+
+/* 纵向列表:目标项上/下边缘的插入线 */
+[data-drop-side][data-drop-axis='y']::after {
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--primary);
+  content: '';
+  pointer-events: none;
+}
+
+[data-drop-side='before'][data-drop-axis='y']::after {
+  top: -1px;
+}
+
+[data-drop-side='after'][data-drop-axis='y']::after {
+  bottom: -1px;
+}
+
+/* 2 列网格:目标卡内侧的前/后竖条,避免线落在滚动区边缘被裁切 */
+[data-drop-side][data-drop-axis='x']::after {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--primary);
+  content: '';
+  pointer-events: none;
+}
+
+[data-drop-side='before'][data-drop-axis='x']::after {
+  left: 0;
+}
+
+[data-drop-side='after'][data-drop-axis='x']::after {
+  right: 0;
+}
+
+/* 容器投放:内描边 + 状态层差量,不改变尺寸 */
+[data-drop-container='true'] {
+  border-radius: var(--radius-sm);
+  background-color: var(--state-pressed);
+  box-shadow: inset 0 0 0 2px var(--primary);
 }
 
 .message-content {
@@ -1688,6 +1743,13 @@ html[data-density='loose'] {
   pointer-events: none;
 }
 [data-component='navigation-item'][data-contains-current='true'] { font-weight: 600; }
+/* 侧栏导航的功能图标统一到 1rem,与右侧面板标签、折叠按钮和按钮基元一致;
+   品牌标记单独保留一档尺寸(AgentTeamLogo 的 size-6)。 */
+[data-component='navigation-item'] [data-slot='item-media'] svg,
+[data-component='navigation-item'] [data-part='disclosure-indicator'] {
+  width: 1rem;
+  height: 1rem;
+}
 [data-part='disclosure-indicator'] {
   transition: transform var(--component-disclosure-duration) var(--component-disclosure-easing);
 }

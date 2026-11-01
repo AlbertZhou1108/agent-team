@@ -11,7 +11,7 @@ const until=async fn=>{for(let n=0;n<200;n++){if(fn())return;await new Promise(r
 test('global overview counts execution once, excludes private/profile, conserves bucket totals and handles absent observations',async t=>{
  const directory=mkdtempSync(join(tmpdir(),'overview-'));
  let measured=true;
- const bus=new Bus({directory,hosts:new Map([['fake',{async run(c){c.onSession(c.endpoint.id);c.onAccepted();if(measured)c.onTelemetry(telemetryObservation({source:'fixture',scope:'turn',aggregation:'delta',usage:{inputTokensTotal:100,outputTokens:10,totalTokens:110,cacheReadTokens:80},completeness:{inputTokensTotal:'complete',outputTokens:'complete',totalTokens:'complete',cacheReadTokens:'complete'}}));return'output'}}]])});
+ const bus=new Bus({directory,hosts:new Map([['fake',{async run(c){c.onSession(c.endpoint.id);c.onAccepted();if(measured)c.onTelemetry(telemetryObservation({source:'fixture',scope:'turn',aggregation:'delta',context:{model:{model:'fixture-model',provider:'fixture'}},usage:{inputTokensTotal:100,outputTokens:10,totalTokens:110,cacheReadTokens:80},completeness:{inputTokensTotal:'complete',outputTokens:'complete',totalTokens:'complete',cacheReadTokens:'complete'}}));return'output'}}]])});
  t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true})});
  const a=confirmedGroup(bus,{name:'a',workspace:directory,lead:{name:'lead',host:'fake'},members:[]});
  const b=confirmedGroup(bus,{name:'b',workspace:directory,lead:{name:'lead',host:'fake'},members:[]});
@@ -28,6 +28,16 @@ test('global overview counts execution once, excludes private/profile, conserves
  assert.equal(result.teams.reduce((n,p)=>n+(p.metrics.totalTokens.value??0),0),220);
  assert.equal(result.states.reduce((n,p)=>n+p.count,0),2);
  assert.equal(result.totals.cacheReadRatio.value,.8);
+ assert.equal(result.hosts[0].id,'fake');
+ assert.equal(result.hosts[0].metrics.totalTokens.value,220);
+ assert.equal(result.models[0].id,'fixture-model');
+ assert.equal(result.models[0].batchCount,2);
+ const filtered=telemetryOverview(bus,{...options,host:'fake',model:'fixture-model',team:a.id});
+ assert.equal(filtered.totals.totalTokens.value,110);
+ assert.equal(filtered.series.reduce((n,p)=>n+(p.metrics.totalTokens.value??0),0),110);
+ assert.equal(filtered.hosts[0].batchCount,1);
+ assert.equal(filtered.models[0].metrics.totalTokens.value,110);
+ assert.equal(telemetryOverview(bus,{...options,model:'absent'}).batchCount,0);
  measured=false;bus.directive(a.id,'missing');await until(()=>!bus.running.size);await new Promise(r=>setImmediate(r));
  result=telemetryOverview(bus,options);assert.equal(result.coverage.missingTurns,1);assert.equal(result.totals.totalTokens.completeness,'partial');assert.equal(result.totals.totalTokens.value,220);
  assert.throws(()=>telemetryOverview(bus,{...options,bucket:'invalid'}),/分桶/);

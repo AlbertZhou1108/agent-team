@@ -586,6 +586,7 @@ export class Telemetry {
       attempts,
       metrics,
       contextReference,
+      model: [...rows].reverse().find(row => row.payload.contextReference?.model?.model)?.payload.contextReference.model ?? null,
       completeness,
       anomalies: [
         ...rows.flatMap(row => row.payload.anomalies ?? []),

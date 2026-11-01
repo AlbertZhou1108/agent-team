@@ -22,7 +22,7 @@
 | `web/src/stores/preferences.ts` | 本地保存明暗、主题选择及首帧主题快照等偏好 | 保持旧数据兼容，不误认为已跨设备同步 |
 | `web/src/styles/globals.css` | 同时包含语义映射、布局、具体视觉规则与全局减少动效媒体查询 | 分类归属，逐批清理重复和相互覆盖 |
 | `web/src/components/ui/` | shadcn-vue 基础组件 | 优先内置变体和尺寸，不为收敛批量覆盖上游组件 |
-| `web/src/app/layouts/` | 导航、侧栏及共享布局；可收起右栏已收敛为 CollapsibleRightSidebar，Panel Agent 侧栏基于它重建 | 收敛布局与表面职责，保留折叠、拖动和非拖动入口 |
+| `web/src/app/layouts/` | 导航、侧栏及共享布局；可收起右栏已收敛为 CollapsibleRightSidebar，Panel Agent 侧栏基于它重建 | 收敛布局与表面职责，保留折叠与拖动能力 |
 | `web/src/features/messages/ConversationWorkspace.vue` | 团队与 Panel Agent 共用会话骨架 | 延续共享边界，保留业务插槽和流式更新路径 |
 | `web/src/components/ai-elements/` | 阅读、输入、滚动、消息与附件呈现 | 统一排版及动效规则，防止滚动和流式回归 |
 | `web/src/features/settings/SettingsDialog.vue` | 当前外观设置入口；主题卡片点击即应用并保存，支持上传自定义包、模板下载与删除 | 收敛阶段保留交互，未来预览流程单独迁移 |

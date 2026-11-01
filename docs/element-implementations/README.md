@@ -21,6 +21,7 @@
 | E-GROUP | 开合渲染、指示器同步、键盘与展开语义、隐藏交互和焦点恢复 | [GroupSidebar](../../web/src/app/layouts/GroupSidebar.vue)、[CollapseReveal](../../web/src/components/ui/collapse-reveal/CollapseReveal.vue)、[CollapsibleContent](../../web/src/components/ui/collapsible/CollapsibleContent.vue) |
 | E-NAV | 独立接收 current/selected；组合悬停、按下、聚焦反馈；隔离菜单动作 | [SidebarEntry](../../web/src/app/layouts/SidebarEntry.vue)、[TeamRow](../../web/src/app/layouts/TeamRow.vue)、[GroupSidebar](../../web/src/app/layouts/GroupSidebar.vue) |
 | E-CONTENT | 提供共享内容表面和用途适配；保留数据与对象导航的结构差异 | [TelemetryOverview](../../web/src/features/telemetry/TelemetryOverview.vue)、[TeamHome](../../web/src/features/groups/TeamHome.vue)、[Card](../../web/src/components/ui/card/Card.vue)、[Item](../../web/src/components/ui/item/Item.vue) |
+| 拖拽排序与移动 | 落点判定、源项弱化、插入指示、容器目标与状态清理；页面只提供数据与业务排序规则 | [drag-order.ts](../../web/src/shared/drag-order.ts)、[globals.css](../../web/src/styles/globals.css)、[GroupSidebar](../../web/src/app/layouts/GroupSidebar.vue)、[TeamHome](../../web/src/features/groups/TeamHome.vue) |
 
 以上是责任映射，不是接入完成声明。优先扩展已有模块，不预建一套替代组件库。
 
@@ -32,6 +33,16 @@
 - E-NAV 先确定默认/current/selected 的基础状态，再叠加悬停或按下反馈；焦点提示独立保留。current + selected 时两个事实均可辨，不叠两块互相遮挡的底色。
 - 实际交互决定 ARIA：当前位置使用 aria-current；aria-selected 只用于适合该属性的复合控件，不能机械加到所有按钮上。
 - 数据刷新不重新播放整卡入场；目录主动作与排序、置顶等次动作继续隔离。
+
+### 拖拽排序与移动
+
+同一大类共用一套反馈：拖拽源弱化；纵向列表在目标项上/下边缘显示插入线；2 列网格在目标卡内侧显示前/后竖条，1 列时退化为上/下插入线；拖入文件夹、未分组或根区域时高亮整个容器。落点判定唯一入口是 [drag-order.ts](../../web/src/shared/drag-order.ts)，使用处不再各写一套前后判据。
+
+- 只用语义 token（`--primary`、`--state-pressed`）与既有圆角、间距，不新增组件变量。
+- 插入指示即时跟手，不加过渡；减少动态效果档由全局策略压制，不另写分支。
+- 不用文字徽标重复表达落点，不以颜色作为唯一信息。
+- 排序、移动与分组只通过拖动提供，菜单不重复放置这些入口；置顶、归档、重命名、解散等非排序动作仍留在菜单。
+- 非法目标（置顶项、拖拽源自身、搜索中）不显示落点；drop、dragend 或取消后立即清除全部指示。
 
 ## 2. 参数和默认值的拥有者
 

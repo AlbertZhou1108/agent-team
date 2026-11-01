@@ -31,7 +31,7 @@ import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue'
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { frameBatch } from '@/features/messages/frame-batch';
-import { teamConversationAfterSend } from '@/features/messages/conversation-navigation';
+import { teamConversationAfterSend, teamConversationSession } from '@/features/messages/conversation-navigation';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
 import { notifyInteraction } from '@/features/messages/interaction-notification';
 import ConversationWorkspace from '@/features/messages/ConversationWorkspace.vue';
@@ -69,7 +69,12 @@ const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
 const groupId = computed(() => routeString(route.params.groupId));
-const selectedSessionId = computed(() => routeString(route.query.session));
+const selectedSessionId = computed(() => teamConversationSession(route.query));
+watch(() => route.query.interaction, value => {
+  if (!routeString(value) || (!route.query.session && !route.query.pair)) return;
+  const query = { ...route.query }; delete query.session; delete query.pair;
+  void router.replace({ query });
+}, { immediate: true });
 const queryClient = useQueryClient();
 const archivedQuery = useResourceQuery(['groups', 'archived'], api.archivedGroups, () => route.name === 'settings', 10000);
 const groupsQuery = useResourceQuery(queryKeys.groups, api.groups, true, 10000);
@@ -670,6 +675,8 @@ function selectSession(id: string) {
   replaceQuery({
     session: id || undefined,
     pair: undefined,
+    interaction: undefined,
+    message: undefined,
     tab: 'trace',
     panel: id ? 'details' : 'sessions',
   });

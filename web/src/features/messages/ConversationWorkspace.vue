@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, provide, ref, watch } from 'vue';
+import { referenceContext, type MessageReference } from './references';
 import ConversationFrame from '@/components/ai-elements/ConversationFrame.vue';
 import { Surface } from '@/components/surface';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -14,6 +15,9 @@ const props = withDefaults(defineProps<MessageFeedProps & {
   retryable?: boolean;
   readonly?: boolean;
 }>(), { groupSystemMessages: true, markdown: true, readonly: false });
+const references=ref<MessageReference[]>([]);
+provide(referenceContext,{items:references,enabled:computed(()=>!props.readonly),add(item){if(!references.value.some(x=>x.id===item.id))references.value.push(item);}});
+watch(()=>[props.resetKey,props.selectedPair,props.heading],()=>{references.value=[];});
 const emit = defineEmits<{ loadMore: []; retry: [] }>();
 const feedProps = computed(() => {
   const { heading, description, error, retryable, readonly, ...feed } = props;

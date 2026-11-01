@@ -407,6 +407,8 @@ export interface MessageTrace {
 }
 
 export interface PanelStream {
+  homeSummary?: boolean;
+  sourceUserMessageId?: string | null;
   agentId: string;
   sessionId: string;
   turnId: string;

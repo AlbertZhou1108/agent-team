@@ -39,6 +39,7 @@ defineSlots<{
 const viewport = ref<InstanceType<typeof ScrollAreaViewport>>();
 const stream = computed(() => viewport.value?.viewportElement as HTMLElement | undefined);
 const content = ref<HTMLElement>();
+const barBottom = ref<HTMLElement>();
 const barBottomHeight = ref(0);
 const barTopHeight = ref(0);
 const atBottom = ref(true);
@@ -88,16 +89,15 @@ function updatePosition() {
 
 // 回底按钮要悬浮在 sticky 底栏上沿。底栏是滚动列的直接子元素
 // (sticky 的包含块约束:包一层等高 wrapper 会让它失去粘住余量),
-// 实高从列的末尾子元素测得 —— 除 content 外即是底栏;底栏不存在的
-// 只读视图记 0。composer 高度变化会连带 content flex-1 缩放,被同一
-// observer 捕获后重测。顶栏实高同时用于缩短覆盖式滚动条轨道。
+// 实高从底栏 ref 测得;底栏不存在的只读视图记 0。底栏高度变化
+// (成员状态卡展开/收起、输入区增高)由 observer 监听底栏自身捕获 ——
+// 消息内容超屏时 content 高度不随底栏变化,只观察 content 会漏测。
+// 顶栏实高同时用于缩短覆盖式滚动条轨道。
 function measureBars() {
   const column = stream.value?.firstElementChild;
-  const last = column?.lastElementChild;
   const header = column?.querySelector<HTMLElement>(':scope > .conversation-header');
   barTopHeight.value = header?.offsetHeight ?? 0;
-  barBottomHeight.value =
-    last instanceof HTMLElement && last !== content.value ? last.offsetHeight : 0;
+  barBottomHeight.value = barBottom.value?.offsetHeight ?? 0;
 }
 
 function scrollToBottom(behavior: ScrollBehavior = 'auto') {
@@ -160,6 +160,7 @@ onMounted(() => {
   });
   if (content.value) observer.observe(content.value);
   if (stream.value) observer.observe(stream.value);
+  if (barBottom.value) observer.observe(barBottom.value);
   const header = stream.value?.querySelector('.conversation-header');
   if (header) observer.observe(header);
 });

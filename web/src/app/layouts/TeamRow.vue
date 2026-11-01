@@ -8,7 +8,6 @@ defineProps<{
   active: boolean;
   selected: boolean;
   collapsed: boolean;
-  allIds?: string[];
 }>();
 const org = useTeamOrganization();
 const emit = defineEmits<{
@@ -32,7 +31,7 @@ const emit = defineEmits<{
   >
     <SidebarEntry :color="org.teams[group.id]?.color" :active="active" :current="active" :selected="selected" :pressed="selected" :title="`${group.name} · ${group.id}`" @activate="emit('select', $event)">
       {{ collapsed ? group.name.slice(0, 1) : group.name }}
-      <template v-if="!collapsed" #actions><TeamMenu :id="group.id" :all-ids="allIds" :name="group.name" :archived="group.state === 'archived'" @archive="emit('archive')" /></template>
+      <template v-if="!collapsed" #actions><TeamMenu :id="group.id" :name="group.name" :archived="group.state === 'archived'" @archive="emit('archive')" /></template>
     </SidebarEntry>
   </div>
 </template>

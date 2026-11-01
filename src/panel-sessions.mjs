@@ -655,7 +655,10 @@ export class PanelSessions {
       done: null,
       created: now,
     };
+    const sourceMessage = sourceUserMessageId ? this.bus.store.get('SELECT text FROM panel_messages WHERE id=?', sourceUserMessageId) : null;
     const stream = {
+      homeSummary: session.context === 'private' && Boolean(sourceMessage?.text.startsWith('[主页进展摘要]')),
+      sourceUserMessageId,
       agentId: panelAgent.id,
       sessionId: session.id,
       turnId,

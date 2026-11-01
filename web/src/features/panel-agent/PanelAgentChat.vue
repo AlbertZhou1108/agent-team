@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useInfiniteQuery } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
 import { Bot, Settings2 } from '@lucide/vue';
@@ -63,6 +64,8 @@ const emit = defineEmits<{
 
 const globalContextKey = '__global__';
 const state = usePanelAgentStore();
+const route=useRoute();
+watch(()=>route.query.history,value=>{state.historyVisible=value==='1';},{immediate:true});
 const showHistory = computed({ get: () => state.historyVisible, set: value => { state.historyVisible = value; } });
 const activeTeam = computed(() =>
   props.teams.find((team) => team.id === activeTeamId.value),
@@ -80,6 +83,12 @@ const visibleMessages = computed(() => [...new Map([
   ...(records.data.value?.pages.flatMap(page => page.messages) ?? []),
   ...(!showHistory.value ? props.messages : []),
 ].map(row => [row.seq, row])).values()].sort((a,b) => a.seq-b.seq));
+watch([()=>route.query.message,()=>route.query.interaction,visibleMessages,records.isPending,records.isFetchingNextPage],async()=>{
+  const interaction=props.interactions?.find(item=>item.id===route.query.interaction);
+  const id=interaction?.panel_message_id??route.query.message;
+  if(typeof id!=='string'||records.isPending.value||records.isFetchingNextPage.value||visibleMessages.value.some(m=>m.id===id))return;
+  if(records.hasNextPage.value)await records.fetchNextPage();
+},{immediate:true});
 // 视图对象按内容复用:2 秒轮询会让 conversation 每轮都是新数组,若每次都产出新对象,
 // 历史消息的 props 比较永远判为变化,整表随流式输出一起重渲染。
 let cachedViews: MessageView[] = [];

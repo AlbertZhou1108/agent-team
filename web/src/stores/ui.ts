@@ -13,16 +13,15 @@ function load() {
       contextWidth: 360,
       composerHeight: 96,
       composerCollapsed: true,
-      runCardCollapsed: false,
       ...JSON.parse(localStorage.getItem(storageKey) ?? '{}'),
     };
   } catch {
-    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true, runCardCollapsed: false };
+    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true };
   }
 }
 
 export const useUiStore = defineStore('ui', {
-  state: load,
+  state: () => ({ ...load(), searchOpen: false }),
   actions: {
     persist() {
       localStorage.setItem(storageKey, JSON.stringify({
@@ -33,7 +32,6 @@ export const useUiStore = defineStore('ui', {
         contextWidth: this.contextWidth,
         composerHeight: this.composerHeight,
         composerCollapsed: this.composerCollapsed,
-        runCardCollapsed: this.runCardCollapsed,
       }));
     },
     toggleSidebar() {

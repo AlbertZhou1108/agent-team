@@ -10,7 +10,7 @@ export function notifyInteraction(name: string, text: string, navigate: () => vo
     'aria-label': `查看互动：${name}，${text}`,
   }, [h('span', { class: 'font-semibold' }, 'Agent 请求互动'), h('span', { class: 'text-xs text-muted-foreground truncate max-w-full' }, name), h('span', { class: 'text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere]' }, text)]), {
     class: 'interaction-notice',
-    duration: Infinity,
+    duration: 8000,
     closeButton: true,
     action: { label: '查看', onClick: open },
   });

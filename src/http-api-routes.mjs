@@ -1,3 +1,4 @@
+import { searchWorkspace, homeWorkbench } from './productivity.mjs';
 import { telemetryOverview } from './telemetry-overview.mjs';
 import { chooseDirectory } from './directory-picker.mjs';
 import { interactionView } from './bus.mjs';
@@ -34,6 +35,8 @@ export function apiRoutes(context) {
     const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
     const isDirectiveMutation = request.method === 'POST';
     return [
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/search', handle: async () => searchWorkspace(bus, url.searchParams) },
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/workbench', handle: async () => homeWorkbench(bus) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/panel-agent/events', handle: async () => {
                 panelEventStreams.add(response);
                 response.writeHead(200, {
@@ -48,8 +51,7 @@ export function apiRoutes(context) {
                     }
                 };
                 const active = bus.panelStreaming();
-                if (active.length)
-                    send({ type: 'snapshot', streams: active });
+                send({ type: 'snapshot', streams: active });
                 bus.on('panel-stream', send);
                 const heartbeat = setInterval(() => {
                     if (!response.writableEnded)
@@ -338,7 +340,7 @@ export function apiRoutes(context) {
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/telemetry/overview'), handle: async () => {
                 let value;
-                value = telemetryOverview(bus, { from: url.searchParams.get('from') || undefined, to: url.searchParams.get('to') || undefined, bucket: url.searchParams.get('bucket') || 'day' });
+                value = telemetryOverview(bus, { from: url.searchParams.get('from') || undefined, to: url.searchParams.get('to') || undefined, bucket: url.searchParams.get('bucket') || 'day', host: url.searchParams.get('host') || undefined, model: url.searchParams.get('model') || undefined, team: url.searchParams.get('team') || undefined });
                 return value;
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname.startsWith('/api/telemetry/')), handle: async () => {

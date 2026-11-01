@@ -8,3 +8,14 @@ describe('sending from a linked interaction conversation', () => {
     expect(query.interaction).toBe('old-card');
   });
 });
+
+import { teamConversationSession } from './conversation-navigation';
+describe('interaction links use the team conversation',()=>{
+  it('ignores the source session in old interaction URLs so the user-facing card is visible',()=>{
+    expect(teamConversationSession({session:'member-to-manager',interaction:'confirmation'})).toBe('');
+  });
+  it('preserves explicit session navigation without an interaction anchor',()=>{
+    expect(teamConversationSession({session:'member-to-manager'})).toBe('member-to-manager');
+    expect(teamConversationSession({})).toBe('');
+  });
+});

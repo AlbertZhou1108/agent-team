@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TelemetryDistribution from './TelemetryDistribution.vue';
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
@@ -10,18 +11,36 @@ import { Progress } from '@/components/ui/progress';
 
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
 import { compactNumber } from './visuals';
-type Team = { id:string;name:string;status:string;metrics:TelemetryMetrics;expectedTurns:number;tokenBatches:number };
-type Overview = { generatedAt:string;counts:{teams:number;members:number;running:number};totals:TelemetryMetrics;coverage:{expectedTurns:number;tokenBatches:number;missingTurns:number};teams:Team[];series:{from:string;to:string;batchCount:number;metrics:TelemetryMetrics}[];states:{state:string;count:number}[];scope:string;timeBasis:string };
+type Team = { id:string;name:string;status:string;batchCount:number;metrics:TelemetryMetrics;expectedTurns:number;tokenBatches:number };
+type Distribution = {id:string;name:string;batchCount:number;metrics:TelemetryMetrics};
+type Overview = { hosts:Distribution[];models:Distribution[];batchCount:number; generatedAt:string;counts:{teams:number;members:number;running:number};totals:TelemetryMetrics;coverage:{expectedTurns:number;tokenBatches:number;missingTurns:number};teams:Team[];series:{from:string;to:string;batchCount:number;metrics:TelemetryMetrics}[];states:{state:string;count:number}[];scope:string;timeBasis:string };
 const emit=defineEmits<{select:[id:string]}>();
 const days=ref(1);
-const overviewOpen=ref(true);
+const filters=ref<Record<string,string>>({});
+const filterNames=ref<Record<string,string>>({});
+function filter(key:string,id:string,name:string){
+  const next={...filters.value};
+  if(next[key]===id){delete next[key];delete filterNames.value[key];}
+  else {next[key]=id;filterNames.value[key]=name;}
+  filters.value=next;
+}
+function clearFilters(){filters.value={};filterNames.value={};}
+const composition=computed(()=>{
+  const totals=data.value?.totals;
+  if(!totals)return [];
+  return ([['uncachedInputTokens','普通输入'],['cacheReadTokens','缓存读取'],['cacheWriteTokens','缓存写入'],['outputTokens','输出']] as const)
+    .map(([key,label])=>({key,label,value:totals[key].value}));
+});
+const compositionColors=['var(--primary)','var(--info)','var(--warning)','var(--success)'];
+const compositionTotal=computed(()=>composition.value.reduce((sum,item)=>sum+(item.value??0),0));
+const overviewOpen=ref(false);
 function selectedRange(){const now=new Date();const start=new Date(now);start.setHours(0,0,0,0);start.setDate(start.getDate()-(days.value-1));return{from:start.toISOString(),to:now.toISOString(),bucket:days.value===1?'hour':'day'}}
-const query=useQuery({queryKey:computed(()=>['telemetry-overview',days.value]),queryFn:async({signal})=>{const response=await fetch('/api/telemetry/overview?'+new URLSearchParams(selectedRange()),{signal});if(!response.ok)throw Error(await response.text());return response.json() as Promise<Overview>},refetchInterval:15000,refetchOnWindowFocus:false});
+const query=useQuery({queryKey:computed(()=>['telemetry-overview',days.value,filters.value]),queryFn:async({signal})=>{const response=await fetch('/api/telemetry/overview?'+new URLSearchParams({...selectedRange(),...filters.value}),{signal});if(!response.ok)throw Error(await response.text());return response.json() as Promise<Overview>},refetchInterval:15000,refetchOnWindowFocus:false});
 const data=computed(()=>query.data.value);
 const seriesRows=computed(()=>data.value?.series??[]);
 const selectedFrom = ref<string | null>(null);
 const hoveredFrom = ref<string | null>(null);
-watch(days, () => { selectedFrom.value = null; hoveredFrom.value = null; });
+watch([days,filters], () => { selectedFrom.value = null; hoveredFrom.value = null; });
 const overviewActive = computed(() => hoveredFrom.value === null && selectedFrom.value === null);
 const overviewTotals = computed(() => {
   const series = seriesRows.value;
@@ -31,7 +50,6 @@ const overviewTotals = computed(() => {
     from: series[0]!.from,
     to: series.at(-1)!.to,
     sum: values.reduce((sum, value) => sum + value, 0),
-    complete: series.every(point => point.metrics.totalTokens.completeness === 'complete'),
     batches: series.reduce((sum, point) => sum + point.batchCount, 0),
     observed: values.length > 0,
   };
@@ -51,7 +69,7 @@ function period(point: { from: string; to: string }) {
 }
 function pointLabel(point: NonNullable<typeof activePoint.value>) {
   const metric = point.metrics.totalTokens;
-  return `${period(point)}，${metric.value === null ? '暂无 Token 观测' : `${Number(metric.value).toLocaleString()} Token，${metric.completeness === 'complete' ? '采集完整' : '采集不完整'}`}，${point.batchCount} 个观测回合`;
+  return `${period(point)}，${metric.value === null ? '暂无 Token 数据' : `${Number(metric.value).toLocaleString()} Token`}，${point.batchCount} 个回合`;
 }
 function movePoint(index: number, step: number, event: KeyboardEvent) {
   const series = seriesRows.value;
@@ -61,8 +79,7 @@ function movePoint(index: number, step: number, event: KeyboardEvent) {
   const items = (event.currentTarget as Element).parentElement?.querySelectorAll<SVGElement>('[data-trend-bucket]');
   items?.[next]?.focus();
 }
-const ranks=computed(()=>[...(data.value?.teams??[])].sort((a,b)=>(b.metrics.totalTokens.value??-1)-(a.metrics.totalTokens.value??-1)));
-const max=computed(()=>Math.max(1,...ranks.value.map(t=>Number(t.metrics.totalTokens.value??0))));
+
 const observedPeak=computed(()=>{const values=(data.value?.series??[]).flatMap(t=>typeof t.metrics.totalTokens.value==='number'?[t.metrics.totalTokens.value]:[]);return values.length?Math.max(...values):null});
 const peak=computed(()=>Math.max(1,observedPeak.value??0));
 const labels:Record<string,string>={archived:'已归档',blocked:'待核实／阻塞',running:'运行中',confirmation:'待确认',completed:'已完成',waiting:'等待中'};
@@ -78,14 +95,19 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
     <p v-if="query.isPending.value" class="text-sm text-muted-foreground">正在汇总数据…</p>
     <Alert v-else-if="query.isError.value" variant="destructive"><AlertDescription>汇总加载失败<Button variant="outline" size="sm" @click="query.refetch()">重试</Button></AlertDescription></Alert>
     <template v-if="data">
-      <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="item in [{label:'团队',value:data.counts.teams},{label:'成员',value:data.counts.members},{label:'运行中回合',value:data.counts.running},{label:'已观测 Token',value:data.totals.totalTokens.value}]" :key="item.label" class="flex flex-col gap-1"><dt class="text-xs text-muted-foreground">{{item.label}}</dt><dd class="text-2xl font-semibold tabular-nums">{{number(item.value)}}</dd></div></dl>
+      <div v-if="Object.keys(filters).length" class="flex flex-wrap items-center gap-2">
+        <Button v-for="(name,key) in filterNames" :key="key" variant="secondary" size="sm" @click="filter(String(key),filters[key]!,name)">{{name}} ×</Button>
+        <Button variant="outline" size="sm" @click="clearFilters">清除筛选</Button>
+        <Button v-if="filters.team" variant="ghost" size="sm" @click="emit('select',filters.team)">打开团队</Button>
+      </div>
+      <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="item in [{label:'团队',value:data.counts.teams},{label:'成员',value:data.counts.members},{label:'运行中回合',value:data.counts.running},{label:'Token',value:data.totals.totalTokens.value}]" :key="item.label" class="flex flex-col gap-1"><dt class="text-xs text-muted-foreground">{{item.label}}</dt><dd class="text-2xl font-semibold tabular-nums">{{number(item.value)}}</dd></div></dl>
       <div class="grid min-w-0 gap-4 lg:grid-cols-2">
         <Card size="compact" class="min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="flex min-w-0 flex-col gap-3">
           <div v-if="overviewActive && overviewTotals" class="flex flex-wrap items-start justify-between gap-3" aria-live="polite" aria-atomic="true" data-testid="trend-selection">
-            <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{time(overviewTotals.from)}} – {{time(overviewTotals.to)}} · 整个时间轴</span><span class="font-medium tabular-nums">{{overviewTotals.observed?`${overviewTotals.sum.toLocaleString()} Token`:'暂无 Token 观测'}}</span><span class="text-xs text-muted-foreground">共 {{overviewTotals.batches}} 个观测回合{{overviewTotals.complete?'':' · 采集不完整'}}；点击柱形可查看单时段</span></div>
+            <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{time(overviewTotals.from)}} – {{time(overviewTotals.to)}} · 整个时间轴</span><span class="font-medium tabular-nums">{{overviewTotals.observed?`${overviewTotals.sum.toLocaleString()} Token`:'暂无 Token 数据'}}</span><span class="text-xs text-muted-foreground">共 {{overviewTotals.batches}} 个回合；点击柱形可查看单时段</span></div>
           </div>
           <div v-else-if="activePoint" class="flex flex-wrap items-start justify-between gap-3" aria-live="polite" aria-atomic="true" data-testid="trend-selection">
-            <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{period(activePoint)}}</span><span class="font-medium tabular-nums">{{activePoint.metrics.totalTokens.value===null?'暂无 Token 观测':`${Number(activePoint.metrics.totalTokens.value).toLocaleString()} Token`}}</span><span class="text-xs text-muted-foreground">再次点击该柱形可返回整轴统计</span></div>
+            <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{period(activePoint)}}</span><span class="font-medium tabular-nums">{{activePoint.metrics.totalTokens.value===null?'暂无 Token 数据':`${Number(activePoint.metrics.totalTokens.value).toLocaleString()} Token`}}</span><span class="text-xs text-muted-foreground">再次点击该柱形可返回整轴统计</span></div>
           </div>
           <p class="text-xs text-muted-foreground">峰值 {{number(observedPeak)}}</p>
           <svg viewBox="0 0 600 150" class="w-full text-primary" role="group" aria-label="交互消耗趋势，选择时段查看数据，可使用左右方向键" @mouseleave="hoveredFrom=null">
@@ -107,9 +129,17 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
           </svg>
           <div class="flex justify-between text-xs text-muted-foreground"><span>{{time(data.series[0]!.from)}}</span><span>{{time(data.series.at(-1)!.to)}}</span></div>
         </CardContent></Card>
-        <Card size="compact" class="min-w-0"><CardHeader><CardTitle>团队消耗</CardTitle></CardHeader><CardContent class="flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto"><p v-if="!ranks.length" class="text-sm text-muted-foreground">暂无团队</p><Button v-for="team in ranks" :key="team.id" variant="ghost" class="h-auto min-w-0 justify-start px-0" @click="emit('select',team.id)"><span class="flex w-full min-w-0 flex-col gap-2"><span class="flex min-w-0 justify-between gap-3"><span class="truncate">{{team.name}}</span><span class="shrink-0 tabular-nums">{{number(team.metrics.totalTokens.value)}}<span v-if="team.expectedTurns>team.tokenBatches || (team.metrics.totalTokens.value!==null && team.metrics.totalTokens.completeness!=='complete')" class="text-xs text-muted-foreground"> · 部分</span></span></span><Progress v-if="team.metrics.totalTokens.value!==null" :model-value="Number(team.metrics.totalTokens.value)/max*100" :aria-label="`${team.name}：${team.metrics.totalTokens.value} token`" class="h-2" /><span v-else class="text-left text-xs text-muted-foreground">暂无 Token 观测</span></span></Button></CardContent></Card>
+        <TelemetryDistribution title="团队消耗" :rows="data.teams" :selected="filters.team" @select="id=>filter('team',id,data!.teams.find(t=>t.id===id)!.name)" />
+        <TelemetryDistribution title="宿主分布" :rows="data.hosts ?? []" :selected="filters.host" @select="id=>filter('host',id,data!.hosts.find(t=>t.id===id)!.name)" />
+        <TelemetryDistribution title="模型排行" :rows="data.models ?? []" :selected="filters.model" @select="id=>filter('model',id,data!.models.find(t=>t.id===id)!.name)" />
       </div>
-      <Card size="compact"><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div><Disclosure><template #summary>输入、输出与缓存</template><dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4"><div v-for="key in (['inputTokensTotal','outputTokens','cacheReadTokens','cacheReadRatio'] as const)" :key="key"><dt>{{ {inputTokensTotal:'输入',outputTokens:'输出',cacheReadTokens:'缓存读取（输入的子集）',cacheReadRatio:'缓存读取占输入'}[key] }}</dt><dd>{{key==='cacheReadRatio'&&data.totals[key].value!==null?`${(Number(data.totals[key].value)*100).toFixed(1)}%`:number(data.totals[key].value)}}</dd></div></dl></Disclosure></CardContent></Card>
+      <Card size="compact"><CardHeader><CardTitle>消耗构成</CardTitle></CardHeader><CardContent class="flex flex-col gap-4">
+        <div class="flex h-5 overflow-hidden rounded-md" role="img" aria-label="Token 消耗构成">
+          <div v-for="(item,i) in composition" :key="item.key" :style="{width:`${compositionTotal ? (item.value??0)/compositionTotal*100 : 0}%`,background:compositionColors[i]}" :title="`${item.label}：${number(item.value)}`" />
+        </div>
+        <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="(item,i) in composition" :key="item.key" class="flex flex-col gap-1"><dt class="flex items-center gap-2 text-sm text-muted-foreground"><span class="size-2 rounded-full" :style="{background:compositionColors[i]}" />{{item.label}}</dt><dd class="tabular-nums">{{number(item.value)}} <span v-if="item.value!==null && compositionTotal" class="text-xs text-muted-foreground">{{(item.value/compositionTotal*100).toFixed(1)}}%</span></dd></div></dl>
+      </CardContent></Card>
+      <Card size="compact"><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div></CardContent></Card>
     </template>
       </div>
 </Disclosure>

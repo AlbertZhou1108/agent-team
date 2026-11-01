@@ -126,7 +126,16 @@ const messageIds = computed(() => {
       </div>
     </template>
     <template #bar-top><slot name="bar-top" /></template>
-    <template #bar-bottom><slot name="bar-bottom" /></template>
+    <!-- 运行状态与输入区共用底栏，始终位于输入框上方。 -->
+    <template #bar-bottom>
+      <RunStatusCard
+        :source="readStreamViews"
+        :selected-key="selectedRunKey"
+        :group-names="groupNames"
+        @select="selectedRunKey = $event"
+      />
+      <slot name="bar-bottom" />
+    </template>
     <div v-if="hasNextPage" class="flex justify-center py-2">
       <Button variant="outline" size="sm" :disabled="fetchingNextPage" @click="emit('loadMore')">
         <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
@@ -236,14 +245,6 @@ const messageIds = computed(() => {
       <PanelState :icon="MessagesSquare" title="暂无消息" />
     </slot>
 
-    <!-- 运行状态固定在手风琴之外:它汇总过程,不参与消息滚动。 -->
-    <template #footer>
-      <RunStatusCard
-        :source="readStreamViews"
-        :selected-key="selectedRunKey"
-        :group-names="groupNames"
-        @select="selectedRunKey = $event"
-      />
-    </template>
+
   </ConversationPanel>
 </template>

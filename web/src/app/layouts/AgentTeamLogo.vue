@@ -4,5 +4,10 @@ defineProps<{ collapsed?: boolean }>();
 </script>
 
 <template>
-  <Network class="size-8 shrink-0" role="img" aria-label="Agent Team" />
+  <Network
+    :class="collapsed ? 'size-4' : 'size-6'"
+    class="shrink-0"
+    role="img"
+    aria-label="Agent Team"
+  />
 </template>

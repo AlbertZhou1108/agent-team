@@ -1,5 +1,5 @@
 // A global execution view: never add message-source attribution subtotals.
-export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
+export function telemetryOverview(bus, { from, to, bucket = 'day', host, model, team } = {}) {
   const end = to ? Date.parse(to) : Date.now();
   const start = from ? Date.parse(from) : end - 7 * 86400000;
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > 31 * 86400000) throw new Error('统计区间须有效且不超过31天');
@@ -7,10 +7,16 @@ export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
   const width = bucket === 'hour' ? 3600000 : 86400000;
   const groups = bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
   const liveRuns = [...bus.running.values()].filter(r => ['coordination','panel-coordination'].includes(r.endpoint?.context) || r.endpoint?.context?.startsWith('pair:'));
+  const matches = batch => (!host || batch.physicalSession.host === host)
+    && (!model || (batch.model?.model ?? 'unknown') === model);
+  const breakdown = (batches, key) => [...Map.groupBy(batches, key)].map(([id, items]) => ({
+    id, name: id === 'unknown' ? '未知模型' : id, batchCount: items.length, metrics: bus.telemetry._sumBatches(items),
+  }));
   const seen = new Set();
   const all = [];
   const teams = groups.map(group => {
     const batches = bus.telemetry._batches(group.id).filter(batch => {
+      if ((team && group.id !== team) || !matches(batch)) return false;
       const time = Date.parse(batch.startedAt);
       if (time < start || time >= end || !Number.isFinite(time) || seen.has(batch.batchId)) return false;
       seen.add(batch.batchId);return true;
@@ -38,6 +44,7 @@ export function telemetryOverview(bus, { from, to, bucket = 'day' } = {}) {
   return{range:{from:new Date(start).toISOString(),to:new Date(end).toISOString(),bucket},generatedAt:new Date().toISOString(),
     scope:'当前未归档团队的共享执行回合；不包含私人、准备和profile会话',timeBasis:'回合开始时间；区间左闭右开；hour/day为从区间起点开始的固定1/24小时',
     counts:{teams:groups.length,members:bus.store.get("SELECT COUNT(*) AS count FROM members m JOIN groups g ON g.id=m.group_id WHERE m.removed IS NULL AND (g.state IS NULL OR g.state!='archived')").count,running:liveRuns.length},
-    totals,coverage:{expectedTurns,tokenBatches,missingTurns},teams,series,
+    hosts:breakdown(all,b=>b.physicalSession.host),models:breakdown(all,b=>b.model?.model ?? 'unknown'),
+    batchCount:all.length,totals,coverage:{expectedTurns,tokenBatches,missingTurns},teams,series,
     states:Object.entries(teams.reduce((out,t)=>{out[t.status]=(out[t.status]??0)+1;return out},{})).map(([state,count])=>({state,count}))};
 }
