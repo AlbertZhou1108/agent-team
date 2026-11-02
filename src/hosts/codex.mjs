@@ -1,5 +1,7 @@
+import { version } from '../version.mjs';
 import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { createCliLifecycle } from './lifecycle.mjs';
+import { connectionProbe, probeCodex } from './probe.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
@@ -202,7 +204,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         try { const row = JSON.parse(line); receive(row).catch(error => fail(error)); }
         catch { /* Non-protocol stdout is ignored; protocol requests still time out honestly. */ }
       });
-      await request('initialize', { clientInfo: { name: 'agent-team', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+      await request('initialize', { clientInfo: { name: 'agent-team', version }, capabilities: { experimentalApi: true } });
       send({ method: 'initialized' });
       const configuration = await request('config/read', { includeLayers: false });
       serverNames = Object.keys(configuration.config?.mcp_servers ?? {});
@@ -211,6 +213,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   }
   return {
     ...lifecycle,
+    ...connectionProbe(lifecycle, signal => probeCodex(command, { signal })),
     sessionKey({ policy }) { return policy.domain ?? (policy.mode === 'communication' ? 'communication' : 'project'); },
     async listModels() {
       await ready();

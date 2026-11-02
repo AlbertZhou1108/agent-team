@@ -148,7 +148,17 @@ export class GroupLifecycle {
   // Group creation is direct: the requester (CLI user, Panel Agent on behalf of
   // its user, or a confirmed group_create tool call) supplies the people and an
   // optional charter. No contract negotiation or confirmation protocol.
-  createGroup({ name, workspace, lead, members = [], panelAgentId, charter, policy, allowShell }) {
+  createGroup({ name, workspace, lead, members = [], panelAgentId, charter, policy, allowShell, operationId }) {
+    if (operationId !== undefined && (typeof operationId !== 'string' || !/^[\w-]{1,128}$/.test(operationId))) throw new Error('请求编号无效');
+    const creationPayload = JSON.stringify({ name, workspace, lead, members, panelAgentId, charter, policy, allowShell });
+    if (operationId) {
+      const previous = this.bus.store.get('SELECT * FROM team_creation_requests WHERE operation_id=?', operationId);
+      if (previous) {
+        if (previous.payload !== creationPayload) throw new Error('请求编号已用于不同建群内容');
+        if (!previous.group_id) throw new Error('该请求创建的团队已删除');
+        return this.bus.store.group(previous.group_id);
+      }
+    }
     const panelAgent = panelAgentId ? this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', panelAgentId) : null;
     if (panelAgentId && !panelAgent) throw new Error('Panel Agent 不存在');
     if (panelAgent) lead = { name: panelAgent.name, host: panelAgent.host, kind: 'panel_agent', id: panelAgent.id };
@@ -199,6 +209,7 @@ export class GroupLifecycle {
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
         if (person.role === 'lead') this.bus.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
       }
+      if (operationId) this.bus.store.run('INSERT INTO team_creation_requests VALUES(?,?,?)', operationId, creationPayload, id);
       if (panelAgent) {
         this.bus.store.run(
           "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated) VALUES(?,'panel_agent',?,'active',NULL,1,?)",

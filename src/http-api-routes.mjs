@@ -1,3 +1,4 @@
+import { openResultFile } from './result-files.mjs';
 import { searchWorkspace, homeWorkbench } from './productivity.mjs';
 import { telemetryOverview } from './telemetry-overview.mjs';
 import { chooseDirectory } from './directory-picker.mjs';
@@ -35,6 +36,42 @@ export function apiRoutes(context) {
     const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
     const isDirectiveMutation = request.method === 'POST';
     return [
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/files', handle: async () => {
+            let file;
+            try { file = openResultFile(bus, { group: url.searchParams.get('group'), panel: url.searchParams.get('panel') === '1', path: url.searchParams.get('path') }); }
+            catch (error) { return fail(404, error.message); }
+            response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': file.size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/'/g, '%27')}` });
+            file.stream.on('error', () => response.destroy());
+            response.on('close', () => file.stream.destroy());
+            file.stream.pipe(response);
+        } },
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/service', handle: async () => context.serviceInfo() },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/service/stop', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '停止服务不接受参数');
+            response.once('finish', () => context.stopService());
+            return { stopping: true };
+        } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/groups', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || !body.operationId) return fail(400, '需要建群请求编号');
+            if (Object.keys(body).some(key => !['operationId', 'name', 'workspace', 'lead', 'members', 'charter', 'policy', 'allowShell'].includes(key))) return fail(400, '未知建群参数');
+            return bus.createGroup(body);
+        } },
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/hosts/connections', handle: async () =>
+            [...bus.hosts].map(([name, host]) => ({ name, ...(host.connectionStatus?.() ?? { status: 'unchecked' }) })) },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/hosts/probe', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'host')) return fail(400, '检测参数无效');
+            if (body.host !== undefined && !bus.hosts.has(body.host)) return fail(400, '宿主未配置');
+            return Promise.all([...bus.hosts].filter(([name]) => body.host === undefined || body.host === name).map(async ([name, host]) => {
+                try { return { name, ...await (host.probeConnection?.() ?? Promise.resolve({ status: 'error', reason: '该适配器不支持通信检测' })) }; }
+                catch (error) { return { name, status: 'error', reason: error.message }; }
+            }));
+        } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/search', handle: async () => searchWorkspace(bus, url.searchParams) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/workbench', handle: async () => homeWorkbench(bus) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/panel-agent/events', handle: async () => {
@@ -422,7 +459,7 @@ export function apiRoutes(context) {
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-policy'), handle: async () => { let value; value = bus.modelPolicy(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-policy/presets'), handle: async () => { let value; value = bus.modelPolicyPresets(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/theme-packs'), handle: async () => { let value; value = bus.themePacks(); return value; } },
-        { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-catalog'), handle: async () => { let value; value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1' }); return value; } },
+        { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-catalog'), handle: async () => { let value; value = await bus.modelCatalog({ refresh: url.searchParams.get('refresh') === '1', host: url.searchParams.get('host') || undefined }); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/collaboration'), handle: async () => { let value; value = bus.groupSummary(url.searchParams.get('group')); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/interactions'), handle: async () => {
                 let value;

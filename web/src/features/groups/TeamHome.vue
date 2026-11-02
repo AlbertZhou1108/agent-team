@@ -196,6 +196,7 @@ function clearHomeDrag() {
     <div class="team-home-inner">
       <header class="flex flex-wrap items-start justify-between gap-4">
         <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
+        <Button as-child><RouterLink to="/groups/new">创建团队</RouterLink></Button>
       </header>
 
       <HomeWorkbench>
@@ -247,7 +248,7 @@ function clearHomeDrag() {
                   loading ? '正在读取团队' : '还没有团队'
                 }}</EmptyTitle
                 ><EmptyDescription v-if="!loading"
-                  >在 CLI 中创建团队后，会自动显示在这里。</EmptyDescription
+                  >创建团队，安排几位助手一起完成工作。</EmptyDescription
                 ></EmptyHeader
               >
             </Empty>

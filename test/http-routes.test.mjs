@@ -13,7 +13,7 @@ test('HTTP routes enforce methods, preserve errors and keep SSE open', async () 
     const request = (path, init) => fetch(new URL(path, server.url), init);
     for (const [path, method, status] of [
       ['/api/missing', 'GET', 404], ['/api/missing', 'POST', 403],
-      ['/api/groups', 'POST', 403], ['/api/panel-agent', 'DELETE', 403],
+      ['/api/groups', 'POST', 415], ['/api/panel-agent', 'DELETE', 403],
       ['/api/panel-agent/update', 'GET', 404], ['/api/panel-agent/events', 'POST', 403],
     ]) {
       const response = await request(path, { method });

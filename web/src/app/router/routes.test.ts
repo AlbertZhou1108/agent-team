@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { routes } from './routes';
 
 describe('application routes', () => {
-  it('uses the group home as the root page', () => {
+  it('opens the assistant for first use and returning users', () => {
     expect(routes[0]).toMatchObject({
       path: '/',
-      redirect: '/groups',
+      redirect: '/agent',
     });
   });
 

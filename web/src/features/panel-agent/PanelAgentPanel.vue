@@ -24,6 +24,7 @@ import { useUiStore } from '@/stores/ui';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import PanelAgentChat from './PanelAgentChat.vue';
 import PanelAgentSetup from './PanelAgentSetup.vue';
+import FirstUseSetup from './FirstUseSetup.vue';
 import PanelAgentSidebar from './PanelAgentSidebar.vue';
 import type { AvailableHost, PanelAgentForm } from './types';
 
@@ -264,7 +265,7 @@ async function loadCatalog(force = false) {
   catalogLoading.value = true;
   catalogError.value = '';
   try {
-    catalog.value = await api.modelCatalog(force);
+    catalog.value = await api.modelCatalog(force, undefined, panel.value?.agent?.host || form.value.host || undefined);
     if (!form.value.host && availableHosts.value[0]) {
       selectDefaultModel(availableHosts.value[0]);
     }
@@ -294,8 +295,7 @@ async function saveAgent() {
     catalogLoading.value ||
     !form.value.name.trim() ||
     !form.value.host ||
-    !form.value.model ||
-    !form.value.reasoning_effort
+    !form.value.model
   )
     return;
   if (form.value.access !== 'read-only' && !form.value.workspace.trim()) {
@@ -518,9 +518,9 @@ watch(() => route.query.team, value => {
 }, { immediate: true });
 
 watch(
-  [() => panelQuery.isPending.value, () => panel.value?.agent],
+  [() => panelQuery.isPending.value, () => panel.value?.agent?.id],
   ([loading]) => {
-    if (!loading) loadCatalog();
+    if (!loading && panel.value?.agent) { form.value = formFromAgent(panel.value.agent); void loadCatalog(); }
   },
   { immediate: true },
 );
@@ -554,8 +554,9 @@ watch(
         </CardContent>
       </Card>
 
+      <FirstUseSetup v-else-if="!panel?.agent" @created="panelQuery.refetch()" />
       <PanelAgentSetup
-        v-else-if="!panel?.agent || editing"
+        v-else-if="editing"
         v-model:form="form"
         :agent="panel?.agent ?? null"
         :hosts="availableHosts"

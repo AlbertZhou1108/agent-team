@@ -119,6 +119,11 @@ export const api = {
   modelPolicy(signal?: AbortSignal) { return request<Overview['modelPolicy']>('/api/model-policy', signal); },
   modelDefaults(signal?: AbortSignal) { return request<Overview['modelPolicyDefaults']>('/api/model-policy/defaults', signal); },
 
+  hostConnections() { return request<HostStatus[]>('/api/hosts/connections'); },
+  probeHosts(host?: string) { return mutate<HostStatus[]>('/api/hosts/probe', host ? { host } : {}); },
+  service() { return request<{ version: string; directory: string; url: string }>('/api/service'); },
+  stopService() { return mutate<{ stopping: boolean }>('/api/service/stop', {}); },
+  createGroup(body: { operationId: string; name: string; workspace: string; lead: { name: string; host: string }; members: Array<{ name: string; host: string }>; policy: string }) { return mutate<Group>('/api/groups', body); },
   hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
   hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
   installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },
@@ -141,8 +146,8 @@ export const api = {
   snapshot(signal?: AbortSignal, group?: string) {
     return request<Snapshot>(query('/api/snapshot', { group, scoped: 1 }), signal);
   },
-  modelCatalog(refresh = false, signal?: AbortSignal) {
-    return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined }), signal);
+  modelCatalog(refresh = false, signal?: AbortSignal, host?: string) {
+    return request<ModelCatalogResponse>(query('/api/model-catalog', { refresh: refresh ? 1 : undefined, host }), signal);
   },
   updateModelPolicy(mode: ModelPolicy['mode'], rules: string, presetId?: string | null) {
     return mutate<ModelPolicy>('/api/model-policy', { mode, rules, ...(presetId ? { presetId } : {}) });

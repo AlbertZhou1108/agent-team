@@ -1,9 +1,10 @@
+import { version } from './version.mjs';
 import { matchRoute } from './http-route-access.mjs';
 import { apiRoutes } from './http-api-routes.mjs';
 import net from 'node:net';
 import { observeResponsiveness } from './responsiveness.mjs';
 import http from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -58,6 +59,8 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     lock = openSync(lockPath, 'wx', 0o600);
   }
   writeFileSync(lock, JSON.stringify({ pid: process.pid })); closeSync(lock);
+  const instanceId = randomUUID();
+  let serviceUrl;
   let bus, ipc, panel, diagnostics, socketOwned = false;
   const panelEventStreams = new Set();
   const close = async () => {
@@ -93,7 +96,17 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         if (receivedBytes > 1024 * 1024) return socket.destroy();
         if (!data.includes('\n')) return;
         handled = true;
-        try { const value = await handleRpc(bus, JSON.parse(data.split('\n')[0])); socket.end(JSON.stringify({ result: value }) + '\n'); }
+        try {
+          const request = JSON.parse(data.split('\n')[0]);
+          if (request.op === 'instance') {
+            if (!serviceUrl) throw new Error('服务尚未就绪');
+            socket.end(JSON.stringify({ result: { instanceId, pid: process.pid, directory, url: serviceUrl, version } }) + '\n');
+          } else if (request.op === 'service_stop') {
+            if (request.instanceId !== instanceId) throw new Error('服务实例已变更');
+            socket.end(JSON.stringify({ result: { stopped: true } }) + '\n');
+            socket.once('close', () => { void close(); });
+          } else { const value = await handleRpc(bus, request); socket.end(JSON.stringify({ result: value }) + '\n'); }
+        }
         catch (error) { socket.end(JSON.stringify({ error: error.message }) + '\n'); }
       });
     });
@@ -113,7 +126,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         if (request.headers.host !== `127.0.0.1:${actualPort}` && request.headers.host !== `localhost:${actualPort}`) return fail(403, 'Invalid host');
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
         if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
-        const route = matchRoute(apiRoutes({ bus, url, request, fail, failJson, readJsonBody, cursor, response, panelEventStreams }), request.method, url);
+        const route = matchRoute(apiRoutes({ bus, url, request, fail, failJson, readJsonBody, cursor, response, panelEventStreams, serviceInfo: () => ({ version, directory, url: serviceUrl }), stopService: () => { void close(); } }), request.method, url);
         const teamStateMutation = route?.archived === true;
         if (request.method !== 'GET' && !route) return fail(403, 'Panel endpoint is not writable');
         if (request.method !== 'GET' && request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return fail(403, 'Cross-origin request rejected');
@@ -157,6 +170,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
       } catch (error) { fail(400, error.message); }
     });
     await new Promise((resolve, reject) => { panel.once('error', reject); panel.listen(port, '127.0.0.1', resolve); });
+    serviceUrl = `http://127.0.0.1:${panel.address().port}/`;
     bus.start();
     return {
       bus,
@@ -210,7 +224,7 @@ export function resolvePanelFile(pathname, accept = '') {
 export async function handleRpc(bus, request) {
   const group = request.group || (request.endpoint ? (bus.store.get('SELECT group_id FROM endpoints WHERE id=?', request.endpoint) ?? bus.store.get('SELECT group_id FROM panel_sessions WHERE id=?', request.endpoint))?.group_id : null);
   if (group && !['restore', 'archive'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
-  if (request.op === 'ping') return { version: '0.1.0' };
+  if (request.op === 'ping') return { version };
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });
   if (request.op === 'groups') return bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");

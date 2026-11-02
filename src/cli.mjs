@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { version } from './version.mjs';
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -83,7 +84,7 @@ async function main() {
   let readline;
   if (command === 'start') readline = createInterface({ input: stdin, output: stdout });
   const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts });
-  console.log(`Agent Team 0.1.0\n面板：${server.url}\n数据目录：${directory}`);
+  console.log(`Agent Team ${version}\n面板：${server.url}\n数据目录：${directory}`);
   server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
   let shuttingDown;
   const shutdown = () => shuttingDown ??= (async () => { readline?.close(); await server.close(); })();

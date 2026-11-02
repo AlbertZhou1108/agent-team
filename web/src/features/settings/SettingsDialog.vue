@@ -46,6 +46,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import HostStatuses from './HostStatuses.vue';
+import LocalService from './LocalService.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import AppearanceSample from './AppearanceSample.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
@@ -898,6 +899,7 @@ watch(
 
           <TabsContent value="general" class="flex flex-col gap-6">
             <HostStatuses :active="open || Boolean(embedded)" />
+            <LocalService v-if="open || embedded" />
 
           <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">

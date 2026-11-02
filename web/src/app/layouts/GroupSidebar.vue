@@ -494,7 +494,7 @@ function submitRenameFolder() {
         v-if="!groups.length && !ui.sidebarCollapsed"
         class="px-3 py-4 text-xs text-muted-foreground"
       >
-        还没有团队。先在 CLI 中创建团队。
+        还没有团队。可从主页创建。
       </p>
     </nav>
 

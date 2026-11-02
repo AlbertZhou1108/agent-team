@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, ref, watch, type Ref } from 'vue';
+import { resultLink, type ResultScope } from '@/shared/result-links';
 import DOMPurify from 'dompurify';
 import { Marked } from 'marked';
 
@@ -13,6 +14,12 @@ const markdown = new Marked({
   breaks: true,
   gfm: true,
 });
+const scope = inject<Ref<ResultScope | null>>('result-scope', computed(() => null));
+const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+markdown.use({ renderer: { link({ href, tokens }) {
+  const target = resultLink(href, scope.value);
+  return `<a href="${escape(target)}">${this.parser.parseInline(tokens)}</a>`;
+} } });
 const STREAM_PARSE_INTERVAL_MS = 120;
 
 const html = ref('');
@@ -53,7 +60,7 @@ function schedule() {
   }
 }
 
-watch([() => props.content, () => props.defer], schedule, { immediate: true });
+watch([() => props.content, () => props.defer, () => scope.value], schedule, { immediate: true });
 onBeforeUnmount(clearPending);
 </script>
 

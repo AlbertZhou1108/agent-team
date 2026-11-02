@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { createCliLifecycle } from './lifecycle.mjs';
+import { connectionProbe, probeClaude, initializeClaude, exchange } from './probe.mjs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
 import { executionPolicy, claudeExecutionConfig, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
@@ -35,100 +34,31 @@ export function readClaudeSessionMetadata(sessionId, configDirectory = process.e
   });
 }
 
-function runClaudeSlashCommand(command, prompt, { directory, configDirectory }) {
-  const settings = JSON.stringify({ disableAllHooks: true });
-  const args = [
-    '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--setting-sources', 'user', '--settings', settings, '--tools', '',
-    '--permission-mode', 'dontAsk', '--no-session-persistence',
-  ];
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: directory,
-      env: { ...process.env, ...(configDirectory ? { CLAUDE_CONFIG_DIR: configDirectory } : {}) },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stderr = '', result, failure;
-    const timer = setTimeout(() => {
-      failure = new Error(`Claude 模型目录探测超时：${prompt}`);
-      stopHost(child).catch(reject);
-    }, 20000);
-    child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-4000); });
-    createInterface({ input: child.stdout }).on('line', line => {
-      try {
-        const row = JSON.parse(line);
-        if (row.type === 'result') result = row.result;
-      } catch {
-        // Claude may prepend non-protocol diagnostics; they are not model data.
-      }
-    });
-    child.on('error', error => { failure = error; });
-    child.on('close', code => {
-      clearTimeout(timer);
-      if (failure) return reject(failure);
-      if (code !== 0) return reject(new Error(`${command} 模型目录探测退出 (${code})：${stderr || '无诊断信息'}`));
-      if (typeof result !== 'string') return reject(new Error(`Claude 未返回 ${prompt} 的模型信息`));
-      resolve(result);
-    });
-    child.stdin.end(JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n');
-  });
-}
-
-function parseClaudeModels(value) {
-  const current = /Current model:\s*([^\s(]+)/.exec(value)?.[1] ?? null;
-  const available = value.split('Available:')[1]
-    ?.replace(/,\s*or a full model ID\.?\s*$/i, '')
-    .trim();
-  if (!available) throw new Error('Claude /model 未返回可用模型列表');
-  return {
-    current,
-    models: [...new Set(available.split(',').map(item => item.trim()).filter(Boolean))],
-  };
-}
-
-function parseClaudeEfforts(value) {
-  const body = /Usage:\s*\/effort\s+<([^>]+)>/i.exec(value)?.[1];
-  if (!body) throw new Error('Claude /effort 未返回思考强度列表');
-  return [...new Set(body.split('|').map(item => item.trim()).filter(Boolean))];
-}
-
-function runDshCatalogProbe(command, directory) {
+async function runDshCatalogProbe(command, directory, { signal } = {}) {
+  const { mkdtempSync, rmSync } = await import('node:fs');
   const patchDirectory = join(directory, 'model-catalog');
   mkdirSync(patchDirectory, { recursive: true, mode: 0o700 });
-  const patchPath = join(patchDirectory, 'dsh.patch.json');
-  writeFileSync(patchPath, JSON.stringify([{
-    insert: [{
-      id: 'agent-team-model-catalog',
-      name: fileURLToPath(new URL('./dsh-model-catalog.mjs', import.meta.url)),
-    }],
-  }]), { mode: 0o600 });
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, ['--profile', 'headless', '--patch', patchPath, 'catalog-probe'], {
-      cwd: directory,
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const probeDirectory = mkdtempSync(join(patchDirectory, 'probe-'));
+  const patchPath = join(probeDirectory, 'dsh.patch.json');
+  writeFileSync(patchPath, JSON.stringify([
+    { id: 'headless-runner', disabled: true },
+    { id: 'headless-startup', disabled: true },
+    { id: 'session-persistence-jsonl', config: { root: join(probeDirectory, 'sessions') } },
+    { id: 'storage-json', config: { root: join(probeDirectory, 'storage') } },
+    { insert: [{ id: 'agent-team-model-catalog', name: fileURLToPath(new URL('./dsh-model-catalog.mjs', import.meta.url)) }] },
+  ]), { mode: 0o600 });
+  try {
+    return await exchange(command, ['--profile', 'headless', '--patch', patchPath], {
+      cwd: probeDirectory, signal, waitForExit: true,
+      receive(line) {
+        const prefix = 'AGENT_TEAM_DSH_MODEL_CATALOG ';
+        if (!line.startsWith(prefix)) return;
+        const result = JSON.parse(line.slice(prefix.length));
+        if (!result.ok || !Array.isArray(result.providers)) throw new Error(result.failures?.map(item => item.error).join('; ') || 'DSH 没有可用模型');
+        return result;
+      },
     });
-    let stderr = '', result, failure;
-    const timer = setTimeout(() => {
-      failure = new Error('DSH 模型目录探测超时');
-      stopHost(child).catch(reject);
-    }, 20000);
-    child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-6000); });
-    createInterface({ input: child.stdout }).on('line', line => {
-      const prefix = 'AGENT_TEAM_DSH_MODEL_CATALOG ';
-      if (!line.startsWith(prefix)) return;
-      try { result = JSON.parse(line.slice(prefix.length)); }
-      catch (error) { failure = new Error(`DSH 模型目录返回无效 JSON：${error.message}`); }
-    });
-    child.on('error', error => { failure = error; });
-    child.on('close', code => {
-      clearTimeout(timer);
-      if (failure) return reject(failure);
-      if (code !== 0) return reject(new Error(`${command} 模型目录探测退出 (${code})：${stderr || '无诊断信息'}`));
-      if (!result) return reject(new Error(`DSH 未返回模型目录：${stderr || '无诊断信息'}`));
-      if (!result.ok) return reject(new Error(result.failures?.map(item => item.error).filter(Boolean).join('; ') || 'DSH 没有可用模型'));
-      resolve(result);
-    });
-  });
+  } finally { rmSync(probeDirectory, { recursive: true, force: true }); }
 }
 
 export function createClaudeHost({
@@ -138,23 +68,23 @@ export function createClaudeHost({
   if (reasoningEffort && !efforts.has(reasoningEffort)) throw new Error(`Claude 思考强度无效: ${reasoningEffort}`);
   configDirectory ??= process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
   const verified = new Map();
+  const lifecycle = createCliLifecycle('claude', command, value => { command = value; });
   return {
-    ...createCliLifecycle('claude', command, value => { command = value; }),
-    async listModels() {
-      const [modelValue, effortValue] = await Promise.all([
-        runClaudeSlashCommand(command, '/model', { directory, configDirectory }),
-        runClaudeSlashCommand(command, '/effort', { directory, configDirectory }),
-      ]);
-      const parsed = parseClaudeModels(modelValue);
-      const reasoningEfforts = parseClaudeEfforts(effortValue);
-      const modelIds = [...new Set([...(parsed.current ? [parsed.current] : []), ...parsed.models])];
-      return modelCatalog({
-        host: 'claude',
-        source: 'claude-cli./model+/effort',
-        defaultModel: parsed.current,
-        reasoningEfforts,
-        models: modelIds.map(id => ({ id, label: id, isDefault: id === parsed.current })),
-      });
+    ...lifecycle,
+    ...connectionProbe(lifecycle, signal => probeClaude(command, { configDirectory, signal })),
+    async listModels(options = {}) {
+      const initialized = await initializeClaude(command, { configDirectory, ...options });
+      if (!Array.isArray(initialized.models) || !initialized.models.length) throw new Error('Claude 未提供模型目录，请检查宿主版本与配置');
+      const models = initialized.models.map(item => ({
+        id: item.value,
+        label: item.displayName ?? item.value,
+        description: item.description,
+        reasoningEfforts: item.supportedEffortLevels ?? [],
+        ...(reasoningEffort ? { defaultReasoningEffort: reasoningEffort } : {}),
+        isDefault: item.value === (model ?? 'default'),
+      }));
+      return modelCatalog({ host: 'claude', source: 'claude.control.initialize', models,
+        defaultModel: models.find(item => item.isDefault)?.id ?? null });
     },
     telemetryCapabilities: telemetryCapabilitiesFor('claude'),
     supportsPanelAccess({ access }) {
@@ -376,10 +306,12 @@ export function createClaudeHost({
 
 export function createDshHost({ directory, socketPath, command = 'dsh', model }) {
   if (model) throw new Error('DSH 模型由其 headless profile 设置；本版本不伪造未验证的模型参数');
+  const lifecycle = createCliLifecycle('dsh', command, value => { command = value; });
   return {
-    ...createCliLifecycle('dsh', command, value => { command = value; }),
-    async listModels() {
-      const result = await runDshCatalogProbe(command, directory);
+    ...lifecycle,
+    ...connectionProbe(lifecycle, signal => runDshCatalogProbe(command, directory, { signal })),
+    async listModels(options = {}) {
+      const result = await runDshCatalogProbe(command, directory, options);
       const models = result.providers.flatMap(provider => provider.models ?? []);
       return modelCatalog({
         host: 'dsh',

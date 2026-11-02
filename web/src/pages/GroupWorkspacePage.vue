@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   computed,
+  provide,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -26,6 +27,7 @@ import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
+import CreateTeam from '@/features/groups/CreateTeam.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
@@ -69,6 +71,7 @@ const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
 const groupId = computed(() => routeString(route.params.groupId));
+provide('result-scope', computed(() => groupId.value ? { group: groupId.value } : route.name === 'panel-agent' ? { panel: '1' } : null));
 const selectedSessionId = computed(() => teamConversationSession(route.query));
 watch(() => route.query.interaction, value => {
   if (!routeString(value) || (!route.query.session && !route.query.pair)) return;
@@ -864,6 +867,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
         @restore-team="restoreArchivedTeam"
       />
       <Card v-else-if="groupId && !group" class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">正在读取团队…</CardContent></Card>
+      <CreateTeam v-else-if="route.name === 'create-team'" />
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
         :groups="groups"

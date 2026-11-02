@@ -50,7 +50,9 @@ export class Bus extends EventEmitter {
     this.running = new Map();
     this.closing = false;
     this.modelCatalogCache = null;
-    this.modelCatalogPending = null;
+    this.hostCatalogs = new Map();
+    this.hostCatalogPending = new Map();
+    this.hostCatalogControllers = new Map();
     this.toolStreams = new ToolStreams(this);
     this.interactions = new Interactions(this);
     this.attachments = new Attachments(this);
@@ -101,40 +103,37 @@ export class Bus extends EventEmitter {
     const support = host?.supportsPolicy?.({ member, policy }) ?? { supported: true };
     if (support === false || support.supported === false) throw new Error(`${member.name}（${member.host}）不支持${policy.mode}${policy.allowShell ? ' + 命令' : ''}：${support.reason ?? '宿主能力不足'}`);
   }
-  async modelCatalog({ refresh = false } = {}) {
-    if (!refresh && this.modelCatalogCache && Date.now() - this.modelCatalogCache.created < 30000) {
-      return { ...this.modelCatalogCache.value, cached: true };
-    }
-    if (!refresh && this.modelCatalogPending) return this.modelCatalogPending;
-    this.modelCatalogPending = (async () => {
-      const hosts = await Promise.all([...this.hosts].map(async ([hostName, host]) => {
-        if (typeof host.listModels !== 'function') {
-          return { host: hostName, ok: false, error: '宿主适配器未提供模型目录' };
-        }
-        let timer;
-        try {
-          const catalog = await Promise.race([
-            Promise.resolve().then(() => host.listModels()),
-            new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error('模型目录探测超时')), 25000);
-            }),
-          ]);
-          return { host: hostName, ok: true, catalog };
-        } catch (error) {
-          return { host: hostName, ok: false, error: error instanceof Error ? error.message : String(error) };
-        } finally {
-          clearTimeout(timer);
-        }
-      }));
-      const value = { version: 1, generatedAt: new Date().toISOString(), hosts };
-      this.modelCatalogCache = { created: Date.now(), value };
-      return { ...value, cached: false };
-    })();
-    try {
-      return await this.modelCatalogPending;
-    } finally {
-      this.modelCatalogPending = null;
-    }
+  async modelCatalog({ refresh = false, host: selectedHost } = {}) {
+    if (selectedHost) this.requireHost(selectedHost);
+    const names = selectedHost ? [selectedHost] : [...this.hosts.keys()];
+    const cached = names.every(name => !refresh && this.hostCatalogs.has(name) && Date.now() - this.hostCatalogs.get(name).created < 30000);
+    const hosts = await Promise.all(names.map(async hostName => {
+      const previous = this.hostCatalogs.get(hostName);
+      if (!refresh && previous && Date.now() - previous.created < 30000) return previous.value;
+      if (!this.hostCatalogPending.has(hostName)) {
+        const pending = (async () => {
+          const host = this.hosts.get(hostName);
+          let timer;
+          const controller = new AbortController();
+          this.hostCatalogControllers.set(hostName, controller);
+          try {
+            if (!host.listModels) throw new Error('宿主适配器未提供模型目录');
+            const catalog = await Promise.race([
+              Promise.resolve().then(() => host.listModels({ signal: controller.signal })),
+              new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('模型目录探测超时')); }, 25000); }),
+            ]);
+            return { host: hostName, ok: true, catalog };
+          } catch (error) { return { host: hostName, ok: false, error: error.message }; }
+          finally { clearTimeout(timer); this.hostCatalogControllers.delete(hostName); }
+        })().then(value => { this.hostCatalogs.set(hostName, { created: Date.now(), value }); return value; })
+          .finally(() => this.hostCatalogPending.delete(hostName));
+        this.hostCatalogPending.set(hostName, pending);
+      }
+      return this.hostCatalogPending.get(hostName);
+    }));
+    const value = { version: 1, generatedAt: new Date().toISOString(), hosts };
+    this.modelCatalogCache = { created: Date.now(), value: { ...value, hosts: [...this.hostCatalogs.values()].map(entry => entry.value) } };
+    return { ...value, cached };
   }
   teamController(groupId) {
     const group = this.store.group(groupId);
@@ -376,7 +375,7 @@ export class Bus extends EventEmitter {
   }
   async validateMemberModelSelection(member, { model_provider, model, reasoning_effort } = {}) {
     if (model === undefined || model === null || String(model).trim() === '') return null;
-    const catalog = await this.modelCatalog({ refresh: true });
+    const catalog = await this.modelCatalog({ refresh: true, host: member.host });
     const hostCatalog = catalog.hosts.find(item => item.host === member.host && item.ok && item.catalog);
     if (!hostCatalog) throw new Error(`宿主 ${member.host} 没有可用模型目录`);
     const provider = typeof model_provider === 'string' && model_provider.trim() ? model_provider.trim() : null;
@@ -625,8 +624,11 @@ export class Bus extends EventEmitter {
       clearInterval(this.attachmentCleanupTimer);
       this.attachmentCleanupTimer = null;
     }
+    for (const controller of this.hostCatalogControllers.values()) controller.abort(new Error('服务正在停止'));
+    await Promise.allSettled([...this.hosts.values()].map(host => host.cancelProbe?.()));
     await this.stopWhere(() => true);
     await Promise.allSettled([...this.hosts.values()].map(host => host.close?.()));
+    await Promise.allSettled([...this.hostCatalogPending.values()]);
     // 停止所有回合后缓冲里可能还有尾段增量,必须在关闭数据库前落盘。
     this.events.close();
     this.store.close();

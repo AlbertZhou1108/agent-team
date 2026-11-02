@@ -170,21 +170,29 @@ export class PanelSessions {
       typeof workspace === 'string' && workspace.trim() ? workspace : ensureDefaultPanelWorkspace(),
       access,
     );
-    const catalog = await this.bus.modelCatalog({ refresh: true });
+    const catalog = await this.bus.modelCatalog({ refresh: true, host });
     const hostCatalog = catalog.hosts.find(item => item.host === host && item.ok && item.catalog);
     if (!hostCatalog) throw new Error('Panel Agent 宿主没有可用模型目录');
+    if (!model) {
+      const preferred = hostCatalog.catalog.models.find(item => item.key === hostCatalog.catalog.defaultModel)
+        ?? hostCatalog.catalog.models.find(item => item.isDefault);
+      if (!preferred) throw new Error('请明确选择模型，宿主没有提供默认模型');
+      model = preferred.id;
+      model_provider ??= preferred.provider;
+    }
     const candidates = hostCatalog.catalog.models.filter(item => item.id === model);
     const provider = typeof model_provider === 'string' && model_provider.trim() ? model_provider.trim() : null;
     const selected = candidates.find(item => !provider || item.provider === provider);
     if (!selected) throw new Error('Panel Agent 选择的模型不在宿主目录中');
     const supported = selected.reasoningEfforts.length ? selected.reasoningEfforts : hostCatalog.catalog.reasoningEfforts;
-    const effort = reasoning_effort ?? selected.defaultReasoningEffort;
-    if (!effort || (supported.length && !supported.some(item => item.id === effort))) {
+    const effort = reasoning_effort || selected.defaultReasoningEffort || null;
+    if (effort !== null && supported.length && !supported.some(item => item.id === effort)) {
       throw new Error('Panel Agent 思考强度不受支持');
     }
     const id = randomUUID();
     const now = new Date().toISOString();
     this.bus.store.transaction(() => {
+      if (this.bus.panelAgent()) throw new Error('当前数据目录已经存在 Panel Agent');
       this.bus.store.run(
         'INSERT INTO panel_agents(id, singleton, name, host, model_provider, model, reasoning_effort, workspace, access, created, updated) VALUES(?,1,?,?,?,?,?,?,?,?,?)',
         id,
@@ -225,7 +233,7 @@ export class PanelSessions {
           ? this.bus.panelWorkspace(workspace, nextAccess)
           : ensureDefaultPanelWorkspace());
     if (nextAccess !== 'read-only' && !nextWorkspace) throw new Error('工作区写入和完全权限需要设置私人工作区');
-    const catalog = await this.bus.modelCatalog({ refresh: true });
+    const catalog = await this.bus.modelCatalog({ refresh: true, host: nextHost });
     const hostCatalog = catalog.hosts.find(item => item.host === nextHost && item.ok && item.catalog);
     if (!hostCatalog) throw new Error('Panel Agent 宿主没有可用模型目录');
     const nextModel = model ?? agent.model;
@@ -235,8 +243,8 @@ export class PanelSessions {
     const selected = hostCatalog.catalog.models.find(item => item.id === nextModel && (!provider || item.provider === provider));
     if (!selected) throw new Error('Panel Agent 选择的模型不在宿主目录中');
     const supported = selected.reasoningEfforts.length ? selected.reasoningEfforts : hostCatalog.catalog.reasoningEfforts;
-    const effort = reasoning_effort ?? agent.reasoning_effort ?? selected.defaultReasoningEffort;
-    if (!effort || (supported.length && !supported.some(item => item.id === effort))) throw new Error('Panel Agent 思考强度不受支持');
+    const effort = reasoning_effort === undefined ? (agent.reasoning_effort ?? selected.defaultReasoningEffort ?? null) : reasoning_effort || selected.defaultReasoningEffort || null;
+    if (effort !== null && supported.length && !supported.some(item => item.id === effort)) throw new Error('Panel Agent 思考强度不受支持');
     const now = new Date().toISOString();
     const nextProvider = selected.provider ?? provider ?? null;
     const hostModelChanged = nextHost !== agent.host

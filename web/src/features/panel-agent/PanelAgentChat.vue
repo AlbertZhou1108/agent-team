@@ -109,8 +109,8 @@ const readPanelStreamViews = () =>
     runningSince: props.runningSince ?? null,
   });
 const suggestions = [
-  '帮我总结当前所有团队的运行状态',
-  '有哪些团队正在等待我的确认？',
+  '帮我整理这些资料',
+  '帮我比较几个方案',
   '帮我创建一个新团队',
 ];
 </script>
@@ -119,7 +119,7 @@ const suggestions = [
   <ConversationWorkspace
     :heading="agent.name"
     :title="showHistory ? '历史记录' : '私人消息'"
-    :description="showHistory ? '此前启动的记录 · 只读' : '本次启动的会话'"
+    :description="showHistory ? '此前启动的记录 · 只读' : '消息发送给私人助手'"
     :readonly="showHistory"
     :error="records.error.value?.message || actionError"
     :retryable="Boolean(records.error.value)"
@@ -141,6 +141,7 @@ const suggestions = [
   >
     <template #leading><div class="agent-mark agent-mark-small"><Bot /></div></template>
     <template #actions>
+        <Button as-child variant="outline" size="sm"><RouterLink to="/groups/new">创建团队</RouterLink></Button>
         <Button variant="ghost" size="sm" @click="showHistory = !showHistory">{{ showHistory ? '返回当前会话' : '历史记录' }}</Button>
         <Button
           variant="ghost"
@@ -165,13 +166,13 @@ const suggestions = [
             <Bot />
           </EmptyMedia>
           <EmptyTitle>
-            {{ showHistory ? '暂无历史记录' : activeTeam ? '这个团队还没有会话' : '从一个目标开始' }}
+            {{ showHistory ? '暂无历史记录' : activeTeam ? '这个团队还没有会话' : '你想完成什么？' }}
           </EmptyTitle>
           <EmptyDescription v-if="!showHistory">
             {{
               activeTeam
                 ? `当前切换到「${activeTeam.name}」，这里会显示与该团队的私人会话。`
-                : '可以询问团队状态、解释阻塞，或者让我准备一个新团队。'
+                : '描述需求或添加资料；需要多人协作时，可以创建团队。'
             }}
           </EmptyDescription>
         </EmptyHeader>

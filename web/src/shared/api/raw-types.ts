@@ -866,7 +866,7 @@ export interface TeamDirectiveReceipt {
 }
 export interface HostStatus {
   name: string;
-  status: 'available' | 'missing' | 'error';
+  status: 'available' | 'missing' | 'error' | 'checking' | 'unchecked';
   reason?: string;
   installing?: boolean;
   installation?: { phase: 'checking' | 'installing' | 'verifying' | 'completed' | 'failed'; reason?: string };

@@ -1,6 +1,6 @@
 {
   "name": "agent-team-local",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "workspaces": [
     "web"
@@ -26,7 +26,9 @@
     "test:web": "vitest run --config web/vite.config.ts",
     "typecheck:backend": "tsc -p tsconfig.backend.json",
     "lint:backend": "eslint src test scripts",
-    "check": "node scripts/check.mjs && node scripts/check-design.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend"
+    "check": "node scripts/check.mjs && node scripts/check-design.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend",
+    "launch": "node --disable-warning=ExperimentalWarning src/launcher.mjs",
+    "package": "npm run build && node scripts/build-release.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.60.0",

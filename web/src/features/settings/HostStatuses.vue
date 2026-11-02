@@ -11,16 +11,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
 
-const props = defineProps<{ active: boolean }>();
+const props = defineProps<{ active: boolean; selectable?: boolean }>();
+const emit = defineEmits<{ select: [host: string] }>();
 const pending = ref<string[]>([]);
 const failures = ref<Record<string, string>>({});
 const statuses = useQuery({
   queryKey: ['host-statuses'],
-  queryFn: () => api.hostStatuses(),
+  queryFn: () => api.probeHosts(),
   enabled: computed(() => props.active),
   retry: false,
-  staleTime: 0,
-  gcTime: 0,
+  staleTime: 30000,
+  gcTime: 30000,
   refetchOnWindowFocus: false,
 });
 const installations = useQuery({
@@ -72,7 +73,7 @@ async function install(host: HostStatus) {
       <div class="flex items-center gap-1">
         <h3 id="host-status-title" class="text-sm font-semibold">适配器状态</h3>
         <HelpPopover title="适配器状态">
-          <p>检测范围：运行服务的机器上，适配器所需的 CLI 是否已安装。</p>
+          <p>检测范围：运行服务的机器上，能否通过适配器与宿主通信；检测不会发送模型消息。</p>
           <p>安装方式：Codex、DSH 使用 npm 全局安装；Claude Code 使用官方安装脚本。</p>
           <p>后续配置：登录、API Key 和模型配置需在对应 CLI 中完成，已安装不代表已完成配置。</p>
         </HelpPopover>
@@ -97,15 +98,16 @@ async function install(host: HostStatus) {
           <p v-if="host.installation || busy(host)" role="status" class="text-xs text-muted-foreground">
             {{ phases[host.installation?.phase ?? 'checking'] }}
           </p>
-          <Disclosure v-if="host.reason"><template #summary>检测详情</template><pre class="whitespace-pre-wrap break-words">{{ host.reason }}</pre></Disclosure>
+          <Disclosure v-if="host.reason"><template #summary>查看原因</template><pre class="whitespace-pre-wrap break-words">{{ host.reason }}</pre></Disclosure>
           <Alert v-if="failures[host.name] || host.installation?.reason" variant="destructive">
             <AlertDescription>安装未完成。请查看详情，修正安装条件后重试。<Disclosure><template #summary>错误详情</template><pre class="whitespace-pre-wrap break-words">{{ failures[host.name] || host.installation?.reason }}</pre></Disclosure></AlertDescription>
           </Alert>
         </ItemContent>
         <p v-if="host.status === 'missing'" class="text-xs text-muted-foreground">安装到运行服务的机器，{{ host.name === 'claude' ? '使用官方安装脚本' : '使用 npm 全局安装' }}。</p>
         <ItemActions>
+          <Button v-if="selectable && host.status === 'available'" type="button" size="sm" :disabled="refreshing" @click="emit('select', host.name)">使用</Button>
           <Badge :variant="host.status === 'error' ? 'destructive' : 'secondary'">
-            {{ busy(host) ? '安装中…' : host.status === 'available' ? '已安装' : host.status === 'missing' ? '未安装' : '异常' }}
+            {{ busy(host) ? '安装中…' : host.status === 'available' ? '可用' : host.status === 'missing' ? '未安装' : host.status === 'unchecked' || host.status === 'checking' ? '检测中' : '不可用' }}
           </Badge>
           <Button v-if="host.status === 'missing'" type="button" variant="outline" size="sm" :disabled="Boolean(busy(host))" @click="install(host)">
             {{ busy(host) ? '安装中…' : '安装' }}

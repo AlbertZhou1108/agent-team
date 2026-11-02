@@ -3,11 +3,16 @@ import type { RouteRecordRaw } from 'vue-router';
 export const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/groups',
+    redirect: '/agent',
   },
   {
     path: '/agent',
     name: 'panel-agent',
+    component: () => import('@/pages/GroupWorkspacePage.vue'),
+  },
+  {
+    path: '/groups/new',
+    name: 'create-team',
     component: () => import('@/pages/GroupWorkspacePage.vue'),
   },
   {

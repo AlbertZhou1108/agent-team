@@ -65,8 +65,7 @@ const canSave = computed(
     Boolean(
       form.value.name.trim() &&
         form.value.host &&
-        form.value.model &&
-        form.value.reasoning_effort,
+        form.value.model,
     ) &&
     !workspaceMissing.value &&
     !props.catalogLoading &&

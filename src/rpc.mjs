@@ -1,3 +1,4 @@
+import { version } from './version.mjs';
 import net from 'node:net';
 import { createInterface } from 'node:readline';
 
@@ -34,7 +35,7 @@ export async function serveMcp(socketPath, endpoint, key, turnId) {
       request = JSON.parse(line);
       if (!('id' in request)) return;
       let result;
-      if (request.method === 'initialize') result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'agent-team', version: '0.1.0' } };
+      if (request.method === 'initialize') result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'agent-team', version } };
       else if (request.method === 'ping') result = {};
       else if (request.method === 'tools/list') result = { tools: await rpc(socketPath, { op: 'tools', endpoint, key }) };
       else if (request.method === 'tools/call') {

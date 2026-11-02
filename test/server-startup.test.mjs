@@ -1,3 +1,4 @@
+import { version } from '../src/version.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -16,7 +17,7 @@ test('server IPC starts, answers requests and can restart with the same data dir
     if (process.platform === 'win32') assert.ok(address.startsWith('\\\\.\\pipe\\'));
     for (let attempt = 0; attempt < 2; attempt++) {
       server = await startServer({ directory, hosts: new Map() });
-      assert.deepEqual(await rpc(address, { op: 'ping' }), { version: '0.1.0' });
+      assert.deepEqual(await rpc(address, { op: 'ping' }), { version });
       const response = await fetch(new URL('/api/model-policy', server.url));
       assert.equal(response.status, 200);
       await response.text();

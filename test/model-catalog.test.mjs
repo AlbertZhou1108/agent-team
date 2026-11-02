@@ -37,27 +37,27 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.deepEqual(catalog.models[0].reasoningEfforts.map(effort => effort.id), ['low']);
 });
 
-test('Claude discovers names and efforts from slash commands', async t => {
+test('Claude discovers models through initialization without sending a user message', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-claude-catalog-'));
   const fake = join(directory, 'fake-claude.mjs');
   writeFileSync(fake, `#!/usr/bin/env node
 import { createInterface } from 'node:readline';
 createInterface({ input: process.stdin }).on('line', line => {
-  const prompt = JSON.parse(line).message.content;
-  const result = prompt === '/model'
-    ? 'Current model: opus[1m] (default)\\nUsage: /model <name>. Available: sonnet, opus, haiku, sonnet[1m], opus[1m], default, or a full model ID.'
-    : 'Usage: /effort <low|medium|high|xhigh|max>';
-  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result }) + '\\n');
+  const row = JSON.parse(line);
+  if (row.type !== 'control_request') process.exit(9);
+  process.stdout.write(JSON.stringify({type:'control_response',response:{request_id:row.request_id,subtype:'success',response:{models:[
+    {value:'default',displayName:'Default',supportedEffortLevels:['low','high']},
+    {value:'sonnet',displayName:'Sonnet',supportedEffortLevels:['low','high']}
+  ]}}}) + '\\n');
 });
 `);
   chmodSync(fake, 0o700);
   const host = createClaudeHost({ directory, socketPath: join(directory, 'bus.sock'), command: fake });
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const catalog = await host.listModels();
-  assert.equal(catalog.defaultModel, 'opus[1m]');
+  assert.equal(catalog.defaultModel, 'default');
   assert.ok(catalog.models.some(model => model.id === 'sonnet'));
-  assert.ok(catalog.models.some(model => model.id === 'opus[1m]' && model.isDefault));
-  assert.deepEqual(catalog.reasoningEfforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(catalog.models[0].reasoningEfforts.map(effort => effort.id), ['low', 'high']);
 });
 
 test('DSH discovers its live provider catalog through the invocation probe', async t => {
@@ -147,5 +147,5 @@ process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ok:true,p
 `);
   chmodSync(fake, 0o700);
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  await assert.rejects(createDshHost({directory, command:fake}).listModels(), /模型目录探测退出 \(7\)/);
+  await assert.rejects(createDshHost({directory, command:fake}).listModels(), /退出 \(7\)/);
 });
