@@ -2,8 +2,6 @@
 
 本机、单用户的 CLI Agent 通信框架。核心是一条多 Agent 消息总线：你与主 Agent 聊天，成员之间通过 `send/note/read` 在双人会话和统一调度会话中协作。框架只负责消息路由、回合调度、宿主接入和投递安全；任务分工、进度和完成标准由 Agent 在群消息里自行组织，不做框架级流程约束。当前接入 Codex CLI/app-server、Claude Code CLI、DSH CLI。
 
-设计决策见 [ADR 0004 — 通信内核优先](./docs/adr/0004-revert-to-communication-core.md) 与 [减负方案](./docs/deload-plan.md)。
-
 ## 开始使用
 
 要求 Node.js >=22.13，并已安装、登录需要的 CLI。运行数据保存在本机 SQLite，不依赖外部数据库。
@@ -87,7 +85,7 @@ Panel Agent 与成员共用同一套互动卡：它可用 `ask` 向用户发出�
 
 ### 效率工作台
 
-主页集中显示待处理事项、运行活动和手动生成的 Panel Agent 进展摘要。侧栏或 `⌘K` / `Ctrl+K` 打开全局搜索，可定位页面、设置、团队、成员与历史消息。会话消息菜单支持引用，输入框的常用片段按钮或空白时按 `/` 可插入和管理指令片段，编辑后手动发送。详见[效率工作台](./docs/productivity-workbench.md)。
+主页集中显示待处理事项、运行活动和手动生成的 Panel Agent 进展摘要。侧栏或 `⌘K` / `Ctrl+K` 打开全局搜索，可定位页面、设置、团队、成员与历史消息。会话消息菜单支持引用，输入框的常用片段按钮或空白时按 `/` 可插入和管理指令片段，编辑后手动发送。
 
 ## 宿主配置与新适配器
 
@@ -103,7 +101,7 @@ Panel Agent 与成员共用同一套互动卡：它可用 `ask` 向用户发出�
 
 通过 `--hosts /路径/hosts.json` 加载。Claude、Codex 可额外设置 `model` 和 `reasoningEffort`；`command` 可指定 CLI 的绝对路径。角色模型默认使用宿主当前选择；角色创建从模型目录读取默认值，不静默回退。
 
-新宿主可通过 `{"module":"/绝对路径/adapter.mjs"}` 导出 `createHost(options)` 接入。接口见[适配器说明](docs/adapters.md)。
+新宿主可通过 `{"module":"/绝对路径/adapter.mjs"}` 导出 `createHost(options)` 接入。
 
 模型目录探测：`npm start -- models`。面板设置页可保存全局模型策略（mode + 自然语言 rules），用于新建角色时的默认模型说明。
 
@@ -137,7 +135,7 @@ npm test
 node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 ```
 
-测试数据与报告在 `work/`，不提交到 Git。消息与宿主执行过程的双向关联见 [docs/provenance.md](docs/provenance.md)。
+测试数据与报告在 `work/`，不提交到 Git。
 
 ## 从旧版本升级
 
@@ -147,4 +145,4 @@ node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 
 Panel Agent 的私人会话用于全局咨询、团队创建与请求转交；它可以继续担任多个团队的主 Agent。团队执行统一进入该团队的协作会话，用户也可以直接在团队页面与主 Agent 沟通。私人线程使用 `team_request_submit` 转交，团队线程使用 `team_receipt_publish` 返回来源引用回执；团队直接对话不自动复制到私人线程。
 
-团队关系列表导航到团队页面。旧团队私人会话保留为只读历史；`/agent?team=…` 链接进入对应团队。团队来源通知不会自动唤醒私人模型，待答复互动独立于消息未读。实现与验收规则见 [统一会话方案](docs/panel-team-conversation-plan.md)。
+团队关系列表导航到团队页面。旧团队私人会话保留为只读历史；`/agent?team=…` 链接进入对应团队。团队来源通知不会自动唤醒私人模型，待答复互动独立于消息未读。

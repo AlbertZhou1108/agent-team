@@ -1278,7 +1278,7 @@ button {
 
 /* ===== 拖拽反馈:排序/移动共用同一状态模型(源项弱化、落点指示、容器目标) =====
    落点判定见 web/src/shared/drag-order.ts。插入指示即时跟手,不加过渡;
-   减少动态效果由全局策略统一压制。详见 docs/element-implementations/README.md。 */
+   减少动态效果由全局策略统一压制。 */
 [data-dragging='true'] {
   opacity: 0.45;
 }

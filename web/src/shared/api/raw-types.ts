@@ -480,7 +480,7 @@ export interface TurnTrace extends ModelState {
   nextAfter: number;
 }
 
-// ---- 宿主遥测只读观测（docs/host-telemetry-api-contract.md, schemaVersion 1） ----
+// ---- 宿主遥测只读观测（schemaVersion 1） ----
 
 export type TelemetryQuality =
   | 'host_reported'
