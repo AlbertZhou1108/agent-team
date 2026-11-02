@@ -2,6 +2,17 @@
 
 本机、单用户的 CLI Agent 通信框架。核心是一条多 Agent 消息总线：你与主 Agent 聊天，成员之间通过 `send/note/read` 在双人会话和统一调度会话中协作。框架只负责消息路由、回合调度、宿主接入和投递安全；任务分工、进度和完成标准由 Agent 在群消息里自行组织，不做框架级流程约束。当前接入 Codex CLI/app-server、Claude Code CLI、DSH CLI。
 
+## 仓库结构
+
+| 位置 | 内容 |
+| --- | --- |
+| `src/` | Node 后端：消息总线、工具、宿主适配器（`hosts/`）、HTTP API、SQLite 存储 |
+| `web/` | 面板前端工程根（Vue 3 + TypeScript + Vite，npm workspace） |
+| `test/` | 后端测试（node:test，自动发现 `test/*.test.mjs`） |
+| `scripts/` | 提交门禁与真宿主验证工具（`check.mjs`、`check-design.mjs`、`verify-collaboration.mjs`） |
+| `skills/agent-team/` | 面向会话 Agent 的框架使用技能 |
+| `work/` | 运行数据与测试产物（SQLite、报告），不提交到 Git |
+
 ## 开始使用
 
 要求 Node.js >=22.13，并已安装、登录需要的 CLI。运行数据保存在本机 SQLite，不依赖外部数据库。
@@ -77,7 +88,9 @@ npm start -- chat --group 群编号 --text '读取群记录并汇总' --data wor
 
 ### Panel Agent
 
-面板根路径 `/agent` 提供独立 Panel Agent：一条全局私人会话观察全部团队，可在用户确认后接管某团队的 coordination（原主 Agent 暂停，可交还）。Panel Agent 的私人会话支持只读 / 工作区写入 / 完全权限三档；coordination 仍只协调、不读写项目文件。团队创建在私人会话中直接完成（`team_create`），没有契约确认协议。
+面板根路径 `/agent` 提供独立 Panel Agent：一条全局私人会话观察全部团队，用于咨询、创建团队（`team_create`，没有契约确认协议）与请求转交；经用户确认可接管某团队的 coordination（原主 Agent 暂停，可交还），并可同时担任多个团队的主 Agent。私人会话支持只读 / 工作区写入 / 完全权限三档；coordination 仍只协调、不读写项目文件。
+
+团队执行统一进入该团队的协作会话，用户也可以直接在团队页面与主 Agent 沟通。私人线程使用 `team_request_submit` 转交，团队线程使用 `team_receipt_publish` 返回来源引用回执；团队直接对话不自动复制到私人线程。团队来源通知不会自动唤醒私人模型，待答复互动独立于消息未读。
 
 Panel Agent 与成员共用同一套互动卡：它可用 `ask` 向用户发出选择/填写卡（私聊发起的卡片显示在 Panel 聊天，coordination 发起的显示在团队页），答复会送达发起会话并唤醒下一回合；接管/交还请求（`request_team_takeover/handback`）也以互动卡形式等待确认，同意即生效、拒绝即结束，结果会通知回 Panel Agent。
 
@@ -109,9 +122,9 @@ Panel Agent 与成员共用同一套互动卡：它可用 `ask` 向用户发出�
 
 面板展示群、成员、消息、宿主会话事件、沟通状态与遥测，按对话过滤并分页读取。团队输入发自公共输入组件，发往当前主 Agent；忙碌时排队，使用持久请求编号避免重复派发。归档团队不能发送。
 
-事件视图来自实际观察到的宿主事件流，不等同于宿主原生完整历史查看器。本版不接管已在其他终端运行的会话；CLI 对话由框架创建并按宿主会话编号恢复。
+事件视图来自实际观察到的宿主事件流，不等同于宿主原生完整历史查看器。当前不接管已在其他终端运行的会话；CLI 对话由框架创建并按宿主会话编号恢复。
 
-Claude/DSH 的 print/headless 模式尚未验证独立的持久入队回执，本版保守地在成功回合返回后确认输入；崩溃窗口可能重发原编号。
+Claude/DSH 的 print/headless 模式尚未验证独立的持久入队回执，当前保守地在成功回合返回后确认输入；崩溃窗口可能重发原编号。
 
 ## 面板开发与构建
 
@@ -136,13 +149,3 @@ node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 ```
 
 测试数据与报告在 `work/`，不提交到 Git。
-
-## 从旧版本升级
-
-早期版本数据库中的契约、工作项、目标生命周期表会在启动时自动清除（见 `Store.migrate()`）；消息历史、成员、会话与遥测全部保留。`closing/closed` 相位、`team_finish`、`next_goal_request` 等概念不再存在；旧群一律回到 open 状态。
-
-### 全局助手与团队会话
-
-Panel Agent 的私人会话用于全局咨询、团队创建与请求转交；它可以继续担任多个团队的主 Agent。团队执行统一进入该团队的协作会话，用户也可以直接在团队页面与主 Agent 沟通。私人线程使用 `team_request_submit` 转交，团队线程使用 `team_receipt_publish` 返回来源引用回执；团队直接对话不自动复制到私人线程。
-
-团队关系列表导航到团队页面。旧团队私人会话保留为只读历史；`/agent?team=…` 链接进入对应团队。团队来源通知不会自动唤醒私人模型，待答复互动独立于消息未读。
