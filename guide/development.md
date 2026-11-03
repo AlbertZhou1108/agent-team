@@ -58,6 +58,16 @@ npm run package -- /绝对路径/新的发行目录
 
 当前不交叉构建。需要包含 LICENSE 的完整 Node 发行环境；构建工具拒绝覆盖已有目录。框架自带 Node 不代表外部宿主的运行依赖、认证或模型配置已经完成。
 
+
+### 自动构建发行产物（不自动发布）
+
+`.github/workflows/release.yml` 在推送 `v*` tag 或手动触发时，于 Ubuntu/macOS/Windows 三个平台执行 check、test、打包，并把压缩包与 SHA-256 上传为 Actions 产物；**不会创建或发布 GitHub Release**。
+
+- tag 必须与 `package.json` 的 `version` 一致（`vX.Y.Z`），否则构建在第一步失败。
+- 构建成功后，在该 Actions run 页面下载对应平台的 Artifacts，再人工创建 Release 并上传。
+- 手动 `workflow_dispatch` 可用于试跑，不校验 tag。
+- Actions 产物默认保留 30 天；实际分发前仍需人工完成签名、安装与真实环境验收。
+
 公开分发仍需针对系统完成签名、安装和真实环境验收。源码三平台 CI 通过不等于已验收三平台安装包。停服升级、应用数据位置和备份见[开始使用](quick-start.md)。
 
 ## Skill 维护与同步
