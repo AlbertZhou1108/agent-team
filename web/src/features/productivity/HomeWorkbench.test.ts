@@ -116,6 +116,7 @@ describe('home workbench', () => {
     expect(html).toContain('你的指令');
     expect(html).toContain('Agent 请求');
     expect(html).toContain('one → two');
+    expect(html).toContain('全部 (3)');
     expect(html).toContain('清理当前列表');
   });
 

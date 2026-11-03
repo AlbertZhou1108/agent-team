@@ -17,7 +17,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   Select,
   SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
@@ -119,6 +118,12 @@ const emptyText = computed(() => {
   if (filter.value === 'user') return '暂无等待 Agent 回复的指令';
   if (filter.value === 'agent') return '暂无 Agent 之间的等待';
   return '暂无待处理事项';
+});
+const selectedLabel = computed(() => {
+  if (filter.value === 'all') return `全部 (${total.value})`;
+  if (filter.value === 'interaction') return `待你处理 (${pending.value.length})`;
+  if (filter.value === 'user') return `等待回复 (${waiting.value.length})`;
+  return `Agent 等待 (${agentWaiting.value.length})`;
 });
 const sourceLabel: Record<EntrySource, string> = {
   interaction: '等待答复',
@@ -318,7 +323,9 @@ async function summarize() {
           <div class="flex min-w-0 items-center gap-2">
             <Select v-model="filter">
               <SelectTrigger class="w-36" aria-label="选择待处理范围"
-                ><SelectValue /></SelectTrigger
+                ><span data-slot="select-value" class="min-w-0 truncate">{{
+                  selectedLabel
+                }}</span></SelectTrigger
               >
               <SelectContent>
                 <SelectItem value="all">全部 ({{ total }})</SelectItem>
