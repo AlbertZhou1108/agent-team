@@ -119,15 +119,12 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     }));
   // 未应答:用户已发出、且尚没有任何一条消息通过 reply_to 指回它的指令。
   // 只覆盖可靠信号(用户→主 Agent);Agent 之间的等待需要协议字段,暂不在此推断。
-  // 两层降噪:超过阈值仍无回复；且该会话当前没有回合在跑(正在思考/执行不算沉默)。
+  // 唯一的降噪是阈值:超过阈值仍无回复才列出,不判断 Agent 是否正在思考。
   const waiting = s
     .all(`SELECT m.id,m.group_id,m.text,m.created,m.recipient,
         g.name AS groupName,
         COALESCE(mem.name,pa.name,m.recipient) AS recipientName,
-        CASE WHEN mem.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind,
-        (SELECT c.id FROM conversations c
-          WHERE c.group_id=m.group_id AND c.context='coordination'
-            AND (c.member_id=m.recipient OR c.panel_agent_id=m.recipient) LIMIT 1) AS conversation_id
+        CASE WHEN mem.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind
       FROM messages m JOIN groups g ON g.id=m.group_id
       LEFT JOIN members mem ON mem.id=m.recipient
       LEFT JOIN panel_agents pa ON pa.id=m.recipient
@@ -135,8 +132,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
         AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
       ORDER BY m.created ASC LIMIT 50`)
-    .filter((row) => (!row.conversation_id || !bus.running.has(row.conversation_id))
-      && now - Date.parse(row.created) >= waitingThresholdMs)
+    .filter((row) => now - Date.parse(row.created) >= waitingThresholdMs)
     .map((row) => ({
       ...row,
       title: row.text.length > 200 ? `${row.text.slice(0, 200)}…` : row.text,

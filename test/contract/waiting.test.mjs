@@ -32,17 +32,10 @@ test('workbench lists unanswered user directives until a reply points back to th
   bus.store.append(group.id, 'user', controller.id, 'send', '选 A', question.id);
   assert.deepEqual(homeWorkbench(bus, immediate).waiting, []);
 
-  // 超过阈值；但会话正在运行时(正在思考/执行)不算沉默。
+  // 超过阈值即列出；是否正在运行不参与判断。
   const stale = bus.store.append(group.id, 'user', controller.id, 'send', '另一条未回复指令');
   bus.store.run('UPDATE messages SET created=? WHERE id=?', new Date(Date.now() - 10 * 60 * 1000).toISOString(), stale.id);
   assert.equal(homeWorkbench(bus).waiting.length, 1);
-  const conversation = bus.store.conversation('member', controller.id, 'coordination');
-  bus.running.set(conversation.id, { endpoint: conversation });
-  try {
-    assert.deepEqual(homeWorkbench(bus).waiting, []);
-  } finally {
-    bus.running.delete(conversation.id);
-  }
 
   // 归档团队不进入等待视图。
   bus.setGroupState(group.id, 'archived');
