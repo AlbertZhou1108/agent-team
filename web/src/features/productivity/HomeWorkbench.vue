@@ -237,12 +237,15 @@ async function summarize() {
         </CardContent></Card
       >
           <Card size="compact">
-            <CardContent class="flex flex-col gap-3">
-              <Tabs v-model="activityTab" class="flex flex-col gap-3">
-                <TabsList class="grid w-full grid-cols-2">
+            <Tabs v-model="activityTab" class="flex flex-col gap-(--card-gap)">
+              <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+                <CardTitle>执行活动</CardTitle>
+                <TabsList class="grid w-fit grid-cols-2">
                   <TabsTrigger value="running">运行活动</TabsTrigger>
                   <TabsTrigger value="recent">最近执行</TabsTrigger>
                 </TabsList>
+              </CardHeader>
+              <CardContent class="flex min-w-0 flex-col gap-3">
                 <TabsContent value="running" class="flex flex-col gap-3">
                   <Empty v-if="!data?.running.length"
                     ><EmptyDescription>{{
@@ -296,8 +299,8 @@ async function summarize() {
                     </p>
                   </div>
                 </TabsContent>
-              </Tabs>
-            </CardContent>
+              </CardContent>
+            </Tabs>
           </Card>
         </div>
     <Card size="compact">

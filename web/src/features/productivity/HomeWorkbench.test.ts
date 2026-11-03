@@ -39,6 +39,8 @@ describe('home workbench', () => {
     expect((html.match(/data-slot="tabs-trigger"/g) ?? []).length).toBe(2);
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}运行活动/);
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}最近执行/);
+    // 卡头统一:标题与分段控件同处一行 card-header,不再让控件独占卡内宽度。
+    expect(html).toMatch(/data-slot="card-header"[\s\S]{0,400}执行活动[\s\S]{0,400}data-slot="tabs-list"/);
     expect(html.indexOf('工作台')).toBeLessThan(html.indexOf('进展摘要'));
     expect(html).not.toMatch(/data-slot="disclosure"[\s\S]*data-slot="disclosure"/);
   });
