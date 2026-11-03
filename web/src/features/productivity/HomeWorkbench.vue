@@ -68,6 +68,10 @@ const pending = computed(() =>
   (data.value?.pending ?? []).filter((item) => item.kind === 'interaction'),
 );
 const waiting = computed(() => data.value?.waiting ?? []);
+// 无待你处理事项但有等待回复时，直接打开等待 tab；否则保持默认。
+const handoffTab = ref(
+  pending.value.length === 0 && waiting.value.length > 0 ? 'waiting' : 'interactions',
+);
 const workbenchOpen = ref(true);
 const activityTab = ref('running');
 const generating = ref(false);
@@ -210,69 +214,79 @@ async function summarize() {
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       <div class="flex min-w-0 flex-col gap-4">
         <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-      <Card size="compact"
-        ><CardHeader
-          ><CardTitle
-            >待处理
-            <Badge variant="secondary">{{
-              pending.length + waiting.length
-            }}</Badge></CardTitle
-          ></CardHeader
-        ><CardContent>
-          <Empty v-if="!pending.length && !waiting.length"
-            ><EmptyDescription>{{
-              query.isPending.value ? '正在加载…' : '暂无待处理事项'
-            }}</EmptyDescription></Empty
-          >
-          <div v-else class="flex max-h-72 flex-col gap-2 overflow-y-auto">
-            <Button
-              v-for="item in pending"
-              :key="item.id"
-              as-child
-              variant="ghost"
-              class="h-auto justify-start"
-              ><RouterLink :to="item.path"
-                ><span class="flex min-w-0 flex-col gap-1"
-                  ><span class="flex flex-wrap items-center gap-2"
-                    ><Badge variant="outline">等待答复</Badge
-                    ><span class="text-xs text-muted-foreground">{{
-                      item.groupName
-                    }}</span></span
-                  ><span
-                    class="line-clamp-2 whitespace-normal break-all text-left"
-                    >{{ item.title }}</span
-                  ></span
-                ></RouterLink
-              ></Button
-            >
-            <template v-if="waiting.length">
-              <p class="pt-1 text-xs text-muted-foreground">等待 Agent 回复（超过 5 分钟）</p>
-              <Button
-                v-for="item in waiting"
-                :key="item.id"
-                as-child
-                variant="ghost"
-                class="h-auto justify-start"
-                ><RouterLink :to="item.path"
-                  ><span class="flex min-w-0 flex-col gap-1"
-                    ><span class="flex flex-wrap items-center gap-2"
-                      ><Badge variant="outline">等待回复</Badge
-                      ><span class="text-xs text-muted-foreground"
-                        >{{ item.groupName }} · {{ item.recipientName }}</span
-                      ></span
-                    ><span
-                      class="line-clamp-2 whitespace-normal break-all text-left"
-                      >{{ item.title }}</span
-                    ><span class="text-xs text-muted-foreground"
-                      >已等待 {{ elapsed(item.created) }}</span
-                    ></span
-                  ></RouterLink
-                ></Button
+      <Card size="compact">
+        <Tabs v-model="handoffTab" class="flex flex-col gap-(--card-gap)">
+          <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+            <CardTitle>待处理</CardTitle>
+            <TabsList class="grid w-fit grid-cols-2">
+              <TabsTrigger value="interactions">待你处理 ({{ pending.length }})</TabsTrigger>
+              <TabsTrigger value="waiting">等待回复 ({{ waiting.length }})</TabsTrigger>
+            </TabsList>
+          </CardHeader>
+          <CardContent class="flex min-w-0 flex-col gap-3">
+            <TabsContent value="interactions" class="flex flex-col gap-3">
+              <Empty v-if="!pending.length"
+                ><EmptyDescription>{{
+                  query.isPending.value ? '正在加载…' : '暂无待处理事项'
+                }}</EmptyDescription></Empty
               >
-            </template>
-          </div>
-        </CardContent></Card
-      >
+              <div v-else class="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                <Button
+                  v-for="item in pending"
+                  :key="item.id"
+                  as-child
+                  variant="ghost"
+                  class="h-auto justify-start"
+                  ><RouterLink :to="item.path"
+                    ><span class="flex min-w-0 flex-col gap-1"
+                      ><span class="flex flex-wrap items-center gap-2"
+                        ><Badge variant="outline">等待答复</Badge
+                        ><span class="text-xs text-muted-foreground">{{
+                          item.groupName
+                        }}</span></span
+                      ><span
+                        class="line-clamp-2 whitespace-normal break-all text-left"
+                        >{{ item.title }}</span
+                      ></span
+                    ></RouterLink
+                  ></Button
+                >
+              </div>
+            </TabsContent>
+            <TabsContent value="waiting" class="flex flex-col gap-3">
+              <Empty v-if="!waiting.length"
+                ><EmptyDescription
+                  >暂无等待超过 5 分钟的回复</EmptyDescription
+                ></Empty
+              >
+              <div v-else class="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                <Button
+                  v-for="item in waiting"
+                  :key="item.id"
+                  as-child
+                  variant="ghost"
+                  class="h-auto justify-start"
+                  ><RouterLink :to="item.path"
+                    ><span class="flex min-w-0 flex-col gap-1"
+                      ><span class="flex flex-wrap items-center gap-2"
+                        ><Badge variant="outline">等待回复</Badge
+                        ><span class="text-xs text-muted-foreground"
+                          >{{ item.groupName }} · {{ item.recipientName }}</span
+                        ></span
+                      ><span
+                        class="line-clamp-2 whitespace-normal break-all text-left"
+                        >{{ item.title }}</span
+                      ><span class="text-xs text-muted-foreground"
+                        >已等待 {{ elapsed(item.created) }}</span
+                      ></span
+                    ></RouterLink
+                  ></Button
+                >
+              </div>
+            </TabsContent>
+          </CardContent>
+        </Tabs>
+      </Card>
           <Card size="compact">
             <Tabs v-model="activityTab" class="flex flex-col gap-(--card-gap)">
               <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">

@@ -51,8 +51,10 @@ describe('home workbench', () => {
     expect(html).toMatch(/data-state="open"[^>]*data-slot="disclosure"/);
     expect(html).toMatch(/data-slot="disclosure-heading">[\s\S]{0,80}工作台/);
     expect(html).toContain('data-slot="tabs"');
-    expect((html.match(/data-slot="tabs-trigger"/g) ?? []).length).toBe(2);
+    expect((html.match(/data-slot="tabs-trigger"/g) ?? []).length).toBe(4);
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}运行活动/);
+    expect(html).toContain('待你处理 (0)');
+    expect(html).toContain('等待回复 (0)');
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}最近执行/);
     // 卡头统一:标题与分段控件同处一行 card-header,不再让控件独占卡内宽度。
     expect(html).toMatch(/data-slot="card-header"[\s\S]{0,400}执行活动[\s\S]{0,400}data-slot="tabs-list"/);
@@ -81,7 +83,7 @@ describe('home workbench', () => {
       summaryRequest: null,
     };
     const html = await renderWithRouter();
-    expect(html).toContain('等待 Agent 回复');
+    expect(html).toContain('等待回复 (1)');
     expect(html).toContain('等待回复');
     expect(html).toContain('请整理发布说明');
     expect(html).toContain('team');
