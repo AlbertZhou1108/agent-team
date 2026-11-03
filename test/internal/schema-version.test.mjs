@@ -1,0 +1,55 @@
+// 数据目录 schema 版本号:新库/旧库统一标记、过新版本拒绝、重开幂等。
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store, SCHEMA_VERSION } from '../../src/store.mjs';
+import { createLegacyV1 } from '../support/legacy-v1.mjs';
+
+function tempDir(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'store-schema-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  return directory;
+}
+
+const NOW = '2026-01-01T00:00:00.000Z';
+
+test('a fresh database is stamped with the current schema version and keeps it across reopen', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  store.run(
+    "INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES('g1','G','/tmp',NULL,?,NULL,'communication',0)",
+    NOW,
+  );
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.equal(store.get('SELECT name FROM groups WHERE id=?', 'g1').name, 'G');
+  store.close();
+});
+
+test('a v1 database (user_version=0) is stamped without losing rows', t => {
+  const directory = tempDir(t);
+  const legacy = createLegacyV1(directory);
+  legacy.exec(
+    "INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES('g1','legacy','/tmp',NULL,'2026-01-01T00:00:00.000Z',NULL,'communication',0)",
+  );
+  legacy.close();
+
+  const store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.equal(store.get('SELECT name FROM groups WHERE id=?', 'g1').name, 'legacy');
+  store.close();
+});
+
+test('a database created by a newer schema is rejected instead of being opened', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  store.setSchemaVersion(SCHEMA_VERSION + 1);
+  store.close();
+
+  assert.throws(() => new Store(directory), /更新版本/);
+});

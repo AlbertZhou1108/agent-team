@@ -4,6 +4,10 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
+// 数据目录的 schema 版本。v1 = 当前双轨（endpoints + panel_sessions）；
+// v2 将合并为 conversations/turns 并统一投递队列，迁移细节见 docs/v2-dedup-plan.md。
+export const SCHEMA_VERSION = 1;
+
 function modelObservations(rows) {
   return rows.flatMap(row => {
     const event = JSON.parse(row.event);
@@ -34,6 +38,13 @@ export class Store {
     this.directory = resolve(directory);
     this.db = new DatabaseSync(resolve(directory, 'groups.sqlite'));
     chmodSync(resolve(directory, 'groups.sqlite'), 0o600);
+    // 版本必须在建表前读取:新库与 v0 旧库都返回 0，用 groups 表是否存在区分。
+    const existingVersion = this.schemaVersion();
+    if (existingVersion > SCHEMA_VERSION) {
+      this.db.close();
+      throw new Error(`数据目录由更新版本的 Agent Team 创建（schema ${existingVersion}），当前版本只支持到 ${SCHEMA_VERSION}`);
+    }
+    this.isFreshDatabase = !this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='groups'");
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL,charter TEXT,policy TEXT NOT NULL DEFAULT 'workspace-write',allow_shell INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS team_creation_requests(operation_id TEXT PRIMARY KEY,payload TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE SET NULL);
@@ -152,6 +163,24 @@ export class Store {
         .run(new Date().toISOString());
     }
     this.migrate();
+    this.migrateSchema(existingVersion);
+    if (this.schemaVersion() !== SCHEMA_VERSION) this.setSchemaVersion(SCHEMA_VERSION);
+  }
+
+  schemaVersion() {
+    return Number(this.db.prepare('PRAGMA user_version').get().user_version ?? 0);
+  }
+
+  setSchemaVersion(version) {
+    if (!Number.isInteger(version) || version < 0) throw new Error('无效的 schema 版本');
+    this.db.exec(`PRAGMA user_version = ${version}`);
+  }
+
+  // 版本迁移钩子:按 user_version 逐级执行。P0 只有 v1（当前 schema），
+  // 因此除把新库/旧库统一标记到 SCHEMA_VERSION 外没有迁移步骤；
+  // v1→v2 的会话/回合/投递合并将在 P2 落在这里，并保持"事务内完成、失败回滚"。
+  migrateSchema(fromVersion) {
+    if (fromVersion === SCHEMA_VERSION) return;
   }
 
   // ADR 0004: task-flow persistence is gone. Old databases shed their process
