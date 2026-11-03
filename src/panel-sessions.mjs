@@ -1251,7 +1251,7 @@ export class PanelSessions {
     );
   }
   failPanelDelivery(session, input, entry, error) {
-    this.bus.store.run('UPDATE panel_outbox SET error=? WHERE id=?', error.message, entry.id);
+    this.bus.store.setDeliveryError(entry, error.message);
     if (this.bus.closing) return;
     const message = this.bus.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
     if (message?.sender) {
@@ -1261,7 +1261,7 @@ export class PanelSessions {
     }
   }
   deliverPanel(entry) {
-    const session = this.bus.store.conversationById(entry.session_id);
+    const session = this.bus.store.conversationById(entry.conversation_id);
     if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'coordination') return;
     const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
     if (!panelAgent) return;
@@ -1291,7 +1291,7 @@ export class PanelSessions {
       prompt,
       activeTeamId: session.group_id,
       inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
-      onAccepted: () => this.bus.store.run('UPDATE panel_outbox SET accepted=? WHERE id=?', new Date().toISOString(), entry.id),
+      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
     }).catch(error => {
       this.bus.failPanelDelivery(session, input, entry, error);
     });

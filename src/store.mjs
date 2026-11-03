@@ -476,6 +476,38 @@ export class Store {
       return { id, session_id: session.id, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
+  prepareDelivery(conversation, message, canBatch = () => true) {
+    const entry = conversation.owner_kind === 'member'
+      ? this.prepare(message, conversation, canBatch)
+      : this.preparePanel(message, conversation, canBatch);
+    return entry ? { ...entry, conversation_id: conversation.id, owner_kind: conversation.owner_kind } : null;
+  }
+  // 待投递队列的统一读取:v1 仍是两张表,顺序保持"先 Panel 后成员"，与旧 pump 一致。
+  pendingDeliveries() {
+    return [
+      ...this.all('SELECT * FROM panel_outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')
+        .map(row => ({ ...row, conversation_id: row.session_id, owner_kind: 'panel_agent' })),
+      ...this.all('SELECT * FROM outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')
+        .map(row => ({ ...row, conversation_id: row.endpoint_id, owner_kind: 'member' })),
+    ];
+  }
+  hasPendingDelivery(conversationId) {
+    if (this.get('SELECT 1 FROM panel_outbox WHERE session_id=? AND accepted IS NULL AND error IS NULL', conversationId)) return true;
+    return Boolean(this.get('SELECT 1 FROM outbox WHERE endpoint_id=? AND accepted IS NULL AND error IS NULL', conversationId));
+  }
+  setDeliveryAccepted(entry, accepted = new Date().toISOString()) {
+    if (entry.owner_kind === 'panel_agent') this.run('UPDATE panel_outbox SET accepted=? WHERE id=?', accepted, entry.id);
+    else this.run('UPDATE outbox SET accepted=? WHERE id=?', accepted, entry.id);
+  }
+  setDeliveryError(entry, error) {
+    if (entry.owner_kind === 'panel_agent') this.run('UPDATE panel_outbox SET error=? WHERE id=?', error, entry.id);
+    else this.run('UPDATE outbox SET error=? WHERE id=?', error, entry.id);
+  }
+  deliveryAccepted(entry) {
+    return entry.owner_kind === 'panel_agent'
+      ? this.get('SELECT accepted FROM panel_outbox WHERE id=?', entry.id)?.accepted ?? null
+      : this.get('SELECT accepted FROM outbox WHERE id=?', entry.id)?.accepted ?? null;
+  }
   panelAppend(panelAgentId, context, role, text, activeTeamId = null) {
     const id = randomUUID();
     this.run(
