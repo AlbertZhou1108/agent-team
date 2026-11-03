@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { toolsFor } from './tools.mjs';
+import { modelSelectionOf } from './actors.mjs';
 import { telemetryObservation } from './telemetry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 import { legacyGroupDeliveryPrompt } from './prompts.mjs';
@@ -181,11 +182,7 @@ export class MessageDispatch {
     const promise = Promise.resolve().then(() => host.run({
       endpoint: effectiveEndpoint, turnId, workspace: group.workspace, prompt, instructions,
       tools: toolsFor(member.role, endpoint.context), policy, previousPolicy, signal: abort.signal,
-      modelSelection: {
-        model_provider: member.model_provider ?? null,
-        model: member.model ?? null,
-        reasoning_effort: member.reasoning_effort ?? null,
-      },
+      modelSelection: modelSelectionOf(member),
       onAccepted: () => { onAccepted(); this.bus.events.member(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
       onNativeTurn: ref => { this.bus.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
       onTool: async (name, args, metadata = {}) => {

@@ -329,6 +329,36 @@ export class Store {
     if (session) return { ...session, owner_kind: 'panel_agent', owner_id: session.panel_agent_id };
     return null;
   }
+  // 身份只读投影:身份表仍是两张，执行层只读公共字段；不做表合并。
+  actor(kind, id) {
+    if (kind === 'member') {
+      const row = this.get('SELECT * FROM members WHERE id=? AND removed IS NULL', id);
+      return row ? { ...row, kind: 'member' } : null;
+    }
+    if (kind === 'panel_agent') {
+      const row = this.get('SELECT * FROM panel_agents WHERE id=?', id);
+      return row ? { ...row, kind: 'panel_agent' } : null;
+    }
+    return null;
+  }
+  actors() {
+    const members = this.all('SELECT * FROM members WHERE removed IS NULL ORDER BY rowid').map(row => ({ ...row, kind: 'member' }));
+    const panelAgent = this.panelAgent();
+    return panelAgent ? [...members, { ...panelAgent, kind: 'panel_agent' }] : members;
+  }
+  // 会话列表投影:两种 owner 统一形状；Panel 只有 coordination 会话，私聊不进入团队列表。
+  conversationsForGroup(groupId, { includePrivate = false } = {}) {
+    const endpointFilter = `${includePrivate ? '' : " AND context!='private'"}${groupId === undefined ? '' : ' AND group_id=?'}`;
+    const endpoints = this.all(`SELECT * FROM endpoints WHERE 1=1${endpointFilter}`, ...(groupId === undefined ? [] : [groupId]));
+    const panelSessions = this.all(
+      `SELECT * FROM panel_sessions WHERE context='coordination'${groupId === undefined ? '' : ' AND group_id=?'}`,
+      ...(groupId === undefined ? [] : [groupId]),
+    );
+    return [
+      ...endpoints.map(row => ({ ...row, owner_kind: 'member', owner_id: row.member_id })),
+      ...panelSessions.map(row => ({ ...row, owner_kind: 'panel_agent', owner_id: row.panel_agent_id })),
+    ];
+  }
   setConversationSession(id, session) {
     const conversation = this.conversationById(id);
     if (!conversation) throw new Error('会话不存在');

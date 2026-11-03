@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import { interactionView } from './interactions.mjs';
+import { modelSelectionOf } from './actors.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
@@ -764,11 +765,7 @@ export class PanelSessions {
       // 结构化附件输入:含服务端解析的副本路径,仅供 adapter 内部使用;不进用户可见正文。
       attachments,
       signal: abort.signal,
-      modelSelection: {
-        model_provider: panelAgent.model_provider ?? null,
-        model: panelAgent.model ?? null,
-        reasoning_effort: panelAgent.reasoning_effort ?? null,
-      },
+      modelSelection: modelSelectionOf(panelAgent),
       onAccepted: () => {
         onAccepted(turnId);
         this.bus.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
