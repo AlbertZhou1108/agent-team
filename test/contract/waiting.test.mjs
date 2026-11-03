@@ -24,6 +24,11 @@ test('workbench lists unanswered user directives until a reply points back to th
   bus.store.append(group.id, controller.id, 'user', 'send', '已完成', directive.id);
   assert.deepEqual(homeWorkbench(bus).waiting, []);
 
+  // 用户回答互动卡的消息自身是 reply，不是新指令，不能算未应答。
+  const question = bus.store.append(group.id, controller.id, 'user', 'send', '选哪个方案？');
+  bus.store.append(group.id, 'user', controller.id, 'send', '选 A', question.id);
+  assert.deepEqual(homeWorkbench(bus).waiting, []);
+
   // 归档团队不进入等待视图。
   bus.store.append(group.id, 'user', controller.id, 'send', '另一条未回复指令');
   assert.equal(homeWorkbench(bus).waiting.length, 1);

@@ -127,7 +127,8 @@ export function homeWorkbench(bus) {
       FROM messages m JOIN groups g ON g.id=m.group_id
       LEFT JOIN members mem ON mem.id=m.recipient
       LEFT JOIN panel_agents pa ON pa.id=m.recipient
-      WHERE m.sender='user' AND m.kind='send' AND (g.state IS NULL OR g.state!='archived')
+      WHERE m.sender='user' AND m.kind='send' AND m.reply_to IS NULL
+        AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
       ORDER BY m.created ASC LIMIT 50`)
     .map((row) => ({
