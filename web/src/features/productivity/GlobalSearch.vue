@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SlidersHorizontal } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -19,6 +20,7 @@ import {
   CommandItem,
   CommandSeparator,
 } from '@/components/ui/command';
+import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -170,6 +172,10 @@ try {
           v.path.startsWith('/') &&
           !v.path.startsWith('//'),
       )
+      .map((entry) => ({
+        ...entry,
+        label: navigationEntries.find((item) => item.id === entry.id)?.label ?? entry.label,
+      }))
       .slice(0, 5);
 } catch {
   /* optional history */
@@ -239,12 +245,20 @@ onBeforeUnmount(() => {
           placeholder="搜索或跳转…"
           aria-label="全局搜索内容"
           @input="term = ($event.target as HTMLInputElement).value"
-        />
-        <Button variant="ghost" size="sm" @click="advanced = !advanced">{{
-          advanced ? '收起消息筛选' : '消息筛选'
-        }}</Button>
+        >
+          <template #suffix>
+            <Button
+              :variant="advanced ? 'secondary' : 'ghost'"
+              size="sm"
+              :aria-expanded="advanced"
+              aria-controls="global-search-message-filters"
+              @click="advanced = !advanced"
+            ><SlidersHorizontal data-icon="inline-start" />消息筛选</Button>
+          </template>
+        </CommandInput>
         <FieldGroup
           v-if="advanced"
+          id="global-search-message-filters"
           class="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2"
         >
           <Field
@@ -294,6 +308,7 @@ onBeforeUnmount(() => {
             ><Input id="search-to" v-model="to" type="date"
           /></Field>
         </FieldGroup>
+        <Separator v-if="advanced" />
         <CommandList>
           <CommandGroup v-if="!term && recent.length" heading="最近访问"
             ><template #heading

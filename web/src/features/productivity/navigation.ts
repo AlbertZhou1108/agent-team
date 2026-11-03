@@ -32,7 +32,7 @@ export const navigationEntries: SearchEntry[] = [
     ['teams', '归档团队'],
   ].map(([tab, label]) => ({
     id: `setting-${label}`,
-    label: `设置 · ${label}`,
+    label: label!,
     path: `/settings?${new URLSearchParams({ section: tab!, setting: label! })}`,
     keywords:
       '设置 settings 配置 ' +
