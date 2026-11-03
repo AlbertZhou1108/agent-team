@@ -5,7 +5,6 @@ import { Card } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
 import TelemetryOverview from '@/features/telemetry/TelemetryOverview.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import {
   Item,
   ItemGroup,
@@ -211,9 +210,7 @@ function clearHomeDrag() {
           </Button>
         </template>
       </HomeWorkbench>
-      <Separator />
       <TelemetryOverview @select="emit('select', $event)" />
-      <Separator />
 
       <Alert v-if="error" variant="destructive"
         ><AlertDescription class="flex items-center gap-2"

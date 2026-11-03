@@ -44,7 +44,8 @@ describe('team home directory cards', () => {
   it('starts the team directory collapsed and keeps drag sorting and the pin toggle', async () => {
     const html = await renderHome();
     expect(html).toMatch(/data-state="closed"[^>]*data-slot="disclosure"/);
-    expect((html.match(/data-slot="separator"/g) ?? []).length).toBe(2);
+    // 分区之间只用留白分层，不再插分割线。
+    expect(html).not.toContain('data-slot="separator"');
     expect(html).toContain('团队甲');
     expect(html).toContain('draggable="true"');
     expect(html).toContain('首页置顶团队');
