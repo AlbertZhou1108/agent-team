@@ -37,6 +37,15 @@ type Workbench = {
     created: string;
     path: string;
   }[];
+  waiting: {
+    id: string;
+    title: string;
+    groupName: string;
+    recipientName: string;
+    recipientKind: string;
+    created: string;
+    path: string;
+  }[];
   running: Activity[];
   recent: Activity[];
   panelReady: boolean;
@@ -58,6 +67,7 @@ const data = computed(() => query.data.value);
 const pending = computed(() =>
   (data.value?.pending ?? []).filter((item) => item.kind === 'interaction'),
 );
+const waiting = computed(() => data.value?.waiting ?? []);
 const workbenchOpen = ref(true);
 const activityTab = ref('running');
 const generating = ref(false);
@@ -204,10 +214,12 @@ async function summarize() {
         ><CardHeader
           ><CardTitle
             >待处理
-            <Badge variant="secondary">{{ pending.length }}</Badge></CardTitle
+            <Badge variant="secondary">{{
+              pending.length + waiting.length
+            }}</Badge></CardTitle
           ></CardHeader
         ><CardContent>
-          <Empty v-if="!pending.length"
+          <Empty v-if="!pending.length && !waiting.length"
             ><EmptyDescription>{{
               query.isPending.value ? '正在加载…' : '暂无待处理事项'
             }}</EmptyDescription></Empty
@@ -233,6 +245,31 @@ async function summarize() {
                 ></RouterLink
               ></Button
             >
+            <template v-if="waiting.length">
+              <p class="pt-1 text-xs text-muted-foreground">等待 Agent 回复</p>
+              <Button
+                v-for="item in waiting"
+                :key="item.id"
+                as-child
+                variant="ghost"
+                class="h-auto justify-start"
+                ><RouterLink :to="item.path"
+                  ><span class="flex min-w-0 flex-col gap-1"
+                    ><span class="flex flex-wrap items-center gap-2"
+                      ><Badge variant="outline">等待回复</Badge
+                      ><span class="text-xs text-muted-foreground"
+                        >{{ item.groupName }} · {{ item.recipientName }}</span
+                      ></span
+                    ><span
+                      class="line-clamp-2 whitespace-normal break-all text-left"
+                      >{{ item.title }}</span
+                    ><span class="text-xs text-muted-foreground"
+                      >已等待 {{ elapsed(item.created) }}</span
+                    ></span
+                  ></RouterLink
+                ></Button
+              >
+            </template>
           </div>
         </CardContent></Card
       >

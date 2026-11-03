@@ -1,13 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createSSRApp, h } from 'vue';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { renderToString } from 'vue/server-renderer';
 import HomeWorkbench from './HomeWorkbench.vue';
 
+const holder = vi.hoisted(() => ({ ref: null as unknown as { value: unknown } }));
+
 vi.mock('@tanstack/vue-query', async () => {
   const { ref } = await import('vue');
+  holder.ref = ref(undefined);
   return {
     useQuery: () => ({
-      data: ref(undefined),
+      data: holder.ref,
       isPending: ref(false),
       isError: ref(false),
       refetch: vi.fn(),
@@ -17,6 +21,7 @@ vi.mock('@tanstack/vue-query', async () => {
 });
 
 beforeEach(() => {
+  holder.ref.value = undefined;
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     setTimeout(() => callback(0), 0);
     return 0;
@@ -28,6 +33,16 @@ beforeEach(() => {
 
 function render() {
   return renderToString(createSSRApp(HomeWorkbench));
+}
+
+async function renderWithRouter() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }],
+  });
+  await router.push('/');
+  await router.isReady();
+  return renderToString(createSSRApp(HomeWorkbench).use(router));
 }
 
 describe('home workbench', () => {
@@ -43,6 +58,35 @@ describe('home workbench', () => {
     expect(html).toMatch(/data-slot="card-header"[\s\S]{0,400}执行活动[\s\S]{0,400}data-slot="tabs-list"/);
     expect(html.indexOf('工作台')).toBeLessThan(html.indexOf('进展摘要'));
     expect(html).not.toMatch(/data-slot="disclosure"[\s\S]*data-slot="disclosure"/);
+  });
+
+  it('lists unanswered directives in the workbench waiting section', async () => {
+    holder.ref.value = {
+      pending: [],
+      waiting: [
+        {
+          id: 'm1',
+          title: '请整理发布说明',
+          groupName: 'team',
+          recipientName: 'lead',
+          recipientKind: 'member',
+          created: new Date().toISOString(),
+          path: '/groups/g?message=m1',
+        },
+      ],
+      running: [],
+      recent: [],
+      panelReady: false,
+      summary: null,
+      summaryRequest: null,
+    };
+    const html = await renderWithRouter();
+    expect(html).toContain('等待 Agent 回复');
+    expect(html).toContain('等待回复');
+    expect(html).toContain('请整理发布说明');
+    expect(html).toContain('team');
+    expect(html).toContain('lead');
+    expect(html).toContain('已等待');
   });
 
   it('renders caller actions in the workbench header action area', async () => {

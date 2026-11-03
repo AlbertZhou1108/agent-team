@@ -117,6 +117,24 @@ export function homeWorkbench(bus) {
         run.endpoint.group_id ? run.endpoint.id : null,
       ),
     }));
+  // 未应答:用户已发出、且尚没有任何一条消息通过 reply_to 指回它的指令。
+  // 只覆盖可靠信号(用户→主 Agent);Agent 之间的等待需要协议字段,暂不在此推断。
+  const waiting = s
+    .all(`SELECT m.id,m.group_id,m.text,m.created,m.recipient,
+        g.name AS groupName,
+        COALESCE(mem.name,pa.name,m.recipient) AS recipientName,
+        CASE WHEN mem.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind
+      FROM messages m JOIN groups g ON g.id=m.group_id
+      LEFT JOIN members mem ON mem.id=m.recipient
+      LEFT JOIN panel_agents pa ON pa.id=m.recipient
+      WHERE m.sender='user' AND m.kind='send' AND (g.state IS NULL OR g.state!='archived')
+        AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
+      ORDER BY m.created ASC LIMIT 50`)
+    .map((row) => ({
+      ...row,
+      title: row.text.length > 200 ? `${row.text.slice(0, 200)}…` : row.text,
+      path: `/groups/${encodeURIComponent(row.group_id)}?message=${encodeURIComponent(row.id)}`,
+    }));
   const recent = s
     .all(
       `SELECT t.id,t.state,t.created,t.ended,t.group_id,
@@ -148,6 +166,7 @@ export function homeWorkbench(bus) {
   );
   return {
     pending,
+    waiting,
     running,
     recent,
     panelReady: Boolean(bus.panelAgent()),
