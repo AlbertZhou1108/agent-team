@@ -1,3 +1,5 @@
+import paperMottleUrl from './textures/paper-mottle.svg?url&no-inline';
+import paperFibersUrl from './textures/paper-fibers.svg?url&no-inline';
 import type { ComponentMaterialTokens } from './component-contract';
 import { freezeConfiguration } from './configuration-data';
 
@@ -27,6 +29,7 @@ export interface SurfaceFinish {
   bg?: string;
   image?: string;
   blur?: string;
+  shadow?: string;
   refraction?: { strength: number; edge: number; blur: number };
 }
 
@@ -124,44 +127,46 @@ const GLASS: MaterialCategory = {
   motion: { spring: 'allow', signature: 'none' },
 };
 
-/**
- * 纸质:不透明的硬朗承载面 —— 纸不像玻璃圆润光滑透明。
- * 物理 → 配方:①裁切硬边与刚性按压(圆角 2px/3px、press-scale 1 在
- * components 内化,预设不得改写);②纸摞在桌上的
- * 硬偏移投影(0 1px 0 纸边 + 2px/3px 0 位移投影),不是柔和光晕;
- * ③纤维粗粝 = 双色调 feTurbulence 噪点 + 帘纹横线:黑粒落在浅色纸上
- * 可见、白粒落在深色纸上可见,同一份值跨明暗主题通用,无需 CSS 分支;
- * ④桌面画布(desk-*)是纸的环境层对应物:略深的桌面 + 同族噪点,
- * 纸张靠桌面衬托"放上去"的层次。状态靠墨色密度差与描边,无高光。
- */
+// 独立 SVG 资源保持滤镜片段引用可靠,低频浆料与短纤维分层取样。
+const PAPER_MOTTLE = `url("${paperMottleUrl}")`;
+const PAPER_FIBERS = `url("${paperFibersUrl}")`;
+
+/** 哑光纸面:安静画布,可见纸面与薄截面;正文承载面只保留低频变化。 */
 const PAPER: MaterialCategory = {
   id: 'paper', label: '纸质',
   components: {
-    // 纸质物性:近直角裁切与刚性按压(无缩放)是纸的物理身份。
-    '--component-control-radius': '2px',
-    '--component-panel-radius': '3px',
+    '--component-control-radius': '4px',
+    '--component-panel-radius': '7px',
     '--component-button-press-scale': '1',
-    '--component-nav-current-bg': 'color-mix(in oklch, var(--foreground) 7%, var(--card))',
-    '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 12%, var(--card))',
-    '--component-nav-state-shadow': 'inset 0 0 0 1px var(--border)',
+    '--component-nav-current-bg': 'color-mix(in oklch, var(--primary) 9%, var(--card))',
+    '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 13%, var(--card))',
+    '--component-nav-state-shadow': 'var(--component-selection-shadow)',
     '--component-content-bg': 'var(--card)',
-    '--component-content-image': 'var(--component-surface-texture)',
-    '--component-content-shadow': '0 1px 0 color-mix(in oklch, var(--foreground) 9%, transparent), 2px 2px 0 color-mix(in oklch, var(--foreground) 7%, transparent)',
-    '--component-panel-shadow': '3px 3px 0 color-mix(in oklch, var(--foreground) 8%, transparent)',
-    '--component-surface-texture': [
-      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.07 0\'/%3E%3C/filter%3E%3Crect width=\'160\' height=\'160\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
-      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.07 0\'/%3E%3C/filter%3E%3Crect width=\'160\' height=\'160\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
-      'repeating-linear-gradient(0deg, color-mix(in oklch, var(--foreground) 2%, transparent) 0px, transparent 1px, transparent 4px)',
-    ].join(', '),
-    '--component-desk-bg': 'color-mix(in oklab, var(--muted) 55%, var(--background))',
-    '--component-desk-image': [
-      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'180\' height=\'180\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.5\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0\'/%3E%3C/filter%3E%3Crect width=\'180\' height=\'180\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
-      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'180\' height=\'180\'%3E%3Cfilter id=\'g\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.5\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3CfeColorMatrix values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.09 0\'/%3E%3C/filter%3E%3Crect width=\'180\' height=\'180\' filter=\'url(%23g)\'/%3E%3C/svg%3E")',
-    ].join(', '),
+    '--component-content-image': PAPER_MOTTLE,
+    '--component-surface-border': 'color-mix(in oklch, var(--border) 45%, var(--card))',
+    '--component-content-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 8%)), inset 0 -1px 0 color-mix(in oklch, var(--foreground) 11%, transparent), 0 2px 3px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 3px 6px 12px -3px color-mix(in oklch, var(--foreground) 7%, transparent)',
+    '--component-panel-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 8%)), inset 0 -1px 0 color-mix(in oklch, var(--foreground) 14%, transparent), 0 2px 4px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 4px 8px 20px -4px color-mix(in oklch, var(--foreground) 9%, transparent)',
+    '--component-surface-texture': `${PAPER_FIBERS}, ${PAPER_MOTTLE}`,
+    '--component-desk-bg': 'color-mix(in oklch, var(--muted) 32%, var(--background))',
+    '--component-desk-image': 'none',
+    '--component-selection-bg': 'color-mix(in oklch, var(--primary) 11%, var(--card))',
+    '--component-selection-fg': 'var(--foreground)',
+    '--component-selection-shadow': '0 1px 2px color-mix(in oklch, var(--foreground) 8%, transparent)',
+    '--component-tab-active-bg': 'var(--card)',
+    '--component-tab-active-border': 'var(--border)',
+    '--component-tab-active-shadow': 'var(--component-selection-shadow)',
+    '--component-choice-selected-bg': 'var(--component-selection-bg)',
+    '--component-choice-selected-fg': 'var(--foreground)',
+    '--component-choice-selected-shadow': 'var(--component-selection-shadow)',
   },
-  roles: Object.fromEntries(['nav-panel', 'context-panel', 'action', 'input', 'reading', 'overlay'].map(role => [role, {
-    bg: 'var(--card)', image: 'var(--component-surface-texture)',
-  }])),
+  roles: {
+    'nav-panel': { bg: 'var(--card)', image: 'var(--component-surface-texture)', shadow: 'var(--component-panel-shadow)' },
+    'context-panel': { bg: 'var(--card)', image: 'var(--component-surface-texture)', shadow: 'var(--component-panel-shadow)' },
+    action: { bg: 'var(--card)', shadow: '0 1px 2px color-mix(in oklch, var(--foreground) 6%, transparent)' },
+    input: { bg: 'color-mix(in oklch, var(--background) 20%, var(--card))', shadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 5%, transparent), 0 1px 0 color-mix(in oklch, var(--card) 80%, transparent)' },
+    reading: { bg: 'var(--card)', image: 'none' },
+    overlay: { bg: 'var(--popover)', image: 'var(--component-surface-texture)', shadow: 'inset 0 1px 0 light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 9%)), 0 1px 0 color-mix(in oklch, var(--card) 65%, var(--foreground)), 0 3px 0 color-mix(in oklch, var(--card) 90%, var(--background)), 0 4px 0 color-mix(in oklch, var(--card) 75%, var(--foreground)), 2px 6px 4px color-mix(in oklch, var(--foreground) 16%, transparent), 10px 22px 40px color-mix(in oklch, var(--foreground) 16%, transparent)' },
+  },
   motion: { spring: 'suppress', signature: 'none' },
 };
 

@@ -111,6 +111,7 @@ describe('preferences appearance', () => {
     expect(store.designPreset).toBe('liquid-glass');
     store.setDesignPreset('paper');
     expect(store.materialPreference).toBe('paper');
+    expect(store.themePack).toBe('ivory');
     expect(store.readingSize).toBe('xlarge');
     store.setDensity('compact');
     expect(store.designPreset).toBe('paper');

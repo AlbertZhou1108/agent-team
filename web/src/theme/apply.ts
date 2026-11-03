@@ -69,6 +69,7 @@ function writeMaterial(effective: MaterialCategory): void {
     root.style.removeProperty(`--surface-${role}-bg`);
     root.style.removeProperty(`--surface-${role}-image`);
     root.style.removeProperty(`--surface-${role}-blur`);
+    root.style.removeProperty(`--surface-${role}-shadow`);
   }
   root.dataset.material = effective.id;
   // 材质运动签名:写为属性供动效契约的材质级重映射消费
@@ -79,6 +80,7 @@ function writeMaterial(effective: MaterialCategory): void {
     if (finish.bg) root.style.setProperty(`--surface-${role}-bg`, finish.bg);
     if (finish.image) root.style.setProperty(`--surface-${role}-image`, finish.image);
     if (finish.blur) root.style.setProperty(`--surface-${role}-blur`, finish.blur);
+    if (finish.shadow) root.style.setProperty(`--surface-${role}-shadow`, finish.shadow);
   }
 }
 

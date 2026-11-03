@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyComponentDesign } from './apply';
+import { applyComponentDesign, applyMaterial } from './apply';
 import { COMPONENT_DEFAULTS } from './component-contract';
 import { DESIGN_PRESETS, resolveComponentDesign, type DesignPreset } from './design-presets';
 
@@ -18,6 +18,23 @@ describe('five-dimension component configuration', () => {
         expect(root.dataset.designPreset).toBe(id);
         expect(Object.fromEntries(values)).toEqual(output.variables);
       }
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('clears role depth when switching from paper back to solid', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('document', { documentElement: {
+      dataset: {}, style: {
+        setProperty: (key: string, value: string) => values.set(key, value),
+        removeProperty: (key: string) => values.delete(key),
+      },
+    } });
+    try {
+      applyMaterial('paper');
+      expect(values.has('--surface-nav-panel-shadow')).toBe(true);
+      expect(values.has('--surface-input-shadow')).toBe(true);
+      expect(values.has('--surface-overlay-shadow')).toBe(true);
+      applyMaterial('solid');
+      expect([...values.keys()].filter(key => key.startsWith('--surface-'))).toEqual([]);
     } finally { vi.unstubAllGlobals(); }
   });
   it('isolates nested role recipes and every axis between resolutions', () => {
@@ -84,8 +101,8 @@ describe('five-dimension component configuration', () => {
     expect(glassOnPaperPreset.variables['--component-control-radius']).toBe('var(--radius-lg)');
     expect(glassOnPaperPreset.variables['--component-button-press-scale']).toBe('0.97');
     const paperOnGlassPreset = resolve('liquid-glass', 'paper');
-    expect(paperOnGlassPreset.variables['--component-control-radius']).toBe('2px');
-    expect(paperOnGlassPreset.variables['--component-panel-radius']).toBe('3px');
+    expect(paperOnGlassPreset.variables['--component-control-radius']).toBe('4px');
+    expect(paperOnGlassPreset.variables['--component-panel-radius']).toBe('7px');
   });
   it('falls back only the effects that need unavailable backdrop support', () => {
     const glass = resolveComponentDesign({ presetId: 'liquid-glass', material: 'glass', density: 'loose', effectsUsable: false });
@@ -103,7 +120,7 @@ describe('five-dimension component configuration', () => {
     const output = resolveComponentDesign({ presetId: preset.id, preset, material: 'paper', density: 'standard' });
     expect(output.variables['--component-title-font-size']).toBe('1.25rem');
     // 物性不随预设携带:radius/press 来自 paper 材质注册表,而非预设差量。
-    expect(output.variables['--component-control-radius']).toBe('2px');
+    expect(output.variables['--component-control-radius']).toBe('4px');
     expect(output.variables['--component-button-press-scale']).toBe('1');
     expect(output.material.id).toBe('paper');
     expect(resolve('classic', 'solid').variables['--component-control-radius']).toBe('var(--radius-md)');

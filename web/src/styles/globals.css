@@ -1592,9 +1592,7 @@ html[data-material-effect='glass'] [data-glass-refraction='ready'] {
   -webkit-backdrop-filter: var(--glass-refraction);
 }
 
-/* ===== 纸质专属:只有桌面画布一条。纸不透光、无环境光斑;表面工艺
-   (噪点帘纹、硬偏移投影)全部走规格表 components 变量与通用消费链。
-   桌面是纸的环境层对应物:略深的桌面 + 同族噪点,纸张衬托"放上去"。 */
+/* 纸质画布只提供平静底色;纹理与厚度由角色表面承载。 */
 html[data-material='paper'] .app-shell {
   background-color: var(--component-desk-bg);
   background-image: var(--component-desk-image);
@@ -1755,14 +1753,23 @@ html[data-density='loose'] {
 }
 [aria-expanded='true'] > [data-slot='item-actions'] > [data-part='disclosure-indicator'] { transform: rotate(90deg); }
 [data-slot='card']:not([data-surface]), [data-component='content-surface'] {
+  border-color: var(--component-surface-border);
   background-color: var(--component-content-bg);
   background-image: var(--component-content-image);
   box-shadow: var(--component-content-shadow);
 }
 [data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='overlay'] {
+  border-color: var(--component-surface-border);
   border-radius: var(--component-panel-radius);
 }
-[data-surface='context-panel'], [data-surface='overlay'] { box-shadow: var(--component-panel-shadow); }
+[data-surface='nav-panel'] { box-shadow: var(--surface-nav-panel-shadow, none); }
+[data-surface='context-panel'] { box-shadow: var(--surface-context-panel-shadow, var(--component-panel-shadow)); }
+[data-surface='overlay'] { box-shadow: var(--surface-overlay-shadow, var(--component-panel-shadow)); }
+[data-surface='action'] { box-shadow: var(--surface-action-shadow, none); }
+/* 只替换 Tailwind 阴影层,保留输入框聚焦/错误状态的 ring 层。 */
+[data-surface='input']:not([data-slot='input-group-control']) {
+  --tw-shadow: var(--surface-input-shadow, 0 1px 2px rgb(0 0 0 / 5%));
+}
 .conversation-header h1 { font-size: var(--component-title-font-size); }
 
 [data-slot='tabs-trigger'][data-state='active'] {

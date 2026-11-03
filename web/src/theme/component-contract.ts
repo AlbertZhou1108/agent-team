@@ -14,7 +14,7 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
   },
   material: {
     // 物性键:圆角与按压幅度是材质的物理身份,随材质内化(玻璃圆润回弹、
-    // 纸质硬朗刚性),预设不得通过 style/behavior 差量改写。
+    // 纸质哑光轻压),预设不得通过 style/behavior 差量改写。
     '--component-control-radius': 'var(--radius-md)',
     '--component-panel-radius': 'var(--radius-lg)',
     '--component-button-press-scale': '0.98',
@@ -39,6 +39,7 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-nav-selected-bg': 'var(--accent)',
     '--component-nav-state-shadow': 'none',
     '--component-nav-marker-color': 'var(--primary)',
+    '--component-surface-border': 'var(--border)',
     '--component-content-bg': 'var(--card)',
     '--component-content-image': 'none',
     '--component-content-shadow': '0 1px 2px rgb(0 0 0 / 5%)',

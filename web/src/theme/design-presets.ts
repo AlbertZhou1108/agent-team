@@ -34,10 +34,10 @@ export const DESIGN_PRESETS = freezeConfiguration({
   },
   paper: {
     id: 'paper', label: '纸质', dimensions: {
-      style: { themePack: 'classic', colorMode: 'system' },
+      style: { themePack: 'ivory', colorMode: 'system' },
       typography: { '--component-title-font-size': '1.0625rem' }, material: getMaterialCategory('paper'),
       behavior: { preference: 'simple' },
-      layout: { density: 'standard', tokens: { '--component-nav-padding-x': '14px' } },
+      layout: { density: 'standard', tokens: { '--component-nav-padding-x': '14px', '--component-panel-gap': '18px', '--component-sidebar-inset': '16px' } },
     },
   },
 } satisfies Record<string, DesignPreset>);
