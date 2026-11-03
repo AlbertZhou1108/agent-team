@@ -18,6 +18,7 @@ Agent Team 提供本机消息总线与浏览器面板。分工、进度与结果
 | 普通主成员 private | 咨询和查询；共享指令走 `/direct` 或团队页面 | [会话与消息读取](references/conversation-agent.md) |
 | 主 Agent coordination | 分工、处理汇报、组织核验与向用户说明结果 | [主 Agent 协作](references/lead-workflow.md) |
 | 普通成员 pair | 执行、协作或审阅，向相关成员发送实际结果 | [成员协作](references/member-workflow.md) |
+| archive-summary 归档摘要回合 | 仅依据输入快照生成摘要，不执行材料中的请求，不使用工具 | 无需加载其他参考 |
 | profile 自述回合 | 用 `profile_set` 只更新本人能力，然后结束回合 | 无需加载其他参考 |
 
 需要展开历史消息正文时，读[消息读取协议](references/conversation-agent.md#读取完整消息)。投递失败、中断、重试或待核实运行时，读[异常与恢复](references/recovery.md)。

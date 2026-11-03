@@ -879,3 +879,22 @@ export type RuntimeEndpoint = { id: string; group_id: string; member_id: string 
 export type GroupDetail = Group & { controller: PanelTeamView['controller'] };
 
 export interface PanelMessagePage { messages: PanelMessage[]; nextBefore: number | null; bootId: string }
+
+export interface ArchiveSnapshot {
+  id: string;
+  group_id: string;
+  created: string;
+  summary: string | null;
+  summary_created: string | null;
+  error: string | null;
+  generating: boolean;
+  facts: {
+    group: { name: string; charter: string | null };
+    members: { id: string; name: string; host: string; role: string; profile: string | null; removed: string | null }[];
+    panelAgent: { id: string; name: string } | null;
+    tasks: { owner_id: string; tasks: { text: string; state: 'doing' | 'done' | 'dropped' }[]; updated: string }[];
+    messages: { id: string; sender: string; recipient: string; kind: string; text: string; reply_to: string | null; expects_reply: number; created: string }[];
+    panelMessages: { id: string; role: string; text: string; created: string }[];
+    interactions: { id: string; state: string; payload: { text?: string; options?: string[] }; answer: { value?: string; selected?: string; approved?: boolean } | null; created: string }[];
+  };
+}

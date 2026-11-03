@@ -4,9 +4,8 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
-// 数据目录的 schema 版本。v1 = 当前双轨（endpoints + panel_sessions）；
-// v2 将合并为 conversations/turns 并统一投递队列，迁移细节见 docs/v2-dedup-plan.md。
-export const SCHEMA_VERSION = 4;
+// 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
+export const SCHEMA_VERSION = 5;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -199,6 +198,7 @@ export class Store {
     if (fromVersion < 2) this.migrateV2();
     if (fromVersion < 3) this.migrateV3();
     if (fromVersion < 4) this.migrateV4();
+    if (fromVersion < 5) this.migrateV5();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -224,6 +224,14 @@ export class Store {
         CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to) WHERE reply_to IS NOT NULL;
         CREATE TABLE IF NOT EXISTS workbench_dismissals(category TEXT NOT NULL,item_id TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(category,item_id));`);
     });
+  }
+
+  // v5:每个归档团队一份独立事实快照，摘要按需生成。
+  migrateV5() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS archive_snapshots(
+      group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+      id TEXT NOT NULL UNIQUE,created TEXT NOT NULL,facts TEXT NOT NULL,
+      summary TEXT,summary_created TEXT,error TEXT);`);
   }
 
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。

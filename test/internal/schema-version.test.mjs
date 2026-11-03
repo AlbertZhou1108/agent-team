@@ -61,6 +61,21 @@ test('a v3 database gains the reply protocol and workbench dismissals on reopen'
   store.close();
 });
 
+test('a v4 database gains archive snapshots without backfilling old archived teams', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created,state) VALUES('old','Old',?,?, 'archived')", directory, NOW);
+  store.run('DROP TABLE archive_snapshots');
+  store.setSchemaVersion(4);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.equal(store.get("SELECT name FROM groups WHERE id='old'").name, 'Old');
+  assert.deepEqual(store.all('SELECT * FROM archive_snapshots'), []);
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

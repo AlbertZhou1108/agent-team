@@ -27,6 +27,7 @@ import { Interactions } from './interactions.mjs';
 import { Attachments } from './attachments.mjs';
 import { PanelSessions } from './panel-sessions.mjs';
 import { TurnExecutor } from './turn-executor.mjs';
+import { ArchiveSnapshots } from './archive-snapshots.mjs';
 
 export { interactionView } from './interactions.mjs';
 
@@ -49,6 +50,7 @@ export class Bus extends EventEmitter {
     this.panelBootReceiptSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM team_request_receipts').seq;
     this.hosts = hosts;
     this.running = new Map();
+    this.deletingGroups = new Set();
     this.closing = false;
     this.modelCatalogCache = null;
     this.hostCatalogs = new Map();
@@ -62,6 +64,7 @@ export class Bus extends EventEmitter {
     this.dispatch = new MessageDispatch(this);
     this.queries = new BusQueries(this);
     this.turnExecutor = new TurnExecutor(this);
+    this.archiveSnapshots = new ArchiveSnapshots(this);
   }
   get panelStreams() { return this.toolStreams.panelStreams; }
   get teamStreams() { return this.toolStreams.teamStreams; }
@@ -200,6 +203,8 @@ export class Bus extends EventEmitter {
   addMember(...args) { return this.lifecycle.addMember(...args); }
   removeMember(...args) { return this.lifecycle.removeMember(...args); }
   deleteGroup(...args) { return this.lifecycle.deleteGroup(...args); }
+  archiveSnapshot(groupId) { return this.archiveSnapshots.read(groupId); }
+  summarizeArchive(groupId) { return this.archiveSnapshots.start(groupId); }
   archiveGroup(...args) { return this.lifecycle.archiveGroup(...args); }
   restoreGroup(...args) { return this.lifecycle.restoreGroup(...args); }
   directive(...args) { return this.lifecycle.directive(...args); }
@@ -660,6 +665,7 @@ export class Bus extends EventEmitter {
     for (const controller of this.hostCatalogControllers.values()) controller.abort(new Error('服务正在停止'));
     await Promise.allSettled([...this.hosts.values()].map(host => host.cancelProbe?.()));
     await this.stopWhere(() => true);
+    await Promise.allSettled([...this.archiveSnapshots.pending.values()]);
     await Promise.allSettled([...this.hosts.values()].map(host => host.close?.()));
     await Promise.allSettled([...this.hostCatalogPending.values()]);
     // 停止所有回合后缓冲里可能还有尾段增量,必须在关闭数据库前落盘。
@@ -667,6 +673,7 @@ export class Bus extends EventEmitter {
     this.store.close();
   }
   endpointTools(id, key) {
+    if (this.store.conversationById(id)?.context === 'archive-summary') return [];
     if (this.store.conversationById(id)?.owner_kind === 'panel_agent') {
       const { session } = this.store.authenticatePanelSession(id, key);
       return panelToolsFor(session.context);

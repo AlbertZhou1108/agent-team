@@ -51,6 +51,7 @@ export class TurnExecutor {
       failureDetail = true,
     } = config;
 
+    if (conversation.group_id && bus.deletingGroups.has(conversation.group_id)) throw new Error('团队正在删除');
     const abort = new AbortController();
     const created = new Date().toISOString();
     const turnId = bus.store.createTurn(conversation, {
@@ -251,84 +252,87 @@ export class TurnExecutor {
         onEvent: event => { if (!bus.closing) emit(turnId, event); },
       });
     });
-    live.done = promise;
-
-    try {
-      const result = await promise;
-      bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
-      emit(turnId, { type: 'framework.output', text: result });
-      const persistedReply = await onComplete(turnId, result, abort);
-      if (hasPanel) {
-        bus.panelStreams.delete(turnId);
-        bus.publishPanelStream({
-          type: 'complete',
-          stream: { ...panelInitial, text: String(result ?? panelInitial.text), updatedAt: new Date().toISOString() },
-        });
-      }
-      if (hasTeam) {
-        bus.teamStreams.delete(turnId);
-        bus.publishTeamStream({
-          type: 'complete',
-          stream: {
-            ...teamInitial,
-            text: String(hasPanel ? (persistedReply?.text ?? result ?? teamInitial.text) : (result ?? teamInitial.text)),
-            updatedAt: new Date().toISOString(),
-            ...(persistedReply ? { messageId: persistedReply.id, messageSeq: persistedReply.seq } : {}),
-          },
-        });
-      }
-      bus.discardToolStreamRun(turnId);
-      return result;
-    } catch (error) {
-      bus.store.setTurnState(
-        turnId,
-        error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed',
-        { detail: failureDetail ? error.message : null },
-      );
-      emit(turnId, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message });
-      if (hasPanel) {
-        bus.panelStreams.delete(turnId);
-        bus.publishPanelStream({
-          type: abort.signal.aborted ? 'cancelled' : 'error',
-          stream: { ...panelInitial, updatedAt: new Date().toISOString() },
-          error: error.message,
-        });
-      }
-      if (hasTeam) {
-        bus.teamStreams.delete(turnId);
-        bus.publishTeamStream({
-          type: abort.signal.aborted ? 'cancelled' : 'error',
-          stream: { ...teamInitial, updatedAt: new Date().toISOString() },
-          error: error.message,
-        });
-      }
-      bus.discardToolStreamRun(turnId, 'error', error.message);
-      throw error;
-    } finally {
+    // done 包含落库、回调与 finally；停止调用方等待完整收尾。
+    const done = (async () => {
       try {
-        bus.telemetry.record({
-          groupId: telemetry.groupId ?? conversation.group_id ?? null,
-          executorKind,
-          executorId,
-          endpointId: conversation.id,
-          sessionKey: telemetry.sessionKey,
+        const result = await promise;
+        bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
+        emit(turnId, { type: 'framework.output', text: result });
+        const persistedReply = await onComplete(turnId, result, abort);
+        if (hasPanel) {
+          bus.panelStreams.delete(turnId);
+          bus.publishPanelStream({
+            type: 'complete',
+            stream: { ...panelInitial, text: String(result ?? panelInitial.text), updatedAt: new Date().toISOString() },
+          });
+        }
+        if (hasTeam) {
+          bus.teamStreams.delete(turnId);
+          bus.publishTeamStream({
+            type: 'complete',
+            stream: {
+              ...teamInitial,
+              text: String(hasPanel ? (persistedReply?.text ?? result ?? teamInitial.text) : (result ?? teamInitial.text)),
+              updatedAt: new Date().toISOString(),
+              ...(persistedReply ? { messageId: persistedReply.id, messageSeq: persistedReply.seq } : {}),
+            },
+          });
+        }
+        bus.discardToolStreamRun(turnId);
+        return result;
+      } catch (error) {
+        bus.store.setTurnState(
           turnId,
-          turnKind: telemetry.turnKind,
-          host: telemetry.host,
-          hostSessionId: getHostSessionId(),
-          context: telemetry.context,
-          observation: telemetryObservation({
-            source: 'framework.measured',
-            scope: 'turn',
-            aggregation: 'delta',
-            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
-            quality: { executionWallMs: 'measured' },
-            completeness: { executionWallMs: 'complete' },
-          }),
-        });
-      } catch { /* telemetry must not affect the host outcome */ }
-      bus.running.delete(conversation.id);
-      onFinally();
-    }
+          error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed',
+          { detail: failureDetail ? error.message : null },
+        );
+        emit(turnId, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message });
+        if (hasPanel) {
+          bus.panelStreams.delete(turnId);
+          bus.publishPanelStream({
+            type: abort.signal.aborted ? 'cancelled' : 'error',
+            stream: { ...panelInitial, updatedAt: new Date().toISOString() },
+            error: error.message,
+          });
+        }
+        if (hasTeam) {
+          bus.teamStreams.delete(turnId);
+          bus.publishTeamStream({
+            type: abort.signal.aborted ? 'cancelled' : 'error',
+            stream: { ...teamInitial, updatedAt: new Date().toISOString() },
+            error: error.message,
+          });
+        }
+        bus.discardToolStreamRun(turnId, 'error', error.message);
+        throw error;
+      } finally {
+        try {
+          bus.telemetry.record({
+            groupId: telemetry.groupId ?? conversation.group_id ?? null,
+            executorKind,
+            executorId,
+            endpointId: conversation.id,
+            sessionKey: telemetry.sessionKey,
+            turnId,
+            turnKind: telemetry.turnKind,
+            host: telemetry.host,
+            hostSessionId: getHostSessionId(),
+            context: telemetry.context,
+            observation: telemetryObservation({
+              source: 'framework.measured',
+              scope: 'turn',
+              aggregation: 'delta',
+              timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
+              quality: { executionWallMs: 'measured' },
+              completeness: { executionWallMs: 'complete' },
+            }),
+          });
+        } catch { /* telemetry must not affect the host outcome */ }
+        bus.running.delete(conversation.id);
+        onFinally();
+      }
+    })();
+    live.done = done;
+    return done;
   }
 }

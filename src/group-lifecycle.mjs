@@ -238,9 +238,15 @@ export class GroupLifecycle {
     return this.bus.store.group(id);
   }
   setGroupState(groupId, state) {
+    if (this.bus.deletingGroups.has(groupId)) throw new Error('团队正在删除');
     if (!['open', 'archived'].includes(state)) throw new Error('团队状态无效');
-    this.bus.store.group(groupId);
-    this.bus.store.run('UPDATE groups SET state=? WHERE id=?', state === 'open' ? null : state, groupId);
+    const group = this.bus.store.group(groupId);
+    this.bus.store.transaction(() => {
+      if (state === 'archived') {
+        if (group.state !== 'archived') this.bus.archiveSnapshots.capture(group);
+      } else this.bus.archiveSnapshots.discard(groupId);
+      this.bus.store.run('UPDATE groups SET state=? WHERE id=?', state, groupId);
+    });
     return this.bus.store.group(groupId);
   }
   members(groupId) { this.bus.store.group(groupId); return this.bus.store.all('SELECT * FROM members WHERE group_id=? AND removed IS NULL ORDER BY rowid', groupId); }
@@ -294,17 +300,44 @@ export class GroupLifecycle {
     await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);
     return { removed: member.id };
   }
-  async deleteGroup(groupId) {
-    this.bus.store.group(groupId);
-    const conversations = this.bus.store.all('SELECT id FROM conversations WHERE group_id=?', groupId);
-    await this.bus.stopWhere(endpoint => endpoint.group_id === groupId);
-    this.bus.store.run('DELETE FROM groups WHERE id=?', groupId);
-    this.bus.store.run('DELETE FROM information_measurements WHERE group_id=?', groupId);
-    this.bus.information.pruneOrphanTurnSchemas();
-    for (const { id } of conversations) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
-    return { deleted: groupId };
+  async deleteGroup(groupId, { archivedOnly = false } = {}) {
+    const group = this.bus.store.group(groupId);
+    if (archivedOnly && group.state !== 'archived') throw new Error('请先归档团队，再永久删除');
+    if (this.bus.deletingGroups.has(groupId)) throw new Error('团队正在删除');
+    this.bus.deletingGroups.add(groupId);
+    try {
+      await this.bus.stopWhere(endpoint => endpoint.group_id === groupId);
+      const snapshot = this.bus.store.get('SELECT id FROM archive_snapshots WHERE group_id=?', groupId);
+      if (snapshot) await this.bus.archiveSnapshots.pending.get(snapshot.id);
+      const s = this.bus.store;
+      const conversations = s.all('SELECT id FROM conversations WHERE group_id=?', groupId);
+      s.transaction(() => {
+        // 这些引用没有外键，需要在级联删除来源行之前清理。
+        s.run(`DELETE FROM workbench_dismissals WHERE
+          (category='interaction' AND item_id IN (SELECT id FROM interactions WHERE group_id=?)) OR
+          (category IN ('waiting:user','waiting:agent') AND item_id IN (SELECT id FROM messages WHERE group_id=?))`, groupId, groupId);
+        s.run('DELETE FROM telemetry_session_generations WHERE endpoint_id IN (SELECT id FROM conversations WHERE group_id=?)', groupId);
+        s.run("DELETE FROM panel_messages WHERE context='coordination' AND active_team_id=?", groupId);
+        // 全局私人聊天保留正文，解除已删除团队的上下文引用。
+        s.run('UPDATE panel_messages SET active_team_id=NULL WHERE active_team_id=?', groupId);
+        s.run('DELETE FROM information_measurements WHERE group_id=? OR endpoint_id IN (SELECT id FROM conversations WHERE group_id=?)', groupId, groupId);
+        s.run('DELETE FROM groups WHERE id=?', groupId);
+        this.bus.information.pruneOrphanTurnSchemas();
+      });
+      const cleanupWarnings = [];
+      for (const { id } of conversations) {
+        try { rmSync(resolve(s.directory, 'endpoints', id), { recursive: true, force: true }); }
+        catch (error) { cleanupWarnings.push(error.message); }
+      }
+      // 数据库已提交，文件清理失败不能再报告“团队删除失败”。
+      return { deleted: groupId, ...(cleanupWarnings.length ? { cleanupWarnings } : {}) };
+    } finally {
+      this.bus.deletingGroups.delete(groupId);
+    }
   }
   async archiveGroup(groupId) {
+    const group = this.bus.store.group(groupId);
+    if (group.state === 'archived') return group;
     await this.bus.stopWhere(e => e.group_id === groupId);
     return this.bus.setGroupState(groupId, 'archived');
   }

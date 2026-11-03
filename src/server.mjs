@@ -223,7 +223,7 @@ export function resolvePanelFile(pathname, accept = '') {
 
 export async function handleRpc(bus, request) {
   const group = request.group || (request.endpoint ? bus.store.get('SELECT group_id FROM conversations WHERE id=?', request.endpoint)?.group_id : null);
-  if (group && !['restore', 'archive'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
+  if (group && !['restore', 'archive', 'delete'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
   if (request.op === 'ping') return { version };
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });

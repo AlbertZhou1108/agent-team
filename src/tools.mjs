@@ -28,7 +28,7 @@ const definitions = [
     host: string,
   }, ['name', 'host']],
   ['group_remove', '主 Agent 移除成员；立即撤销框架访问并尽力停止相关会话。', { member: string }, ['member']],
-  ['group_delete', '主 Agent 删除本群；框架会创建互动卡请求用户确认，同意后生效。宿主历史与用户私聊保留。', {}, []],
+  ['group_delete', '主 Agent 删除本群；框架会创建互动卡请求用户确认，同意后生效。项目工作文件、宿主原生历史及 Panel Agent 私人聊天保留；本群框架会话记录删除。', {}, []],
   ['group_create', '主 Agent 创建一个新团队并担任其主 Agent；创建互动卡等待用户在面板上确认，同意后生效。members 可选，格式 名称=宿主,名称=宿主。', {
     name: string,
     workspace: string,

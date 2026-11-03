@@ -1,6 +1,7 @@
 import type { PanelMessagePage } from './raw-types';
 import type { UnreadProjection, RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTaskEntry } from './raw-types';
 import type {
+  ArchiveSnapshot,
   AttachmentSettings,
   HostStatus,
   UploadedAttachment,
@@ -250,6 +251,15 @@ export const api = {
   },
   resolvePanelRuntime(turnId: string, reason: string) {
     return mutate<{ turnId: string; state: string }>('/api/panel-agent/resolve-runtime', { turnId, reason });
+  },
+  archiveSnapshot(teamId: string, signal?: AbortSignal) {
+    return request<ArchiveSnapshot | null>(`/api/teams/${encodeURIComponent(teamId)}/archive-snapshot`, signal);
+  },
+  summarizeArchive(teamId: string) {
+    return mutate<ArchiveSnapshot>(`/api/teams/${encodeURIComponent(teamId)}/archive-snapshot`, {});
+  },
+  deleteTeam(teamId: string) {
+    return mutate<{ deleted: string; cleanupWarnings?: string[] }>(`/api/teams/${encodeURIComponent(teamId)}/delete`, {});
   },
   archiveTeam(teamId: string) {
     return mutate<Group>(`/api/teams/${encodeURIComponent(teamId)}/archive`, {});

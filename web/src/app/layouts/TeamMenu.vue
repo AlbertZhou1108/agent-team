@@ -62,7 +62,7 @@ const colors = TEAM_COLORS;
           class="team-menu-item"
           @select="org.togglePin(id)"
           ><Pin />{{
-            org.teams[id]?.pinned ? '取消置顶' : '置顶团队'
+            org.teams[id]?.pinned ? '取消置顶' : '置顶'
           }}</DropdownMenuItem
         >
         <DropdownMenuItem
@@ -71,7 +71,7 @@ const colors = TEAM_COLORS;
           @select="emit('archive')"
         >
           <Archive data-icon="inline-start" />
-          归档团队
+          归档
         </DropdownMenuItem>
         <DropdownMenuItem
           v-if="folder"

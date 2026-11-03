@@ -36,6 +36,17 @@ export function apiRoutes(context) {
     const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
     const isDirectiveMutation = request.method === 'POST';
     return [
+        { methods: ['POST'], archived: true, matches: url => /^\/api\/teams\/[^/]+\/delete$/.test(url.pathname), handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '删除团队不接受参数');
+            try { return await bus.deleteGroup(decodeURIComponent(url.pathname.split('/')[3]), { archivedOnly: true }); }
+            catch (error) { return failJson(400, error); }
+        } },
+        { methods: ['GET', 'POST'], archived: true, matches: url => /^\/api\/teams\/[^/]+\/archive-snapshot$/.test(url.pathname), handle: async () => {
+            const groupId = decodeURIComponent(url.pathname.split('/')[3]);
+            return request.method === 'POST' ? bus.summarizeArchive(groupId) : bus.archiveSnapshot(groupId);
+        } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/files', handle: async () => {
             let file;
             try { file = openResultFile(bus, { group: url.searchParams.get('group'), panel: url.searchParams.get('panel') === '1', path: url.searchParams.get('path') }); }
@@ -303,7 +314,7 @@ export function apiRoutes(context) {
                             : bus.handbackTeam(groupId, body.revision);
                     }
                     else if (interactionMatch) {
-                        value = bus.decideInteraction(decodeURIComponent(interactionMatch[1]), body.answer);
+                        value = await bus.decideInteraction(decodeURIComponent(interactionMatch[1]), body.answer);
                     }
                     else if (memberModelMatch) {
                         value = await bus.setMemberModel(decodeURIComponent(memberModelMatch[1]), decodeURIComponent(memberModelMatch[2]), body);

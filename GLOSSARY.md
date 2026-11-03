@@ -22,7 +22,7 @@ The single serialized context where all member reports to the Main Agent are del
 An isolated two-member context; distinct pair conversations run concurrently.
 
 **Conversation / 会话**:
-The single context record behind both a member's endpoints and a Panel Agent session: one owner (member or Panel Agent), one `context` (coordination / `pair:<peer>` / private / profile), one host-session slot. Turns, history, inputs and delivery queues all reference it by `conversation_id`.
+The single context record behind both a member's endpoints and a Panel Agent session: one owner (member or Panel Agent), one `context` (coordination / `pair:<peer>` / private / profile / archive-summary), one host-session slot. Turns, history, inputs and delivery queues all reference it by `conversation_id`.
 
 **Message**:
 A record from one sender to one recipient (`send` wakes the recipient, `note` merges into the recipient's next formal input, `system` is framework notice). Message numbers are stable identities.
@@ -40,7 +40,7 @@ Optional plain text supplied at group creation and injected into every turn's co
 A turn whose outcome could not be verified (crash, restart). It blocks further delivery until the user resolves it. A delivery-safety state, not a business completion state.
 
 **Archive / 归档**:
-The archive switch (`groups.state`). Stops delivery; history is preserved and restore resumes delivery. Replaces the retired finish/closing semantics.
+The archive switch (`groups.state`). Stops delivery; history is preserved and restore resumes delivery. Creates one fact snapshot, summarized on demand by Panel Agent; restore deletes the snapshot and its summary. Archive does not certify completion. Replaces the retired finish/closing semantics.
 
 **Panel Agent**:
 A local panel identity with one private user session, observer relations to every team, and optional main control (takeover/handback) of a team's coordination.

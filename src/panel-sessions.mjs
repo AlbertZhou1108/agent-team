@@ -128,7 +128,7 @@ export class PanelSessions {
       requests: (state.requests ?? []).filter(row => active.has(row.group_id) && ((this.bus.store.get('SELECT seq FROM panel_messages WHERE id=?', row.source_user_message_id)?.seq ?? 0) > this.bus.panelBootSeq || row.receipts.some(receipt => receipt.seq > this.bus.panelBootReceiptSeq))),
       notifications: (state.notifications ?? []).filter(row => active.has(row.group_id)),
       sessions: state.sessions.filter(row => !row.group_id || active.has(row.group_id)),
-      unknown: (state.unknown ?? []).filter(row => !row.group_id || active.has(row.group_id)),
+      unknown: (state.unknown ?? []).filter(row => row.session_context === 'archive-summary' || !row.group_id || active.has(row.group_id)),
       teamPendingInteractions: Object.fromEntries(Object.entries(state.teamPendingInteractions ?? {}).filter(([id]) => active.has(id))),
     };
   }
@@ -320,6 +320,7 @@ export class PanelSessions {
   }
   async panelTool(sessionId, key, name, args, provenance = {}) {
     const { session, panelAgent } = this.bus.store.authenticatePanelSession(sessionId, key);
+    if (session.context === 'archive-summary') throw new Error('归档摘要不提供工具');
     validatePanelTool(session.context, name, args);
     const turnId = provenance.turnId;
     if (turnId && this.bus.running.get(sessionId)?.turnId !== turnId) throw new Error('工具不属于当前 Panel Agent 执行回合');

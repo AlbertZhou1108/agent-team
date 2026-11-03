@@ -120,10 +120,10 @@ const emptyText = computed(() => {
   return '暂无待处理事项';
 });
 const selectedLabel = computed(() => {
-  if (filter.value === 'all') return `全部 (${total.value})`;
-  if (filter.value === 'interaction') return `待你处理 (${pending.value.length})`;
-  if (filter.value === 'user') return `等待回复 (${waiting.value.length})`;
-  return `Agent 等待 (${agentWaiting.value.length})`;
+  if (filter.value === 'all') return '全部';
+  if (filter.value === 'interaction') return '待你处理';
+  if (filter.value === 'user') return '等待回复';
+  return 'Agent 等待';
 });
 const sourceLabel: Record<EntrySource, string> = {
   interaction: '等待答复',
@@ -328,15 +328,15 @@ async function summarize() {
                 }}</span></SelectTrigger
               >
               <SelectContent>
-                <SelectItem value="all">全部 ({{ total }})</SelectItem>
+                <SelectItem value="all">全部</SelectItem>
                 <SelectItem value="interaction"
-                  >待你处理 ({{ pending.length }})</SelectItem
+                  >待你处理</SelectItem
                 >
                 <SelectItem value="user"
-                  >等待回复 ({{ waiting.length }})</SelectItem
+                  >等待回复</SelectItem
                 >
                 <SelectItem value="agent"
-                  >Agent 等待 ({{ agentWaiting.length }})</SelectItem
+                  >Agent 等待</SelectItem
                 >
               </SelectContent>
             </Select>

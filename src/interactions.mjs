@@ -89,8 +89,6 @@ export class Interactions {
         model: payload.args.model,
         reasoning_effort: payload.args.reasoning_effort ?? null,
       } : null),
-      // 群删除会级联清除本行,结果不再回送发起会话。
-      group_delete: () => this.bus.deleteGroup(row.group_id),
     });
     const deliverOutcome = /** @param {string} text */ text => {
       if (row.panel_agent_id) return this.bus.deliverToPanelPrivate(row, text);
@@ -102,6 +100,14 @@ export class Interactions {
     // 先落账再执行,避免执行中的控制者变更收尾把本行误判为待取消。
     this.bus.store.setInteractionState(row.id, 'answered', answer);
     const decidedView = interactionView(this.bus.store.interaction(row.id));
+    if (row.kind === 'group_delete' && answer.approved) {
+      // 删除会级联清除卡片和发起会话；只等待结果，不投递成功消息。
+      return this.bus.deleteGroup(row.group_id).then(() => decidedView, error => {
+        this.bus.store.setInteractionState(row.id, 'failed', null, null, error.message);
+        this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,但执行失败:${error.message}`);
+        throw error;
+      });
+    }
     let outcome;
     if (!answer.approved) {
       outcome = `${payload.text}:用户已拒绝。`;

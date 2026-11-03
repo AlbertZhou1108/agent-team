@@ -3,7 +3,7 @@ import { useRoute } from 'vue-router';
 import { Disclosure } from '@/components/ui/disclosure';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, nextTick, reactive, ref, watch } from 'vue';
-import { useQuery } from '@tanstack/vue-query';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
 import {
   Archive,
@@ -47,6 +47,7 @@ import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import HostStatuses from './HostStatuses.vue';
 import LocalService from './LocalService.vue';
+import ArchiveSnapshotView from './ArchiveSnapshotView.vue';
 import AttachmentSettings from './AttachmentSettings.vue';
 import AppearanceSample from './AppearanceSample.vue';
 import { usePreferencesStore, resolveDark, type ColorMode } from '@/stores/preferences';
@@ -62,7 +63,7 @@ import {
 import { DESIGN_PRESETS, isDesignPresetId } from '@/theme/design-presets';
 import { MATERIAL_CATEGORIES } from '@/theme/materials';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
-import { queryKeys } from '@/features/query-keys';
+import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
 import { parseThemePackJson } from '@/theme/validate';
@@ -94,6 +95,40 @@ watch(() => [route.query.section, route.query.setting], async () => {
   if(setting)Array.from(document.querySelectorAll('h3')).find(el=>el.textContent?.includes(setting))?.scrollIntoView({block:'center'});
 },{immediate:true});
 const archivedOpen = ref(true);
+const snapshotTeam = ref<Group | null>(null);
+const deletingTeam = ref<Group | null>(null);
+const deletingTeamBusy = ref(false);
+const deletingTeamError = ref('');
+const queryClient = useQueryClient();
+function requestDeleteTeam(team: Group) {
+  deletingTeamError.value = '';
+  deletingTeam.value = team;
+}
+function cancelDeleteTeam() {
+  if (!deletingTeamBusy.value) deletingTeam.value = null;
+}
+async function confirmDeleteTeam() {
+  const team = deletingTeam.value;
+  if (!team || deletingTeamBusy.value) return;
+  deletingTeamBusy.value = true;
+  deletingTeamError.value = '';
+  try {
+    const result = await api.deleteTeam(team.id);
+    deletingTeam.value = null;
+    queryClient.removeQueries({ queryKey: ['archive-snapshot', team.id] });
+    await invalidateWorkspaceResources(queryClient);
+    if (result.cleanupWarnings?.length) toast.warning('团队已删除，部分会话缓存未能清理');
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : '删除团队失败';
+    try { deletingTeamError.value = JSON.parse(message).error || message; }
+    catch { deletingTeamError.value = message; }
+  } finally {
+    deletingTeamBusy.value = false;
+  }
+}
+watch(() => props.archivedTeams, teams => {
+  if (snapshotTeam.value && !teams?.some(team => team.id === snapshotTeam.value?.id)) snapshotTeam.value = null;
+});
 const mode = ref<ModelPolicy['mode']>('user');
 const rules = ref('');
 const saving = ref(false);
@@ -1081,7 +1116,8 @@ watch(
 
           <TabsContent value="teams" class="flex flex-col gap-6">
 
-          <section class="flex flex-col gap-3 pt-6">
+          <ArchiveSnapshotView v-if="snapshotTeam" :key="snapshotTeam.id" :team="snapshotTeam" @back="snapshotTeam = null" />
+          <section v-else class="flex flex-col gap-3 pt-6">
             <Disclosure :heading-level="3" :open="!archivedTeams?.length || archivedOpen" :disabled="!archivedTeams?.length" @update:open="archivedOpen = $event">
 <template #summary><span>归档团队</span><Badge>{{ archivedTeams?.length ?? 0 }}</Badge></template>
 <template #description>归档团队不再接收消息；恢复后可继续沟通。</template>
@@ -1093,7 +1129,7 @@ watch(
               <div
                 v-for="team in archivedTeams"
                 :key="team.id"
-                class="flex items-center gap-3 border p-3"
+                class="flex flex-wrap items-center gap-3 border p-3"
               >
                 <span
                   class="grid size-8 shrink-0 place-items-center text-muted-foreground"
@@ -1109,12 +1145,14 @@ watch(
                     >{{ team.id }}</small
                   >
                 </span>
+                <Button variant="outline" size="sm" @click="snapshotTeam = team">查看快照</Button>
                 <Button
                   variant="outline"
                   size="sm"
                   @click="emit('restoreTeam', team)"
                   >恢复</Button
                 >
+                <Button variant="destructive" size="sm" @click="requestDeleteTeam(team)">删除</Button>
               </div>
             </div>
 
@@ -1242,6 +1280,17 @@ watch(
         </div>
       </DialogContent>
     </Dialog>
+    <ConfirmDialog
+      :open="deletingTeam !== null"
+      :title="`永久删除「${deletingTeam?.name ?? ''}」？`"
+      description="团队记录、消息和归档快照将被永久删除，删除后无法恢复。项目工作目录及文件、宿主历史和 Panel Agent 私人聊天会保留。"
+      confirm-text="永久删除"
+      destructive
+      :busy="deletingTeamBusy"
+      :error="deletingTeamError"
+      @confirm="confirmDeleteTeam"
+      @cancel="cancelDeleteTeam"
+    />
     <ConfirmDialog
       :open="deletingPreset !== null"
       :title="`删除配置「${deletingPreset?.name ?? ''}」？`"

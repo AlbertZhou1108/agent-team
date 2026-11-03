@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,12 +18,16 @@ withDefaults(
     confirmText?: string;
     cancelText?: string;
     destructive?: boolean;
+    busy?: boolean;
+    error?: string;
   }>(),
   {
     description: '',
     confirmText: '确认',
     cancelText: '取消',
     destructive: false,
+    busy: false,
+    error: '',
   },
 );
 
@@ -37,7 +42,7 @@ const emit = defineEmits<{
     :open="open"
     @update:open="
       (value) => {
-        if (!value) emit('cancel');
+        if (!value && !busy) emit('cancel');
       }
     "
   >
@@ -48,13 +53,15 @@ const emit = defineEmits<{
           {{ description }}
         </DialogDescription>
       </DialogHeader>
+      <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
       <DialogFooter>
-        <Button variant="outline" @click="emit('cancel')">{{ cancelText }}</Button>
+        <Button variant="outline" :disabled="busy" @click="emit('cancel')">{{ cancelText }}</Button>
         <Button
+          :disabled="busy"
           :variant="destructive ? 'destructive' : 'default'"
           @click="emit('confirm')"
         >
-          {{ confirmText }}
+          {{ busy ? '正在处理…' : confirmText }}
         </Button>
       </DialogFooter>
     </DialogContent>

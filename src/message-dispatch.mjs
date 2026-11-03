@@ -41,7 +41,8 @@ export class MessageDispatch {
     }
   }
   canRun(groupId) {
-    return this.bus.collaboration.communicationOpen(groupId)
+    return !this.bus.deletingGroups.has(groupId)
+      && this.bus.collaboration.communicationOpen(groupId)
       && !this.bus.collaboration.unknown(groupId).length
       && !this.bus.panelUnknown(groupId).length;
   }
