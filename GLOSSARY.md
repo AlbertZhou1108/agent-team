@@ -21,11 +21,14 @@ The single serialized context where all member reports to the Main Agent are del
 **Pair conversation / 双人会话**:
 An isolated two-member context; distinct pair conversations run concurrently.
 
+**Conversation / 会话**:
+The single context record behind both a member's endpoints and a Panel Agent session: one owner (member or Panel Agent), one `context` (coordination / `pair:<peer>` / private / profile), one host-session slot. Turns, history, inputs and delivery queues all reference it by `conversation_id`.
+
 **Message**:
 A record from one sender to one recipient (`send` wakes the recipient, `note` merges into the recipient's next formal input, `system` is framework notice). Message numbers are stable identities.
 
 **Turn / 回合**:
-One framework-driven host run attempt, recorded separately from message numbers and host sessions.
+One framework-driven host run attempt, recorded separately from message numbers and host sessions. Member and Panel turns share one record shape and one state machine (`running / unknown / completed / failed / cancelled / stopped`).
 
 **Charter / 团队说明**:
 Optional plain text supplied at group creation and injected into every turn's context. It is context, not an authorization gate.
