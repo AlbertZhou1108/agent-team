@@ -100,17 +100,13 @@ export class MessageDispatch {
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('回合输入为空');
     const instructions = this.bus.rules(endpoint, schema);
     this.bus.information.assertRuleBudget(instructions, schema);
-    const turnId = this.bus.store.createTurn(effectiveEndpoint, inputs);
+    const turnId = this.bus.store.createTurn(effectiveEndpoint, {
+      executorKind: 'member',
+      executorId: endpoint.member_id,
+      inputs,
+      policy,
+    });
     this.bus.information.rememberTurnSchema(turnId, 'member', schema, sessionKey);
-    this.bus.store.run(
-      'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created) VALUES(?,?,?,?,?,?)',
-      turnId,
-      group.id,
-      endpoint.id,
-      'running',
-      JSON.stringify(policy),
-      new Date().toISOString(),
-    );
     const live = { endpoint: effectiveEndpoint, abort, turnId, done: null, created: new Date().toISOString() };
     const pairPeerId = endpoint.context.startsWith('pair:') ? endpoint.context.slice(5) : null;
     const pairPeerName = pairPeerId
@@ -222,7 +218,7 @@ export class MessageDispatch {
         this.bus.store.setConversationSession(endpoint.id, session);
         endpoint.session = session;
         effectiveEndpoint.session = session;
-        this.bus.store.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
+        this.bus.store.setTurnSession(turnId, session);
       },
       onModel: observation => { this.bus.events.member(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
       onSelection: selection => { if (selection?.model) this.bus.events.member(endpoint.id, { type: 'framework.model_selection', ...selection }, turnId); },
@@ -289,7 +285,7 @@ export class MessageDispatch {
     live.done = promise;
     try {
       const result = await promise;
-      this.bus.store.run("UPDATE runtime_attempts SET state=?,ended=? WHERE turn_id=?", abort.signal.aborted ? 'cancelled' : 'completed', new Date().toISOString(), turnId);
+      this.bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
       this.bus.events.member(endpoint.id, { type: 'framework.output', text: result }, turnId);
       const publishedReplies = !abort.signal.aborted && endpoint.context === 'coordination'
         ? this.bus.teamDirectives.publishOutput(turnId, result)
@@ -313,7 +309,7 @@ export class MessageDispatch {
       return result;
     }
     catch (error) {
-      this.bus.store.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', error.message, new Date().toISOString(), turnId);
+      this.bus.store.setTurnState(turnId, error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', { detail: error.message });
       this.bus.events.member(endpoint.id, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message }, turnId);
       if (teamStream) {
         this.bus.teamStreams.delete(turnId);

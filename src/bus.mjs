@@ -74,8 +74,6 @@ export class Bus extends EventEmitter {
   discardToolStreamRun(turnId, type = 'cancelled', error = null) { this.toolStreams.discardToolStreamRun(turnId, type, error); }
   start() {
     this.teamDirectives.recoverOutputs();
-    // Serving the panel does not implicitly resume historical work.
-    this.store.run("UPDATE panel_turns SET state='unknown',ended=? WHERE state='running'", new Date().toISOString());
     this.startAttachmentCleanup();
     this.pumpPanelUpdates();
     this.pump();

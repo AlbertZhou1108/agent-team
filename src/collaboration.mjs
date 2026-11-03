@@ -49,7 +49,8 @@ export class Collaboration {
       store.run('INSERT OR IGNORE INTO role_names(group_id,name_key,member_id) VALUES(?,?,?)', member.group_id, key, member.id);
     }
     // A missing in-memory process is not proof that an interrupted owner's host stopped.
-    store.run("UPDATE runtime_attempts SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
+    // Serving the panel does not implicitly resume historical work.
+    store.recoverInterruptedTurns();
   }
   communicationOpen(groupId) {
     return (this.store.group(groupId).state ?? 'open') === 'open';

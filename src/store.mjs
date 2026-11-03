@@ -499,13 +499,77 @@ export class Store {
       new Date().toISOString(),
     ).lastInsertRowid);
   }
-  createTurn(endpoint, inputs = []) {
+  // 回合统一入口:v1 下成员回合写 turns + runtime_attempts，Panel 回合写 panel_turns + panel_turn_inputs。
+  // v2 迁移后两者都落到单张 turns；调用方只传 owner 类型，不关心落表形态。
+  createTurn(conversation, {
+    executorKind,
+    executorId = null,
+    inputs = [],
+    state = 'running',
+    policy = null,
+    activeTeamId = null,
+    sourceUserMessageId = null,
+  } = {}) {
     return this.transaction(() => {
       const id = randomUUID();
-      this.run('INSERT INTO turns VALUES(?,?,?,?)', id, endpoint.id, endpoint.session, new Date().toISOString());
-      inputs.forEach((message, ordinal) => this.run('INSERT INTO turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
+      const now = new Date().toISOString();
+      if (executorKind === 'member') {
+        this.run('INSERT INTO turns VALUES(?,?,?,?)', id, conversation.id, conversation.session ?? null, now);
+        inputs.forEach((message, ordinal) => this.run('INSERT INTO turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
+        this.run(
+          'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created) VALUES(?,?,?,?,?,?)',
+          id,
+          conversation.group_id,
+          conversation.id,
+          state,
+          JSON.stringify(policy ?? {}),
+          now,
+        );
+      } else if (executorKind === 'panel_agent') {
+        this.run(
+          'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
+          id,
+          conversation.id,
+          executorId ?? conversation.panel_agent_id ?? conversation.owner_id,
+          conversation.context,
+          conversation.group_id ?? null,
+          activeTeamId,
+          state,
+          now,
+        );
+        if (sourceUserMessageId) this.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, id);
+        inputs.forEach((message, ordinal) => this.run('INSERT INTO panel_turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
+      } else {
+        throw new Error(`未知的执行者类型: ${executorKind}`);
+      }
       return id;
     });
+  }
+  // 状态写点收敛:成员写 runtime_attempts，Panel 写 panel_turns；v2 后写同一列。
+  setTurnState(turnId, state, { detail = null, ended = new Date().toISOString() } = {}) {
+    if (this.get('SELECT 1 FROM turns WHERE id=?', turnId)) {
+      this.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', state, detail, ended, turnId);
+    } else {
+      this.run('UPDATE panel_turns SET state=?,ended=? WHERE id=?', state, ended, turnId);
+    }
+    return state;
+  }
+  setTurnSession(turnId, session) {
+    this.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
+  }
+  turnOwner(turnId) {
+    const memberTurn = this.get('SELECT endpoint_id FROM turns WHERE id=?', turnId);
+    if (memberTurn) return { kind: 'member', conversationId: memberTurn.endpoint_id };
+    const panelTurn = this.get('SELECT session_id FROM panel_turns WHERE id=?', turnId);
+    if (panelTurn) return { kind: 'panel_agent', conversationId: panelTurn.session_id };
+    return null;
+  }
+  // 总线重启后的单次恢复:无法证明宿主已停止的回合一律标 unknown，等待用户核实。
+  recoverInterruptedTurns() {
+    const ended = new Date().toISOString();
+    const member = this.run("UPDATE runtime_attempts SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
+    const panel = this.run("UPDATE panel_turns SET state='unknown',ended=? WHERE state='running'", ended);
+    return { member: member.changes, panel: panel.changes };
   }
   history(endpointId, event, turnId = null) {
     const endpoint = this.get('SELECT context FROM endpoints WHERE id=?', endpointId);

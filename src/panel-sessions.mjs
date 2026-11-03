@@ -634,27 +634,15 @@ export class PanelSessions {
     const schema = this.bus.information.rememberPanelSchema(session, this.bus.information.panelSchemaForStart(session));
     const instructions = this.bus.panelInstructions(session, panelAgent, activeTeamId);
     this.bus.information.assertRuleBudget(instructions, schema);
-    const turnId = randomUUID();
     const now = new Date().toISOString();
-    this.bus.store.run(
-      'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
-      turnId,
-      session.id,
-      panelAgent.id,
-      session.context,
-      session.group_id ?? null,
+    const turnId = this.bus.store.createTurn(session, {
+      executorKind: 'panel_agent',
+      executorId: panelAgent.id,
+      inputs,
       activeTeamId,
-      'running',
-      now,
-    );
-    if (sourceUserMessageId) this.bus.store.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, turnId);
+      sourceUserMessageId,
+    });
     this.bus.information.rememberTurnSchema(turnId, 'panel', schema);
-    inputs.forEach((message, ordinal) => this.bus.store.run(
-      'INSERT INTO panel_turn_inputs VALUES(?,?,?)',
-      turnId,
-      message.id,
-      ordinal,
-    ));
     const live = {
       endpoint: { ...session, group_id: session.group_id ?? null, context: session.context === 'private' ? 'panel-private' : 'panel-coordination' },
       activeTeamId,
@@ -921,12 +909,7 @@ export class PanelSessions {
     live.done = promise;
     try {
       const result = await promise;
-      this.bus.store.run(
-        "UPDATE panel_turns SET state=?,ended=? WHERE id=?",
-        abort.signal.aborted ? 'cancelled' : 'completed',
-        new Date().toISOString(),
-        turnId,
-      );
+      this.bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
       this.bus.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
       if (result) {
         const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
@@ -959,12 +942,7 @@ export class PanelSessions {
       return result;
     } catch (error) {
       const state = error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed';
-      this.bus.store.run(
-        'UPDATE panel_turns SET state=?,ended=? WHERE id=?',
-        state,
-        new Date().toISOString(),
-        turnId,
-      );
+      this.bus.store.setTurnState(turnId, state);
       this.bus.events.panel(session.id, {
         type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error',
         error: error.message,
@@ -1163,7 +1141,7 @@ export class PanelSessions {
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');
     const turn = this.bus.store.get("SELECT * FROM panel_turns WHERE id=? AND state='unknown'", turnId);
     if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
-    this.bus.store.run("UPDATE panel_turns SET state='stopped',ended=? WHERE id=?", new Date().toISOString(), turnId);
+    this.bus.store.setTurnState(turnId, 'stopped');
     this.bus.events.panel(turn.session_id, {
       type: 'framework.runtime_verified_by_user',
       turnId,
