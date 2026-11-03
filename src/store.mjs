@@ -6,7 +6,7 @@ import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAtta
 
 // 数据目录的 schema 版本。v1 = 当前双轨（endpoints + panel_sessions）；
 // v2 将合并为 conversations/turns 并统一投递队列，迁移细节见 docs/v2-dedup-plan.md。
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -45,6 +45,13 @@ export class Store {
       throw new Error(`数据目录由更新版本的 Agent Team 创建（schema ${existingVersion}），当前版本只支持到 ${SCHEMA_VERSION}`);
     }
     this.isFreshDatabase = !this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='groups'");
+    this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;');
+    if (existingVersion < SCHEMA_VERSION) this.upgradeFromV1(existingVersion);
+    this.ensureV2Schema();
+  }
+
+  // v0/v1 数据目录先补齐到 v1 形状，再交给 v1->v2 迁移。仅在 user_version < SCHEMA_VERSION 时执行。
+  upgradeFromV1(existingVersion) {
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL,charter TEXT,policy TEXT NOT NULL DEFAULT 'workspace-write',allow_shell INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS team_creation_requests(operation_id TEXT PRIMARY KEY,payload TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE SET NULL);
@@ -86,6 +93,14 @@ export class Store {
       CREATE INDEX IF NOT EXISTS panel_history_turn ON panel_history(turn_id,seq);
       CREATE INDEX IF NOT EXISTS attachments_message ON attachments(panel_message_id);
       CREATE INDEX IF NOT EXISTS attachments_agent ON attachments(panel_agent_id);`);
+    // 这些表由其它模块在 Bus 构造时创建；Store 迁移发生在那之前，先补 v1 形状以保证迁移 SQL 可读。
+    this.db.exec(`CREATE TABLE IF NOT EXISTS runtime_attempts(turn_id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,endpoint_id TEXT NOT NULL,state TEXT NOT NULL,policy TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
+      CREATE INDEX IF NOT EXISTS runtime_group ON runtime_attempts(group_id,state);
+      CREATE TABLE IF NOT EXISTS endpoint_policy(endpoint_id TEXT PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,signature TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS endpoint_session_bindings(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
+      CREATE TABLE IF NOT EXISTS endpoint_session_policies(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
+      CREATE TABLE IF NOT EXISTS endpoint_context_formats(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
+      CREATE TABLE IF NOT EXISTS panel_session_context_formats(session_id TEXT PRIMARY KEY REFERENCES panel_sessions(id) ON DELETE CASCADE,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);`);
     for (const [name, definition] of [
       ['model_provider', 'TEXT'],
       ['model', 'TEXT'],
@@ -164,8 +179,9 @@ export class Store {
     }
     this.migrate();
     this.migrateSchema(existingVersion);
-    if (this.schemaVersion() !== SCHEMA_VERSION) this.setSchemaVersion(SCHEMA_VERSION);
+    this.setSchemaVersion(SCHEMA_VERSION);
   }
+
 
   schemaVersion() {
     return Number(this.db.prepare('PRAGMA user_version').get().user_version ?? 0);
@@ -176,11 +192,119 @@ export class Store {
     this.db.exec(`PRAGMA user_version = ${version}`);
   }
 
-  // 版本迁移钩子:按 user_version 逐级执行。P0 只有 v1（当前 schema），
-  // 因此除把新库/旧库统一标记到 SCHEMA_VERSION 外没有迁移步骤；
-  // v1→v2 的会话/回合/投递合并将在 P2 落在这里，并保持"事务内完成、失败回滚"。
+  // 版本迁移钩子:按 user_version 逐级执行。v1 -> v2 的会话/回合/投递合并
+  // 在单个事务内完成，失败回滚；迁移后由 foreign_key_check 兜底。
   migrateSchema(fromVersion) {
-    if (fromVersion === SCHEMA_VERSION) return;
+    if (fromVersion >= SCHEMA_VERSION) return;
+    this.migrateV2();
+  }
+
+  // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。
+  ensureV2Schema() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,peer TEXT,session TEXT,policy_signature TEXT,key TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,CHECK((member_id IS NULL)!=(panel_agent_id IS NULL)));
+      CREATE UNIQUE INDEX IF NOT EXISTS conversations_member ON conversations(member_id,context) WHERE member_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS conversations_panel_private ON conversations(panel_agent_id) WHERE panel_agent_id IS NOT NULL AND context='private';
+      CREATE UNIQUE INDEX IF NOT EXISTS conversations_panel_coordination ON conversations(panel_agent_id,group_id) WHERE panel_agent_id IS NOT NULL AND context='coordination';
+      CREATE INDEX IF NOT EXISTS conversations_group ON conversations(group_id);
+      CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,executor_kind TEXT NOT NULL,executor_id TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,session TEXT,active_team_id TEXT,source_user_message_id TEXT,state TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
+      CREATE INDEX IF NOT EXISTS turns_group_state ON turns(group_id,state);
+      CREATE INDEX IF NOT EXISTS turns_conversation ON turns(conversation_id,created);
+      CREATE INDEX IF NOT EXISTS turns_state ON turns(state);
+      CREATE TABLE IF NOT EXISTS turn_inputs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
+      CREATE INDEX IF NOT EXISTS inputs_message ON turn_inputs(message_id);
+      CREATE TABLE IF NOT EXISTS native_turn_refs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,ref TEXT NOT NULL,PRIMARY KEY(turn_id,ref));
+      CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL,turn_id TEXT);
+      CREATE INDEX IF NOT EXISTS history_conversation ON history(conversation_id,seq);
+      CREATE INDEX IF NOT EXISTS history_turn ON history(turn_id,seq);
+      CREATE TABLE IF NOT EXISTS message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
+      CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
+      CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS conversation_session_bindings(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
+      CREATE TABLE IF NOT EXISTS conversation_session_policies(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
+      CREATE TABLE IF NOT EXISTS conversation_context_formats(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
+      CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,kind TEXT NOT NULL DEFAULT 'update' CHECK(kind IN ('update','continuation')),text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
+      CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
+      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+      CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
+      CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);`);
+  }
+
+  // v1 -> v2:会话、回合、输入、历史、来源、投递队列各合并为单表。
+  // SQLite 在 foreign_keys=OFF 时仍会改写 REFERENCES(实测)，必须同时 legacy_alter_table=ON；
+  // 旧历史 seq 保持不变，Panel 历史整体平移到成员历史之后，并同步修正其 origins.event_seq。
+  migrateV2() {
+    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
+    if (hasTable('conversations') && !hasTable('endpoints') && !hasTable('panel_sessions')) return;
+    if (!hasTable('endpoints') || !hasTable('panel_sessions')) throw new Error('v2 迁移缺少 v1 会话表');
+    const now = new Date().toISOString();
+    this.db.exec('PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;');
+    try {
+      this.transaction(() => {
+        this.db.exec(`ALTER TABLE turns RENAME TO turns_v1;
+          ALTER TABLE turn_inputs RENAME TO turn_inputs_v1;
+          ALTER TABLE message_origins RENAME TO message_origins_v1;
+          ALTER TABLE history RENAME TO history_v1;
+          ALTER TABLE outbox RENAME TO outbox_v1;
+          ALTER TABLE attached RENAME TO attached_v1;
+          ALTER TABLE panel_updates RENAME TO panel_updates_v1;
+          ALTER TABLE interactions RENAME TO interactions_v1;
+          DROP INDEX IF EXISTS history_endpoint;
+          DROP INDEX IF EXISTS history_turn;
+          DROP INDEX IF EXISTS inputs_message;
+          DROP INDEX IF EXISTS panel_updates_pending;
+          DROP INDEX IF EXISTS interactions_group;
+          DROP INDEX IF EXISTS interactions_panel;`);
+        this.ensureV2Schema();
+        this.db.exec(`INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
+            SELECT e.id,e.group_id,e.member_id,NULL,e.context,e.peer,e.session,(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=e.id),e.key,'${now}','${now}' FROM endpoints e;
+          INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
+            SELECT s.id,s.group_id,NULL,s.panel_agent_id,s.context,NULL,s.session,s.policy_signature,s.key,s.created,s.updated FROM panel_sessions s;
+          INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended)
+            SELECT t.id,t.endpoint_id,'member',e.member_id,e.group_id,t.session,NULL,NULL,COALESCE(r.state,'unknown'),r.detail,COALESCE(r.created,t.created),r.ended
+            FROM turns_v1 t LEFT JOIN runtime_attempts r ON r.turn_id=t.id LEFT JOIN endpoints e ON e.id=t.endpoint_id;
+          INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended)
+            SELECT p.id,p.session_id,'panel_agent',p.panel_agent_id,p.group_id,s.session,p.active_team_id,p.source_user_message_id,p.state,NULL,p.created,p.ended
+            FROM panel_turns p LEFT JOIN panel_sessions s ON s.id=p.session_id;
+          INSERT INTO turn_inputs SELECT * FROM turn_inputs_v1;
+          INSERT INTO turn_inputs SELECT * FROM panel_turn_inputs;
+          INSERT INTO history(seq,conversation_id,event,created,turn_id) SELECT seq,endpoint_id,event,created,turn_id FROM history_v1;`);
+        const offset = Number(this.get('SELECT COALESCE(MAX(seq),0) AS seq FROM history').seq ?? 0);
+        this.db.exec(`INSERT INTO history(seq,conversation_id,event,created,turn_id) SELECT seq+${offset},session_id,event,created,turn_id FROM panel_history;
+          INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) SELECT message_id,turn_id,event_seq,call_id,native_call_id FROM message_origins_v1;
+          INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) SELECT message_id,turn_id,CASE WHEN event_seq IS NULL THEN NULL ELSE event_seq+${offset} END,call_id,native_call_id FROM panel_message_origins;
+          INSERT INTO outbox(id,conversation_id,payload,accepted,error) SELECT id,endpoint_id,payload,accepted,error FROM outbox_v1;
+          INSERT INTO outbox(id,conversation_id,payload,accepted,error) SELECT id,session_id,payload,accepted,error FROM panel_outbox;
+          INSERT INTO attached SELECT * FROM attached_v1;
+          INSERT INTO attached SELECT * FROM panel_attached;
+          INSERT INTO conversation_session_bindings SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings;
+          INSERT INTO conversation_session_policies SELECT endpoint_id,session_key,signature FROM endpoint_session_policies;
+          INSERT INTO conversation_context_formats SELECT endpoint_id,session_key,schema_version,source,created,updated FROM endpoint_context_formats;
+          INSERT INTO conversation_context_formats SELECT session_id,'default',schema_version,source,created,updated FROM panel_session_context_formats;
+          INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered)
+            SELECT id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered FROM panel_updates_v1;
+          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
+            SELECT id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered FROM interactions_v1;
+          UPDATE conversations SET policy_signature=(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=conversations.id)
+            WHERE member_id IS NOT NULL AND EXISTS(SELECT 1 FROM endpoint_policy p WHERE p.endpoint_id=conversations.id);
+          DROP TABLE turns_v1; DROP TABLE turn_inputs_v1; DROP TABLE message_origins_v1; DROP TABLE history_v1;
+          DROP TABLE outbox_v1; DROP TABLE attached_v1; DROP TABLE panel_updates_v1; DROP TABLE interactions_v1;
+          DROP TABLE endpoints; DROP TABLE panel_sessions; DROP TABLE runtime_attempts; DROP TABLE panel_turns;
+          DROP TABLE panel_turn_inputs; DROP TABLE panel_message_origins; DROP TABLE panel_history;
+          DROP TABLE panel_outbox; DROP TABLE panel_attached; DROP TABLE endpoint_session_bindings;
+          DROP TABLE endpoint_session_policies; DROP TABLE endpoint_policy; DROP TABLE endpoint_context_formats;
+          DROP TABLE panel_session_context_formats;`);
+        if (this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_requests'")) {
+          this.db.exec(`ALTER TABLE team_requests RENAME TO team_requests_v1;
+            CREATE TABLE team_requests(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,source_user_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,source_turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,call_id TEXT,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,controller_id TEXT NOT NULL,operation_id TEXT NOT NULL,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,original_text TEXT NOT NULL,text TEXT NOT NULL,created TEXT NOT NULL,UNIQUE(panel_agent_id,source_user_message_id,operation_id));
+            INSERT INTO team_requests SELECT id,panel_agent_id,source_user_message_id,source_turn_id,call_id,group_id,controller_id,operation_id,message_id,original_text,text,created FROM team_requests_v1;
+            DROP TABLE team_requests_v1;`);
+        }
+        const violations = this.all('PRAGMA foreign_key_check');
+        if (violations.length) throw new Error(`v2 迁移外键校验失败: ${JSON.stringify(violations.slice(0, 3))}`);
+      });
+    } finally {
+      this.db.exec('PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;');
+    }
   }
 
   // ADR 0004: task-flow persistence is gone. Old databases shed their process
@@ -285,49 +409,38 @@ export class Store {
     if (!member) throw new Error('成员不存在或已移除');
     return member;
   }
-  // 会话统一入口:v1 内部仍落在 endpoints / panel_sessions 两张表上,
-  // v2 迁移后换成 conversations 单表；调用方从此不再关心存储形态。
+  // 会话统一入口:v2 起只有 conversations 单表；调用方不关心存储形态。
   conversation(kind, ownerId, context, { peer = null, groupId = null } = {}) {
     if (kind === 'member') {
       const member = this.member(ownerId);
-      let row = this.get('SELECT * FROM endpoints WHERE member_id=? AND context=?', ownerId, context);
+      let row = this.get('SELECT * FROM conversations WHERE member_id=? AND context=?', ownerId, context);
       if (!row) {
         const id = randomUUID();
-        this.run('INSERT INTO endpoints VALUES(?,?,?,?,?,?,?)', id, member.group_id, member.id, context, peer, null, randomBytes(32).toString('hex'));
-        row = this.get('SELECT * FROM endpoints WHERE id=?', id);
+        const now = new Date().toISOString();
+        this.run('INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+          id, member.group_id, member.id, null, context, peer, null, null, randomBytes(32).toString('hex'), now, now);
+        row = this.get('SELECT * FROM conversations WHERE id=?', id);
       }
       return { ...row, owner_kind: 'member', owner_id: row.member_id };
     }
     if (kind === 'panel_agent') {
       const existing = context === 'private'
-        ? this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='private'", ownerId)
-        : this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='coordination' AND group_id=?", ownerId, groupId);
+        ? this.get("SELECT * FROM conversations WHERE panel_agent_id=? AND context='private'", ownerId)
+        : this.get("SELECT * FROM conversations WHERE panel_agent_id=? AND context='coordination' AND group_id=?", ownerId, groupId);
       if (existing) return { ...existing, owner_kind: 'panel_agent', owner_id: existing.panel_agent_id };
       if (context === 'coordination') this.group(groupId);
       const id = `panel-session-${randomUUID()}`;
       const now = new Date().toISOString();
-      this.run(
-        'INSERT INTO panel_sessions(id,panel_agent_id,context,group_id,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?)',
-        id,
-        ownerId,
-        context,
-        groupId,
-        null,
-        null,
-        randomBytes(32).toString('hex'),
-        now,
-        now,
-      );
-      return { ...this.get('SELECT * FROM panel_sessions WHERE id=?', id), owner_kind: 'panel_agent', owner_id: ownerId };
+      this.run('INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+        id, groupId ?? null, null, ownerId, context, null, null, null, randomBytes(32).toString('hex'), now, now);
+      return { ...this.get('SELECT * FROM conversations WHERE id=?', id), owner_kind: 'panel_agent', owner_id: ownerId };
     }
     throw new Error(`未知的会话类型: ${kind}`);
   }
   conversationById(id) {
-    const endpoint = this.get('SELECT * FROM endpoints WHERE id=?', id);
-    if (endpoint) return { ...endpoint, owner_kind: 'member', owner_id: endpoint.member_id };
-    const session = this.get('SELECT * FROM panel_sessions WHERE id=?', id);
-    if (session) return { ...session, owner_kind: 'panel_agent', owner_id: session.panel_agent_id };
-    return null;
+    const row = this.get('SELECT * FROM conversations WHERE id=?', id);
+    if (!row) return null;
+    return { ...row, owner_kind: row.member_id ? 'member' : 'panel_agent', owner_id: row.member_id ?? row.panel_agent_id };
   }
   // 身份只读投影:身份表仍是两张，执行层只读公共字段；不做表合并。
   actor(kind, id) {
@@ -348,32 +461,18 @@ export class Store {
   }
   // 会话列表投影:两种 owner 统一形状；Panel 只有 coordination 会话，私聊不进入团队列表。
   conversationsForGroup(groupId, { includePrivate = false } = {}) {
-    const endpointFilter = `${includePrivate ? '' : " AND context!='private'"}${groupId === undefined ? '' : ' AND group_id=?'}`;
-    const endpoints = this.all(`SELECT * FROM endpoints WHERE 1=1${endpointFilter}`, ...(groupId === undefined ? [] : [groupId]));
-    const panelSessions = this.all(
-      `SELECT * FROM panel_sessions WHERE context='coordination'${groupId === undefined ? '' : ' AND group_id=?'}`,
-      ...(groupId === undefined ? [] : [groupId]),
-    );
-    return [
-      ...endpoints.map(row => ({ ...row, owner_kind: 'member', owner_id: row.member_id })),
-      ...panelSessions.map(row => ({ ...row, owner_kind: 'panel_agent', owner_id: row.panel_agent_id })),
-    ];
+    const rows = this.all(`SELECT * FROM conversations WHERE 1=1${includePrivate ? '' : " AND context!='private'"}${groupId === undefined ? '' : ' AND group_id=?'}`,
+      ...(groupId === undefined ? [] : [groupId]));
+    return rows.map(row => ({ ...row, owner_kind: row.member_id ? 'member' : 'panel_agent', owner_id: row.member_id ?? row.panel_agent_id }));
   }
   setConversationSession(id, session) {
-    const conversation = this.conversationById(id);
-    if (!conversation) throw new Error('会话不存在');
-    if (conversation.owner_kind === 'member') this.run('UPDATE endpoints SET session=? WHERE id=?', session, id);
-    else this.run('UPDATE panel_sessions SET session=?,updated=? WHERE id=?', session, new Date().toISOString(), id);
+    const changed = this.run('UPDATE conversations SET session=?,updated=? WHERE id=?', session, new Date().toISOString(), id);
+    if (!changed.changes) throw new Error('会话不存在');
   }
   setConversationPolicySignature(id, signature, sessionKey = 'default') {
-    const conversation = this.conversationById(id);
-    if (!conversation) throw new Error('会话不存在');
-    if (conversation.owner_kind === 'member') {
-      this.run('INSERT INTO endpoint_session_policies VALUES(?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET signature=excluded.signature', id, sessionKey, signature);
-      this.run('INSERT INTO endpoint_policy VALUES(?,?) ON CONFLICT(endpoint_id) DO UPDATE SET signature=excluded.signature', id, signature);
-    } else {
-      this.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', signature, new Date().toISOString(), id);
-    }
+    const changed = this.run('UPDATE conversations SET policy_signature=?,updated=? WHERE id=?', signature, new Date().toISOString(), id);
+    if (!changed.changes) throw new Error('会话不存在');
+    this.run('INSERT INTO conversation_session_policies VALUES(?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET signature=excluded.signature', id, sessionKey, signature);
   }
   endpoint(memberId, context, peer = null) {
     return this.conversation('member', memberId, context, { peer });
@@ -408,17 +507,17 @@ export class Store {
     return this.conversation('panel_agent', panelAgentId, context, { groupId });
   }
   authenticatePanelSession(id, key) {
-    const session = this.get('SELECT * FROM panel_sessions WHERE id=? AND key=?', id, key);
-    if (!session) throw new Error('Panel Agent 会话来源无效');
-    const panelAgent = this.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    const conversation = this.get('SELECT * FROM conversations WHERE id=? AND key=? AND panel_agent_id IS NOT NULL', id, key);
+    if (!conversation) throw new Error('Panel Agent 会话来源无效');
+    const panelAgent = this.get('SELECT * FROM panel_agents WHERE id=?', conversation.panel_agent_id);
     if (!panelAgent) throw new Error('Panel Agent 不存在');
-    return { session, panelAgent };
+    return { session: { ...conversation, owner_kind: 'panel_agent', owner_id: conversation.panel_agent_id }, panelAgent };
   }
   authenticate(id, key) {
-    const endpoint = this.get('SELECT * FROM endpoints WHERE id=? AND key=?', id, key);
-    if (!endpoint) throw new Error('会话来源无效');
-    this.member(endpoint.member_id);
-    return endpoint;
+    const conversation = this.get('SELECT * FROM conversations WHERE id=? AND key=? AND member_id IS NOT NULL', id, key);
+    if (!conversation) throw new Error('会话来源无效');
+    this.member(conversation.member_id);
+    return { ...conversation, owner_kind: 'member', owner_id: conversation.member_id };
   }
   append(groupId, sender, recipient, kind, text, replyTo = null) {
     this.group(groupId);
@@ -433,11 +532,10 @@ export class Store {
         EXISTS(SELECT 1 FROM members r WHERE r.id=m.recipient AND r.removed IS NULL)
         OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
       )
-      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
-      AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`);
+      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
   }
   createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {
-    this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, groupId, memberId, panelAgentId, endpointId, context, turnId, callId, messageId, panelMessageId, kind, JSON.stringify(payload), 'pending', detail, new Date().toISOString());
     return this.interaction(id);
   }
@@ -463,80 +561,46 @@ export class Store {
   pendingMemberInteractions(groupId, memberId) {
     return this.all("SELECT * FROM interactions WHERE group_id=? AND member_id=? AND state='pending'", groupId, memberId);
   }
-  prepare(message, endpoint, canBatch = () => true) {
+  prepare(message, conversation, canBatch = () => true) {
     return this.transaction(() => {
       if (this.get('SELECT 1 FROM attached WHERE message_id=?', message.id)) return null;
-      this.member(endpoint.member_id);
+      if (conversation.member_id) this.member(conversation.member_id);
       const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, message.recipient);
-      const candidates = this.all(`SELECT m.* FROM messages m WHERE ${endpoint.context === 'coordination' ? '' : 'm.sender=? AND '}m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, ...(endpoint.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
+      const candidates = this.all(`SELECT m.* FROM messages m WHERE ${conversation.context === 'coordination' ? '' : 'm.sender=? AND '}m.recipient=? AND m.kind='send' AND m.id!=?
+        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, ...(conversation.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
       const additional = [];
-      for (const candidate of candidates) {
-        if (canBatch([message, ...additional, candidate])) additional.push(candidate);
-      }
-      const payload = { groupId: message.group_id, conversation: endpoint.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
+      for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
+      const payload = { groupId: message.group_id, conversation: conversation.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
       const id = randomUUID();
-      this.run('INSERT INTO outbox(id,endpoint_id,payload) VALUES(?,?,?)', id, endpoint.id, JSON.stringify(payload));
+      this.run('INSERT INTO outbox(id,conversation_id,payload) VALUES(?,?,?)', id, conversation.id, JSON.stringify(payload));
       for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO attached VALUES(?,?)', item.id, id);
-      return { id, endpoint_id: endpoint.id, payload: JSON.stringify(payload), accepted: null, error: null };
+      return { id, conversation_id: conversation.id, owner_kind: conversation.owner_kind, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
   preparePanel(message, session, canBatch = () => true) {
-    return this.transaction(() => {
-      if (this.get('SELECT 1 FROM panel_attached WHERE message_id=?', message.id)) return null;
-      const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
-        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
-        AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient);
-      const candidates = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id)
-        AND NOT EXISTS(SELECT 1 FROM panel_attached p WHERE p.message_id=m.id) ORDER BY m.seq`, message.recipient, message.id);
-      const additional = [];
-      for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
-      const payload = {
-        groupId: message.group_id,
-        conversation: 'coordination',
-        message,
-        ...(additional.length ? { additionalMessages: additional } : {}),
-        notes,
-      };
-      const id = randomUUID();
-      this.run('INSERT INTO panel_outbox(id,session_id,payload) VALUES(?,?,?)', id, session.id, JSON.stringify(payload));
-      for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO panel_attached VALUES(?,?)', item.id, id);
-      return { id, session_id: session.id, payload: JSON.stringify(payload), accepted: null, error: null };
-    });
+    return this.prepare(message, session, canBatch);
   }
   prepareDelivery(conversation, message, canBatch = () => true) {
-    const entry = conversation.owner_kind === 'member'
-      ? this.prepare(message, conversation, canBatch)
-      : this.preparePanel(message, conversation, canBatch);
-    return entry ? { ...entry, conversation_id: conversation.id, owner_kind: conversation.owner_kind } : null;
+    return this.prepare(message, conversation, canBatch);
   }
   // 待投递队列的统一读取:v1 仍是两张表,顺序保持"先 Panel 后成员"，与旧 pump 一致。
   pendingDeliveries() {
-    return [
-      ...this.all('SELECT * FROM panel_outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')
-        .map(row => ({ ...row, conversation_id: row.session_id, owner_kind: 'panel_agent' })),
-      ...this.all('SELECT * FROM outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')
-        .map(row => ({ ...row, conversation_id: row.endpoint_id, owner_kind: 'member' })),
-    ];
+    return this.all(`SELECT o.*,c.member_id,c.panel_agent_id FROM outbox o JOIN conversations c ON c.id=o.conversation_id
+      WHERE o.accepted IS NULL AND o.error IS NULL ORDER BY o.rowid`)
+      .map(row => ({ ...row, owner_kind: row.member_id ? 'member' : 'panel_agent' }));
   }
   hasPendingDelivery(conversationId) {
-    if (this.get('SELECT 1 FROM panel_outbox WHERE session_id=? AND accepted IS NULL AND error IS NULL', conversationId)) return true;
-    return Boolean(this.get('SELECT 1 FROM outbox WHERE endpoint_id=? AND accepted IS NULL AND error IS NULL', conversationId));
+    return Boolean(this.get('SELECT 1 FROM outbox WHERE conversation_id=? AND accepted IS NULL AND error IS NULL', conversationId));
   }
   setDeliveryAccepted(entry, accepted = new Date().toISOString()) {
-    if (entry.owner_kind === 'panel_agent') this.run('UPDATE panel_outbox SET accepted=? WHERE id=?', accepted, entry.id);
-    else this.run('UPDATE outbox SET accepted=? WHERE id=?', accepted, entry.id);
+    this.run('UPDATE outbox SET accepted=? WHERE id=?', accepted, entry.id);
   }
   setDeliveryError(entry, error) {
-    if (entry.owner_kind === 'panel_agent') this.run('UPDATE panel_outbox SET error=? WHERE id=?', error, entry.id);
-    else this.run('UPDATE outbox SET error=? WHERE id=?', error, entry.id);
+    this.run('UPDATE outbox SET error=? WHERE id=?', error, entry.id);
   }
   deliveryAccepted(entry) {
-    return entry.owner_kind === 'panel_agent'
-      ? this.get('SELECT accepted FROM panel_outbox WHERE id=?', entry.id)?.accepted ?? null
-      : this.get('SELECT accepted FROM outbox WHERE id=?', entry.id)?.accepted ?? null;
+    return this.get('SELECT accepted FROM outbox WHERE id=?', entry.id)?.accepted ?? null;
   }
   panelAppend(panelAgentId, context, role, text, activeTeamId = null) {
     const id = randomUUID();
@@ -552,190 +616,141 @@ export class Store {
     );
     return this.get('SELECT * FROM panel_messages WHERE id=?', id);
   }
-  panelHistory(sessionId, event, turnId = null) {
+  panelHistory(conversationId, event, turnId = null) {
     return Number(this.run(
-      'INSERT INTO panel_history(session_id,turn_id,event,created) VALUES(?,?,?,?)',
-      sessionId,
-      turnId,
+      'INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)',
+      conversationId,
       JSON.stringify(event),
       new Date().toISOString(),
+      turnId,
     ).lastInsertRowid);
   }
-  // 回合统一入口:v1 下成员回合写 turns + runtime_attempts，Panel 回合写 panel_turns + panel_turn_inputs。
-  // v2 迁移后两者都落到单张 turns；调用方只传 owner 类型，不关心落表形态。
+  // 回合统一入口:两种执行者都写同一张 turns；调用方只传 owner 类型。
   createTurn(conversation, {
     executorKind,
     executorId = null,
     inputs = [],
     state = 'running',
-    policy = null,
     activeTeamId = null,
     sourceUserMessageId = null,
   } = {}) {
     return this.transaction(() => {
       const id = randomUUID();
-      const now = new Date().toISOString();
-      if (executorKind === 'member') {
-        this.run('INSERT INTO turns VALUES(?,?,?,?)', id, conversation.id, conversation.session ?? null, now);
-        inputs.forEach((message, ordinal) => this.run('INSERT INTO turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
-        this.run(
-          'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created) VALUES(?,?,?,?,?,?)',
-          id,
-          conversation.group_id,
-          conversation.id,
-          state,
-          JSON.stringify(policy ?? {}),
-          now,
-        );
-      } else if (executorKind === 'panel_agent') {
-        this.run(
-          'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
-          id,
-          conversation.id,
-          executorId ?? conversation.panel_agent_id ?? conversation.owner_id,
-          conversation.context,
-          conversation.group_id ?? null,
-          activeTeamId,
-          state,
-          now,
-        );
-        if (sourceUserMessageId) this.run('UPDATE panel_turns SET source_user_message_id=? WHERE id=?', sourceUserMessageId, id);
-        inputs.forEach((message, ordinal) => this.run('INSERT INTO panel_turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
-      } else {
-        throw new Error(`未知的执行者类型: ${executorKind}`);
-      }
+      this.run(
+        'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+        id,
+        conversation.id,
+        executorKind,
+        executorId ?? conversation.owner_id ?? conversation.member_id ?? conversation.panel_agent_id,
+        conversation.group_id ?? null,
+        conversation.session ?? null,
+        activeTeamId,
+        sourceUserMessageId,
+        state,
+        null,
+        new Date().toISOString(),
+      );
+      inputs.forEach((message, ordinal) => this.run('INSERT INTO turn_inputs VALUES(?,?,?)', id, message.id, ordinal));
       return id;
     });
   }
-  // 状态写点收敛:成员写 runtime_attempts，Panel 写 panel_turns；v2 后写同一列。
+  // 状态写点收敛:所有执行者写同一列 turns.state。
   setTurnState(turnId, state, { detail = null, ended = new Date().toISOString() } = {}) {
-    if (this.get('SELECT 1 FROM turns WHERE id=?', turnId)) {
-      this.run('UPDATE runtime_attempts SET state=?,detail=?,ended=? WHERE turn_id=?', state, detail, ended, turnId);
-    } else {
-      this.run('UPDATE panel_turns SET state=?,ended=? WHERE id=?', state, ended, turnId);
-    }
+    this.run('UPDATE turns SET state=?,detail=?,ended=? WHERE id=?', state, detail, ended, turnId);
     return state;
   }
   setTurnSession(turnId, session) {
     this.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
   }
   turnOwner(turnId) {
-    const memberTurn = this.get('SELECT endpoint_id FROM turns WHERE id=?', turnId);
-    if (memberTurn) return { kind: 'member', conversationId: memberTurn.endpoint_id };
-    const panelTurn = this.get('SELECT session_id FROM panel_turns WHERE id=?', turnId);
-    if (panelTurn) return { kind: 'panel_agent', conversationId: panelTurn.session_id };
-    return null;
+    const turn = this.get('SELECT conversation_id,executor_kind FROM turns WHERE id=?', turnId);
+    if (!turn) return null;
+    return { kind: turn.executor_kind, conversationId: turn.conversation_id };
   }
   // 总线重启后的单次恢复:无法证明宿主已停止的回合一律标 unknown，等待用户核实。
   recoverInterruptedTurns() {
-    const ended = new Date().toISOString();
-    const member = this.run("UPDATE runtime_attempts SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
-    const panel = this.run("UPDATE panel_turns SET state='unknown',ended=? WHERE state='running'", ended);
-    return { member: member.changes, panel: panel.changes };
+    const result = this.run("UPDATE turns SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
+    return { turns: result.changes };
   }
-  history(endpointId, event, turnId = null) {
-    const endpoint = this.get('SELECT context FROM endpoints WHERE id=?', endpointId);
-    if (endpoint && endpoint.context !== 'private') return Number(this.run('INSERT INTO history(endpoint_id,event,created,turn_id) VALUES(?,?,?,?)', endpointId, JSON.stringify(event), new Date().toISOString(), turnId).lastInsertRowid);
-    return null;
+  history(conversationId, event, turnId = null) {
+    const conversation = this.get('SELECT context,member_id FROM conversations WHERE id=?', conversationId);
+    if (!conversation || (conversation.member_id && conversation.context === 'private')) return null;
+    return Number(this.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', conversationId, JSON.stringify(event), new Date().toISOString(), turnId).lastInsertRowid);
   }
   publicTurn(id) {
-    return this.get(`SELECT t.*,e.group_id,e.member_id,e.context,e.peer FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE t.id=? AND e.context!='private'`, id);
+    return this.get('SELECT t.*,c.group_id,c.member_id,c.context,c.peer FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=? AND c.context!=\'private\'', id);
   }
   messageTrace(id) {
     const message = this.get('SELECT id,kind FROM messages WHERE id=?', id);
     if (!message) return null;
-    const origin = this.get(`SELECT o.*,e.context,e.id AS endpoint_id FROM message_origins o JOIN turns t ON t.id=o.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE o.message_id=?`, id);
-    const panelOrigin = this.get(`SELECT o.*,t.context,t.group_id AS turn_group_id,s.panel_agent_id
-      FROM panel_message_origins o JOIN panel_turns t ON t.id=o.turn_id JOIN panel_sessions s ON s.id=t.session_id
-      WHERE o.message_id=?`, id);
-    const source = panelOrigin
-      ? {
-          kind: panelOrigin.context === 'private' ? 'private' : 'panel',
-          turnId: panelOrigin.turn_id,
-          endpointId: null,
-          panelAgentId: panelOrigin.panel_agent_id,
-          groupId: panelOrigin.turn_group_id,
-          eventSeq: panelOrigin.event_seq,
-          callId: panelOrigin.call_id,
-          nativeCallId: panelOrigin.native_call_id,
-        }
-      : !origin
-        ? { kind: message.kind === 'system' ? 'system' : 'unknown' }
+    const origin = this.get(`SELECT o.*,c.context,c.id AS conversation_id,c.member_id,c.panel_agent_id,t.executor_kind,t.group_id AS turn_group_id
+      FROM message_origins o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.message_id=?`, id);
+    const source = !origin
+      ? { kind: message.kind === 'system' ? 'system' : 'unknown' }
+      : origin.executor_kind === 'panel_agent'
+        ? {
+            kind: origin.context === 'private' ? 'private' : 'panel',
+            turnId: origin.turn_id,
+            endpointId: null,
+            panelAgentId: origin.panel_agent_id,
+            groupId: origin.turn_group_id,
+            eventSeq: origin.event_seq,
+            callId: origin.call_id,
+            nativeCallId: origin.native_call_id,
+          }
         : origin.context === 'private'
           ? { kind: 'private' }
-          : { kind: 'group', turnId: origin.turn_id, endpointId: origin.endpoint_id, eventSeq: origin.event_seq, callId: origin.call_id, nativeCallId: origin.native_call_id };
-    const inputAttempts = [
-      ...this.all(`SELECT t.id,t.endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id JOIN endpoints e ON e.id=t.endpoint_id WHERE i.message_id=? AND e.context!='private' ORDER BY t.rowid`, id),
-      ...this.all(`SELECT t.id,t.session_id AS endpoint_id,s.session,t.created FROM panel_turn_inputs i JOIN panel_turns t ON t.id=i.turn_id JOIN panel_sessions s ON s.id=t.session_id WHERE i.message_id=? ORDER BY t.rowid`, id),
-    ];
+          : { kind: 'group', turnId: origin.turn_id, endpointId: origin.conversation_id, eventSeq: origin.event_seq, callId: origin.call_id, nativeCallId: origin.native_call_id };
+    const inputAttempts = this.all(
+      `SELECT t.id,t.conversation_id AS endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id
+       JOIN conversations c ON c.id=t.conversation_id WHERE i.message_id=? AND c.context!='private' ORDER BY t.rowid`,
+      id,
+    );
     return { messageId: id, source, inputAttempts };
   }
   endpointModels(id, after = 0) {
-    const endpoint = this.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", id);
-    const panelSession = endpoint ? null : this.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", id);
-    if (!endpoint && !panelSession) return null;
-    const all = modelObservations(endpoint
-      ? this.all('SELECT seq,turn_id,created,event FROM history WHERE endpoint_id=? ORDER BY seq', id)
-      : this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE session_id=? ORDER BY seq', id));
+    const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
+    if (!conversation) return null;
+    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE conversation_id=? ORDER BY seq', id));
     const observations = all.filter(observation => observation.seq > after).slice(0, 200);
     return { ...deriveCurrentModel(all), observations, nextAfter: observations.at(-1)?.seq ?? after };
   }
   endpointModelSummary(id) {
-    const panelSession = this.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", id);
-    const table = panelSession ? 'panel_history' : 'history';
-    const column = panelSession ? 'session_id' : 'endpoint_id';
-    const revision = this.get(`SELECT MAX(seq) AS seq,COUNT(*) AS count FROM ${table} WHERE ${column}=?`, id);
+    const revision = this.get('SELECT MAX(seq) AS seq,COUNT(*) AS count FROM history WHERE conversation_id=?', id);
     this.modelSummaryCache ??= new Map();
     const cached = this.modelSummaryCache.get(id);
     if (cached?.seq === revision.seq && cached?.count === revision.count) return cached.value;
     const value = deriveCurrentModel(modelObservations(this.all(
-      `SELECT seq,turn_id,created,event FROM ${table} WHERE ${column}=? ORDER BY seq`, id,
+      'SELECT seq,turn_id,created,event FROM history WHERE conversation_id=? ORDER BY seq', id,
     )));
     this.modelSummaryCache.set(id, { ...revision, value });
     return value;
   }
   turnTrace(id, after = 0) {
-    const turn = this.publicTurn(id);
-    if (!turn) {
-      const panelTurn = this.get(`SELECT t.*,s.context AS session_context,s.panel_agent_id
-        FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
-        WHERE t.id=? AND s.context='coordination'`, id);
-      if (!panelTurn) return null;
-      const events = this.all('SELECT * FROM panel_history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
-      const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM panel_history WHERE turn_id=? ORDER BY seq', id));
-      return {
-        turn: {
-          id: panelTurn.id,
-          endpoint_id: panelTurn.session_id,
-          session: null,
-          created: panelTurn.created,
-          group_id: panelTurn.group_id,
-          member_id: panelTurn.panel_agent_id,
-          context: 'panel-coordination',
-          peer: null,
-        },
-        nativeTurnRefs: [],
-        inputMessages: this.all(
-          'SELECT m.id,m.kind,i.ordinal FROM panel_turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal',
-          id,
-        ),
-        outgoingMessages: this.all(
-          'SELECT message_id,event_seq,call_id,native_call_id FROM panel_message_origins WHERE turn_id=? ORDER BY rowid',
-          id,
-        ),
-        ...deriveCurrentModel(observations),
-        modelObservations: observations,
-        events,
-        nextAfter: events.at(-1)?.seq ?? after,
-      };
-    }
+    const turn = this.get(`SELECT t.*,c.group_id,c.member_id,c.panel_agent_id,c.context,c.peer
+      FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=? AND c.context!='private'`, id);
+    if (!turn) return null;
     const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
     const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE turn_id=? ORDER BY seq', id));
-    return { turn, nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),
+    return {
+      turn: {
+        id: turn.id,
+        endpoint_id: turn.conversation_id,
+        session: turn.session,
+        created: turn.created,
+        group_id: turn.group_id,
+        member_id: turn.executor_kind === 'panel_agent' ? turn.panel_agent_id : turn.member_id,
+        context: turn.executor_kind === 'panel_agent' ? 'panel-coordination' : turn.context,
+        peer: turn.peer ?? null,
+      },
+      nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),
       inputMessages: this.all('SELECT m.id,m.kind,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal', id),
       outgoingMessages: this.all('SELECT message_id,event_seq,call_id,native_call_id FROM message_origins WHERE turn_id=? ORDER BY rowid', id),
-      ...deriveCurrentModel(observations), modelObservations: observations,
-      events, nextAfter: events.at(-1)?.seq ?? after };
+      ...deriveCurrentModel(observations),
+      modelObservations: observations,
+      events,
+      nextAfter: events.at(-1)?.seq ?? after,
+    };
   }
   close() { this.db.close(); }
 }

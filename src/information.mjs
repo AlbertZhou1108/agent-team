@@ -142,15 +142,6 @@ export class Information {
 
   migrate() {
     this.store.db.exec(`
-      CREATE TABLE IF NOT EXISTS endpoint_context_formats(
-        endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
-        session_key TEXT NOT NULL,
-        schema_version INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        created TEXT NOT NULL,
-        updated TEXT NOT NULL,
-        PRIMARY KEY(endpoint_id,session_key)
-      );
       CREATE TABLE IF NOT EXISTS information_measurements(
         id TEXT PRIMARY KEY,
         group_id TEXT,
@@ -171,12 +162,14 @@ export class Information {
         session_key TEXT,
         created TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS panel_session_context_formats(
-        session_id TEXT PRIMARY KEY REFERENCES panel_sessions(id) ON DELETE CASCADE,
+      CREATE TABLE IF NOT EXISTS conversation_context_formats(
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        session_key TEXT NOT NULL,
         schema_version INTEGER NOT NULL,
         source TEXT NOT NULL,
         created TEXT NOT NULL,
-        updated TEXT NOT NULL
+        updated TEXT NOT NULL,
+        PRIMARY KEY(conversation_id,session_key)
       );
     `);
   }
@@ -185,7 +178,7 @@ export class Information {
 
   memberSchemaForSession(endpoint, sessionKey, existingSession) {
     const row = this.store.get(
-      'SELECT schema_version FROM endpoint_context_formats WHERE endpoint_id=? AND session_key=?',
+      'SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key=?',
       endpoint.id,
       sessionKey,
     );
@@ -193,7 +186,7 @@ export class Information {
     const schema = existingSession ? LEGACY_SCHEMA_VERSION : CONTEXT_SCHEMA_VERSION;
     const timestamp = now();
     this.store.run(
-      'INSERT OR REPLACE INTO endpoint_context_formats VALUES(?,?,?,?,?,?)',
+      'INSERT OR REPLACE INTO conversation_context_formats VALUES(?,?,?,?,?,?)',
       endpoint.id,
       sessionKey,
       schema,
@@ -206,7 +199,7 @@ export class Information {
 
   memberSchemaForEndpoint(endpointId) {
     return this.store.get(
-      'SELECT schema_version FROM endpoint_context_formats WHERE endpoint_id=? ORDER BY updated DESC LIMIT 1',
+      'SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? ORDER BY updated DESC LIMIT 1',
       endpointId,
     )?.schema_version ?? LEGACY_SCHEMA_VERSION;
   }
@@ -237,7 +230,7 @@ export class Information {
 
   panelSchemaForStart(session) {
     const row = this.store.get(
-      'SELECT schema_version FROM panel_session_context_formats WHERE session_id=?',
+      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
       session.id,
     );
     if (row) return row.schema_version;
@@ -246,14 +239,15 @@ export class Information {
 
   rememberPanelSchema(session, schema) {
     const existing = this.store.get(
-      'SELECT schema_version FROM panel_session_context_formats WHERE session_id=?',
+      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
       session.id,
     );
     if (!existing) {
       const timestamp = now();
       this.store.run(
-        'INSERT INTO panel_session_context_formats VALUES(?,?,?,?,?)',
+        'INSERT INTO conversation_context_formats VALUES(?,?,?,?,?,?)',
         session.id,
+        'default',
         schema,
         schema === CONTEXT_SCHEMA_VERSION ? 'new-session' : 'legacy-detected',
         timestamp,
@@ -274,19 +268,19 @@ export class Information {
 
   panelSchemaForSession(session) {
     return this.store.get(
-      'SELECT schema_version FROM panel_session_context_formats WHERE session_id=?',
+      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
       session.id,
     )?.schema_version ?? LEGACY_SCHEMA_VERSION;
   }
 
   forgetSessionFormats(endpointId, sessionKey = null) {
-    if (sessionKey) this.store.run('DELETE FROM endpoint_context_formats WHERE endpoint_id=? AND session_key=?', endpointId, sessionKey);
-    else this.store.run('DELETE FROM endpoint_context_formats WHERE endpoint_id=?', endpointId);
+    if (sessionKey) this.store.run('DELETE FROM conversation_context_formats WHERE conversation_id=? AND session_key=?', endpointId, sessionKey);
+    else this.store.run('DELETE FROM conversation_context_formats WHERE conversation_id=?', endpointId);
   }
 
   pruneOrphanTurnSchemas() {
     this.store.run(
-      'DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns) AND turn_id NOT IN (SELECT id FROM panel_turns)',
+      'DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns)',
     );
   }
 

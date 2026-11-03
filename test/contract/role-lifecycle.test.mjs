@@ -68,14 +68,14 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   const workerEndpoint = bus.store.endpoint(worker.id, `pair:${group.lead}`, group.lead);
   const historical = bus.store.append(group.id, worker.id, group.lead, 'send', 'historical contribution');
   await bus.runEndpoint(workerEndpoint, 'establish original role session');
-  const historicalSession = bus.store.get('SELECT session FROM endpoints WHERE id=?', workerEndpoint.id).session;
+  const historicalSession = bus.store.get('SELECT session FROM conversations WHERE id=?', workerEndpoint.id).session;
   assert.ok(historicalSession);
 
   await bus.removeMember(group.id, worker.id);
   const removed = bus.store.get('SELECT removed FROM members WHERE id=?', worker.id);
   assert.ok(removed.removed);
   assert.equal(bus.store.get('SELECT text FROM messages WHERE id=?', historical.id).text, 'historical contribution');
-  assert.equal(bus.store.get('SELECT session FROM endpoints WHERE id=?', workerEndpoint.id).session, historicalSession);
+  assert.equal(bus.store.get('SELECT session FROM conversations WHERE id=?', workerEndpoint.id).session, historicalSession);
   await assert.rejects(bus.tool(workerEndpoint.id, workerEndpoint.key, 'read', {}), /成员不存在或已移除/);
 
   await assert.rejects(bus.addMember(group.id, { name: 'worker', host: 'fake' }), /名称已被本团队历史使用/);
@@ -85,7 +85,7 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   await until(() => bus.running.size === 0);
   const replacementEndpoint = bus.store.endpoint(replacement.id, `pair:${group.lead}`, group.lead);
   await bus.runEndpoint(replacementEndpoint, 'establish replacement role session');
-  const replacementSession = bus.store.get('SELECT session FROM endpoints WHERE id=?', replacementEndpoint.id).session;
+  const replacementSession = bus.store.get('SELECT session FROM conversations WHERE id=?', replacementEndpoint.id).session;
   assert.notEqual(replacementEndpoint.id, workerEndpoint.id);
   assert.ok(replacementSession);
   assert.notEqual(replacementSession, historicalSession);

@@ -27,7 +27,6 @@ export class MessageDispatch {
     }
     for (const message of this.bus.store.pending()) {
       if (this.bus.store.get('SELECT 1 FROM attached WHERE message_id=?', message.id)) continue;
-      if (this.bus.store.get('SELECT 1 FROM panel_attached WHERE message_id=?', message.id)) continue;
       if (!this.bus.canRun(message.group_id)) continue;
       const controller = this.bus.teamController(message.group_id);
       if (message.recipient === controller.id && controller.kind === 'panel_agent') {
@@ -85,11 +84,11 @@ export class MessageDispatch {
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) throw new Error('宿主会话域无效');
-    const binding = this.bus.store.get('SELECT * FROM endpoint_session_bindings WHERE endpoint_id=? AND session_key=?', endpoint.id, sessionKey);
+    const binding = this.bus.store.get('SELECT * FROM conversation_session_bindings WHERE conversation_id=? AND session_key=?', endpoint.id, sessionKey);
     const fallbackSession = sessionKey === 'default' ? endpoint.session : null;
     const effectiveEndpoint = { ...endpoint, session: binding?.session ?? fallbackSession };
-    const previousPolicy = this.bus.store.get('SELECT signature FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', endpoint.id, sessionKey)
-      ?? (!binding && fallbackSession ? this.bus.store.get('SELECT signature FROM endpoint_policy WHERE endpoint_id=?', endpoint.id) : null);
+    const previousPolicy = this.bus.store.get('SELECT signature FROM conversation_session_policies WHERE conversation_id=? AND session_key=?', endpoint.id, sessionKey)?.signature
+      ?? (!binding && fallbackSession ? this.bus.store.get('SELECT policy_signature FROM conversations WHERE id=?', endpoint.id)?.policy_signature : null);
     const schema = this.bus.information.memberSchemaForSession(endpoint, sessionKey, binding?.session ?? fallbackSession);
     const prompt = typeof text === 'function'
       ? text({ schema, policy, sessionKey, group, endpoint: effectiveEndpoint })
@@ -207,7 +206,7 @@ export class MessageDispatch {
         }
       },
       onSession: session => {
-        this.bus.store.run('INSERT INTO endpoint_session_bindings VALUES(?,?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET session=excluded.session,updated=excluded.updated', endpoint.id, sessionKey, session, new Date().toISOString());
+        this.bus.store.run('INSERT INTO conversation_session_bindings VALUES(?,?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET session=excluded.session,updated=excluded.updated', endpoint.id, sessionKey, session, new Date().toISOString());
         this.bus.store.setConversationSession(endpoint.id, session);
         endpoint.session = session;
         effectiveEndpoint.session = session;
@@ -352,31 +351,31 @@ export class MessageDispatch {
     for (const { abort } of active) abort.abort();
     await Promise.allSettled(active.map(item => item.done));
   }
-  retry(groupId) { this.bus.collaboration.requireCommunication(groupId); this.bus.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId); this.bus.pump(); return { retryRequested: true }; }
+  retry(groupId) { this.bus.collaboration.requireCommunication(groupId); this.bus.store.run('UPDATE outbox SET error=NULL WHERE accepted IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE group_id=?)', groupId); this.bus.pump(); return { retryRequested: true }; }
   resetSession(endpointId, reason, sessionKey = null) {
-    const e = this.bus.store.get('SELECT * FROM endpoints WHERE id=?', endpointId);
-    if (!e || this.bus.running.has(e.id) || this.bus.collaboration.unknown(e.group_id).some(r => r.endpoint_id === e.id)) throw new Error('会话不存在、运行中或停止状态未核实');
+    const e = this.bus.store.conversationById(endpointId);
+    if (!e || e.owner_kind !== 'member' || this.bus.running.has(e.id) || this.bus.collaboration.unknown(e.group_id).some(r => r.endpoint_id === e.id)) throw new Error('会话不存在、运行中或停止状态未核实');
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要明确重建会话的原因');
     this.bus.events.member(e.id, { type: 'framework.session_rotated', previousSession: e.session, reason });
     const rotationKeys = sessionKey
       ? [sessionKey]
       : [...new Set([
-          ...this.bus.store.all('SELECT session_key FROM endpoint_session_bindings WHERE endpoint_id=?', e.id).map(row => row.session_key),
+          ...this.bus.store.all('SELECT session_key FROM conversation_session_bindings WHERE conversation_id=?', e.id).map(row => row.session_key),
           'default',
         ])];
     for (const key of rotationKeys) this.bus.telemetry.rotateSession(e.id, key);
     if (sessionKey) {
-      this.bus.store.run('DELETE FROM endpoint_session_bindings WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
-      this.bus.store.run('DELETE FROM endpoint_session_policies WHERE endpoint_id=? AND session_key=?', e.id, sessionKey);
+      this.bus.store.run('DELETE FROM conversation_session_bindings WHERE conversation_id=? AND session_key=?', e.id, sessionKey);
+      this.bus.store.run('DELETE FROM conversation_session_policies WHERE conversation_id=? AND session_key=?', e.id, sessionKey);
       this.bus.information.forgetSessionFormats(e.id, sessionKey);
     } else {
-      this.bus.store.run('DELETE FROM endpoint_session_bindings WHERE endpoint_id=?', e.id);
-      this.bus.store.run('DELETE FROM endpoint_session_policies WHERE endpoint_id=?', e.id);
-      this.bus.store.run('DELETE FROM endpoint_policy WHERE endpoint_id=?', e.id);
+      this.bus.store.run('DELETE FROM conversation_session_bindings WHERE conversation_id=?', e.id);
+      this.bus.store.run('DELETE FROM conversation_session_policies WHERE conversation_id=?', e.id);
+      this.bus.store.run('UPDATE conversations SET policy_signature=NULL,updated=? WHERE id=?', new Date().toISOString(), e.id);
       this.bus.information.forgetSessionFormats(e.id);
     }
-    const remaining = this.bus.store.get('SELECT session FROM endpoint_session_bindings WHERE endpoint_id=? ORDER BY updated DESC LIMIT 1', e.id);
-    this.bus.store.run('UPDATE endpoints SET session=? WHERE id=?', remaining?.session ?? null, e.id);
+    const remaining = this.bus.store.get('SELECT session FROM conversation_session_bindings WHERE conversation_id=? ORDER BY updated DESC LIMIT 1', e.id);
+    this.bus.store.setConversationSession(e.id, remaining?.session ?? null);
     return { endpointId: e.id, previousSession: e.session, sessionKey, historyRetained: true };
   }
 }

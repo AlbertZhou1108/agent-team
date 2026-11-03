@@ -475,7 +475,10 @@ export function apiRoutes(context) {
                 bus.store.group(group);
                 if (url.searchParams.get('latest') === '1') {
                     const endpointId = url.searchParams.get('endpoint');
-                    const endpoint = endpointId ? (bus.store.get('SELECT * FROM endpoints WHERE id=? AND group_id=?', endpointId, group) ?? bus.store.get("SELECT id,panel_agent_id AS member_id,NULL AS peer FROM panel_sessions WHERE id=? AND group_id=? AND context='coordination'", endpointId, group)) : null;
+                    const conversation = endpointId ? bus.store.conversationById(endpointId) : null;
+                    const endpoint = conversation && conversation.group_id === group
+                        ? { ...conversation, member_id: conversation.member_id ?? conversation.panel_agent_id, peer: conversation.peer ?? null }
+                        : null;
                     const params = [group];
                     let where = 'group_id=?';
                     if (endpointId && !endpoint)
@@ -529,13 +532,10 @@ export function apiRoutes(context) {
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/history'), handle: async () => {
                 let value;
-                const endpoint = bus.store.get("SELECT id FROM endpoints WHERE id=? AND context!='private'", url.searchParams.get('endpoint'));
-                const panelSession = endpoint ? null : bus.store.get("SELECT id FROM panel_sessions WHERE id=? AND context='coordination'", url.searchParams.get('endpoint'));
-                if (!endpoint && !panelSession)
+                const conversation = bus.store.get("SELECT id FROM conversations WHERE id=? AND context!='private'", url.searchParams.get('endpoint'));
+                if (!conversation)
                     return fail(404, '不存在可观测的群会话');
-                value = endpoint
-                    ? bus.store.all('SELECT * FROM history WHERE endpoint_id=? AND seq>? ORDER BY seq LIMIT 200', endpoint.id, cursor(url))
-                    : bus.store.all('SELECT * FROM panel_history WHERE session_id=? AND seq>? ORDER BY seq LIMIT 200', panelSession.id, cursor(url));
+                value = bus.store.all('SELECT * FROM history WHERE conversation_id=? AND seq>? ORDER BY seq LIMIT 200', conversation.id, cursor(url));
                 return value;
             } }
     ];

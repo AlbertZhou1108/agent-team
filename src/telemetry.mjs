@@ -175,9 +175,9 @@ export class Telemetry {
     let effectiveHostSession = hostSessionId;
     if (turnKind === 'member' && nativeTurnId) {
       const routed = this.store.get(
-        `SELECT t.id,t.endpoint_id,t.session FROM native_turn_refs r
-         JOIN turns t ON t.id=r.turn_id JOIN endpoints e ON e.id=t.endpoint_id
-         WHERE r.ref=? AND e.group_id=? ORDER BY t.rowid DESC LIMIT 1`,
+        `SELECT t.id,t.conversation_id AS endpoint_id,t.session FROM native_turn_refs r
+         JOIN turns t ON t.id=r.turn_id JOIN conversations c ON c.id=t.conversation_id
+         WHERE r.ref=? AND c.group_id=? ORDER BY t.rowid DESC LIMIT 1`,
         nativeTurnId,
         groupId,
       );
@@ -278,10 +278,10 @@ export class Telemetry {
   _loadTurn(kind, id) {
     if (kind === 'panel') {
       const turn = this.store.get(
-        `SELECT t.id,t.session_id AS endpoint_id,t.panel_agent_id AS member_id,t.state,t.created,t.ended,
-                s.context,s.group_id,p.name,p.host
-         FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
-         JOIN panel_agents p ON p.id=t.panel_agent_id WHERE t.id=?`,
+        `SELECT t.id,t.conversation_id AS endpoint_id,t.executor_id AS member_id,t.state,t.created,t.ended,
+                c.context,c.group_id,p.name,p.host
+         FROM turns t JOIN conversations c ON c.id=t.conversation_id
+         JOIN panel_agents p ON p.id=c.panel_agent_id WHERE t.id=?`,
         id,
       );
       if (!turn || !turn.group_id) return null;
@@ -291,29 +291,25 @@ export class Telemetry {
         session: null,
         state: this._state(turn.state),
         inputs: this.store.all(
-          'SELECT m.id,m.kind,m.sender,i.ordinal FROM panel_turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal',
+          'SELECT m.id,m.kind,m.sender,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal',
           id,
         ),
         executor: { kind: 'panel_agent', memberId: turn.member_id, name: turn.name, host: turn.host },
       };
     }
     const turn = this.store.get(
-      `SELECT t.id,t.endpoint_id,t.session,t.created,e.group_id,e.member_id,e.context,e.peer,
-              m.name,m.host
-       FROM turns t JOIN endpoints e ON e.id=t.endpoint_id JOIN members m ON m.id=e.member_id
+      `SELECT t.id,t.conversation_id AS endpoint_id,t.session,t.created,c.group_id,c.member_id,c.context,c.peer,
+              m.name,m.host,t.state,t.ended
+       FROM turns t JOIN conversations c ON c.id=t.conversation_id JOIN members m ON m.id=c.member_id
        WHERE t.id=?`,
       id,
     );
     if (!turn) return null;
-    const attempt = this.store.get(
-      'SELECT state,ended FROM runtime_attempts WHERE turn_id=? ORDER BY created DESC LIMIT 1',
-      id,
-    );
     return {
       ...turn,
       turnKind: 'member',
-      state: this._state(attempt?.state),
-      ended: attempt?.ended ?? null,
+      state: this._state(turn.state),
+      ended: turn.ended ?? null,
       inputs: this.store.all(
         'SELECT m.id,m.kind,m.sender,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal',
         id,
@@ -348,7 +344,7 @@ export class Telemetry {
 
   _managerOutgoingMessages(groupId, turnId) {
     const rows = this.store.all(
-      `SELECT m.id,m.recipient,m.kind,m.created FROM panel_message_origins o
+      `SELECT m.id,m.recipient,m.kind,m.created FROM message_origins o
        JOIN messages m ON m.id=o.message_id
        WHERE o.turn_id=? AND m.group_id=? AND m.kind IN ('send','note')
        ORDER BY m.created,m.id`,
@@ -769,7 +765,7 @@ export class Telemetry {
     if (turn.turnKind !== 'panel') return [];
     return this.store.all(
       `SELECT m.id,m.kind,m.recipient,m.created
-       FROM panel_message_origins o JOIN messages m ON m.id=o.message_id
+       FROM message_origins o JOIN messages m ON m.id=o.message_id
        WHERE o.turn_id=? AND m.kind IN ('send','note')
        ORDER BY m.created,m.id`,
       turn.id,
@@ -902,7 +898,7 @@ export class Telemetry {
       host: controller.agent?.host ?? 'unknown',
     };
     const pairEndpoint = this.store.get(
-      "SELECT id FROM endpoints WHERE member_id=? AND context=?",
+      "SELECT id FROM conversations WHERE member_id=? AND context=?",
       memberId,
       `pair:${controller.id}`,
     );
@@ -987,8 +983,8 @@ export class Telemetry {
     if (memberId === peerId) throw new TelemetryQueryError('会话双方不能是同一成员');
     const range = this._range(options.from, options.to);
     const endpoints = [
-      this.store.get("SELECT * FROM endpoints WHERE member_id=? AND context=?", memberId, `pair:${peerId}`),
-      this.store.get("SELECT * FROM endpoints WHERE member_id=? AND context=?", peerId, `pair:${memberId}`),
+      this.store.get("SELECT * FROM conversations WHERE member_id=? AND context=?", memberId, `pair:${peerId}`),
+      this.store.get("SELECT * FROM conversations WHERE member_id=? AND context=?", peerId, `pair:${memberId}`),
     ].filter(Boolean);
     const endpointIds = new Set(endpoints.map(endpoint => endpoint.id));
     const allBatches = this._batches(groupId, range).filter(batch => endpointIds.has(batch.physicalSession.endpointId));
@@ -1025,9 +1021,9 @@ export class Telemetry {
     const range = this._range(options.from, options.to);
     const endpointIds = new Set();
     if (controller?.kind === 'member') {
-      for (const endpoint of this.store.all("SELECT id FROM endpoints WHERE member_id=? AND context='coordination'", controller.id)) endpointIds.add(endpoint.id);
+      for (const endpoint of this.store.all("SELECT id FROM conversations WHERE member_id=? AND context='coordination'", controller.id)) endpointIds.add(endpoint.id);
     } else if (controller?.kind === 'panel_agent') {
-      for (const session of this.store.all("SELECT id FROM panel_sessions WHERE panel_agent_id=? AND group_id=? AND context='coordination'", controller.id, groupId)) endpointIds.add(session.id);
+      for (const session of this.store.all("SELECT id FROM conversations WHERE panel_agent_id=? AND group_id=? AND context='coordination'", controller.id, groupId)) endpointIds.add(session.id);
     }
     const allBatches = this._batches(groupId, range).filter(batch => endpointIds.has(batch.physicalSession.endpointId));
     const paged = this._page(allBatches, options);

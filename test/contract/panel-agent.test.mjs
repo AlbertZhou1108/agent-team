@@ -123,15 +123,19 @@ test('Panel coordination tools expose messaging and update publishing schemas', 
   const provenance = { activeTeamId: group.id };
   const turnId = 'structured-panel-turn';
   bus.store.run(
-    'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
     turnId,
     coordination.id,
+    'panel_agent',
     state.agent.id,
-    'coordination',
     group.id,
+    coordination.session ?? null,
     group.id,
+    null,
     'running',
+    null,
     new Date().toISOString(),
+    null,
   );
   const live = {
     endpoint: { ...coordination, context: 'panel-coordination' },
@@ -371,7 +375,7 @@ test('Panel main receives member reports and can write only in the bound team co
   bus.pump();
   await until(() => calls.some(call => call.context === 'panel-coordination'));
   await until(() => !bus.running.size);
-  assert.equal(bus.store.get('SELECT accepted FROM panel_outbox WHERE id=(SELECT outbox_id FROM panel_attached WHERE message_id=?)', report.id).accepted != null, true);
+  assert.equal(bus.store.get('SELECT accepted FROM outbox WHERE id=(SELECT outbox_id FROM attached WHERE message_id=?)', report.id).accepted != null, true);
   assert.ok(calls.some(call => call.context === 'panel-coordination' && call.groupId === group.id));
   assert.equal(bus.store.pending().filter(m => m.group_id === group.id).length, 0);
 });
@@ -495,15 +499,19 @@ test('unknown Panel Agent runtime blocks the session until the user verifies it 
   const state = await createAgent(bus);
   const session = bus.store.panelSession(state.agent.id, 'private');
   bus.store.run(
-    'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
     'unknown-panel-turn',
     session.id,
+    'panel_agent',
     state.agent.id,
-    'private',
+    null,
+    session.session ?? null,
     null,
     null,
     'unknown',
+    null,
     new Date().toISOString(),
+    null,
   );
   await assert.rejects(bus.panelPrivateTurn({ text: 'must wait' }), /待核实运行/);
   bus.resolvePanelRuntime('unknown-panel-turn', '用户确认宿主进程已停止');
@@ -661,9 +669,9 @@ test('panel private turns bind attachments, record requests and replay idempoten
   );
 
   // 畸形/跨 agent 附件在 host.run 前拒绝,不产生 turn。
-  const turnsBefore = bus.store.all('SELECT 1 FROM panel_turns').length;
+  const turnsBefore = bus.store.all("SELECT 1 FROM turns WHERE executor_kind='panel_agent'").length;
   await assert.rejects(() => bus.panelPrivateTurn({ text: '坏的', attachmentIds: [randomUUID()] }), error => error.code === 'not_found');
-  assert.equal(bus.store.all('SELECT 1 FROM panel_turns').length, turnsBefore);
+  assert.equal(bus.store.all("SELECT 1 FROM turns WHERE executor_kind='panel_agent'").length, turnsBefore);
 
   // 空正文且空附件拒绝;旧式纯文本请求继续通过。
   await assert.rejects(() => bus.panelPrivateTurn({ text: '   ' }), /消息内容不能为空/);

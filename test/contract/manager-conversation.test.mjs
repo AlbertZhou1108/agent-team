@@ -83,16 +83,16 @@ async function fixture(t) {
     panelCounter += 1;
     const turnId = `panel-conversation-turn-${panelCounter}`;
     bus.store.run(
-      'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?)',
-      turnId, session.id, panelId, 'coordination', group.id, group.id, 'succeeded', startedAt,
+      'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,state,created) VALUES(?,?,?,?,?,?,?,?,?)',
+      turnId, session.id, 'panel_agent', panelId, group.id, session.session ?? null, group.id, 'succeeded', startedAt,
     );
     inputs.forEach((input, index) => {
       const message = bus.store.append(group.id, input.sender, panelId, input.kind ?? 'send', input.text ?? `input ${index}`);
-      bus.store.run('INSERT INTO panel_turn_inputs VALUES(?,?,?)', turnId, message.id, index);
+      bus.store.run('INSERT INTO turn_inputs VALUES(?,?,?)', turnId, message.id, index);
     });
     outputs.forEach((output, index) => {
       const message = bus.store.append(group.id, panelId, output.recipient, output.kind ?? 'send', output.text ?? `SECRET_BODY_${turnId}_${index}`);
-      bus.store.run('INSERT INTO panel_message_origins VALUES(?,?,?,?,?)', message.id, turnId, null, `call-${turnId}-${index}`, null);
+      bus.store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', message.id, turnId, null, `call-${turnId}-${index}`, null);
     });
     const context = model === null
       ? { lastRequestInputTokens: inputTokens, contextWindowTokens: 1000 }
@@ -128,7 +128,7 @@ async function fixture(t) {
     memberCounter += 1;
     const turnId = `member-pair-turn-${memberCounter}`;
     const endpoint = bus.store.endpoint(one.id, `pair:${panelId}`, panelId);
-    bus.store.run('INSERT INTO turns VALUES(?,?,?,?)', turnId, endpoint.id, endpoint.session, startedAt);
+    bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)', turnId, endpoint.id, 'member', one.id, group.id, endpoint.session, 'completed', startedAt);
     const input = bus.store.append(group.id, panelId, one.id, 'send', 'pair input');
     bus.store.run('INSERT INTO turn_inputs VALUES(?,?,?)', turnId, input.id, 0);
     bus.telemetry.record({

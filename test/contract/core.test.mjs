@@ -285,7 +285,6 @@ test('legacy database migrates additively and remains unknown across reopen', as
   const endpoint = store.endpoint('m', 'profile');
   const message = store.append('g', 'm', 'm', 'note', 'legacy-text');
   store.history(endpoint.id, { type: 'legacy-event' });
-  store.db.exec('DROP INDEX history_turn; ALTER TABLE history DROP COLUMN turn_id; DROP TABLE message_origins; DROP TABLE native_turn_refs; DROP TABLE turn_inputs; DROP TABLE turns;');
   store.close();
   for (let i = 0; i < 2; i++) {
     store = new Store(directory);
@@ -308,10 +307,10 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   const group = createTestGroup(server.bus, { name: 'trace', workspace: directory, lead: { name: 'lead', host: 'fake' } });
   await until(() => server.bus.running.size === 0);
   await server.bus.privateTurn(group.id, 'secret');
-  const privateId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='private'").id;
-  const publicId = server.bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context='profile'").id;
-  const publicEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', publicId).endpoint_id;
-  const privateEndpoint = server.bus.store.get('SELECT endpoint_id FROM turns WHERE id=?', privateId).endpoint_id;
+  const privateId = server.bus.store.get("SELECT t.id FROM turns t JOIN conversations e ON e.id=t.conversation_id WHERE e.context='private'").id;
+  const publicId = server.bus.store.get("SELECT t.id FROM turns t JOIN conversations e ON e.id=t.conversation_id WHERE e.context='profile'").id;
+  const publicEndpoint = server.bus.store.get('SELECT conversation_id AS endpoint_id FROM turns WHERE id=?', publicId).endpoint_id;
+  const privateEndpoint = server.bus.store.get('SELECT conversation_id AS endpoint_id FROM turns WHERE id=?', privateId).endpoint_id;
   const headers = {}, base = new URL(server.url).origin;
   for (const id of [privateId, 'missing']) assert.equal((await fetch(`${base}/api/turn?turn=${id}`, { headers })).status, 404);
   const first = await (await fetch(`${base}/api/turn?turn=${publicId}`, { headers })).json();
@@ -420,7 +419,7 @@ test('model observations are turn-scoped and never exposed from private sessions
   await until(() => bus.running.size === 0);
   const endpoint = bus.store.endpoint(members[0].id, `pair:${members[1].id}`, members[1].id);
   await bus.runEndpoint(endpoint, 'public');
-  const turn = bus.store.get("SELECT t.id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE e.context LIKE 'pair:%' ORDER BY t.rowid DESC");
+  const turn = bus.store.get("SELECT t.id FROM turns t JOIN conversations e ON e.id=t.conversation_id WHERE e.context LIKE 'pair:%' ORDER BY t.rowid DESC");
   const trace = bus.store.turnTrace(turn.id);
   assert.deepEqual(trace.modelObservations.map(event => event.model), ['first-model', 'second-model']);
   assert.equal(trace.currentModel.model, 'second-model');

@@ -85,7 +85,7 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   assert.match(first.instructions, /框架只负责投递消息，不检查工作流程/);
   assert.doesNotMatch(first.instructions, /当前有效契约与执行状态：/);
   const format = bus.store.get(
-    'SELECT * FROM endpoint_context_formats WHERE endpoint_id=?',
+    'SELECT * FROM conversation_context_formats WHERE conversation_id=?',
     first.endpoint.id,
   );
   assert.equal(format.schema_version, CONTEXT_SCHEMA_VERSION);
@@ -102,19 +102,19 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
 
   // A pre-existing native session stays legacy, keeps its id, and sees the old raw shape.
   const legacyEndpoint = bus.store.endpoint(lead.id, 'private');
-  bus.store.run('UPDATE endpoints SET session=? WHERE id=?', 'legacy-native-session', legacyEndpoint.id);
-  const legacy = bus.store.get('SELECT * FROM endpoints WHERE id=?', legacyEndpoint.id);
+  bus.store.run('UPDATE conversations SET session=? WHERE id=?', 'legacy-native-session', legacyEndpoint.id);
+  const legacy = bus.store.get('SELECT * FROM conversations WHERE id=?', legacyEndpoint.id);
   bus.store.append(group.id, lead.id, lead.id, 'note', 'legacy body');
   await bus.runEndpoint(legacy, 'legacy turn');
   const legacyFormat = bus.store.get(
-    'SELECT * FROM endpoint_context_formats WHERE endpoint_id=?',
+    'SELECT * FROM conversation_context_formats WHERE conversation_id=?',
     legacy.id,
   );
   assert.equal(legacyFormat.schema_version, 0);
   assert.equal(legacyFormat.source, 'legacy-detected');
   const legacyCall = calls.filter(call => call.endpoint.id === legacy.id).at(-1);
   assert.match(legacyCall.prompt, /legacy turn/);
-  assert.equal(bus.store.get('SELECT session FROM endpoints WHERE id=?', legacy.id).session, 'legacy-native-session');
+  assert.equal(bus.store.get('SELECT session FROM conversations WHERE id=?', legacy.id).session, 'legacy-native-session');
   const legacyRead = await bus.tool(legacy.id, legacy.key, 'read', {});
   assert.ok(legacyRead.messages.some(message => message.text === 'legacy body'));
   const newRead = await bus.tool(first.endpoint.id, first.endpoint.key, 'read', {});
@@ -154,7 +154,7 @@ test('rules budget overrun fails explicitly before the host runs and is not sile
     assert.match(failed.error, /固定规则超过 100 字节预算/);
     assert.match(failed.error, /不会被截断/);
     assert.equal(calls.length, before, 'host must not run with oversized rules');
-    assert.equal(bus.store.get('SELECT COUNT(*) AS n FROM turns WHERE endpoint_id=?', endpoint.id).n, 0);
+    assert.equal(bus.store.get('SELECT COUNT(*) AS n FROM turns WHERE conversation_id=?', endpoint.id).n, 0);
     bus.information.measureRules({
       groupId: group.id,
       endpointId: endpoint.id,
@@ -452,7 +452,7 @@ if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(
   assert.ok(projected.messages.some(message => message.preview.includes('Codex dynamic tool')));
   assert.ok(projected.messages.every(message => !Object.hasOwn(message, 'text')));
   assert.match(projected.messages.at(-1).ref.hash, /^[0-9a-f]{64}$/);
-  const workerEndpoint = bus.store.get("SELECT * FROM endpoints WHERE member_id=? AND context LIKE 'pair:%'", worker.id);
+  const workerEndpoint = bus.store.get("SELECT * FROM conversations WHERE member_id=? AND context LIKE 'pair:%'", worker.id);
   const workerTools = bus.endpointTools(workerEndpoint.id, workerEndpoint.key);
   const readTool = workerTools.find(tool => tool.name === 'read');
   assert.ok(readTool.inputSchema.properties.messageId);

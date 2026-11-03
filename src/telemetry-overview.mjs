@@ -22,9 +22,8 @@ export function telemetryOverview(bus, { from, to, bucket = 'day', host, model, 
       seen.add(batch.batchId);return true;
     });
     all.push(...batches);
-    const expected = bus.store.get(`SELECT COUNT(*) AS count FROM turns t JOIN endpoints e ON e.id=t.endpoint_id
-      WHERE e.group_id=? AND (e.context='coordination' OR e.context LIKE 'pair:%') AND t.created>=? AND t.created<?`, group.id, new Date(start).toISOString(), new Date(end).toISOString()).count
-      + bus.store.get(`SELECT COUNT(*) AS count FROM panel_turns WHERE group_id=? AND context='coordination' AND created>=? AND created<?`,group.id,new Date(start).toISOString(),new Date(end).toISOString()).count;
+    const expected = bus.store.get(`SELECT COUNT(*) AS count FROM turns t JOIN conversations c ON c.id=t.conversation_id
+      WHERE c.group_id=? AND (c.context='coordination' OR c.context LIKE 'pair:%') AND t.created>=? AND t.created<?`, group.id, new Date(start).toISOString(), new Date(end).toISOString()).count;
     const tokenBatches=batches.filter(b=>b.metrics.totalTokens.value!==null).length;
     const unknown=bus.collaboration.unknown(group.id).length+bus.panelUnknown(group.id).length;
     const running=liveRuns.filter(r=>r.endpoint.group_id===group.id).length;

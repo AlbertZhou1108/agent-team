@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { startServer } from '../../src/server.mjs';
 import { Store } from '../../src/store.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
@@ -107,7 +108,7 @@ test('member ask creates the pair:user session and the HTTP answer delivers into
   assert.equal(row.state, 'pending');
   // 互动记录发起会话（pair:<lead>）；ask 同时为成员建立 pair:user 会话供答复投递。
   assert.equal(row.context.startsWith('pair:'), true);
-  const userEndpoint = f.server.bus.store.get("SELECT * FROM endpoints WHERE member_id=? AND context='pair:user'", f.member.id);
+  const userEndpoint = f.server.bus.store.get("SELECT * FROM conversations WHERE member_id=? AND context='pair:user'", f.member.id);
   assert.ok(userEndpoint, 'pair:user endpoint created with the ask');
 
   const bad = await fetch(new URL(`/api/interactions/${row.id}/answer`, f.server.url), {
@@ -328,7 +329,7 @@ test('member_model becomes an interaction card and approval updates the member m
   await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND text LIKE '%已生效%'", f.group.id));
 
   // 工具侧校验:目录外模型、不受支持的强度、非普通成员均直接报错
-  const leadEndpoint = f.server.bus.store.get("SELECT * FROM endpoints WHERE member_id=? AND context='coordination'", f.lead);
+  const leadEndpoint = f.server.bus.store.get("SELECT * FROM conversations WHERE member_id=? AND context='coordination'", f.lead);
   await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: '助手', model: 'nope', reasoning_effort: 'low' }), /不在该成员宿主目录/);
   await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: '助手', model: 'test', reasoning_effort: 'high' }), /思考强度不受支持/);
   await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: 'Lead', model: 'test', reasoning_effort: 'low' }), /只能调整普通成员/);
@@ -397,17 +398,15 @@ test('legacy interactions table rebuilds to accept member_model kind', async t =
   const directory = mkdtempSync(join(tmpdir(), 'interactions-migrate-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   {
-    const store = new Store(directory);
-    store.db.exec(`ALTER TABLE interactions RENAME TO interactions_new;
-      CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-      INSERT INTO interactions SELECT * FROM interactions_new;
-      DROP TABLE interactions_new;`);
-    store.close();
+    // 直接构造一个只含旧 interactions 的 v1 数据目录；Store 启动时补齐其余 v1 表再迁移到 v2。
+    const raw = new DatabaseSync(join(directory, 'groups.sqlite'));
+    raw.exec(`CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT)`);
+    raw.close();
   }
   const store = new Store(directory);
   const sql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql;
   assert.ok(sql.includes("'member_model'"));
-  store.run("INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES('m1',NULL,NULL,NULL,NULL,'coordination','t','c',NULL,NULL,'member_model','{}','pending',NULL,'2026-01-01T00:00:00.000Z')");
+  store.run("INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES('m1',NULL,NULL,NULL,NULL,'coordination','t','c',NULL,NULL,'member_model','{}','pending',NULL,'2026-01-01T00:00:00.000Z')");
   assert.equal(store.interaction('m1').kind, 'member_model');
   store.close();
 });

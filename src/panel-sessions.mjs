@@ -103,7 +103,7 @@ export class PanelSessions {
       requests: this.bus.teamRequests.list(agent.id),
       teamPendingInteractions: Object.fromEntries(this.bus.store.all("SELECT group_id,COUNT(*) AS count FROM interactions WHERE state='pending' AND group_id IS NOT NULL GROUP BY group_id").map(row => [row.group_id, row.count])),
       notifications: this.bus.store.all('SELECT * FROM panel_updates WHERE panel_agent_id=? ORDER BY created DESC LIMIT 100', agent.id).map(row => this.bus.panelUpdate(row)),
-      sessions: this.bus.store.all('SELECT id,context,group_id,session,updated FROM panel_sessions WHERE panel_agent_id=? ORDER BY created', agent.id),
+      sessions: this.bus.store.all('SELECT id,context,group_id,session,updated FROM conversations WHERE panel_agent_id=? ORDER BY created', agent.id),
       teams: this.bus.panelTeamViews(),
       conversation: this.withPanelAttachments(
         agent.id,
@@ -267,9 +267,9 @@ export class PanelSessions {
         agent.id,
       );
       if (hostModelChanged) {
-        this.bus.store.run("UPDATE panel_sessions SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=?", now, agent.id);
+        this.bus.store.run("UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=?", now, agent.id);
       } else if (privateChanged) {
-        this.bus.store.run("UPDATE panel_sessions SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=? AND context='private'", now, agent.id);
+        this.bus.store.run("UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=? AND context='private'", now, agent.id);
       }
     });
     return this.bus.panelAgentState();
@@ -326,7 +326,7 @@ export class PanelSessions {
     const turnId = provenance.turnId;
     if (turnId && this.bus.running.get(sessionId)?.turnId !== turnId) throw new Error('工具不属于当前 Panel Agent 执行回合');
     const recordedTurn = turnId
-      ? this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=? AND session_id=?', turnId, sessionId)
+      ? this.bus.store.get('SELECT active_team_id FROM turns WHERE id=? AND conversation_id=?', turnId, sessionId)
       : null;
     const activeTeamId = recordedTurn
       ? recordedTurn.active_team_id ?? null
@@ -417,7 +417,7 @@ export class PanelSessions {
       }
       const sourceMessageIds = origin.turnId
         ? this.bus.store.all(
-            'SELECT message_id FROM panel_turn_inputs WHERE turn_id=? ORDER BY ordinal',
+            'SELECT message_id FROM turn_inputs WHERE turn_id=? ORDER BY ordinal',
             origin.turnId,
           ).map(row => row.message_id)
         : [];
@@ -490,7 +490,7 @@ export class PanelSessions {
       const target = this.bus.resolveMember(group.id, args.to);
       const message = this.bus.store.transaction(() => {
         const value = this.bus.store.append(group.id, panelAgent.id, target.id, name === 'team_send' ? 'send' : 'note', args.text);
-        this.bus.store.run('INSERT INTO panel_message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId ?? null, null, origin.callId, origin.nativeCallId ?? null);
+        this.bus.store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', value.id, origin.turnId ?? null, null, origin.callId, origin.nativeCallId ?? null);
         return value;
       });
       this.bus.emit('message', message);
@@ -613,7 +613,7 @@ export class PanelSessions {
     onAccepted = () => {},
   }) {
     if (this.bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行');
-    if (this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) {
+    if (this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) {
       throw new Error('Panel Agent 会话存在待核实运行，请先核实宿主已经停止');
     }
     if (session.context === 'coordination') {
@@ -771,6 +771,7 @@ export class PanelSessions {
         this.bus.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
       },
       onNativeTurn: ref => {
+        this.bus.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref));
         this.bus.events.panel(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
       },
       onTool: async (name, args, metadata = {}) => {
@@ -909,13 +910,13 @@ export class PanelSessions {
       this.bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
       this.bus.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
       if (result) {
-        const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
+        const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
         this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
       }
       const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
-        ? this.bus.teamDirectives.publishOutput(turnId, result, true)
+        ? this.bus.teamDirectives.publishOutput(turnId, result)
         : [];
-      const persistedReply = publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN panel_message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
+      const persistedReply = publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
       this.bus.panelStreams.delete(turnId);
       this.bus.publishPanelStream({
         type: 'complete',
@@ -1110,7 +1111,7 @@ export class PanelSessions {
       }
       let finalActiveTeamId = activeTeamId ?? null;
       if (acceptedTurnId) {
-        finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM panel_turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
+        finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
       }
       if (finalActiveTeamId && finalActiveTeamId !== (activeTeamId ?? null)) {
         this.bus.store.run('UPDATE panel_messages SET active_team_id=? WHERE id=?', finalActiveTeamId, user.id);
@@ -1136,10 +1137,10 @@ export class PanelSessions {
   }
   resolvePanelRuntime(turnId, reason) {
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');
-    const turn = this.bus.store.get("SELECT * FROM panel_turns WHERE id=? AND state='unknown'", turnId);
+    const turn = this.bus.store.get("SELECT * FROM turns WHERE id=? AND executor_kind='panel_agent' AND state='unknown'", turnId);
     if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
     this.bus.store.setTurnState(turnId, 'stopped');
-    this.bus.events.panel(turn.session_id, {
+    this.bus.events.panel(turn.conversation_id, {
       type: 'framework.runtime_verified_by_user',
       turnId,
       reason: reason.trim(),
@@ -1235,15 +1236,15 @@ export class PanelSessions {
     const agent = this.bus.panelAgent();
     if (!agent) return;
     const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
-    if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
+    if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) return;
     const item = this.panelPrivateDeliveries.shift();
     void this.bus.panelPrivateTurn({ text: item.text }).catch(() => {});
   }
 
   panelUnknown(groupId = null) {
     return this.bus.store.all(
-      `SELECT t.*,s.context AS session_context FROM panel_turns t JOIN panel_sessions s ON s.id=t.session_id
-       WHERE t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
+      `SELECT t.*,c.context AS session_context FROM turns t JOIN conversations c ON c.id=t.conversation_id
+       WHERE t.executor_kind='panel_agent' AND t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
       ...(groupId ? [groupId] : []),
     );
   }

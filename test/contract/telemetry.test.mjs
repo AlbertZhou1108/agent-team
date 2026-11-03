@@ -96,20 +96,20 @@ function setupManagerFixture(t) {
 
 function addPanelTurn(bus, { group, session, agentId, id, created, inputs = [], outputs = [] }) {
   bus.store.run(
-    'INSERT INTO panel_turns(id,session_id,panel_agent_id,context,group_id,active_team_id,state,created,ended) VALUES(?,?,?,?,?,?,?,?,?)',
-    id, session.id, agentId, 'coordination', group.id, null, 'completed', created, new Date(Date.parse(created) + 1000).toISOString(),
+    'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+    id, session.id, 'panel_agent', agentId, group.id, session.session ?? null, null, null, 'completed', null, created, new Date(Date.parse(created) + 1000).toISOString(),
   );
   for (const [index, sender] of inputs.entries()) {
     const messageId = `${id}:input:${index}`;
     bus.store.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created) VALUES(?,?,?,?,?,?,?,?)',
       messageId, group.id, sender, agentId, 'send', 'private input', null, created);
-    bus.store.run('INSERT INTO panel_turn_inputs(turn_id,message_id,ordinal) VALUES(?,?,?)', id, messageId, index);
+    bus.store.run('INSERT INTO turn_inputs(turn_id,message_id,ordinal) VALUES(?,?,?)', id, messageId, index);
   }
   for (const [index, recipient] of outputs.entries()) {
     const messageId = `${id}:output:${index}`;
     bus.store.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created) VALUES(?,?,?,?,?,?,?,?)',
       messageId, group.id, agentId, recipient, 'send', 'private body must not leak', null, created);
-    bus.store.run('INSERT INTO panel_message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)',
+    bus.store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)',
       messageId, id, null, `${id}:call:${index}`, null);
   }
   bus.telemetry.record({
@@ -539,14 +539,12 @@ test('manager conversation separates member and manager sides, covers output-onl
   const memberCreated = '2026-01-01T00:00:00.000Z';
   const memberEndpoint = bus.store.endpoint(one.id, `pair:${agentId}`, agentId);
   const memberTurnId = 'member-turn-1';
-  bus.store.run('INSERT INTO turns(id,endpoint_id,session,created) VALUES(?,?,?,?)',
-    memberTurnId, memberEndpoint.id, 'member-session', memberCreated);
+  bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    memberTurnId, memberEndpoint.id, 'member', one.id, group.id, 'member-session', 'completed', memberCreated);
   bus.store.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created) VALUES(?,?,?,?,?,?,?,?)',
     'member-input-1', group.id, one.id, agentId, 'send', 'private input', null, memberCreated);
   bus.store.run('INSERT INTO turn_inputs(turn_id,message_id,ordinal) VALUES(?,?,?)',
     memberTurnId, 'member-input-1', 0);
-  bus.store.run("INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created,ended) VALUES(?,?,?,?,?,?,?)",
-    memberTurnId, group.id, memberEndpoint.id, 'completed', '{}', memberCreated, memberCreated);
   bus.telemetry.record({
     groupId: group.id, executorKind: 'member', executorId: one.id, endpointId: memberEndpoint.id,
     sessionKey: 'member', turnId: memberTurnId, turnKind: 'member', host: 'fake',

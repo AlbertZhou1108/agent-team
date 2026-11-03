@@ -119,10 +119,12 @@ export function homeWorkbench(bus) {
     }));
   const recent = s
     .all(
-      `SELECT r.turn_id AS id,r.state,r.created,r.ended,r.group_id,m.name,r.endpoint_id FROM runtime_attempts r
-    LEFT JOIN endpoints e ON e.id=r.endpoint_id LEFT JOIN members m ON m.id=e.member_id WHERE r.state!='running'
-    UNION ALL SELECT t.id,t.state,t.created,t.ended,t.group_id,p.name,t.session_id FROM panel_turns t
-    JOIN panel_agents p ON p.id=t.panel_agent_id WHERE t.state!='running' ORDER BY created DESC LIMIT 30`,
+      `SELECT t.id,t.state,t.created,t.ended,t.group_id,
+        CASE WHEN t.executor_kind='panel_agent' THEN p.name ELSE m.name END AS name,
+        t.conversation_id AS endpoint_id
+       FROM turns t JOIN conversations c ON c.id=t.conversation_id
+       LEFT JOIN members m ON m.id=c.member_id LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
+       WHERE t.state!='running' ORDER BY t.created DESC LIMIT 30`,
     )
     .filter((run) => !run.group_id || names.has(run.group_id))
     .slice(0, 10)

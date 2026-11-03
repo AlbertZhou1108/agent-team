@@ -14,7 +14,7 @@ function fixture() {
     "INSERT INTO panel_agents(id,name,host,created,updated) VALUES('a','P','dsh','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
   );
   store.run(
-    "INSERT INTO panel_sessions(id,panel_agent_id,context,key,created,updated) VALUES('s','a','private','secret','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
+    "INSERT INTO conversations(id,group_id,panel_agent_id,context,key,created,updated) VALUES('s',NULL,'a','private','secret','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
   );
   const group = store.run(
     "INSERT INTO groups(id,name,workspace,created,policy) VALUES('g','G','/tmp','2026-01-01T00:00:00.000Z','workspace-write')",
@@ -34,9 +34,9 @@ test('coalesces consecutive token deltas of one stream into a single row', () =>
     for (const text of ['你', '好', '！']) {
       assert.equal(log.panel('s', { type: 'framework.reasoning.delta', text }, 't1'), null);
     }
-    assert.equal(rows(store, 'SELECT * FROM panel_history').length, 0, 'flush 前不应落库');
+    assert.equal(rows(store, 'SELECT * FROM history').length, 0, 'flush 前不应落库');
     log.flush();
-    const stored = rows(store, 'SELECT * FROM panel_history ORDER BY seq');
+    const stored = rows(store, 'SELECT * FROM history ORDER BY seq');
     assert.equal(stored.length, 1);
     assert.equal(stored[0].event.type, 'framework.reasoning.delta');
     assert.equal(stored[0].event.text, '你好！');
@@ -57,7 +57,7 @@ test('flushes pending deltas before a structured event so seq order is preserved
     // 结构化事件必须立刻可见,且排在增量之后。
     const seq = log.panel('s', { type: 'framework.tool_call', name: 'teams_list' }, 't1');
     assert.equal(typeof seq, 'number');
-    const stored = rows(store, 'SELECT * FROM panel_history ORDER BY seq');
+    const stored = rows(store, 'SELECT * FROM history ORDER BY seq');
     assert.deepEqual(stored.map(row => row.event.type), [
       'framework.reasoning.delta',
       'framework.tool_call',
@@ -81,7 +81,7 @@ test('keeps different streams and different payload kinds apart', () => {
     log.panel('s', { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'X' } } }, 't1');
     log.panel('s', { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Y' } } }, 't1');
     log.flush();
-    const stored = rows(store, 'SELECT * FROM panel_history ORDER BY seq');
+    const stored = rows(store, 'SELECT * FROM history ORDER BY seq');
     // 同一流的增量即使在缓冲里被别的流插队,也合并回同一行(A + C);
     // 不同流、不同载荷各自成行。
     assert.equal(stored.length, 4);
@@ -111,12 +111,14 @@ test('member history returns null for private endpoints and stores elsewhere', (
         memberId,
       );
       store.run(
-        'INSERT INTO endpoints(id,group_id,member_id,context,key) VALUES(?,?,?,?,?)',
+        'INSERT INTO conversations(id,group_id,member_id,context,key,created,updated) VALUES(?,?,?,?,?,?,?)',
         id,
         'g',
         memberId,
         context,
         key,
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z',
       );
     }
     assert.equal(log.member('e1', { type: 'framework.text.delta', text: 'x' }, null), null);

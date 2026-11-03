@@ -105,15 +105,18 @@ test('workbench counts only unanswered interactions and retains the last complet
     members: [],
   });
   const created = new Date().toISOString();
+  const lead = bus.members(group.id)[0];
+  const conversation = bus.store.conversation('member', lead.id, 'coordination');
   bus.store.run(
-    'INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,created,detail) VALUES(?,?,?,?,?,?,?)',
+    'INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,detail,created) VALUES(?,?,?,?,?,?,?,?)',
     'uncertain',
+    conversation.id,
+    'member',
+    lead.id,
     group.id,
-    'endpoint',
     'unknown',
-    '{}',
-    created,
     '核实宿主',
+    created,
   );
   bus.store.run(
     'INSERT INTO panel_agents(id,name,host,created,updated) VALUES(?,?,?,?,?)',
@@ -140,7 +143,7 @@ test('workbench counts only unanswered interactions and retains the last complet
   append('summary-pending', 'user', '[主页进展摘要]\n再次汇总');
   const endpoint = bus.store.endpoint(group.lead, 'coordination');
   bus.store.run(
-    'INSERT INTO outbox(id,endpoint_id,payload,error) VALUES(?,?,?,?)',
+    'INSERT INTO outbox(id,conversation_id,payload,error) VALUES(?,?,?,?)',
     'failed-delivery',
     endpoint.id,
     '[]',
@@ -161,7 +164,7 @@ test('workbench counts only unanswered interactions and retains the last complet
     );
   }
   bus.store.run(
-    `INSERT INTO interactions(id,group_id,member_id,endpoint_id,context,turn_id,call_id,kind,payload,state,created) VALUES(?,?,?,?,'coordination','fixture-turn','fixture-call','choice',?,'pending',?)`,
+    `INSERT INTO interactions(id,group_id,member_id,conversation_id,context,turn_id,call_id,kind,payload,state,created) VALUES(?,?,?,?,'coordination','fixture-turn','fixture-call','choice',?,'pending',?)`,
     'confirmation',
     group.id,
     group.lead,
@@ -186,7 +189,7 @@ test('workbench counts only unanswered interactions and retains the last complet
   assert.equal(view.summary.text, '已经完成 A');
   assert.equal(view.summaryRequest.id, 'summary-pending');
   bus.store.run(
-    "UPDATE runtime_attempts SET state='stopped' WHERE turn_id='uncertain'",
+    "UPDATE turns SET state='stopped' WHERE id='uncertain'",
   );
   assert.ok(
     !homeWorkbench(bus).pending.some((item) => item.id === 'uncertain'),

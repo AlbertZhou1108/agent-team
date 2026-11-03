@@ -9,24 +9,22 @@ export class TeamDirectives {
       PRIMARY KEY(group_id,operation_id)
     )`);
   }
-  publishOutput(turnId, text, panel = false) {
+  publishOutput(turnId, text) {
     if (typeof text !== 'string' || !text.trim()) return;
     const s = this.bus.store;
-    const inputTable = panel ? 'panel_turn_inputs' : 'turn_inputs';
-    const originTable = panel ? 'panel_message_origins' : 'message_origins';
     const replies = s.transaction(() => {
-      const messages = s.all(`SELECT m.* FROM ${inputTable} i JOIN messages m ON m.id=i.message_id
+      const messages = s.all(`SELECT m.* FROM turn_inputs i JOIN messages m ON m.id=i.message_id
         JOIN team_directive_requests d ON d.message_id=m.id WHERE i.turn_id=? AND m.sender='user'`, turnId);
       const published = [];
       for (const input of messages) {
         // Only a response to this user or the same final text counts as a duplicate.
         // Messages sent to coworkers do not replace the user's answer.
-        const existing = s.get(`SELECT m.id FROM messages m LEFT JOIN ${originTable} o ON o.message_id=m.id
+        const existing = s.get(`SELECT m.id FROM messages m LEFT JOIN message_origins o ON o.message_id=m.id
           WHERE m.group_id=? AND m.sender=? AND (m.reply_to=? OR (o.turn_id=? AND m.text=?)) LIMIT 1`,
           input.group_id, input.recipient, input.id, turnId, text);
         if (existing) continue;
         const reply = s.append(input.group_id, input.recipient, 'user', 'send', text, input.id);
-        s.run(`INSERT INTO ${originTable} VALUES(?,?,?,?,?)`, reply.id, turnId, null, 'framework.final_output', null);
+        s.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', reply.id, turnId, null, 'framework.final_output', null);
         published.push(reply);
       }
       return published;
@@ -38,16 +36,11 @@ export class TeamDirectives {
     const s = this.bus.store;
     // Recover persisted outputs after a restart, including outputs created before
     // user-facing replies were supported. Never invoke the model again.
-    for (const [panel, inputs, history, turns, idColumn] of [
-      [false, 'turn_inputs', 'history', 'runtime_attempts', 'turn_id'],
-      [true, 'panel_turn_inputs', 'panel_history', 'panel_turns', 'id'],
-    ]) {
-      const rows = s.all(`SELECT DISTINCT h.turn_id,h.event FROM team_directive_requests d
-        JOIN ${inputs} i ON i.message_id=d.message_id JOIN ${history} h ON h.turn_id=i.turn_id
-        JOIN ${turns} t ON t.${idColumn}=i.turn_id
-        WHERE t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`);
-      for (const row of rows) this.publishOutput(row.turn_id, JSON.parse(row.event).text, panel);
-    }
+    const rows = s.all(`SELECT DISTINCT h.turn_id,h.event FROM team_directive_requests d
+      JOIN turn_inputs i ON i.message_id=d.message_id JOIN history h ON h.turn_id=i.turn_id
+      JOIN turns t ON t.id=i.turn_id
+      WHERE t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`);
+    for (const row of rows) this.publishOutput(row.turn_id, JSON.parse(row.event).text);
   }
   submit(groupId, body, { transaction = true } = {}) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
@@ -75,12 +68,9 @@ export class TeamDirectives {
   receipt(groupId, messageId, operationId) {
     const s = this.bus.store;
     const message = s.get('SELECT id,seq,recipient,created FROM messages WHERE id=? AND group_id=?', messageId, groupId);
-    const entry = s.get(`SELECT o.accepted,o.error FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=?
-      UNION ALL SELECT o.accepted,o.error FROM panel_attached a JOIN panel_outbox o ON o.id=a.outbox_id WHERE a.message_id=?`, messageId, messageId);
-    const unknown = s.get(`SELECT r.turn_id FROM turn_inputs i JOIN runtime_attempts r ON r.turn_id=i.turn_id
-      WHERE i.message_id=? AND r.state='unknown'
-      UNION ALL SELECT t.id AS turn_id FROM panel_turn_inputs i JOIN panel_turns t ON t.id=i.turn_id
-      WHERE i.message_id=? AND t.state='unknown'`, messageId, messageId);
+    const entry = s.get('SELECT o.accepted,o.error FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=?', messageId);
+    const unknown = s.get(`SELECT t.id AS turn_id FROM turn_inputs i JOIN turns t ON t.id=i.turn_id
+      WHERE i.message_id=? AND t.state='unknown'`, messageId);
     // Acceptance means the host received the input, never that the work succeeded.
     return { operationId, messageId, seq: message.seq, recipient: message.recipient, created: message.created,
       status: entry?.accepted ? 'delivered' : unknown ? 'unknown' : entry?.error ? 'failed' : 'queued',

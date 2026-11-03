@@ -30,8 +30,7 @@ export class GroupLifecycle {
     if (this.bus.panelUnknown(groupId).length) throw new Error('Panel Agent 团队上下文存在待核实运行，不能切换控制者');
     const pending = this.bus.store.pending().filter(message => message.group_id === groupId);
     if (pending.length) throw new Error(`团队仍有未处理正式消息，不能切换控制者: ${pending.map(message => `${message.seq}:${message.id}`).join(', ')}`);
-    if (this.bus.store.get('SELECT 1 FROM outbox WHERE accepted IS NULL AND error IS NULL AND endpoint_id IN (SELECT id FROM endpoints WHERE group_id=?)', groupId)
-      || this.bus.store.get('SELECT 1 FROM panel_outbox WHERE accepted IS NULL AND error IS NULL AND session_id IN (SELECT id FROM panel_sessions WHERE group_id=?)', groupId)) {
+    if (this.bus.store.get('SELECT 1 FROM outbox WHERE accepted IS NULL AND error IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE group_id=?)', groupId)) {
       throw new Error('团队仍有待投递消息，不能切换控制者');
     }
   }
@@ -296,14 +295,12 @@ export class GroupLifecycle {
   }
   async deleteGroup(groupId) {
     this.bus.store.group(groupId);
-    const endpoints = this.bus.store.all('SELECT id FROM endpoints WHERE group_id=?', groupId);
-    const panelSessions = this.bus.store.all("SELECT id FROM panel_sessions WHERE group_id=? AND context='coordination'", groupId);
+    const conversations = this.bus.store.all('SELECT id FROM conversations WHERE group_id=?', groupId);
     await this.bus.stopWhere(endpoint => endpoint.group_id === groupId);
     this.bus.store.run('DELETE FROM groups WHERE id=?', groupId);
     this.bus.store.run('DELETE FROM information_measurements WHERE group_id=?', groupId);
     this.bus.information.pruneOrphanTurnSchemas();
-    for (const { id } of endpoints) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
-    for (const { id } of panelSessions) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
+    for (const { id } of conversations) rmSync(resolve(this.bus.store.directory, 'endpoints', id), { recursive: true, force: true });
     return { deleted: groupId };
   }
   async archiveGroup(groupId) {

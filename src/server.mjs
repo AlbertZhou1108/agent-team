@@ -136,12 +136,12 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
         const requestedTeam = url.searchParams.get('group') || url.pathname.match(/^\/api\/teams\/([^/]+)/)?.[1];
         const endpointId = url.searchParams.get('endpoint');
-        const endpointTeam = endpointId ? (bus.store.get('SELECT group_id FROM endpoints WHERE id=?', endpointId) ?? bus.store.get('SELECT group_id FROM panel_sessions WHERE id=?', endpointId))?.group_id : null;
+        const endpointTeam = endpointId ? bus.store.get('SELECT group_id FROM conversations WHERE id=?', endpointId)?.group_id : null;
         const messageTeam = url.searchParams.get('message') ? bus.store.get('SELECT group_id FROM messages WHERE id=?', url.searchParams.get('message'))?.group_id : null;
         const interactionId = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/)?.[1];
         const interactionTeam = interactionId ? bus.store.get('SELECT group_id FROM interactions WHERE id=?', interactionId)?.group_id : null;
         const turnId = url.searchParams.get('turn');
-        const turnTeam = turnId ? (bus.store.get('SELECT e.group_id FROM turns t JOIN endpoints e ON e.id=t.endpoint_id WHERE t.id=?', turnId) ?? bus.store.get('SELECT group_id FROM panel_turns WHERE id=?', turnId))?.group_id : null;
+        const turnTeam = turnId ? bus.store.get('SELECT c.group_id FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=?', turnId)?.group_id : null;
         for (const id of [requestedTeam, endpointTeam, messageTeam, interactionTeam, turnTeam]) {
           if (id && bus.store.get('SELECT state FROM groups WHERE id=?', id)?.state === 'archived' && !teamStateMutation) return fail(410, '团队已归档，请在设置中恢复后访问');
         }
@@ -222,7 +222,7 @@ export function resolvePanelFile(pathname, accept = '') {
 }
 
 export async function handleRpc(bus, request) {
-  const group = request.group || (request.endpoint ? (bus.store.get('SELECT group_id FROM endpoints WHERE id=?', request.endpoint) ?? bus.store.get('SELECT group_id FROM panel_sessions WHERE id=?', request.endpoint))?.group_id : null);
+  const group = request.group || (request.endpoint ? bus.store.get('SELECT group_id FROM conversations WHERE id=?', request.endpoint)?.group_id : null);
   if (group && !['restore', 'archive'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
   if (request.op === 'ping') return { version };
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);

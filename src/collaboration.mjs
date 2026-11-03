@@ -21,11 +21,6 @@ export class Collaboration {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS global_model_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS team_model_policy(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS runtime_attempts(turn_id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,endpoint_id TEXT NOT NULL,state TEXT NOT NULL,policy TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
-      CREATE INDEX IF NOT EXISTS runtime_group ON runtime_attempts(group_id,state);
-      CREATE TABLE IF NOT EXISTS endpoint_policy(endpoint_id TEXT PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,signature TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS endpoint_session_bindings(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
-      CREATE TABLE IF NOT EXISTS endpoint_session_policies(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
       CREATE TABLE IF NOT EXISTS role_names(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name_key TEXT NOT NULL,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,PRIMARY KEY(group_id,name_key));
     `);
     // 激活策略记录来源配置 id:内容相同的多份配置也能区分。
@@ -59,7 +54,7 @@ export class Collaboration {
     if (!this.communicationOpen(groupId)) throw new Error('Team已归档，当前不接受消息');
     if (this.unknown(groupId).length) throw new Error('存在待核实的宿主运行，不能继续投递');
   }
-  unknown(groupId) { return this.store.all("SELECT turn_id,endpoint_id,detail FROM runtime_attempts WHERE group_id=? AND state='unknown'", groupId); }
+  unknown(groupId) { return this.store.all("SELECT id AS turn_id,conversation_id AS endpoint_id,detail FROM turns WHERE group_id=? AND state='unknown' ORDER BY created", groupId); }
   reserveMemberName(groupId, memberId, name) {
     const key = roleNameKey(name);
     try {
@@ -81,7 +76,7 @@ export class Collaboration {
   }
   resolveRuntime(groupId, turnId, reason) {
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明核实依据');
-    const changed = this.store.run("UPDATE runtime_attempts SET state='stopped',detail=?,ended=? WHERE group_id=? AND turn_id=? AND state='unknown'", `用户核实：${reason.trim()}`, now(), groupId, turnId);
+    const changed = this.store.run("UPDATE turns SET state='stopped',detail=?,ended=? WHERE group_id=? AND id=? AND state='unknown'", `用户核实：${reason.trim()}`, now(), groupId, turnId);
     if (!changed.changes) throw new Error('待核实运行不存在');
   }
 }

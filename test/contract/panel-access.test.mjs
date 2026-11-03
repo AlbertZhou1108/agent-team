@@ -183,12 +183,12 @@ test('Panel configuration changes rebuild only the private host session', async 
   bus.takeoverTeam(group.id, 0);
   bus.store.panelSession(agent.id, 'coordination', group.id);
   const setSessions = () => {
-    bus.store.run("UPDATE panel_sessions SET session='private-session',policy_signature='sig' WHERE panel_agent_id=? AND context='private'", agent.id);
-    bus.store.run("UPDATE panel_sessions SET session='coord-session',policy_signature='sig' WHERE panel_agent_id=? AND context='coordination'", agent.id);
+    bus.store.run("UPDATE conversations SET session='private-session',policy_signature='sig' WHERE panel_agent_id=? AND context='private'", agent.id);
+    bus.store.run("UPDATE conversations SET session='coord-session',policy_signature='sig' WHERE panel_agent_id=? AND context='coordination'", agent.id);
   };
   const sessions = () => ({
-    private: bus.store.get("SELECT session FROM panel_sessions WHERE panel_agent_id=? AND context='private'", agent.id)?.session ?? null,
-    coordination: bus.store.get("SELECT session FROM panel_sessions WHERE panel_agent_id=? AND context='coordination'", agent.id)?.session ?? null,
+    private: bus.store.get("SELECT session FROM conversations WHERE panel_agent_id=? AND context='private'", agent.id)?.session ?? null,
+    coordination: bus.store.get("SELECT session FROM conversations WHERE panel_agent_id=? AND context='coordination'", agent.id)?.session ?? null,
   });
 
   setSessions();
@@ -262,8 +262,8 @@ test('Legacy Panel Agent rows migrate to read-only and reset the private host se
   const agent = bus.panelAgent();
   assert.equal(agent.access, 'read-only');
   assert.equal(agent.workspace, null);
-  assert.equal(bus.store.get("SELECT session FROM panel_sessions WHERE id='private-row'").session, null);
-  assert.equal(bus.store.get("SELECT session FROM panel_sessions WHERE id='coordination-row'").session, 'host-coordination');
+  assert.equal(bus.store.get("SELECT session FROM conversations WHERE id='private-row'").session, null);
+  assert.equal(bus.store.get("SELECT session FROM conversations WHERE id='coordination-row'").session, 'host-coordination');
 });
 
 test('Panel access maps to Codex sandbox and Claude tool configuration', () => {
