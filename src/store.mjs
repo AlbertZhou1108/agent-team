@@ -578,9 +578,6 @@ export class Store {
       return { id, conversation_id: conversation.id, owner_kind: conversation.owner_kind, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
-  preparePanel(message, session, canBatch = () => true) {
-    return this.prepare(message, session, canBatch);
-  }
   prepareDelivery(conversation, message, canBatch = () => true) {
     return this.prepare(message, conversation, canBatch);
   }
@@ -661,11 +658,6 @@ export class Store {
   }
   setTurnSession(turnId, session) {
     this.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
-  }
-  turnOwner(turnId) {
-    const turn = this.get('SELECT conversation_id,executor_kind FROM turns WHERE id=?', turnId);
-    if (!turn) return null;
-    return { kind: turn.executor_kind, conversationId: turn.conversation_id };
   }
   // 总线重启后的单次恢复:无法证明宿主已停止的回合一律标 unknown，等待用户核实。
   recoverInterruptedTurns() {

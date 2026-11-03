@@ -425,7 +425,8 @@ export class Bus extends EventEmitter {
     });
   }
   async tool(endpointId, key, name, args, provenance = {}) {
-    if (endpointId.startsWith('panel-session-')) return this.panelTool(endpointId, key, name, args, provenance);
+    // 归属由会话行决定,不再依赖 id 前缀约定。
+    if (this.store.conversationById(endpointId)?.owner_kind === 'panel_agent') return this.panelTool(endpointId, key, name, args, provenance);
     const endpoint = this.store.authenticate(endpointId, key);
     const member = this.store.member(endpoint.member_id);
     validateTool(member.role, name, args, endpoint.context);
@@ -634,7 +635,7 @@ export class Bus extends EventEmitter {
     this.store.close();
   }
   endpointTools(id, key) {
-    if (id.startsWith('panel-session-')) {
+    if (this.store.conversationById(id)?.owner_kind === 'panel_agent') {
       const { session } = this.store.authenticatePanelSession(id, key);
       return panelToolsFor(session.context);
     }
