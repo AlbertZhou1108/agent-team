@@ -1,6 +1,6 @@
 # Agent Team
 
-Glossary for the communication-first framework (ADR 0004). Process vocabulary from earlier revisions (Goal, Contract, Work Item, Preparation, Closing) is retired — do not reintroduce it in code or docs.
+Glossary for the current communication-first framework. Process vocabulary from earlier revisions (Goal, Contract, Work Item, Preparation, Closing) is retired — do not reintroduce it in code or docs.
 
 ## Language
 
@@ -31,10 +31,10 @@ One framework-driven host run attempt, recorded separately from message numbers 
 Optional plain text supplied at group creation and injected into every turn's context. It is context, not an authorization gate.
 
 **Group policy / 群执行策略**:
-`communication | read-only | workspace-write`, chosen at creation; pair conversations run under it, coordination/profile/private contexts are always communication. Maps to the two logical domains `communication` and `project`.
+`communication | read-only | workspace-write`, chosen at creation; ordinary member pair conversations run under it; ordinary member coordination/profile/private contexts always use communication. Panel Agent private access is configured separately. Maps to the two logical domains `communication` and `project`.
 
 **Unknown runtime / 待核实运行**:
-A turn whose outcome could not be verified (crash, restart). It blocks further delivery until the user resolves it. The only retained "state machine".
+A turn whose outcome could not be verified (crash, restart). It blocks further delivery until the user resolves it. A delivery-safety state, not a business completion state.
 
 **Archive / 归档**:
 The archive switch (`groups.state`). Stops delivery; history is preserved and restore resumes delivery. Replaces the retired finish/closing semantics.
@@ -44,3 +44,9 @@ A local panel identity with one private user session, observer relations to ever
 
 **Directive / 用户指令**:
 A user statement sent through the trusted entry (`/direct`, panel input) with a persistent idempotent operation number.
+
+**Panel private access / 私人访问范围**:
+The Panel Agent private session uses `read-only | workspace-write | full-access`, independently of team policy. Its team coordination sessions remain communication-only.
+
+**Task list / 任务列表**:
+Each agent publishes its own task projection using doing/done/dropped. It communicates progress; it does not grant permissions or certify results.
