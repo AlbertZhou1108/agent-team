@@ -22,19 +22,35 @@ export function launchEnvironment() {
   return env;
 }
 
+async function readInstance(directory) {
+  const instance = await rpc(socketFor(directory), { op: 'instance' }, 1000);
+  const url = new URL(instance.url);
+  if (realpathSync(instance.directory) !== realpathSync(directory) || !instance.instanceId || !Number.isInteger(instance.pid)
+    || url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.pathname !== '/') {
+    throw new Error('本地服务身份无效');
+  }
+  return instance;
+}
+
+// 服务停止/重启的瞬间 socket 仍可能存在,连接会被重置或直接关闭。
+// 这类瞬态错误只说明"现在说不清",短暂重试后仍不可达就按未运行处理。
+function transientDiscoveryError(error) {
+  return ['ECONNRESET', 'EPIPE'].includes(error.code) || error.message === '群总线在返回结果前断开连接';
+}
+
 export async function discover(directory) {
   try {
-    const instance = await rpc(socketFor(directory), { op: 'instance' }, 1000);
-    const url = new URL(instance.url);
-    if (realpathSync(instance.directory) !== realpathSync(directory) || !instance.instanceId || !Number.isInteger(instance.pid)
-      || url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.pathname !== '/') {
-      throw new Error('本地服务身份无效');
-    }
-    return instance;
+    return await readInstance(directory);
   } catch (error) {
-    if (['ENOENT', 'ECONNREFUSED'].includes(error.code)) return null;
-    if (error.message === '服务尚未就绪') return null;
-    throw error;
+    if (['ENOENT', 'ECONNREFUSED'].includes(error.code) || error.message === '服务尚未就绪') return null;
+    if (!transientDiscoveryError(error)) throw error;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    try {
+      return await readInstance(directory);
+    } catch (retryError) {
+      if (transientDiscoveryError(retryError) || ['ENOENT', 'ECONNREFUSED'].includes(retryError.code) || retryError.message === '服务尚未就绪') return null;
+      throw retryError;
+    }
   }
 }
 

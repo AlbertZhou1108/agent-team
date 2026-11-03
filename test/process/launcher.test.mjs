@@ -35,6 +35,21 @@ test('concurrent launchers discover and reuse one service; stop preserves data',
 });
 
 
+test('discovery treats a resetting socket as not running', { timeout: 15000 }, async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'launcher-reset-'));
+  const resetting = net.createServer(socket => socket.destroy());
+  t.after(async () => {
+    await new Promise(resolve => resetting.close(resolve));
+    rmSync(directory, { recursive: true, force: true });
+  });
+  await new Promise((resolve, reject) => {
+    resetting.once('error', reject);
+    resetting.listen(socketFor(directory), resolve);
+  });
+  // 服务停止/重启瞬间 socket 还在但连接被重置:必须当作未运行,而不是抛 ECONNRESET。
+  assert.equal(await discover(directory), null);
+});
+
 test('an occupied remembered port falls back without stopping its owner', { timeout: 30000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'launcher-port-'));
   const configFile = join(directory, 'hosts.json'); writeFileSync(configFile, JSON.stringify({ hosts: {} }));
