@@ -195,7 +195,7 @@ function clearHomeDrag() {
     <div class="team-home-inner">
       <header class="flex flex-wrap items-start justify-between gap-4">
         <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
-        <Button as-child><RouterLink to="/groups/new">创建团队</RouterLink></Button>
+        <Button as-child accent><RouterLink to="/groups/new">创建团队</RouterLink></Button>
       </header>
 
       <HomeWorkbench>

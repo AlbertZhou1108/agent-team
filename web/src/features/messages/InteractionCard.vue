@@ -162,7 +162,7 @@ async function submitInput() {
           />
           <p v-if="inputError" class="text-xs text-destructive">{{ inputError }}</p>
           <div>
-            <Button size="sm" :disabled="busy" @click="submitInput">
+            <Button size="sm" accent :disabled="busy" @click="submitInput">
               <MessageSquareReply data-icon="inline-start" />
               提交答复
             </Button>

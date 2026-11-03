@@ -4,10 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { Surface } from '@/components/surface';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import SidebarEntry from '@/app/layouts/SidebarEntry.vue';
 const open = ref(true);
+const enabled = ref(true);
+const disabled = ref(false);
 </script>
 
 <template>
@@ -27,6 +31,24 @@ const open = ref(true);
       <div class="flex flex-wrap items-center gap-2">
         <Input class="min-w-0 flex-1" aria-label="预览输入框" placeholder="输入框" />
         <Button size="sm" @click="open = !open">{{ open ? '收起' : '展开' }}</Button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2" aria-label="按钮与状态预览">
+        <Button accent>重点操作</Button>
+        <Button variant="secondary">次级</Button>
+        <Button variant="ghost">轻量</Button>
+        <Button variant="destructive">删除</Button>
+        <Button variant="outline" disabled>禁用</Button>
+        <Badge variant="secondary">待处理</Badge>
+      </div>
+      <div class="flex items-center gap-4 text-sm" aria-label="开关预览">
+        <label class="flex items-center gap-2">
+          <Switch v-model="enabled" aria-label="预览开关" />
+          <span>开启</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <Switch v-model="disabled" disabled aria-label="预览禁用开关" />
+          <span class="text-muted-foreground">禁用开关</span>
+        </label>
       </div>
     </div>
   </div>

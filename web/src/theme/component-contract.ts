@@ -3,6 +3,13 @@ import { freezeConfiguration } from './configuration-data';
 export const COMPONENT_DEFAULTS = freezeConfiguration({
   style: {
     '--component-nav-marker-width': '2px',
+    // 重点按钮的受控装饰入口:默认全部关闭,与本 variant 完全等价。
+    // 预设按需提供完整配方(细边 + 双层背景 + 裁切),Button 以 data-accent 语义标记消费;
+    // 渐变颜色由配方在应用时从当前主题 token 派生,不进主题包字段。
+    '--component-accent-button-border': 'none',
+    '--component-accent-button-image': 'none',
+    '--component-accent-button-clip': 'border-box',
+    '--component-accent-button-hover-image': 'none',
   },
   typography: {
     '--component-control-font-size': '0.875rem',

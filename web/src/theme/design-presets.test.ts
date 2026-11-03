@@ -142,4 +142,37 @@ describe('five-dimension component configuration', () => {
     expect(output.material.id).toBe('paper');
     expect(resolve('classic', 'solid').variables['--component-control-radius']).toBe('var(--radius-md)');
   });
+  it('keeps the accent-button entry inert for every preset that does not ship a recipe', () => {
+    for (const id of ['classic', 'liquid-glass', 'paper'] as const) {
+      const { variables } = resolve(id, id === 'classic' ? 'solid' : id);
+      for (const key of ['--component-accent-button-border', '--component-accent-button-image', '--component-accent-button-clip', '--component-accent-button-hover-image']) {
+        expect(variables[key]).toBe(COMPONENT_DEFAULTS.style[key as keyof typeof COMPONENT_DEFAULTS.style]);
+      }
+      expect(variables['--component-accent-button-image']).toBe('none');
+    }
+  });
+  it('ships the vivid preset with its own material, theme and accent recipe', () => {
+    const { presetId, material, variables } = resolve('vivid', 'vivid');
+    expect(presetId).toBe('vivid');
+    expect(material.id).toBe('vivid');
+    expect(material.motion.spring).toBe('allow');
+    // 活力物性:大圆角、扁平(普通卡片无阴影),浮层保留极轻分离。
+    expect(variables['--component-control-radius']).toBe('14px');
+    expect(variables['--component-panel-radius']).toBe('22px');
+    expect(variables['--component-content-shadow']).toBe('none');
+    expect(variables['--component-panel-shadow']).toBe('none');
+    // 重点按钮配方只由 vivid 提供:细边 + 双层背景裁切 + 悬停配方。
+    expect(variables['--component-accent-button-border']).toBe('1.5px solid transparent');
+    expect(variables['--component-accent-button-clip']).toBe('padding-box, border-box');
+    expect(variables['--component-accent-button-image']).toContain('linear-gradient');
+    expect(variables['--component-accent-button-image']).toContain('oklch(from var(--primary)');
+    expect(variables['--component-accent-button-hover-image']).toContain('linear-gradient');
+  });
+  it('keeps vivid surface recipes isolated from the solid material', () => {
+    const fallback = resolve('vivid', 'solid');
+    expect(fallback.material.id).toBe('solid');
+    // 手选默认实色后,圆角/阴影回实色基线,活力表面配方不再生效。
+    expect(fallback.variables['--component-control-radius']).toBe('var(--radius-md)');
+    expect(fallback.variables['--component-content-shadow']).toBe(COMPONENT_DEFAULTS.material['--component-content-shadow']);
+  });
 });

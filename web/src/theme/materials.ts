@@ -171,10 +171,59 @@ const PAPER: MaterialCategory = {
   motion: { spring: 'suppress', signature: 'none' },
 };
 
+/**
+ * 活力实色:柔和实色层次、大圆角、扁平化。层次只靠明度/色相差与极少数
+ * 必要边界表达,普通内容面不带阴影;浮层保留一层极轻分离以保证遮挡可读。
+ * 圆角与按压幅度是材质物性,归属本表,预设不越权改写。
+ */
+const VIVID: MaterialCategory = {
+  id: 'vivid', label: '活力',
+  components: {
+    '--component-control-radius': '14px',
+    '--component-panel-radius': '22px',
+    '--component-button-press-scale': '0.98',
+    '--component-selection-bg': 'color-mix(in oklch, var(--primary) 14%, var(--card))',
+    '--component-selection-fg': 'var(--foreground)',
+    '--component-selection-shadow': 'none',
+    '--component-tab-active-bg': 'var(--card)',
+    '--component-tab-active-border': 'transparent',
+    '--component-tab-active-shadow': 'none',
+    '--component-choice-track-bg': 'color-mix(in oklch, var(--primary) 7%, var(--background))',
+    '--component-choice-bg': 'transparent',
+    '--component-choice-shadow': 'none',
+    '--component-choice-hover-bg': 'color-mix(in oklch, var(--primary) 10%, var(--background))',
+    '--component-choice-selected-bg': 'var(--card)',
+    '--component-choice-selected-fg': 'var(--foreground)',
+    '--component-choice-border': 'transparent',
+    '--component-choice-selected-border': 'transparent',
+    '--component-choice-selected-shadow': 'none',
+    '--component-nav-bg': 'transparent',
+    '--component-nav-current-bg': 'color-mix(in oklch, var(--primary) 13%, var(--card))',
+    '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 17%, var(--card))',
+    '--component-nav-state-shadow': 'none',
+    '--component-surface-border': 'color-mix(in oklch, var(--border) 72%, transparent)',
+    '--component-content-bg': 'var(--card)',
+    '--component-content-image': 'none',
+    '--component-content-shadow': 'none',
+    '--component-panel-shadow': 'none',
+    '--component-desk-bg': 'var(--background)',
+    '--component-desk-image': 'none',
+  },
+  roles: {
+    'nav-panel': { bg: 'color-mix(in oklch, var(--primary) 4%, var(--card))' },
+    'context-panel': { bg: 'color-mix(in oklch, var(--primary) 4%, var(--card))' },
+    action: { bg: 'var(--card)' },
+    input: { bg: 'color-mix(in oklch, var(--background) 55%, var(--card))' },
+    overlay: { bg: 'var(--popover)', shadow: '0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent)' },
+  },
+  motion: { spring: 'allow', signature: 'none' },
+};
+
 export const MATERIAL_CATEGORIES = freezeConfiguration({
   solid: SOLID,
   glass: GLASS,
   paper: PAPER,
+  vivid: VIVID,
 } satisfies Record<string, MaterialCategory>);
 
 export type MaterialId = keyof typeof MATERIAL_CATEGORIES;

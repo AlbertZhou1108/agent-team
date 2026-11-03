@@ -1801,6 +1801,20 @@ html[data-density='loose'] {
 [data-surface='input']:not([data-slot='input-group-control']) {
   --tw-shadow: var(--surface-input-shadow, 0 1px 2px rgb(0 0 0 / 5%));
 }
+
+/* 重点按钮:设计预设提供的受控配方(细边 + 双层背景),默认值全部关闭,
+   未标记 data-accent 或预设未提供时与 default variant 完全等价。
+   配方在应用时从当前主题 token 派生;浏览器不支持相对颜色时整段回落实色。 */
+[data-slot='button'][data-variant='default'][data-accent] {
+  border: var(--component-accent-button-border);
+  background-image: var(--component-accent-button-image);
+  background-clip: var(--component-accent-button-clip);
+}
+@media (hover: hover) {
+  [data-slot='button'][data-variant='default'][data-accent]:hover {
+    background-image: var(--component-accent-button-hover-image);
+  }
+}
 .conversation-header h1 { font-size: var(--component-title-font-size); }
 
 [data-slot='tabs-trigger'][data-state='active'] {
