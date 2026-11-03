@@ -246,7 +246,7 @@ async function summarize() {
               ></Button
             >
             <template v-if="waiting.length">
-              <p class="pt-1 text-xs text-muted-foreground">等待 Agent 回复</p>
+              <p class="pt-1 text-xs text-muted-foreground">等待 Agent 回复（超过 5 分钟）</p>
               <Button
                 v-for="item in waiting"
                 :key="item.id"
