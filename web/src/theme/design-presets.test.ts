@@ -25,6 +25,16 @@ describe('five-dimension component configuration', () => {
     expect(material.components?.['--component-content-image']).toContain('paper-grain');
     expect(material.components?.['--component-surface-texture']).toBe(material.components?.['--component-content-image']);
   });
+  it('keeps the paper card edge on the theme border token', () => {
+    const { variables } = resolve('paper', 'paper');
+    // 卡片与页面表面同为 --card 色:边线必须消费主题边框色,混进纸面就看不见了;
+    // 曾以 45% 混色弱化,卡片只剩上缘/下缘两条内侧假边线。
+    expect(variables['--component-surface-border']).toBe(COMPONENT_DEFAULTS.material['--component-surface-border']);
+    expect(variables['--component-surface-border']).toBe('var(--border)');
+    // 可见边线只由 border 承担:内容面不叠加上缘内侧高光线,内缘只留下缘截面。
+    expect(variables['--component-content-shadow']).not.toContain('inset 0 1px 0');
+    expect(variables['--component-content-shadow']).toContain('inset 0 -1px 0');
+  });
   it('clears role depth when switching from paper back to solid', () => {
     const values = new Map<string, string>();
     vi.stubGlobal('document', { documentElement: {
