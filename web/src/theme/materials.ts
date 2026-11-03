@@ -1,6 +1,4 @@
-import paperMottleUrl from './textures/paper-mottle.svg?url&no-inline';
-import paperFibersUrl from './textures/paper-fibers.svg?url&no-inline';
-import paperMottleDarkUrl from './textures/paper-mottle-dark.svg?url&no-inline';
+import paperGrainUrl from './textures/paper-grain.svg?url&no-inline';
 import type { ComponentMaterialTokens } from './component-contract';
 import { freezeConfiguration } from './configuration-data';
 
@@ -129,20 +127,9 @@ const GLASS: MaterialCategory = {
 };
 
 // 独立 SVG 资源保持滤镜片段引用可靠,低频浆料与短纤维分层取样。
-const PAPER_MOTTLE = `url("${paperMottleUrl}")`;
-const PAPER_FIBERS = `url("${paperFibersUrl}")`;
-const PAPER_MOTTLE_DARK = `url("${paperMottleDarkUrl}")`;
+const PAPER_GRAIN = `url("${paperGrainUrl}")`;
 
-/**
- * 深色纸面不再叠加高频纤维:同一条纹理在深底上会被放大成刺眼的沙点。
- * 深色只保留更低频、更低透明度的斑驳,纸感交给边缘与截面阴影。
- */
-export const PAPER_TEXTURES = Object.freeze({
-  light: { surface: `${PAPER_FIBERS}, ${PAPER_MOTTLE}`, content: PAPER_MOTTLE },
-  dark: { surface: PAPER_MOTTLE_DARK, content: PAPER_MOTTLE_DARK },
-});
-
-/** 哑光纸面:安静画布,可见纸面与薄截面;正文承载面只保留低频变化。 */
+/** 哑光纸面:深浅色共用同一张中性灰纸纹(细颗粒 + 中频纸齿),厚度交给边缘与截面阴影。 */
 const PAPER: MaterialCategory = {
   id: 'paper', label: '纸质',
   components: {
@@ -153,11 +140,11 @@ const PAPER: MaterialCategory = {
     '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 13%, var(--card))',
     '--component-nav-state-shadow': 'var(--component-selection-shadow)',
     '--component-content-bg': 'var(--card)',
-    '--component-content-image': PAPER_TEXTURES.light.content,
+    '--component-content-image': PAPER_GRAIN,
     '--component-surface-border': 'color-mix(in oklch, var(--border) 45%, var(--card))',
     '--component-content-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 8%)), inset 0 -1px 0 color-mix(in oklch, var(--foreground) 11%, transparent), 0 2px 3px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 3px 6px 12px -3px color-mix(in oklch, var(--foreground) 7%, transparent)',
     '--component-panel-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 8%)), inset 0 -1px 0 color-mix(in oklch, var(--foreground) 14%, transparent), 0 2px 4px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 4px 8px 20px -4px color-mix(in oklch, var(--foreground) 9%, transparent)',
-    '--component-surface-texture': PAPER_TEXTURES.light.surface,
+    '--component-surface-texture': PAPER_GRAIN,
     '--component-desk-bg': 'color-mix(in oklch, var(--muted) 32%, var(--background))',
     '--component-desk-image': 'none',
     '--component-selection-bg': 'color-mix(in oklch, var(--primary) 11%, var(--card))',

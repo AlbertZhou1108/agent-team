@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyComponentDesign, applyMaterial, applyPaperTexture } from './apply';
+import { applyComponentDesign, applyMaterial } from './apply';
 import { COMPONENT_DEFAULTS } from './component-contract';
 import { DESIGN_PRESETS, resolveComponentDesign, type DesignPreset } from './design-presets';
-import { PAPER_TEXTURES } from './materials';
 
 const resolve = (presetId = 'liquid-glass', material = 'glass', density: 'standard' | 'compact' | 'loose' = 'standard') => resolveComponentDesign({ presetId, material, density });
 
@@ -21,25 +20,10 @@ describe('five-dimension component configuration', () => {
       }
     } finally { vi.unstubAllGlobals(); }
   });
-  it('uses the quieter mottle-only texture on dark paper', () => {
-    const values = new Map<string, string>();
-    vi.stubGlobal('document', { documentElement: {
-      dataset: {},
-      style: {
-        setProperty: (key: string, value: string) => values.set(key, value),
-        removeProperty: (key: string) => values.delete(key),
-      },
-    } });
-    try {
-      applyMaterial('paper');
-      applyPaperTexture(true);
-      expect(values.get('--component-content-image')).toBe(PAPER_TEXTURES.dark.content);
-      expect(values.get('--component-surface-texture')).toBe(PAPER_TEXTURES.dark.surface);
-      expect(values.get('--component-surface-texture')).not.toContain('paper-fibers');
-      applyPaperTexture(false);
-      expect(values.get('--component-content-image')).toBe(PAPER_TEXTURES.light.content);
-      expect(values.get('--component-surface-texture')).toBe(PAPER_TEXTURES.light.surface);
-    } finally { vi.unstubAllGlobals(); }
+  it('uses one shared paper grain for content and panel surfaces', () => {
+    const { material } = resolve('paper', 'paper');
+    expect(material.components?.['--component-content-image']).toContain('paper-grain');
+    expect(material.components?.['--component-surface-texture']).toBe(material.components?.['--component-content-image']);
   });
   it('clears role depth when switching from paper back to solid', () => {
     const values = new Map<string, string>();
