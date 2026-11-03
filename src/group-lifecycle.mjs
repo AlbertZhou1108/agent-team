@@ -67,7 +67,7 @@ export class GroupLifecycle {
         now,
         now,
       );
-      this.bus.store.panelSession(panelAgent.id, 'coordination', group.id);
+      this.bus.store.conversation('panel_agent', panelAgent.id, 'coordination', { groupId: group.id });
       this.bus.store.run(
         "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
         now,

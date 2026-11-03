@@ -206,7 +206,7 @@ export class PanelSessions {
         now,
         now,
       );
-      this.bus.store.panelSession(id, 'private');
+      this.bus.store.conversation('panel_agent', id, 'private');
     });
     this.bus.ensurePanelBindings();
     return this.bus.panelAgentState();
@@ -480,7 +480,7 @@ export class PanelSessions {
     if (origin.activeTeamId !== group.id) {
       throw new Error('团队写操作必须与当前 activeTeamId 一致，请先切换团队上下文');
     }
-    const coordination = this.bus.store.panelSession(panelAgent.id, 'coordination', group.id);
+    const coordination = this.bus.store.conversation('panel_agent', panelAgent.id, 'coordination', { groupId: group.id });
     if (coordination.id !== session.id && this.bus.running.has(coordination.id)) {
       throw new Error('该团队的 Panel Agent coordination 正在运行，请等待后再写入');
     }
@@ -812,12 +812,7 @@ export class PanelSessions {
         }
       },
       onSession: value => {
-        this.bus.store.run(
-          'UPDATE panel_sessions SET session=?,updated=? WHERE id=?',
-          value,
-          new Date().toISOString(),
-          session.id,
-        );
+        this.bus.store.setConversationSession(session.id, value);
         session.session = value;
       },
       onModel: observation => this.bus.events.panel(session.id, { type: 'framework.model', ...observation }, turnId),
@@ -895,7 +890,7 @@ export class PanelSessions {
       },
       onPolicy: observation => {
         if (observation.signature) {
-          this.bus.store.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', observation.signature, new Date().toISOString(), session.id);
+          this.bus.store.setConversationPolicySignature(session.id, observation.signature);
           session.policy_signature = observation.signature;
         }
         this.bus.events.panel(session.id, { type: 'framework.policy', ...observation }, turnId);
@@ -1118,7 +1113,7 @@ export class PanelSessions {
 
     // 宿主调用前准备附件输入;文件缺失在此明确报错,不悄悄只发文字。
     const preparedAttachments = attachmentIds.length ? this.bus.attachmentPrepare(panelAgent.id, attachmentIds) : [];
-    const session = this.bus.store.panelSession(panelAgent.id, 'private');
+    const session = this.bus.store.conversation('panel_agent', panelAgent.id, 'private');
     const updates = [];
     let accepted = false;
     let acceptedTurnId = null;
@@ -1252,7 +1247,7 @@ export class PanelSessions {
   deliverToPanelPrivate(row, text) {
     const agent = this.bus.panelAgent();
     if (!agent || agent.id !== row.panel_agent_id || this.bus.closing) return;
-    const session = this.bus.store.panelSession(agent.id, 'private');
+    const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
     if (this.bus.running.has(session.id)) {
       this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
       return;
@@ -1264,7 +1259,7 @@ export class PanelSessions {
     if (this.bus.closing || !this.panelPrivateDeliveries.length) return;
     const agent = this.bus.panelAgent();
     if (!agent) return;
-    const session = this.bus.store.panelSession(agent.id, 'private');
+    const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
     if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM panel_turns WHERE session_id=? AND state='unknown'", session.id)) return;
     const item = this.panelPrivateDeliveries.shift();
     void this.bus.panelPrivateTurn({ text: item.text }).catch(() => {});
@@ -1288,8 +1283,8 @@ export class PanelSessions {
     }
   }
   deliverPanel(entry) {
-    const session = this.bus.store.get('SELECT * FROM panel_sessions WHERE id=?', entry.session_id);
-    if (!session || session.context !== 'coordination') return;
+    const session = this.bus.store.conversationById(entry.session_id);
+    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'coordination') return;
     const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
     if (!panelAgent) return;
     const input = JSON.parse(entry.payload);

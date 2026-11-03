@@ -19,14 +19,14 @@ export class MessageDispatch {
   pump() {
     if (this.bus.closing) return;
     for (const entry of this.bus.store.all('SELECT * FROM panel_outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')) {
-      const session = this.bus.store.get('SELECT * FROM panel_sessions WHERE id=?', entry.session_id);
-      if (session && this.bus.canRun(session.group_id) && !this.bus.running.has(entry.session_id)) {
+      const session = this.bus.store.conversationById(entry.session_id);
+      if (session?.owner_kind === 'panel_agent' && this.bus.canRun(session.group_id) && !this.bus.running.has(entry.session_id)) {
         this.bus.deliverPanel(entry);
       }
     }
     for (const entry of this.bus.store.all('SELECT * FROM outbox WHERE accepted IS NULL AND error IS NULL ORDER BY rowid')) {
-      const endpoint = this.bus.store.get('SELECT * FROM endpoints WHERE id=?', entry.endpoint_id);
-      if (endpoint && this.bus.canRun(endpoint.group_id) && !this.bus.running.has(entry.endpoint_id)) this.bus.deliver(entry);
+      const endpoint = this.bus.store.conversationById(entry.endpoint_id);
+      if (endpoint?.owner_kind === 'member' && this.bus.canRun(endpoint.group_id) && !this.bus.running.has(entry.endpoint_id)) this.bus.deliver(entry);
     }
     for (const message of this.bus.store.pending()) {
       if (this.bus.store.get('SELECT 1 FROM attached WHERE message_id=?', message.id)) continue;
@@ -34,13 +34,13 @@ export class MessageDispatch {
       if (!this.bus.canRun(message.group_id)) continue;
       const controller = this.bus.teamController(message.group_id);
       if (message.recipient === controller.id && controller.kind === 'panel_agent') {
-        const session = this.bus.store.panelSession(controller.id, 'coordination', message.group_id);
+        const session = this.bus.store.conversation('panel_agent', controller.id, 'coordination', { groupId: message.group_id });
         if (this.bus.running.has(session.id) || this.bus.store.get('SELECT 1 FROM panel_outbox WHERE session_id=? AND accepted IS NULL AND error IS NULL', session.id)) continue;
         const entry = this.bus.store.preparePanel(message, session);
         if (entry) this.bus.deliverPanel(entry);
         continue;
       }
-      const endpoint = this.bus.store.endpoint(message.recipient, message.recipient === controller.id ? 'coordination' : `pair:${message.sender}`, message.recipient === controller.id ? null : message.sender);
+      const endpoint = this.bus.store.conversation('member', message.recipient, message.recipient === controller.id ? 'coordination' : `pair:${message.sender}`, { peer: message.recipient === controller.id ? null : message.sender });
       if (this.bus.running.has(endpoint.id) || this.bus.store.get('SELECT 1 FROM outbox WHERE endpoint_id=? AND accepted IS NULL AND error IS NULL', endpoint.id)) continue;
       const entry = this.bus.store.prepare(message, endpoint);
       if (entry) this.bus.deliver(entry);
@@ -52,8 +52,8 @@ export class MessageDispatch {
       && !this.bus.panelUnknown(groupId).length;
   }
   deliver(entry) {
-    const endpoint = this.bus.store.get('SELECT * FROM endpoints WHERE id=?', entry.endpoint_id);
-    if (!endpoint || !this.bus.store.get('SELECT 1 FROM members WHERE id=? AND removed IS NULL', endpoint.member_id)) return;
+    const endpoint = this.bus.store.conversationById(entry.endpoint_id);
+    if (!endpoint || endpoint.owner_kind !== 'member' || !this.bus.store.get('SELECT 1 FROM members WHERE id=? AND removed IS NULL', endpoint.member_id)) return;
     const input = JSON.parse(entry.payload);
     this.bus.runEndpoint(endpoint, context => {
       if (context.schema !== CONTEXT_SCHEMA_VERSION) {
@@ -219,7 +219,7 @@ export class MessageDispatch {
       },
       onSession: session => {
         this.bus.store.run('INSERT INTO endpoint_session_bindings VALUES(?,?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET session=excluded.session,updated=excluded.updated', endpoint.id, sessionKey, session, new Date().toISOString());
-        this.bus.store.run('UPDATE endpoints SET session=? WHERE id=?', session, endpoint.id);
+        this.bus.store.setConversationSession(endpoint.id, session);
         endpoint.session = session;
         effectiveEndpoint.session = session;
         this.bus.store.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
@@ -262,10 +262,7 @@ export class MessageDispatch {
         });
       },
       onPolicy: observation => {
-        if (observation.signature) {
-          this.bus.store.run('INSERT INTO endpoint_session_policies VALUES(?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET signature=excluded.signature', endpoint.id, sessionKey, observation.signature);
-          this.bus.store.run('INSERT INTO endpoint_policy VALUES(?,?) ON CONFLICT(endpoint_id) DO UPDATE SET signature=excluded.signature', endpoint.id, observation.signature);
-        }
+        if (observation.signature) this.bus.store.setConversationPolicySignature(endpoint.id, observation.signature, sessionKey);
         this.bus.events.member(endpoint.id, { type: 'framework.policy', ...observation }, turnId);
       },
       onTelemetry: observation => {
@@ -359,7 +356,7 @@ export class MessageDispatch {
     this.bus.store.group(groupId);
     const controller = this.bus.teamController(groupId);
     if (controller.kind === 'panel_agent') return this.bus.teamDirectives.submit(groupId, { text, controllerId: controller.id, operationId: randomUUID() });
-    return this.bus.runEndpoint(this.bus.store.endpoint(controller.id, 'private'), text);
+    return this.bus.runEndpoint(this.bus.store.conversation('member', controller.id, 'private'), text);
   }
   async stopWhere(predicate) {
     const active = [...this.bus.running.values()].filter(({ endpoint }) => predicate(endpoint));

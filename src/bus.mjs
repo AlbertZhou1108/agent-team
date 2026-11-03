@@ -419,7 +419,7 @@ export class Bus extends EventEmitter {
   }
   introduce(member) {
     if (this.closing) return;
-    const endpoint = this.store.endpoint(member.id, 'profile');
+    const endpoint = this.store.conversation('member', member.id, 'profile');
     this.runEndpoint(endpoint, profileIntro()).catch(error => {
       if (!this.closing) this.notify(member.group_id, this.teamController(member.group_id).id, `成员 ${member.name} 入群说明失败：${error.message}`);
     });
@@ -523,7 +523,7 @@ export class Bus extends EventEmitter {
       this.collaboration.requireCommunication(groupId);
       if (args.kind === 'choice' && !Array.isArray(args.options)) throw new Error('choice 必须提供 options');
       if (args.kind === 'input' && args.options !== undefined) throw new Error('input 不接受 options');
-      if (member.role !== 'lead') this.store.endpoint(member.id, 'pair:user', 'user');
+      if (member.role !== 'lead') this.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
       const message = this.store.transaction(() => {
         const value = this.store.append(groupId, member.id, 'user', 'send', args.text);
         this.store.run('INSERT INTO message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId, origin.eventSeq, origin.callId, origin.nativeCallId);

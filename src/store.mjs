@@ -285,15 +285,68 @@ export class Store {
     if (!member) throw new Error('成员不存在或已移除');
     return member;
   }
-  endpoint(memberId, context, peer = null) {
-    const member = this.member(memberId);
-    let endpoint = this.get('SELECT * FROM endpoints WHERE member_id=? AND context=?', memberId, context);
-    if (!endpoint) {
-      const id = randomUUID();
-      this.run('INSERT INTO endpoints VALUES(?,?,?,?,?,?,?)', id, member.group_id, member.id, context, peer, null, randomBytes(32).toString('hex'));
-      endpoint = this.get('SELECT * FROM endpoints WHERE id=?', id);
+  // 会话统一入口:v1 内部仍落在 endpoints / panel_sessions 两张表上,
+  // v2 迁移后换成 conversations 单表；调用方从此不再关心存储形态。
+  conversation(kind, ownerId, context, { peer = null, groupId = null } = {}) {
+    if (kind === 'member') {
+      const member = this.member(ownerId);
+      let row = this.get('SELECT * FROM endpoints WHERE member_id=? AND context=?', ownerId, context);
+      if (!row) {
+        const id = randomUUID();
+        this.run('INSERT INTO endpoints VALUES(?,?,?,?,?,?,?)', id, member.group_id, member.id, context, peer, null, randomBytes(32).toString('hex'));
+        row = this.get('SELECT * FROM endpoints WHERE id=?', id);
+      }
+      return { ...row, owner_kind: 'member', owner_id: row.member_id };
     }
-    return endpoint;
+    if (kind === 'panel_agent') {
+      const existing = context === 'private'
+        ? this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='private'", ownerId)
+        : this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='coordination' AND group_id=?", ownerId, groupId);
+      if (existing) return { ...existing, owner_kind: 'panel_agent', owner_id: existing.panel_agent_id };
+      if (context === 'coordination') this.group(groupId);
+      const id = `panel-session-${randomUUID()}`;
+      const now = new Date().toISOString();
+      this.run(
+        'INSERT INTO panel_sessions(id,panel_agent_id,context,group_id,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?)',
+        id,
+        ownerId,
+        context,
+        groupId,
+        null,
+        null,
+        randomBytes(32).toString('hex'),
+        now,
+        now,
+      );
+      return { ...this.get('SELECT * FROM panel_sessions WHERE id=?', id), owner_kind: 'panel_agent', owner_id: ownerId };
+    }
+    throw new Error(`未知的会话类型: ${kind}`);
+  }
+  conversationById(id) {
+    const endpoint = this.get('SELECT * FROM endpoints WHERE id=?', id);
+    if (endpoint) return { ...endpoint, owner_kind: 'member', owner_id: endpoint.member_id };
+    const session = this.get('SELECT * FROM panel_sessions WHERE id=?', id);
+    if (session) return { ...session, owner_kind: 'panel_agent', owner_id: session.panel_agent_id };
+    return null;
+  }
+  setConversationSession(id, session) {
+    const conversation = this.conversationById(id);
+    if (!conversation) throw new Error('会话不存在');
+    if (conversation.owner_kind === 'member') this.run('UPDATE endpoints SET session=? WHERE id=?', session, id);
+    else this.run('UPDATE panel_sessions SET session=?,updated=? WHERE id=?', session, new Date().toISOString(), id);
+  }
+  setConversationPolicySignature(id, signature, sessionKey = 'default') {
+    const conversation = this.conversationById(id);
+    if (!conversation) throw new Error('会话不存在');
+    if (conversation.owner_kind === 'member') {
+      this.run('INSERT INTO endpoint_session_policies VALUES(?,?,?) ON CONFLICT(endpoint_id,session_key) DO UPDATE SET signature=excluded.signature', id, sessionKey, signature);
+      this.run('INSERT INTO endpoint_policy VALUES(?,?) ON CONFLICT(endpoint_id) DO UPDATE SET signature=excluded.signature', id, signature);
+    } else {
+      this.run('UPDATE panel_sessions SET policy_signature=?,updated=? WHERE id=?', signature, new Date().toISOString(), id);
+    }
+  }
+  endpoint(memberId, context, peer = null) {
+    return this.conversation('member', memberId, context, { peer });
   }
   panelAgent() {
     return this.get('SELECT * FROM panel_agents ORDER BY created LIMIT 1') ?? null;
@@ -322,26 +375,7 @@ export class Store {
     return this.attachmentSettings();
   }
   panelSession(panelAgentId, context, groupId = null) {
-    const existing = context === 'private'
-      ? this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='private'", panelAgentId)
-      : this.get("SELECT * FROM panel_sessions WHERE panel_agent_id=? AND context='coordination' AND group_id=?", panelAgentId, groupId);
-    if (existing) return existing;
-    if (context === 'coordination') this.group(groupId);
-    const id = `panel-session-${randomUUID()}`;
-    const now = new Date().toISOString();
-    this.run(
-      'INSERT INTO panel_sessions(id,panel_agent_id,context,group_id,session,policy_signature,key,created,updated) VALUES(?,?,?,?,?,?,?,?,?)',
-      id,
-      panelAgentId,
-      context,
-      groupId,
-      null,
-      null,
-      randomBytes(32).toString('hex'),
-      now,
-      now,
-    );
-    return this.get('SELECT * FROM panel_sessions WHERE id=?', id);
+    return this.conversation('panel_agent', panelAgentId, context, { groupId });
   }
   authenticatePanelSession(id, key) {
     const session = this.get('SELECT * FROM panel_sessions WHERE id=? AND key=?', id, key);
