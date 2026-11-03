@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { toolsFor } from './tools.mjs';
-import { modelSelectionOf } from './actors.mjs';
-import { telemetryObservation } from './telemetry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 import { legacyGroupDeliveryPrompt } from './prompts.mjs';
 
@@ -79,7 +77,6 @@ export class MessageDispatch {
     const group = this.bus.store.group(member.group_id);
     const host = this.bus.hosts.get(member.host);
     if (!host) throw new Error(`宿主未配置: ${member.host}`);
-    const abort = new AbortController();
     const policy = this.bus.collaboration.policy(endpoint);
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';
@@ -96,39 +93,9 @@ export class MessageDispatch {
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('回合输入为空');
     const instructions = this.bus.rules(endpoint, schema);
     this.bus.information.assertRuleBudget(instructions, schema);
-    const turnId = this.bus.store.createTurn(effectiveEndpoint, {
-      executorKind: 'member',
-      executorId: endpoint.member_id,
-      inputs,
-      policy,
-    });
-    this.bus.information.rememberTurnSchema(turnId, 'member', schema, sessionKey);
-    const live = { endpoint: effectiveEndpoint, abort, turnId, done: null, created: new Date().toISOString() };
     const pairPeerId = endpoint.context.startsWith('pair:') ? endpoint.context.slice(5) : null;
     const pairPeerName = pairPeerId
       ? (pairPeerId === 'user' ? '用户' : this.bus.store.get('SELECT name FROM members WHERE id=?', pairPeerId)?.name ?? pairPeerId)
-      : null;
-    const teamStream = (endpoint.context === 'coordination' && inputs.some(message => message.sender === 'user')) || pairPeerId
-      ? {
-          id: turnId,
-          groupId: group.id,
-          endpointId: endpoint.id,
-          memberId: member.id,
-          memberName: member.name,
-          recipientName: pairPeerId ? pairPeerName : '用户',
-          pairKey: pairPeerId ? [member.id, pairPeerId].sort().join(':') : '',
-          kind: 'reply',
-          host: member.host,
-          context: endpoint.context,
-          turnId,
-          text: '',
-          reasoning: '',
-          // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
-          runPhase: 'accepted',
-          tool: null,
-          created: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }
       : null;
     const streamScope = {
       groupId: group.id,
@@ -137,209 +104,89 @@ export class MessageDispatch {
       memberName: member.name,
       host: member.host,
       context: endpoint.context,
-      turnId,
     };
-    const toolStreamRun = this.bus.createToolStreamRun(streamScope);
-    const telemetryStarted = performance.now();
-    this.bus.running.set(endpoint.id, live);
-    if (teamStream) {
-      this.bus.teamStreams.set(turnId, teamStream);
-      this.bus.publishTeamStream({ type: 'start', stream: { ...teamStream } });
-    }
-    // 成员的阶段只作用于团队流;工具名即公开信息,不附带参数。
-    const setPhase = (phase, tool = null, publish = true) => {
-      if (!teamStream) return;
-      const current = this.bus.teamStreams.get(turnId);
-      if (!current || (current.runPhase === phase && current.tool === tool)) return;
-      current.runPhase = phase;
-      current.tool = tool;
-      current.updatedAt = new Date().toISOString();
-      if (publish) this.bus.publishTeamStream({ type: 'phase', stream: { ...current } });
-    };
-    this.bus.events.member(endpoint.id, { type: 'input', text: prompt }, turnId);
-    try {
-      this.bus.information.measureRules({
-        groupId: group.id,
-        endpointId: endpoint.id,
-        turnId,
-        schemaVersion: schema,
-        instructions,
-        fixed: schema === CONTEXT_SCHEMA_VERSION,
-      });
-      this.bus.information.measureTurnInput({ groupId: group.id, endpointId: endpoint.id, turnId, schemaVersion: schema, prompt });
-    } catch {
-      // Measurement is observational and must never change the host outcome.
-    }
-    this.bus.events.member(endpoint.id, {
-      type: 'framework.session_scope',
-      domain: policy.domain,
+    return this.bus.turnExecutor.run({
+      conversation: endpoint,
+      actor: member,
+      host,
+      executorKind: 'member',
+      executorId: endpoint.member_id,
+      inputs,
+      prompt,
+      instructions,
+      schema,
+      policy,
+      previousPolicy,
+      workspace: group.workspace,
+      tools: toolsFor(member.role, endpoint.context),
+      hostEndpoint: effectiveEndpoint,
+      liveEndpoint: effectiveEndpoint,
       sessionKey,
-      session: binding?.session ?? fallbackSession,
-      reused: Boolean(binding?.session ?? fallbackSession),
-      contextSchemaVersion: schema,
-    }, turnId);
-    const promise = Promise.resolve().then(() => host.run({
-      endpoint: effectiveEndpoint, turnId, workspace: group.workspace, prompt, instructions,
-      tools: toolsFor(member.role, endpoint.context), policy, previousPolicy, signal: abort.signal,
-      modelSelection: modelSelectionOf(member),
-      onAccepted: () => { onAccepted(); this.bus.events.member(endpoint.id, { type: 'framework.input_accepted' }, turnId); },
-      onNativeTurn: ref => { this.bus.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref)); },
-      onTool: async (name, args, metadata = {}) => {
-        setPhase('tool', { name, groupId: group.id });
-        try {
-          return await this.bus.tool(endpoint.id, endpoint.key, name, args, {
-            ...metadata,
-            turnId,
-          });
-        } catch (error) {
-          this.bus.failToolMessageStream(
-            turnId,
-            name,
-            args,
-            error,
-            metadata.nativeCallId ?? null,
-          );
-          throw error;
-        } finally {
-          const settled = this.bus.teamStreams.get(turnId);
-          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
-        }
-      },
-      onSession: session => {
+      phaseGroupId: group.id,
+      emit: (turnId, event) => this.bus.events.member(endpoint.id, event, turnId),
+      executeTool: (turnId, name, args, metadata) => this.bus.tool(endpoint.id, endpoint.key, name, args, { ...metadata, turnId }),
+      accepted: () => onAccepted(),
+      onSession: (turnId, session) => {
         this.bus.store.run('INSERT INTO conversation_session_bindings VALUES(?,?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET session=excluded.session,updated=excluded.updated', endpoint.id, sessionKey, session, new Date().toISOString());
         this.bus.store.setConversationSession(endpoint.id, session);
         endpoint.session = session;
         effectiveEndpoint.session = session;
         this.bus.store.setTurnSession(turnId, session);
       },
-      onModel: observation => { this.bus.events.member(endpoint.id, { type: 'framework.model', ...observation }, turnId); },
-      onSelection: selection => { if (selection?.model) this.bus.events.member(endpoint.id, { type: 'framework.model_selection', ...selection }, turnId); },
-      onToolCallDelta: payload => this.bus.observeToolStreamDelta(
-        streamScope,
-        toolStreamRun.streams,
-        payload,
-      ),
-      onTextDelta: (delta, metadata = {}) => {
-        if (!teamStream || typeof delta !== 'string' || !delta) return;
-        const current = this.bus.teamStreams.get(turnId);
-        if (!current || current.text.length + delta.length > 2_000_000) return;
-        current.text += delta;
-        current.runPhase = 'writing';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        this.bus.publishTeamStream({
-          type: 'delta',
-          stream: { ...current, text: '' },
-          delta,
-          metadata,
-        });
+      onPolicy: (turnId, signature) => this.bus.store.setConversationPolicySignature(endpoint.id, signature, sessionKey),
+      onStart: turnId => this.bus.events.member(endpoint.id, {
+        type: 'framework.session_scope',
+        domain: policy.domain,
+        sessionKey,
+        session: binding?.session ?? fallbackSession,
+        reused: Boolean(binding?.session ?? fallbackSession),
+        contextSchemaVersion: schema,
+      }, turnId),
+      rememberSchema: turnId => this.bus.information.rememberTurnSchema(turnId, 'member', schema, sessionKey),
+      createToolStream: turnId => {
+        const scope = { ...streamScope, turnId };
+        const run = this.bus.createToolStreamRun(scope);
+        return payload => this.bus.observeToolStreamDelta(scope, run.streams, payload);
       },
-      onReasoningDelta: (delta, metadata = {}) => {
-        if (!teamStream || typeof delta !== 'string' || !delta) return;
-        const current = this.bus.teamStreams.get(turnId);
-        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
-        current.reasoning += delta;
-        current.runPhase = 'thinking';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        this.bus.publishTeamStream({
-          type: 'reasoning-delta',
-          stream: { ...current, text: '', reasoning: '' },
-          delta,
-          metadata,
-        });
+      streamFactories: turnId => ({
+        panel: null,
+        team: (endpoint.context === 'coordination' && inputs.some(message => message.sender === 'user')) || pairPeerId
+          ? {
+              id: turnId,
+              groupId: group.id,
+              endpointId: endpoint.id,
+              memberId: member.id,
+              memberName: member.name,
+              recipientName: pairPeerId ? pairPeerName : '用户',
+              pairKey: pairPeerId ? [member.id, pairPeerId].sort().join(':') : '',
+              kind: 'reply',
+              host: member.host,
+              context: endpoint.context,
+              turnId,
+              text: '',
+              reasoning: '',
+              runPhase: 'accepted',
+              tool: null,
+              created: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : null,
+      }),
+      measure: { groupId: group.id, fixed: schema === CONTEXT_SCHEMA_VERSION },
+      telemetry: { groupId: group.id, sessionKey, host: member.host, context: endpoint.context, turnKind: 'member' },
+      getHostSessionId: () => effectiveEndpoint.session ?? null,
+      onComplete: (turnId, result, abort) => {
+        const publishedReplies = !abort.signal.aborted && endpoint.context === 'coordination'
+          ? this.bus.teamDirectives.publishOutput(turnId, result)
+          : [];
+        return publishedReplies?.[0] ?? null;
       },
-      onPolicy: observation => {
-        if (observation.signature) this.bus.store.setConversationPolicySignature(endpoint.id, observation.signature, sessionKey);
-        this.bus.events.member(endpoint.id, { type: 'framework.policy', ...observation }, turnId);
-      },
-      onTelemetry: observation => {
-        try {
-          this.bus.telemetry.record({
-            groupId: group.id,
-            executorKind: 'member',
-            executorId: endpoint.member_id,
-            endpointId: endpoint.id,
-            sessionKey,
-            turnId,
-            turnKind: 'member',
-            host: member.host,
-            hostSessionId: effectiveEndpoint.session ?? null,
-            context: endpoint.context,
-            observation,
-          });
-        } catch {
-          // Telemetry is observational and must never turn a host turn into a failure.
-        }
-      },
-      onEvent: event => { if (!this.bus.closing) this.bus.events.member(endpoint.id, event, turnId); },
-    }));
-    live.done = promise;
-    try {
-      const result = await promise;
-      this.bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
-      this.bus.events.member(endpoint.id, { type: 'framework.output', text: result }, turnId);
-      const publishedReplies = !abort.signal.aborted && endpoint.context === 'coordination'
-        ? this.bus.teamDirectives.publishOutput(turnId, result)
-        : [];
-      const persistedReply = publishedReplies?.[0] ?? null;
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: 'complete',
-          stream: {
-            ...teamStream,
-            text: String(result ?? teamStream.text),
-            updatedAt: new Date().toISOString(),
-            ...(persistedReply
-              ? { messageId: persistedReply.id, messageSeq: persistedReply.seq }
-              : {}),
-          },
-        });
-      }
-      this.bus.discardToolStreamRun(turnId);
-      return result;
-    }
-    catch (error) {
-      this.bus.store.setTurnState(turnId, error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed', { detail: error.message });
-      this.bus.events.member(endpoint.id, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message }, turnId);
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: abort.signal.aborted ? 'cancelled' : 'error',
-          stream: { ...teamStream, updatedAt: new Date().toISOString() },
-          error: error.message,
-        });
-      }
-      this.bus.discardToolStreamRun(turnId, 'error', error.message);
-      throw error;
-    }
-    finally {
-      try {
-        this.bus.telemetry.record({
-          groupId: group.id,
-          executorKind: 'member',
-          executorId: endpoint.member_id,
-          endpointId: endpoint.id,
-          sessionKey,
-          turnId,
-          turnKind: 'member',
-          host: member.host,
-          hostSessionId: effectiveEndpoint.session ?? null,
-          context: endpoint.context,
-          observation: telemetryObservation({
-            source: 'framework.measured',
-            scope: 'turn',
-            aggregation: 'delta',
-            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
-            quality: { executionWallMs: 'measured' },
-            completeness: { executionWallMs: 'complete' },
-          }),
-        });
-      } catch { /* telemetry must not affect the host outcome */ }
-      this.bus.running.delete(endpoint.id); setImmediate(() => this.bus.pump());
-    }
+      nativeTurnEvent: false,
+      failureDetail: true,
+      onFinally: () => setImmediate(() => this.bus.pump()),
+    });
   }
+
   async privateTurn(groupId, text) {
     this.bus.store.group(groupId);
     const controller = this.bus.teamController(groupId);

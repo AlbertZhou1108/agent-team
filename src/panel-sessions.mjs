@@ -2,13 +2,11 @@ import { randomUUID, createHash } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import { interactionView } from './interactions.mjs';
-import { modelSelectionOf } from './actors.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { attachmentError } from './attachments.mjs';
 import { ensureDefaultPanelWorkspace } from './default-workspace.mjs';
-import { telemetryObservation } from './telemetry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 
 // Panel 会话模块:Panel Agent 创建配置、私聊协作回合、面板更新与 Panel 工具。
@@ -623,7 +621,6 @@ export class PanelSessions {
     }
     const host = this.bus.hosts.get(panelAgent.host);
     if (!host) throw new Error(`宿主未配置: ${panelAgent.host}`);
-    const abort = new AbortController();
     const group = session.group_id ? this.bus.store.group(session.group_id) : null;
     const privateContext = session.context === 'private';
     const access = privateContext ? this.bus.panelAccessValue(panelAgent) : 'communication';
@@ -635,361 +632,126 @@ export class PanelSessions {
     const schema = this.bus.information.rememberPanelSchema(session, this.bus.information.panelSchemaForStart(session));
     const instructions = this.bus.panelInstructions(session, panelAgent, activeTeamId);
     this.bus.information.assertRuleBudget(instructions, schema);
-    const now = new Date().toISOString();
-    const turnId = this.bus.store.createTurn(session, {
+    const sourceMessage = sourceUserMessageId ? this.bus.store.get('SELECT text FROM panel_messages WHERE id=?', sourceUserMessageId) : null;
+    const liveContext = privateContext ? 'panel-private' : 'panel-coordination';
+    const liveEndpoint = { ...session, group_id: session.group_id ?? null, context: liveContext };
+    const hostEndpoint = { ...session, context: liveContext, group_id: session.group_id ?? null };
+    return this.bus.turnExecutor.run({
+      conversation: session,
+      actor: panelAgent,
+      host,
       executorKind: 'panel_agent',
       executorId: panelAgent.id,
       inputs,
+      prompt,
+      instructions,
+      schema,
+      policy,
+      previousPolicy: session.policy_signature ? { signature: session.policy_signature } : null,
+      workspace: privateContext ? privateWorkspace : (group?.workspace ?? this.bus.store.directory),
+      tools: panelToolsFor(session.context),
+      attachments,
+      hostEndpoint,
+      liveEndpoint,
       activeTeamId,
       sourceUserMessageId,
-    });
-    this.bus.information.rememberTurnSchema(turnId, 'panel', schema);
-    const live = {
-      endpoint: { ...session, group_id: session.group_id ?? null, context: session.context === 'private' ? 'panel-private' : 'panel-coordination' },
-      activeTeamId,
-      abort,
-      turnId,
-      done: null,
-      created: now,
-    };
-    const sourceMessage = sourceUserMessageId ? this.bus.store.get('SELECT text FROM panel_messages WHERE id=?', sourceUserMessageId) : null;
-    const stream = {
-      homeSummary: session.context === 'private' && Boolean(sourceMessage?.text.startsWith('[主页进展摘要]')),
-      sourceUserMessageId,
-      agentId: panelAgent.id,
-      sessionId: session.id,
-      turnId,
-      context: session.context,
-      activeTeamId,
-      text: '',
-      reasoning: '',
-      // 阶段由服务端维护:前端据此区分思考、输出与工具调用,不必靠内容反推。
-      runPhase: 'accepted',
-      tool: null,
-      created: now,
-      updatedAt: now,
-    };
-    this.bus.panelStreams.set(turnId, stream);
-    this.bus.publishPanelStream({ type: 'start', stream: { ...stream } });
-    const teamStream = session.context === 'coordination' && inputs.some(message => message.sender === 'user')
-      ? {
-          id: turnId,
+      phaseGroupId: activeTeamId,
+      emit: (turnId, event) => this.bus.events.panel(session.id, event, turnId),
+      executeTool: (turnId, name, args, metadata) => this.bus.panelTool(session.id, session.key, name, args, {
+        ...metadata,
+        turnId,
+        activeTeamId,
+      }),
+      accepted: turnId => onAccepted(turnId),
+      onSession: (turnId, value) => {
+        this.bus.store.setConversationSession(session.id, value);
+        session.session = value;
+      },
+      onPolicy: (turnId, signature) => {
+        this.bus.store.setConversationPolicySignature(session.id, signature);
+        session.policy_signature = signature;
+      },
+      onStart: turnId => this.bus.events.panel(session.id, {
+        type: 'framework.context',
+        activeTeamId,
+        relation: activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null,
+        contextSchemaVersion: schema,
+        ...(privateContext ? { workspace: privateWorkspace, access } : {}),
+      }, turnId),
+      rememberSchema: turnId => this.bus.information.rememberTurnSchema(turnId, 'panel', schema),
+      createToolStream: turnId => {
+        if (session.context !== 'coordination') return null;
+        const scope = {
           groupId: session.group_id,
           endpointId: session.id,
           memberId: panelAgent.id,
           memberName: panelAgent.name,
-          recipientName: '用户',
-          pairKey: '',
-          kind: 'reply',
           host: panelAgent.host,
           context: session.context,
           turnId,
+        };
+        const run = this.bus.createToolStreamRun(scope);
+        return payload => this.bus.observeToolStreamDelta(scope, run.streams, payload);
+      },
+      streamFactories: turnId => ({
+        panel: {
+          homeSummary: privateContext && Boolean(sourceMessage?.text.startsWith('[主页进展摘要]')),
+          sourceUserMessageId,
+          agentId: panelAgent.id,
+          sessionId: session.id,
+          turnId,
+          context: session.context,
+          activeTeamId,
           text: '',
           reasoning: '',
           runPhase: 'accepted',
           tool: null,
-          created: now,
-          updatedAt: now,
+          created: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        team: session.context === 'coordination' && inputs.some(message => message.sender === 'user')
+          ? {
+              id: turnId,
+              groupId: session.group_id,
+              endpointId: session.id,
+              memberId: panelAgent.id,
+              memberName: panelAgent.name,
+              recipientName: '用户',
+              pairKey: '',
+              kind: 'reply',
+              host: panelAgent.host,
+              context: session.context,
+              turnId,
+              text: '',
+              reasoning: '',
+              runPhase: 'accepted',
+              tool: null,
+              created: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : null,
+      }),
+      measure: { groupId: session.group_id ?? null, fixed: false },
+      telemetry: { groupId: session.group_id, sessionKey: 'default', host: panelAgent.host, context: session.context, turnKind: 'panel' },
+      getHostSessionId: () => session.session ?? null,
+      onComplete: (turnId, result, abort) => {
+        if (result) {
+          const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
+          this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
         }
-      : null;
-    if (teamStream) {
-      this.bus.teamStreams.set(turnId, teamStream);
-      this.bus.publishTeamStream({ type: 'start', stream: { ...teamStream } });
-    }
-    // `publish: false` 用于增量路径:该事件本身已携带新阶段,无需再补一条 phase。
-    const setPhase = (phase, tool = null, publish = true) => {
-      const current = this.bus.panelStreams.get(turnId);
-      if (!current || (current.runPhase === phase && current.tool === tool)) return;
-      current.runPhase = phase;
-      current.tool = tool;
-      current.updatedAt = new Date().toISOString();
-      if (!publish) return;
-      this.bus.publishPanelStream({ type: 'phase', stream: { ...current } });
-      const teamCurrent = teamStream ? this.bus.teamStreams.get(turnId) : null;
-      if (teamCurrent) {
-        teamCurrent.runPhase = phase;
-        teamCurrent.tool = tool;
-        this.bus.publishTeamStream({ type: 'phase', stream: { ...teamCurrent } });
-      }
-    };
-    const toolStreamRun = session.context === 'coordination'
-      ? this.bus.createToolStreamRun({
-          groupId: session.group_id,
-          endpointId: session.id,
-          memberId: panelAgent.id,
-          memberName: panelAgent.name,
-          host: panelAgent.host,
-          context: session.context,
-          turnId,
-        })
-      : null;
-    const telemetryStarted = performance.now();
-    this.bus.running.set(session.id, live);
-    this.bus.events.panel(session.id, { type: 'input', text: prompt }, turnId);
-    try {
-      this.bus.information.measureRules({
-        groupId: session.group_id ?? null,
-        endpointId: session.id,
-        turnId,
-        schemaVersion: schema,
-        instructions,
-        fixed: false,
-      });
-      this.bus.information.measureTurnInput({
-        groupId: session.group_id ?? null,
-        endpointId: session.id,
-        turnId,
-        schemaVersion: schema,
-        prompt,
-      });
-    } catch {
-      // Measurement is observational and must never change the host outcome.
-    }
-    this.bus.events.panel(session.id, {
-      type: 'framework.context',
-      activeTeamId,
-      relation: activeTeamId ? this.bus.panelTeamRelation(activeTeamId) : null,
-      contextSchemaVersion: schema,
-      ...(privateContext ? { workspace: privateWorkspace, access } : {}),
-    }, turnId);
-    const previousPolicy = session.policy_signature ? { signature: session.policy_signature } : null;
-    const promise = Promise.resolve().then(() => host.run({
-      endpoint: { ...session, context: live.endpoint.context, group_id: session.group_id ?? null },
-      turnId,
-      workspace: privateContext ? privateWorkspace : (group?.workspace ?? this.bus.store.directory),
-      prompt,
-      instructions,
-      tools: panelToolsFor(session.context),
-      policy,
-      previousPolicy,
-      // 结构化附件输入:含服务端解析的副本路径,仅供 adapter 内部使用;不进用户可见正文。
-      attachments,
-      signal: abort.signal,
-      modelSelection: modelSelectionOf(panelAgent),
-      onAccepted: () => {
-        onAccepted(turnId);
-        this.bus.events.panel(session.id, { type: 'framework.input_accepted' }, turnId);
+        const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
+          ? this.bus.teamDirectives.publishOutput(turnId, result)
+          : [];
+        return publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
       },
-      onNativeTurn: ref => {
-        this.bus.store.run('INSERT OR IGNORE INTO native_turn_refs VALUES(?,?)', turnId, String(ref));
-        this.bus.events.panel(session.id, { type: 'framework.native_turn', ref: String(ref) }, turnId);
+      nativeTurnEvent: true,
+      failureDetail: false,
+      onFinally: () => {
+        setImmediate(() => this.bus.pumpPanelUpdates());
+        setImmediate(() => this.bus.pump());
       },
-      onTool: async (name, args, metadata = {}) => {
-        setPhase('tool', { name, groupId: activeTeamId ?? null });
-        try {
-          return await this.bus.panelTool(session.id, session.key, name, args, {
-            ...metadata,
-            turnId,
-            activeTeamId,
-          });
-        } catch (error) {
-          this.bus.failToolMessageStream(
-            turnId,
-            name,
-            args,
-            error,
-            metadata.nativeCallId ?? null,
-          );
-          throw error;
-        } finally {
-          // 工具结束后回到内容阶段:有正文即输出中,否则回到思考中。
-          const settled = this.bus.panelStreams.get(turnId);
-          if (settled) setPhase(settled.text ? 'writing' : 'thinking');
-        }
-      },
-      onSession: value => {
-        this.bus.store.setConversationSession(session.id, value);
-        session.session = value;
-      },
-      onModel: observation => this.bus.events.panel(session.id, { type: 'framework.model', ...observation }, turnId),
-      onSelection: selection => {
-        if (selection?.model) this.bus.events.panel(session.id, { type: 'framework.model_selection', ...selection }, turnId);
-      },
-      onToolCallDelta: payload => {
-        if (toolStreamRun) {
-          this.bus.observeToolStreamDelta(
-            toolStreamRun.scope,
-            toolStreamRun.streams,
-            payload,
-          );
-        }
-      },
-      onTextDelta: (delta, metadata = {}) => {
-        if (typeof delta !== 'string' || !delta) return;
-        const current = this.bus.panelStreams.get(turnId);
-        if (!current || current.text.length + delta.length > 2_000_000) return;
-        current.text += delta;
-        current.runPhase = 'writing';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (teamStream) {
-          const teamCurrent = this.bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.text = current.text;
-            teamCurrent.runPhase = 'writing';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            this.bus.publishTeamStream({
-              type: 'delta',
-              stream: { ...teamCurrent, text: '' },
-              delta,
-              metadata,
-            });
-          }
-        }
-        this.bus.publishPanelStream({
-          type: 'delta',
-          stream: { ...current, text: '' },
-          delta,
-          metadata,
-        });
-      },
-      onReasoningDelta: (delta, metadata = {}) => {
-        if (typeof delta !== 'string' || !delta) return;
-        const current = this.bus.panelStreams.get(turnId);
-        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
-        current.reasoning += delta;
-        current.runPhase = 'thinking';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (teamStream) {
-          const teamCurrent = this.bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.reasoning = current.reasoning;
-            teamCurrent.runPhase = 'thinking';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            this.bus.publishTeamStream({
-              type: 'reasoning-delta',
-              stream: { ...teamCurrent, text: '', reasoning: '' },
-              delta,
-              metadata,
-            });
-          }
-        }
-        this.bus.publishPanelStream({
-          type: 'reasoning-delta',
-          stream: { ...current, text: '', reasoning: '' },
-          delta,
-          metadata,
-        });
-      },
-      onPolicy: observation => {
-        if (observation.signature) {
-          this.bus.store.setConversationPolicySignature(session.id, observation.signature);
-          session.policy_signature = observation.signature;
-        }
-        this.bus.events.panel(session.id, { type: 'framework.policy', ...observation }, turnId);
-      },
-      onTelemetry: observation => {
-        try {
-          this.bus.telemetry.record({
-            groupId: session.group_id,
-            executorKind: 'panel_agent',
-            executorId: panelAgent.id,
-            endpointId: session.id,
-            sessionKey: 'default',
-            turnId,
-            turnKind: 'panel',
-            host: panelAgent.host,
-            hostSessionId: session.session ?? null,
-            context: session.context,
-            observation,
-          });
-        } catch {
-          // Telemetry is observational and must never turn a host turn into a failure.
-        }
-      },
-      onEvent: event => {
-        if (!this.bus.closing) this.bus.events.panel(session.id, event, turnId);
-      },
-    }));
-    live.done = promise;
-    try {
-      const result = await promise;
-      this.bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
-      this.bus.events.panel(session.id, { type: 'framework.output', text: result }, turnId);
-      if (result) {
-        const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
-        this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
-      }
-      const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
-        ? this.bus.teamDirectives.publishOutput(turnId, result)
-        : [];
-      const persistedReply = publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
-      this.bus.panelStreams.delete(turnId);
-      this.bus.publishPanelStream({
-        type: 'complete',
-        stream: { ...stream, text: String(result ?? stream.text), updatedAt: new Date().toISOString() },
-      });
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: 'complete',
-          stream: {
-            ...teamStream,
-            text: String(persistedReply?.text ?? result ?? teamStream.text),
-            updatedAt: new Date().toISOString(),
-            ...(persistedReply
-              ? { messageId: persistedReply.id, messageSeq: persistedReply.seq }
-              : {}),
-          },
-        });
-      }
-      this.bus.discardToolStreamRun(turnId);
-      return result;
-    } catch (error) {
-      const state = error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed';
-      this.bus.store.setTurnState(turnId, state);
-      this.bus.events.panel(session.id, {
-        type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error',
-        error: error.message,
-      }, turnId);
-      this.bus.panelStreams.delete(turnId);
-      this.bus.publishPanelStream({
-        type: abort.signal.aborted ? 'cancelled' : 'error',
-        stream: { ...stream, updatedAt: new Date().toISOString() },
-        error: error.message,
-      });
-      if (teamStream) {
-        this.bus.teamStreams.delete(turnId);
-        this.bus.publishTeamStream({
-          type: abort.signal.aborted ? 'cancelled' : 'error',
-          stream: { ...teamStream, updatedAt: new Date().toISOString() },
-          error: error.message,
-        });
-      }
-      this.bus.discardToolStreamRun(turnId, 'error', error.message);
-      throw error;
-    } finally {
-      try {
-        this.bus.telemetry.record({
-          groupId: session.group_id,
-          executorKind: 'panel_agent',
-          executorId: panelAgent.id,
-          endpointId: session.id,
-          sessionKey: 'default',
-          turnId,
-          turnKind: 'panel',
-          host: panelAgent.host,
-          hostSessionId: session.session ?? null,
-          context: session.context,
-          observation: telemetryObservation({
-            source: 'framework.measured',
-            scope: 'turn',
-            aggregation: 'delta',
-            timing: { executionWallMs: Math.max(0, Math.round(performance.now() - telemetryStarted)) },
-            quality: { executionWallMs: 'measured' },
-            completeness: { executionWallMs: 'complete' },
-          }),
-        });
-      } catch { /* telemetry must not affect the host outcome */ }
-      this.bus.running.delete(session.id);
-      setImmediate(() => this.bus.pumpPanelUpdates());
-      setImmediate(() => this.bus.pump());
-    }
+    });
   }
-
 
   // 稳定的请求指纹:正文与附件顺序共同构成;同 ID 不同内容必须被拒绝。
   panelRequestHash(text, attachmentIds) {

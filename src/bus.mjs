@@ -26,6 +26,7 @@ import { memberModelSummary } from './model-policy.mjs';
 import { Interactions } from './interactions.mjs';
 import { Attachments } from './attachments.mjs';
 import { PanelSessions } from './panel-sessions.mjs';
+import { TurnExecutor } from './turn-executor.mjs';
 
 export { interactionView } from './interactions.mjs';
 
@@ -60,6 +61,7 @@ export class Bus extends EventEmitter {
     this.lifecycle = new GroupLifecycle(this);
     this.dispatch = new MessageDispatch(this);
     this.queries = new BusQueries(this);
+    this.turnExecutor = new TurnExecutor(this);
   }
   get panelStreams() { return this.toolStreams.panelStreams; }
   get teamStreams() { return this.toolStreams.teamStreams; }
