@@ -762,7 +762,7 @@ watch(
               type="single"
               :model-value="preferences.materialPreference"
               :spacing="2"
-              class="grid w-full grid-cols-3"
+              class="grid w-full grid-cols-4"
               @update:model-value="selectMaterialPreference"
             >
               <ToggleGroupItem
