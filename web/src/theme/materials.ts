@@ -143,10 +143,10 @@ const PAPER: MaterialCategory = {
     '--component-content-image': PAPER_GRAIN,
     // 卡片与页面表面同为 --card 色,细纸边必须消费契约默认的主题边框色才立得住:
     // 不覆写 --component-surface-border,也不再用低比例混色把它压进纸面。
-    // 可见边线只由 border 承担,内容面不再叠加上缘内侧高光线(那会读成第二条边),
-    // 内缘只保留下缘的薄截面与接触阴影。
+    // 可见边线只由 border 承担:内容面与面板都不叠加上缘内侧高光线(那会读成第二条边),
+    // 内缘只保留下缘的薄截面与接触阴影;浮层保留 DESIGN.md 允许的第二层纸边。
     '--component-content-shadow': 'inset 0 -1px 0 color-mix(in oklch, var(--foreground) 11%, transparent), 0 2px 3px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 3px 6px 12px -3px color-mix(in oklch, var(--foreground) 7%, transparent)',
-    '--component-panel-shadow': 'inset 0 1px 0 light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 8%)), inset 0 -1px 0 color-mix(in oklch, var(--foreground) 14%, transparent), 0 2px 4px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 4px 8px 20px -4px color-mix(in oklch, var(--foreground) 9%, transparent)',
+    '--component-panel-shadow': 'inset 0 -1px 0 color-mix(in oklch, var(--foreground) 14%, transparent), 0 2px 4px -1px color-mix(in oklch, var(--foreground) 12%, transparent), 4px 8px 20px -4px color-mix(in oklch, var(--foreground) 9%, transparent)',
     '--component-surface-texture': PAPER_GRAIN,
     '--component-desk-bg': 'color-mix(in oklch, var(--muted) 32%, var(--background))',
     '--component-desk-image': 'none',
