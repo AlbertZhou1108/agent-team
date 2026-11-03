@@ -77,6 +77,7 @@ export class Bus extends EventEmitter {
   start() {
     this.teamDirectives.recoverOutputs();
     this.startAttachmentCleanup();
+    this.startRetentionCleanup();
     this.pumpPanelUpdates();
     this.pump();
   }
@@ -359,6 +360,20 @@ export class Bus extends EventEmitter {
     }, 60 * 60 * 1000);
     this.attachmentCleanupTimer.unref();
   }
+  // 历史保留:启动 1 分钟后跑一次,之后每 6 小时;异步启动,不阻塞服务。
+  startRetentionCleanup() {
+    const run = () => {
+      try {
+        this.store.pruneHistory({ retentionDays: 30 });
+      } catch (error) {
+        if (!this.closing) console.error('[retention] 历史清理失败:', error.message);
+      }
+    };
+    this.retentionTimer = setTimeout(run, 60 * 1000);
+    this.retentionTimer.unref?.();
+    this.retentionInterval = setInterval(run, 6 * 60 * 60 * 1000);
+    this.retentionInterval.unref?.();
+  }
   defaultModelSelection(hostName) {
     const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
     if (!cached) return null;
@@ -591,6 +606,7 @@ export class Bus extends EventEmitter {
   privateTurn(...args) { return this.dispatch.privateTurn(...args); }
   stopWhere(...args) { return this.dispatch.stopWhere(...args); }
   retry(...args) { return this.dispatch.retry(...args); }
+  pruneHistory(...args) { return this.store.pruneHistory(...args); }
   resetSession(...args) { return this.dispatch.resetSession(...args); }
 
   telemetryConversation(groupId, memberId, peerId, options = {}) {
@@ -624,6 +640,14 @@ export class Bus extends EventEmitter {
     if (this.attachmentCleanupTimer) {
       clearInterval(this.attachmentCleanupTimer);
       this.attachmentCleanupTimer = null;
+    }
+    if (this.retentionTimer) {
+      clearTimeout(this.retentionTimer);
+      this.retentionTimer = null;
+    }
+    if (this.retentionInterval) {
+      clearInterval(this.retentionInterval);
+      this.retentionInterval = null;
     }
     for (const controller of this.hostCatalogControllers.values()) controller.abort(new Error('服务正在停止'));
     await Promise.allSettled([...this.hosts.values()].map(host => host.cancelProbe?.()));

@@ -549,6 +549,25 @@ export class Store {
         OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
       ) ORDER BY m.seq`);
   }
+  // 历史保留:删除 cutoff 之前且已可安全丢弃的数据。
+  // 保留:待投递消息、待响应互动卡、运行中/待核实回合的输入、Panel 私聊消息与未交付队列。
+  pruneHistory({ retentionDays = 30, now = Date.now() } = {}) {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) throw new Error('保留天数无效');
+    const cutoff = new Date(now - retentionDays * 86400000).toISOString();
+    return this.transaction(() => {
+      const messages = this.run(`DELETE FROM messages WHERE created < ? AND awaiting=0
+        AND NOT EXISTS(SELECT 1 FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=messages.id AND o.accepted IS NULL)
+        AND NOT EXISTS(SELECT 1 FROM interactions i WHERE i.message_id=messages.id AND i.state='pending')
+        AND NOT EXISTS(SELECT 1 FROM turn_inputs ti JOIN turns t ON t.id=ti.turn_id WHERE ti.message_id=messages.id AND t.state IN ('running','unknown'))`, cutoff);
+      const turns = this.run("DELETE FROM turns WHERE created < ? AND state NOT IN ('running','unknown')", cutoff);
+      const history = this.run('DELETE FROM history WHERE created < ? AND (turn_id IS NULL OR turn_id NOT IN (SELECT id FROM turns))', cutoff);
+      const outbox = this.run('DELETE FROM outbox WHERE accepted IS NOT NULL AND accepted < ?', cutoff);
+      const schemas = this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='turn_context_schemas'")
+        ? this.run('DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns)')
+        : { changes: 0 };
+      return { messages: messages.changes, turns: turns.changes, history: history.changes, outbox: outbox.changes, schemas: schemas.changes, cutoff };
+    });
+  }
   createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {
     this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, groupId, memberId, panelAgentId, endpointId, context, turnId, callId, messageId, panelMessageId, kind, JSON.stringify(payload), 'pending', detail, new Date().toISOString());
