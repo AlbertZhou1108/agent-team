@@ -6,7 +6,7 @@ import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAtta
 
 // 数据目录的 schema 版本。v1 = 当前双轨（endpoints + panel_sessions）；
 // v2 将合并为 conversations/turns 并统一投递队列，迁移细节见 docs/v2-dedup-plan.md。
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -198,6 +198,7 @@ export class Store {
     if (fromVersion >= SCHEMA_VERSION) return;
     if (fromVersion < 2) this.migrateV2();
     if (fromVersion < 3) this.migrateV3();
+    if (fromVersion < 4) this.migrateV4();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -210,6 +211,18 @@ export class Store {
           AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=messages.id) THEN 1 ELSE 0 END;
         CREATE INDEX IF NOT EXISTS messages_awaiting ON messages(seq) WHERE awaiting=1;
         CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(accepted) WHERE accepted IS NULL;`);
+    });
+  }
+
+  // v4:Agent 间请求-答复协议与工作台清理状态。
+  // expects_reply 只标记"发信人期待答复"的正式消息;答复用既有 reply_to 指回请求。
+  migrateV4() {
+    const hasExpectsReply = this.all('PRAGMA table_info(messages)').some(column => column.name === 'expects_reply');
+    this.transaction(() => {
+      if (!hasExpectsReply) this.db.exec('ALTER TABLE messages ADD COLUMN expects_reply INTEGER NOT NULL DEFAULT 0');
+      this.db.exec(`CREATE INDEX IF NOT EXISTS messages_expects_reply ON messages(seq) WHERE expects_reply=1;
+        CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to) WHERE reply_to IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS workbench_dismissals(category TEXT NOT NULL,item_id TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(category,item_id));`);
     });
   }
 
@@ -533,13 +546,18 @@ export class Store {
     this.member(conversation.member_id);
     return { ...conversation, owner_kind: 'member', owner_id: conversation.member_id };
   }
-  append(groupId, sender, recipient, kind, text, replyTo = null) {
+  append(groupId, sender, recipient, kind, text, replyTo = null, expectsReply = false) {
     this.group(groupId);
     const id = randomUUID();
     // user 收件人不会进入投递队列；note/system 随下一次批量交付，不参与 pending 扫描。
     const awaiting = kind === 'send' && recipient !== 'user' ? 1 : 0;
-    this.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created,awaiting) VALUES(?,?,?,?,?,?,?,?,?)', id, groupId, sender, recipient, kind, text, replyTo, new Date().toISOString(), awaiting);
+    const expects = kind === 'send' && expectsReply ? 1 : 0;
+    this.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created,awaiting,expects_reply) VALUES(?,?,?,?,?,?,?,?,?,?)', id, groupId, sender, recipient, kind, text, replyTo, new Date().toISOString(), awaiting, expects);
     return this.get('SELECT * FROM messages WHERE id=?', id);
+  }
+
+  dismissWorkbench(category, itemId) {
+    this.run('INSERT OR IGNORE INTO workbench_dismissals(category,item_id,created) VALUES(?,?,?)', category, itemId, new Date().toISOString());
   }
   pending() {
     return this.all(`SELECT m.* FROM messages m JOIN groups g ON g.id=m.group_id
@@ -565,7 +583,8 @@ export class Store {
       const schemas = this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='turn_context_schemas'")
         ? this.run('DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns)')
         : { changes: 0 };
-      return { messages: messages.changes, turns: turns.changes, history: history.changes, outbox: outbox.changes, schemas: schemas.changes, cutoff };
+      const dismissals = this.run('DELETE FROM workbench_dismissals WHERE created < ?', cutoff);
+      return { messages: messages.changes, turns: turns.changes, history: history.changes, outbox: outbox.changes, schemas: schemas.changes, dismissals: dismissals.changes, cutoff };
     });
   }
   createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {

@@ -45,6 +45,22 @@ test('a v1 database (user_version=0) is stamped without losing rows', t => {
   store.close();
 });
 
+test('a v3 database gains the reply protocol and workbench dismissals on reopen', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run('DROP INDEX IF EXISTS messages_expects_reply');
+  store.run('ALTER TABLE messages DROP COLUMN expects_reply');
+  store.run('DROP TABLE IF EXISTS workbench_dismissals');
+  store.setSchemaVersion(3);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.all('PRAGMA table_info(messages)').some(column => column.name === 'expects_reply'));
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workbench_dismissals'"));
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

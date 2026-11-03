@@ -50,10 +50,12 @@ const mainDefinitions = [
     ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。', {
+  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。', {
     groupId,
     to: string,
     text: string,
+    expects_reply: { type: 'boolean' },
+    reply_to: { type: 'string', minLength: 1, maxLength: 100 },
   }, ['groupId', 'to', 'text']],
   ['team_note', '以当前团队主 Agent 身份向成员留下不唤醒的留言。', {
     groupId,

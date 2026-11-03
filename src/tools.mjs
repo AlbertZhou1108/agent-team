@@ -1,6 +1,11 @@
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const definitions = [
-  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。是否回复由正文说明。', { to: string, text: string }, ['to', 'text']],
+  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。', {
+    to: string,
+    text: string,
+    expects_reply: { type: 'boolean' },
+    reply_to: { type: 'string', minLength: 1, maxLength: 100 },
+  }, ['to', 'text']],
   ['note', '给一位成员留言，不唤醒，随下一条正式消息交付。', { to: string, text: string }, ['to', 'text']],
   ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。新会话默认返回有界列表（ID/seq/作者/接收者/kind/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     after: { type: 'integer', minimum: 0 },
@@ -72,6 +77,7 @@ export function validateTool(role, name, args, context) {
     if (rule.type === 'string' && (typeof value !== 'string' || !value.trim() || value.length > rule.maxLength)) throw new Error(`无效文本: ${key}`);
     if (rule.type === 'string' && rule.enum && !rule.enum.includes(value)) throw new Error(`无效取值: ${key}`);
     if (rule.type === 'integer' && (!Number.isInteger(value) || value < rule.minimum || value > (rule.maximum ?? Number.MAX_SAFE_INTEGER))) throw new Error(`无效整数: ${key}`);
+    if (rule.type === 'boolean' && typeof value !== 'boolean') throw new Error(`无效布尔值: ${key}`);
     if (rule.type === 'array') {
       if (!Array.isArray(value) || value.length < (rule.minItems ?? 0) || value.length > (rule.maxItems ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表: ${key}`);
       if (rule.items?.type === 'object') {

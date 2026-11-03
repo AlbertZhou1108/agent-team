@@ -14,10 +14,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Disclosure } from '@/components/ui/disclosure';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyDescription } from '@/components/ui/empty';
 import MarkdownRenderer from '@/components/ai-elements/MarkdownRenderer.vue';
-import { LoaderCircle, RefreshCw } from '@lucide/vue';
+import { LoaderCircle, RefreshCw, Trash2 } from '@lucide/vue';
 type Activity = {
   id: string;
   name: string;
@@ -46,6 +54,17 @@ type Workbench = {
     created: string;
     path: string;
   }[];
+  agentWaiting: {
+    id: string;
+    title: string;
+    groupName: string;
+    senderName: string;
+    senderKind: string;
+    recipientName: string;
+    recipientKind: string;
+    created: string;
+    path: string;
+  }[];
   running: Activity[];
   recent: Activity[];
   panelReady: boolean;
@@ -68,10 +87,86 @@ const pending = computed(() =>
   (data.value?.pending ?? []).filter((item) => item.kind === 'interaction'),
 );
 const waiting = computed(() => data.value?.waiting ?? []);
-// 无待你处理事项但有等待回复时，直接打开等待 tab；否则保持默认。
-const handoffTab = ref(
-  pending.value.length === 0 && waiting.value.length > 0 ? 'waiting' : 'interactions',
+const agentWaiting = computed(() => data.value?.agentWaiting ?? []);
+type EntrySource = 'interaction' | 'user' | 'agent';
+type WorkbenchEntry = {
+  id: string;
+  source: EntrySource;
+  title: string;
+  groupName: string;
+  created: string;
+  path: string;
+  recipientName?: string;
+  senderName?: string;
+};
+const filter = ref<'all' | EntrySource>('all');
+const total = computed(
+  () => pending.value.length + waiting.value.length + agentWaiting.value.length,
 );
+const entries = computed<WorkbenchEntry[]>(() => {
+  const all: WorkbenchEntry[] = [
+    ...pending.value.map((item) => ({ ...item, source: 'interaction' as const })),
+    ...waiting.value.map((item) => ({ ...item, source: 'user' as const })),
+    ...agentWaiting.value.map((item) => ({ ...item, source: 'agent' as const })),
+  ];
+  return filter.value === 'all'
+    ? all
+    : all.filter((item) => item.source === filter.value);
+});
+const emptyText = computed(() => {
+  if (query.isPending.value) return '正在加载…';
+  if (filter.value === 'interaction') return '暂无待你处理的互动卡';
+  if (filter.value === 'user') return '暂无等待 Agent 回复的指令';
+  if (filter.value === 'agent') return '暂无 Agent 之间的等待';
+  return '暂无待处理事项';
+});
+const sourceLabel: Record<EntrySource, string> = {
+  interaction: '等待答复',
+  user: '你的指令',
+  agent: 'Agent 请求',
+};
+const confirmClean = ref(false);
+const cleaning = ref(false);
+const cleanError = ref('');
+const cleanDescription = computed(() => {
+  const scope =
+    filter.value === 'all'
+      ? '当前列表'
+      : filter.value === 'interaction'
+        ? '待你处理'
+        : filter.value === 'user'
+          ? '等待回复'
+          : 'Agent 等待';
+  const count = entries.value.length;
+  const interactionHint = entries.value.some((item) => item.source === 'interaction')
+    ? '\n互动卡仍保持待处理，可在团队会话中继续处理。'
+    : '';
+  return `将从工作台隐藏${scope}的 ${count} 项；消息记录不会删除。${interactionHint}`;
+});
+async function cleanEntries() {
+  if (!entries.value.length || cleaning.value) return;
+  cleaning.value = true;
+  cleanError.value = '';
+  try {
+    await api.dismissWorkbench(
+      entries.value.map((item) => ({
+        category:
+          item.source === 'interaction'
+            ? 'interaction'
+            : item.source === 'user'
+              ? 'waiting:user'
+              : 'waiting:agent',
+        id: item.id,
+      })),
+    );
+    confirmClean.value = false;
+    await query.refetch();
+  } catch (error) {
+    cleanError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
+  } finally {
+    cleaning.value = false;
+  }
+}
 const workbenchOpen = ref(true);
 const activityTab = ref('running');
 const generating = ref(false);
@@ -215,77 +310,91 @@ async function summarize() {
       <div class="flex min-w-0 flex-col gap-4">
         <div class="grid min-w-0 gap-4 lg:grid-cols-2">
       <Card size="compact" class="home-card min-w-0">
-        <Tabs v-model="handoffTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
-          <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
-            <CardTitle>待处理</CardTitle>
-            <TabsList class="grid w-fit grid-cols-2">
-              <TabsTrigger value="interactions">待你处理 ({{ pending.length }})</TabsTrigger>
-              <TabsTrigger value="waiting">等待回复 ({{ waiting.length }})</TabsTrigger>
-            </TabsList>
-          </CardHeader>
-          <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
-            <TabsContent value="interactions" class="flex min-h-0 flex-1 flex-col gap-3">
-              <Empty v-if="!pending.length"
-                ><EmptyDescription>{{
-                  query.isPending.value ? '正在加载…' : '暂无待处理事项'
-                }}</EmptyDescription></Empty
+        <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+          <CardTitle
+            >待处理
+            <Badge variant="secondary">{{ entries.length }}</Badge></CardTitle
+          >
+          <div class="flex min-w-0 items-center gap-2">
+            <Select v-model="filter">
+              <SelectTrigger class="w-36" aria-label="选择待处理范围"
+                ><SelectValue /></SelectTrigger
               >
-              <div v-else class="flex flex-col gap-2">
-                <Button
-                  v-for="item in pending"
-                  :key="item.id"
-                  as-child
-                  variant="ghost"
-                  class="h-auto justify-start"
-                  ><RouterLink :to="item.path"
-                    ><span class="flex min-w-0 flex-col gap-1"
-                      ><span class="flex flex-wrap items-center gap-2"
-                        ><Badge variant="outline">等待答复</Badge
-                        ><span class="text-xs text-muted-foreground">{{
-                          item.groupName
-                        }}</span></span
-                      ><span
-                        class="line-clamp-2 whitespace-normal break-all text-left"
-                        >{{ item.title }}</span
-                      ></span
-                    ></RouterLink
-                  ></Button
+              <SelectContent>
+                <SelectItem value="all">全部 ({{ total }})</SelectItem>
+                <SelectItem value="interaction"
+                  >待你处理 ({{ pending.length }})</SelectItem
                 >
-              </div>
-            </TabsContent>
-            <TabsContent value="waiting" class="flex min-h-0 flex-1 flex-col gap-3">
-              <Empty v-if="!waiting.length"
-                ><EmptyDescription
-                  >暂无等待超过 5 分钟的回复</EmptyDescription
-                ></Empty
-              >
-              <div v-else class="flex flex-col gap-2">
-                <Button
-                  v-for="item in waiting"
-                  :key="item.id"
-                  as-child
-                  variant="ghost"
-                  class="h-auto justify-start"
-                  ><RouterLink :to="item.path"
-                    ><span class="flex min-w-0 flex-col gap-1"
-                      ><span class="flex flex-wrap items-center gap-2"
-                        ><Badge variant="outline">等待回复</Badge
-                        ><span class="text-xs text-muted-foreground"
-                          >{{ item.groupName }} · {{ item.recipientName }}</span
-                        ></span
-                      ><span
-                        class="line-clamp-2 whitespace-normal break-all text-left"
-                        >{{ item.title }}</span
-                      ><span class="text-xs text-muted-foreground"
-                        >已等待 {{ elapsed(item.created) }}</span
-                      ></span
-                    ></RouterLink
-                  ></Button
+                <SelectItem value="user"
+                  >等待回复 ({{ waiting.length }})</SelectItem
                 >
-              </div>
-            </TabsContent>
-          </CardContent>
-        </Tabs>
+                <SelectItem value="agent"
+                  >Agent 等待 ({{ agentWaiting.length }})</SelectItem
+                >
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              :disabled="!entries.length || cleaning"
+              :aria-label="cleaning ? '正在清理' : '清理当前列表'"
+              title="从工作台隐藏当前列表（不删除消息）"
+              @click="confirmClean = true"
+            >
+              <LoaderCircle v-if="cleaning" class="animate-spin" /><Trash2
+                v-else
+              />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
+          <Empty v-if="!entries.length"
+            ><EmptyDescription>{{ emptyText }}</EmptyDescription></Empty
+          >
+          <div v-else class="flex flex-col gap-2">
+            <Button
+              v-for="item in entries"
+              :key="`${item.source}:${item.id}`"
+              as-child
+              variant="ghost"
+              class="h-auto justify-start"
+              ><RouterLink :to="item.path"
+                ><span class="flex min-w-0 flex-col gap-1"
+                  ><span class="flex flex-wrap items-center gap-2"
+                    ><Badge variant="outline">{{ sourceLabel[item.source] }}</Badge
+                    ><span class="text-xs text-muted-foreground"
+                      >{{ item.groupName
+                      }}<template v-if="item.source === 'agent'">
+                        · {{ item.senderName }} → {{ item.recipientName }}</template
+                      ><template v-else-if="item.source === 'user'">
+                        · {{ item.recipientName }}</template
+                      ></span
+                    ></span
+                  ><span
+                    class="line-clamp-2 whitespace-normal break-all text-left"
+                    >{{ item.title }}</span
+                  ><span
+                    v-if="item.source !== 'interaction'"
+                    class="text-xs text-muted-foreground"
+                    >已等待 {{ elapsed(item.created) }}</span
+                  ></span
+                ></RouterLink
+              ></Button
+            >
+          </div>
+          <p v-if="cleanError" class="text-xs text-destructive">
+            {{ cleanError }}
+          </p>
+        </CardContent>
+        <ConfirmDialog
+          :open="confirmClean"
+          title="清理当前待处理项？"
+          :description="cleanDescription"
+          confirm-text="清理"
+          destructive
+          @cancel="confirmClean = false"
+          @confirm="cleanEntries"
+        />
       </Card>
           <Card size="compact" class="home-card min-w-0">
             <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">

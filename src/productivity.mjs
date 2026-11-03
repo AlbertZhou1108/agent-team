@@ -74,13 +74,21 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     "SELECT id,name FROM groups WHERE state IS NULL OR state!='archived'",
   );
   const names = new Map(groups.map((g) => [g.id, g.name]));
+  const dismissed = new Map([
+    ['interaction', new Set()],
+    ['waiting:user', new Set()],
+    ['waiting:agent', new Set()],
+  ]);
+  for (const row of s.all('SELECT category,item_id FROM workbench_dismissals')) {
+    dismissed.get(row.category)?.add(row.item_id);
+  }
   const destination = (group, endpoint, message) =>
     group
       ? `/groups/${encodeURIComponent(group)}?${new URLSearchParams({ ...(endpoint ? { session: endpoint } : {}), ...(message ? { message } : {}) })}`
       : '/agent';
   const pending = s
     .all(`SELECT * FROM interactions WHERE state='pending' ORDER BY created`)
-    .filter((i) => !i.group_id || names.has(i.group_id))
+    .filter((i) => (!i.group_id || names.has(i.group_id)) && !dismissed.get('interaction').has(i.id))
     .map((i) => ({
       id: i.id,
       kind: 'interaction',
@@ -131,6 +139,31 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
       WHERE m.sender='user' AND m.kind='send' AND m.reply_to IS NULL
         AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
+        AND NOT EXISTS(SELECT 1 FROM workbench_dismissals d WHERE d.category='waiting:user' AND d.item_id=m.id)
+      ORDER BY m.created ASC LIMIT 50`)
+    .filter((row) => now - Date.parse(row.created) >= waitingThresholdMs)
+    .map((row) => ({
+      ...row,
+      title: row.text.length > 200 ? `${row.text.slice(0, 200)}…` : row.text,
+      path: `/groups/${encodeURIComponent(row.group_id)}?message=${encodeURIComponent(row.id)}`,
+    }));
+  // Agent 间请求:发信人显式声明 expects_reply 且尚无 reply_to 指回。
+  const agentWaiting = s
+    .all(`SELECT m.id,m.group_id,m.text,m.created,m.sender,m.recipient,
+        g.name AS groupName,
+        COALESCE(sm.name,sp.name,m.sender) AS senderName,
+        COALESCE(rm.name,rp.name,m.recipient) AS recipientName,
+        CASE WHEN sm.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS senderKind,
+        CASE WHEN rm.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind
+      FROM messages m JOIN groups g ON g.id=m.group_id
+      LEFT JOIN members sm ON sm.id=m.sender
+      LEFT JOIN panel_agents sp ON sp.id=m.sender
+      LEFT JOIN members rm ON rm.id=m.recipient
+      LEFT JOIN panel_agents rp ON rp.id=m.recipient
+      WHERE m.sender!='user' AND m.kind='send' AND m.expects_reply=1
+        AND (g.state IS NULL OR g.state!='archived')
+        AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
+        AND NOT EXISTS(SELECT 1 FROM workbench_dismissals d WHERE d.category='waiting:agent' AND d.item_id=m.id)
       ORDER BY m.created ASC LIMIT 50`)
     .filter((row) => now - Date.parse(row.created) >= waitingThresholdMs)
     .map((row) => ({
@@ -170,6 +203,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   return {
     pending,
     waiting,
+    agentWaiting,
     running,
     recent,
     panelReady: Boolean(bus.panelAgent()),
@@ -178,4 +212,39 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
       ? { id: summaryRequest.id, created: summaryRequest.created }
       : null,
   };
+}
+
+const DISMISS_CATEGORIES = new Set(['interaction', 'waiting:user', 'waiting:agent']);
+
+/**
+ * 只把条目从工作台隐藏:消息、互动卡和 reply_to 关系都不删除。
+ * 服务端按当前投影校验 item_id,避免清理过期或不属于该类别的记录。
+ */
+export function dismissWorkbench(bus, items) {
+  if (!Array.isArray(items) || items.length === 0 || items.length > 300) throw new Error('清理项无效');
+  const store = bus.store;
+  const live = new Map([
+    ['interaction', new Set(store.all("SELECT id FROM interactions WHERE state='pending'").map(row => row.id))],
+    ['waiting:user', new Set(store.all(`SELECT m.id FROM messages m JOIN groups g ON g.id=m.group_id
+      WHERE m.sender='user' AND m.kind='send' AND m.reply_to IS NULL
+        AND (g.state IS NULL OR g.state!='archived')
+        AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)`).map(row => row.id))],
+    ['waiting:agent', new Set(store.all(`SELECT m.id FROM messages m JOIN groups g ON g.id=m.group_id
+      WHERE m.sender!='user' AND m.kind='send' AND m.expects_reply=1
+        AND (g.state IS NULL OR g.state!='archived')
+        AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)`).map(row => row.id))],
+  ]);
+  const seen = new Set();
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).some(key => !['category', 'id'].includes(key))) throw new Error('清理项无效');
+    if (!DISMISS_CATEGORIES.has(item.category) || typeof item.id !== 'string' || !item.id) throw new Error('清理项无效');
+    const key = `${item.category}:${item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!live.get(item.category)?.has(item.id)) throw new Error('清理项已失效，请刷新后重试');
+  }
+  store.transaction(() => {
+    for (const item of items) store.dismissWorkbench(item.category, item.id);
+  });
+  return { dismissed: seen.size };
 }

@@ -116,6 +116,9 @@ export const api = {
   homeSummary(signal?: AbortSignal) { return request<RuntimeEndpoint[]>('/api/home-summary', signal); },
   tasks(group: string, signal?: AbortSignal) { return request<AgentTaskEntry[]>(query('/api/agent-tasks', { group }), signal); },
   unread(signal?: AbortSignal) { return request<UnreadProjection>('/api/panel-agent/unread', signal); },
+  dismissWorkbench(items: Array<{ category: 'interaction' | 'waiting:user' | 'waiting:agent'; id: string }>) {
+    return mutate<{ dismissed: number }>('/api/workbench/dismiss', { items });
+  },
   modelPolicy(signal?: AbortSignal) { return request<Overview['modelPolicy']>('/api/model-policy', signal); },
   modelDefaults(signal?: AbortSignal) { return request<Overview['modelPolicyDefaults']>('/api/model-policy/defaults', signal); },
 

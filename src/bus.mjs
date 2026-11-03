@@ -516,8 +516,16 @@ export class Bus extends EventEmitter {
       this.collaboration.requireCommunication(groupId);
       const target = this.resolveRecipient(groupId, args.to);
       if (target.id === member.id) throw new Error('不能向自己发消息');
+      if (name === 'send' && args.reply_to !== undefined) {
+        const replyTarget = this.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', args.reply_to, groupId);
+        if (!replyTarget) throw new Error('回复的原消息不存在或不属于当前团队');
+        if (replyTarget.kind !== 'send' || replyTarget.expects_reply !== 1) throw new Error('只能回复一条期待答复的消息');
+        if (replyTarget.recipient !== member.id) throw new Error('不能回复不是发给自己的请求');
+        if (replyTarget.sender !== target.id) throw new Error('回复对象必须是原请求的发送者');
+      }
+      const expectsReply = name === 'send' && args.expects_reply === true;
       const message = this.store.transaction(() => {
-        const value = this.store.append(groupId, member.id, target.id, name, args.text);
+        const value = this.store.append(groupId, member.id, target.id, name, args.text, args.reply_to ?? null, expectsReply);
         if (origin) this.store.run('INSERT INTO message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId, origin.eventSeq, origin.callId, origin.nativeCallId);
         return value;
       });

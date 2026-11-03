@@ -1,0 +1,122 @@
+// Agent 间请求-答复协议与工作台清理:显式 expects_reply/reply_to，清理只隐藏不删除。
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { busScenario, serverScenario } from '../support/fixture.mjs';
+import { until } from '../support/wait.mjs';
+import { homeWorkbench, dismissWorkbench } from '../../src/productivity.mjs';
+
+function tools(bus, member) {
+  const endpoint = bus.store.endpoint(member.id, member.role === 'lead' ? 'coordination' : 'pair:test');
+  return (name, args = {}) => bus.tool(endpoint.id, endpoint.key, name, args);
+}
+
+const settled = bus => until(() => bus.running.size === 0
+  && bus.store.get('SELECT COUNT(*) AS n FROM outbox WHERE accepted IS NULL').n === 0);
+
+test('agent requests are waiting only when expects_reply is set and close with reply_to', async t => {
+  const { bus, members } = busScenario(t);
+  await settled(bus);
+  const [lead, one, two] = members;
+  const immediate = { waitingThresholdMs: 0 };
+
+  const normal = await tools(bus, one)('send', { to: two.id, text: '普通汇报' });
+  await settled(bus);
+  assert.deepEqual(homeWorkbench(bus, immediate).agentWaiting, []);
+
+  assert.equal(bus.store.get('SELECT expects_reply FROM messages WHERE id=?', normal.messageId).expects_reply, 0);
+  const request = await tools(bus, one)('send', { to: two.id, text: '请确认方案 X', expects_reply: true });
+  await settled(bus);
+  assert.equal(bus.store.get('SELECT expects_reply FROM messages WHERE id=?', request.messageId).expects_reply, 1);
+  const waiting = homeWorkbench(bus, immediate).agentWaiting;
+  assert.equal(waiting.length, 1);
+  assert.equal(waiting[0].id, request.messageId);
+  assert.equal(waiting[0].senderName, 'one');
+  assert.equal(waiting[0].recipientName, 'two');
+  assert.match(waiting[0].path, /\/groups\//);
+
+  await assert.rejects(
+    tools(bus, two)('send', { to: one.id, text: '乱回', reply_to: normal.messageId }),
+    /只能回复/,
+  );
+  await assert.rejects(
+    tools(bus, lead)('send', { to: two.id, text: '不是发给我的', reply_to: request.messageId }),
+    /不是发给自己/,
+  );
+
+  await tools(bus, two)('send', { to: one.id, text: '确认 X', reply_to: request.messageId });
+  await settled(bus);
+  assert.deepEqual(homeWorkbench(bus, immediate).agentWaiting, []);
+});
+
+test('dismissing hides workbench entries without deleting records or resolving interactions', async t => {
+  const { bus, group, members } = busScenario(t);
+  await settled(bus);
+  const [lead, one] = members;
+  const immediate = { waitingThresholdMs: 0 };
+
+  const directive = bus.store.append(group.id, 'user', lead.id, 'send', '等待中的用户指令');
+  const request = await tools(bus, one)('send', { to: lead.id, text: '等待中的 Agent 请求', expects_reply: true });
+  await settled(bus);
+  const interactionId = randomUUID();
+  bus.store.createInteraction({
+    id: interactionId,
+    groupId: group.id,
+    memberId: lead.id,
+    context: 'coordination',
+    turnId: randomUUID(),
+    callId: 'call-clean',
+    kind: 'choice',
+    payload: { kind: 'choice', text: '确认？', options: ['同意', '拒绝'] },
+  });
+
+  const before = homeWorkbench(bus, immediate);
+  assert.equal(before.pending.length, 1);
+  assert.equal(before.waiting.length, 1);
+  assert.equal(before.agentWaiting.length, 1);
+
+  const result = dismissWorkbench(bus, [
+    { category: 'interaction', id: interactionId },
+    { category: 'waiting:user', id: directive.id },
+    { category: 'waiting:agent', id: request.messageId },
+  ]);
+  assert.deepEqual(result, { dismissed: 3 });
+
+  const after = homeWorkbench(bus, immediate);
+  assert.deepEqual(after.pending, []);
+  assert.deepEqual(after.waiting, []);
+  assert.deepEqual(after.agentWaiting, []);
+  assert.equal(bus.store.interaction(interactionId).state, 'pending');
+  assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', directive.id));
+  assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', request.messageId));
+  assert.equal(bus.store.get('SELECT COUNT(*) AS n FROM workbench_dismissals').n, 3);
+  const fresh = bus.store.append(group.id, 'user', lead.id, 'send', '清理后的新指令');
+  const afterFresh = homeWorkbench(bus, immediate);
+  assert.equal(afterFresh.waiting.length, 1);
+  assert.equal(afterFresh.waiting[0].id, fresh.id);
+  assert.throws(
+    () => dismissWorkbench(bus, [{ category: 'waiting:user', id: 'missing' }]),
+    /已失效/,
+  );
+});
+
+test('dismiss HTTP route hides entries and rejects malformed requests', async t => {
+  const { bus, url, group, members } = await serverScenario(t, { members: ['one'] });
+  const lead = bus.teamController(group.id);
+  const directive = bus.store.append(group.id, 'user', lead.id, 'send', 'HTTP 清理');
+  const endpoint = new URL(url);
+  const post = (body, contentType = 'application/json') => fetch(new URL('/api/workbench/dismiss', endpoint), {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+  const ok = await post({ items: [{ category: 'waiting:user', id: directive.id }] });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { dismissed: 1 });
+  const listed = await (await fetch(new URL('/api/workbench', endpoint))).json();
+  assert.ok(!listed.waiting.some(item => item.id === directive.id));
+  assert.equal((await post({ items: [{ category: 'waiting:user', id: 'missing' }] })).status, 400);
+  assert.equal((await post({ items: [] })).status, 400);
+  assert.equal((await post('{}', 'text/plain')).status, 415);
+  assert.ok(members.length >= 1);
+});

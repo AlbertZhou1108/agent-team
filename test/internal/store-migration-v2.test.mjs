@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../../src/store.mjs';
+import { Store, SCHEMA_VERSION } from '../../src/store.mjs';
 import { createLegacyV1 } from '../support/legacy-v1.mjs';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -61,7 +61,9 @@ test('v1 data is migrated to the unified v2 schema without loss', t => {
   seedV1(directory);
 
   const store = new Store(directory);
-  assert.equal(store.schemaVersion(), 3);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.all('PRAGMA table_info(messages)').some(column => column.name === 'expects_reply'));
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workbench_dismissals'"));
 
   // 会话:两条成员 + 两条 Panel，id 原样保留。
   assert.deepEqual(
@@ -127,7 +129,7 @@ test('reopening a migrated directory is idempotent', t => {
   const before = store.all('SELECT id FROM conversations ORDER BY id').map(row => row.id);
   store.close();
   store = new Store(directory);
-  assert.equal(store.schemaVersion(), 3);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
   assert.deepEqual(store.all('SELECT id FROM conversations ORDER BY id').map(row => row.id), before);
   assert.equal(store.get('SELECT COUNT(*) AS n FROM history').n, 2);
   store.close();

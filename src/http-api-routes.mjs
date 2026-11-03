@@ -1,5 +1,5 @@
 import { openResultFile } from './result-files.mjs';
-import { searchWorkspace, homeWorkbench } from './productivity.mjs';
+import { searchWorkspace, homeWorkbench, dismissWorkbench } from './productivity.mjs';
 import { telemetryOverview } from './telemetry-overview.mjs';
 import { chooseDirectory } from './directory-picker.mjs';
 import { interactionView } from './bus.mjs';
@@ -74,6 +74,13 @@ export function apiRoutes(context) {
         } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/search', handle: async () => searchWorkspace(bus, url.searchParams) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/workbench', handle: async () => homeWorkbench(bus) },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/workbench/dismiss', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'items')) return fail(400, '清理参数无效');
+            try { return dismissWorkbench(bus, body.items); }
+            catch (error) { return fail(400, error.message); }
+        } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/panel-agent/events', handle: async () => {
                 panelEventStreams.add(response);
                 response.writeHead(200, {

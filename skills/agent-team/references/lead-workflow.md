@@ -8,8 +8,10 @@
 
 | 主控入口 | 主要工具 |
 | --- | --- |
-| 普通主成员 coordination | `members`、`read`、`send(to,text)`、`note(to,text)`、`tasks_set` |
-| Panel Agent 团队 coordination | `team_members`、`team_read`、`team_send(groupId,to,text)`、`team_note`、`group_tasks_set` |
+| 普通主成员 coordination | `members`、`read`、`send(to,text,expects_reply?,reply_to?)`、`note(to,text)`、`tasks_set` |
+| Panel Agent 团队 coordination | `team_members`、`team_read`、`team_send(groupId,to,text,expects_reply?,reply_to?)`、`team_note`、`group_tasks_set` |
+
+需要成员答复或确认时，`send`/`team_send` 设置 `expects_reply=true`；答复某条请求时把 `reply_to` 设为原消息 ID。普通汇报和通知不要设置，否则会进入未应答列表。
 
 Panel 团队工具按 schema 显式携带 groupId，只操作当前团队。任务工具整体替换自己的列表，状态为 doing/done/dropped；空数组清空，不代写其他成员的任务。
 

@@ -486,8 +486,16 @@ export class PanelSessions {
     if (name === 'team_send' || name === 'team_note') {
       this.bus.collaboration.requireCommunication(group.id);
       const target = this.bus.resolveMember(group.id, args.to);
+      if (name === 'team_send' && args.reply_to !== undefined) {
+        const replyTarget = this.bus.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', args.reply_to, group.id);
+        if (!replyTarget) throw new Error('回复的原消息不存在或不属于当前团队');
+        if (replyTarget.kind !== 'send' || replyTarget.expects_reply !== 1) throw new Error('只能回复一条期待答复的消息');
+        if (replyTarget.recipient !== panelAgent.id) throw new Error('不能回复不是发给自己的请求');
+        if (replyTarget.sender !== target.id) throw new Error('回复对象必须是原请求的发送者');
+      }
+      const expectsReply = name === 'team_send' && args.expects_reply === true;
       const message = this.bus.store.transaction(() => {
-        const value = this.bus.store.append(group.id, panelAgent.id, target.id, name === 'team_send' ? 'send' : 'note', args.text);
+        const value = this.bus.store.append(group.id, panelAgent.id, target.id, name === 'team_send' ? 'send' : 'note', args.text, args.reply_to ?? null, expectsReply);
         this.bus.store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', value.id, origin.turnId ?? null, null, origin.callId, origin.nativeCallId ?? null);
         return value;
       });
