@@ -645,13 +645,13 @@ watch(
           </div>
         </CardHeader>
 
-          <CardContent class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-6">
+          <CardContent class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain">
           <Tabs v-model="activeTab" class="flex min-h-0 flex-col gap-6">
-            <TabsList class="sticky top-0 z-10 grid w-full grid-cols-4">
-              <TabsTrigger value="appearance">外观</TabsTrigger>
-              <TabsTrigger value="general">通用</TabsTrigger>
-              <TabsTrigger value="policy">模型策略</TabsTrigger>
-              <TabsTrigger value="teams">团队管理</TabsTrigger>
+            <TabsList class="sticky top-0 z-10 grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
+              <TabsTrigger value="appearance" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">外观</TabsTrigger>
+              <TabsTrigger value="general" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">通用</TabsTrigger>
+              <TabsTrigger value="policy" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">模型策略</TabsTrigger>
+              <TabsTrigger value="teams" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">团队管理</TabsTrigger>
             </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
           <section class="flex flex-col gap-3">
@@ -674,7 +674,7 @@ watch(
               type="single"
               :model-value="preferences.colorMode"
               :spacing="2"
-              class="display-mode-group grid w-full grid-cols-3"
+              class="display-mode-group grid w-full grid-cols-1 sm:grid-cols-3"
               @update:model-value="selectColorMode"
             >
               <ToggleGroupItem
@@ -701,7 +701,7 @@ watch(
               type="single"
               :model-value="preferences.motionPreference"
               :spacing="2"
-              class="grid w-full grid-cols-5"
+              class="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
               @update:model-value="selectMotionPreference"
             >
               <ToggleGroupItem
@@ -923,7 +923,7 @@ watch(
           <TabsContent value="policy" class="flex flex-col gap-6">
 
           <section class="flex flex-col gap-3 pt-6">
-            <div class="flex items-start justify-between gap-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex items-center gap-1"><h3 class="text-sm font-semibold">模型策略</h3><HelpPopover title="模型策略"><p>全局策略在创建新团队和已有团队新增角色时读取；已有角色模型不会被改写。</p></HelpPopover></div>
                 <p v-if="hasPolicyChanges" class="mt-1 text-xs text-foreground">

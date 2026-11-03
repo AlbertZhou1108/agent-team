@@ -214,8 +214,8 @@ async function summarize() {
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       <div class="flex min-w-0 flex-col gap-4">
         <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-      <Card size="compact">
-        <Tabs v-model="handoffTab" class="flex flex-col gap-(--card-gap)">
+      <Card size="compact" class="home-card min-w-0">
+        <Tabs v-model="handoffTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
           <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle>待处理</CardTitle>
             <TabsList class="grid w-fit grid-cols-2">
@@ -223,14 +223,14 @@ async function summarize() {
               <TabsTrigger value="waiting">等待回复 ({{ waiting.length }})</TabsTrigger>
             </TabsList>
           </CardHeader>
-          <CardContent class="flex min-w-0 flex-col gap-3">
-            <TabsContent value="interactions" class="flex flex-col gap-3">
+          <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
+            <TabsContent value="interactions" class="flex min-h-0 flex-1 flex-col gap-3">
               <Empty v-if="!pending.length"
                 ><EmptyDescription>{{
                   query.isPending.value ? '正在加载…' : '暂无待处理事项'
                 }}</EmptyDescription></Empty
               >
-              <div v-else class="flex max-h-72 flex-col gap-2 overflow-y-auto">
+              <div v-else class="flex flex-col gap-2">
                 <Button
                   v-for="item in pending"
                   :key="item.id"
@@ -253,13 +253,13 @@ async function summarize() {
                 >
               </div>
             </TabsContent>
-            <TabsContent value="waiting" class="flex flex-col gap-3">
+            <TabsContent value="waiting" class="flex min-h-0 flex-1 flex-col gap-3">
               <Empty v-if="!waiting.length"
                 ><EmptyDescription
                   >暂无等待超过 5 分钟的回复</EmptyDescription
                 ></Empty
               >
-              <div v-else class="flex max-h-72 flex-col gap-2 overflow-y-auto">
+              <div v-else class="flex flex-col gap-2">
                 <Button
                   v-for="item in waiting"
                   :key="item.id"
@@ -287,8 +287,8 @@ async function summarize() {
           </CardContent>
         </Tabs>
       </Card>
-          <Card size="compact">
-            <Tabs v-model="activityTab" class="flex flex-col gap-(--card-gap)">
+          <Card size="compact" class="home-card min-w-0">
+            <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
               <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
                 <CardTitle>执行活动</CardTitle>
                 <TabsList class="grid w-fit grid-cols-2">
@@ -296,8 +296,8 @@ async function summarize() {
                   <TabsTrigger value="recent">最近执行</TabsTrigger>
                 </TabsList>
               </CardHeader>
-              <CardContent class="flex min-w-0 flex-col gap-3">
-                <TabsContent value="running" class="flex flex-col gap-3">
+              <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
+                <TabsContent value="running" class="flex min-h-0 flex-1 flex-col gap-3">
                   <Empty v-if="!data?.running.length"
                     ><EmptyDescription>{{
                       query.isPending.value ? '正在加载…' : '暂无运行中的成员'
@@ -321,7 +321,7 @@ async function summarize() {
                     ></Button
                   >
                 </TabsContent>
-                <TabsContent value="recent" class="flex flex-col gap-1">
+                <TabsContent value="recent" class="flex min-h-0 flex-1 flex-col gap-1">
                   <div class="flex max-h-64 flex-col gap-1 overflow-y-auto">
                     <Button
                       v-for="run in data?.recent ?? []"
@@ -354,7 +354,7 @@ async function summarize() {
             </Tabs>
           </Card>
         </div>
-    <Card size="compact">
+    <Card size="compact" class="home-card min-w-0">
       <CardHeader class="flex flex-row items-center justify-between gap-3">
         <CardTitle>进展摘要</CardTitle>
         <div class="flex shrink-0 items-center gap-2">
@@ -373,7 +373,7 @@ async function summarize() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent class="flex min-w-0 flex-col gap-3">
+      <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
         <Alert v-if="error" variant="destructive"
           ><AlertDescription>{{ error }}</AlertDescription></Alert
         >
@@ -392,7 +392,6 @@ async function summarize() {
             生成于 {{ new Date(data.summary.created).toLocaleString() }}
           </p>
           <div
-            class="max-h-96 overflow-y-auto overscroll-contain"
             role="region"
             aria-label="进展摘要内容"
             tabindex="0"

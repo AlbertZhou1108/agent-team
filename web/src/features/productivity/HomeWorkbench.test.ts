@@ -60,6 +60,9 @@ describe('home workbench', () => {
     expect(html).toMatch(/data-slot="card-header"[\s\S]{0,400}执行活动[\s\S]{0,400}data-slot="tabs-list"/);
     expect(html.indexOf('工作台')).toBeLessThan(html.indexOf('进展摘要'));
     expect(html).not.toMatch(/data-slot="disclosure"[\s\S]*data-slot="disclosure"/);
+    // 首页卡片使用共享的稳定高度与内部滚动类，数据变化不改变外部布局。
+    expect(html).toContain('home-card');
+    expect(html).toContain('home-card-scroll');
   });
 
   it('lists unanswered directives in the workbench waiting section', async () => {

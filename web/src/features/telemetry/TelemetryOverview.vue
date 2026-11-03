@@ -102,7 +102,7 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
       </div>
       <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="item in [{label:'团队',value:data.counts.teams},{label:'成员',value:data.counts.members},{label:'运行中回合',value:data.counts.running},{label:'Token',value:data.totals.totalTokens.value}]" :key="item.label" class="flex flex-col gap-1"><dt class="text-xs text-muted-foreground">{{item.label}}</dt><dd class="text-2xl font-semibold tabular-nums">{{number(item.value)}}</dd></div></dl>
       <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Card size="compact" class="min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="flex min-w-0 flex-col gap-3">
+        <Card size="compact" class="home-card min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
           <div v-if="overviewActive && overviewTotals" class="flex flex-wrap items-start justify-between gap-3" aria-live="polite" aria-atomic="true" data-testid="trend-selection">
             <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{time(overviewTotals.from)}} – {{time(overviewTotals.to)}} · 整个时间轴</span><span class="font-medium tabular-nums">{{overviewTotals.observed?`${overviewTotals.sum.toLocaleString()} Token`:'暂无 Token 数据'}}</span><span class="text-xs text-muted-foreground">共 {{overviewTotals.batches}} 个回合；点击柱形可查看单时段</span></div>
           </div>

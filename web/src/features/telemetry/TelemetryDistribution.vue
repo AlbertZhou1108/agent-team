@@ -16,13 +16,13 @@ const sorted = computed(() => props.rows.filter(row => (value(row) ?? 0) > 0).so
 const total = computed(() => sorted.value.reduce((sum, row) => sum + (value(row) ?? 0), 0));
 </script>
 <template>
-  <Card size="compact" class="min-w-0">
+  <Card size="compact" class="home-card min-w-0">
     <CardHeader><CardTitle>{{ title }}</CardTitle>
       <ToggleGroup type="single" :model-value="metric" :aria-label="`${title}指标`" @update:model-value="v => { if (v) metric = String(v); }">
         <ToggleGroupItem value="tokens">Token</ToggleGroupItem><ToggleGroupItem value="turns">回合数</ToggleGroupItem>
       </ToggleGroup>
     </CardHeader>
-    <CardContent class="flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto">
+    <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
       <Empty v-if="!sorted.length"><EmptyDescription>暂无数据</EmptyDescription></Empty>
       <Button v-for="row in sorted" :key="row.id" :variant="selected === row.id ? 'secondary' : 'ghost'" class="h-auto min-w-0 justify-start" :aria-pressed="selected === row.id" @click="emit('select', row.id)">
         <span class="flex w-full min-w-0 flex-col gap-2">
