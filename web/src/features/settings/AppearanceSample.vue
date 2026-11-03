@@ -33,7 +33,7 @@ const disabled = ref(false);
         <Button size="sm" @click="open = !open">{{ open ? '收起' : '展开' }}</Button>
       </div>
       <div class="flex flex-wrap items-center gap-2" aria-label="按钮与状态预览">
-        <Button accent>重点操作</Button>
+        <Button>主按钮</Button>
         <Button variant="secondary">次级</Button>
         <Button variant="ghost">轻量</Button>
         <Button variant="destructive">删除</Button>

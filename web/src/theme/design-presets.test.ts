@@ -142,16 +142,12 @@ describe('five-dimension component configuration', () => {
     expect(output.material.id).toBe('paper');
     expect(resolve('classic', 'solid').variables['--component-control-radius']).toBe('var(--radius-md)');
   });
-  it('keeps the accent-button entry inert for every preset that does not ship a recipe', () => {
-    for (const id of ['classic', 'liquid-glass', 'paper'] as const) {
-      const { variables } = resolve(id, id === 'classic' ? 'solid' : id);
-      for (const key of ['--component-accent-button-border', '--component-accent-button-image', '--component-accent-button-clip', '--component-accent-button-hover-image']) {
-        expect(variables[key]).toBe(COMPONENT_DEFAULTS.style[key as keyof typeof COMPONENT_DEFAULTS.style]);
-      }
-      expect(variables['--component-accent-button-image']).toBe('none');
-    }
+  it('keeps the component contract free of per-preset button decoration keys', () => {
+    // 用户决策(2026-11-04):重点按钮不加渐变边框,主操作用纯色;
+    // 契约不保留任何 accent/decoration 入口,避免为候选风格预建配置。
+    expect(Object.keys(COMPONENT_DEFAULTS.style).filter(key => key.includes('accent'))).toEqual([]);
   });
-  it('ships the vivid preset with its own material, theme and accent recipe', () => {
+  it('ships the vivid preset with its own material, theme and physics', () => {
     const { presetId, material, variables } = resolve('vivid', 'vivid');
     expect(presetId).toBe('vivid');
     expect(material.id).toBe('vivid');
@@ -161,12 +157,8 @@ describe('five-dimension component configuration', () => {
     expect(variables['--component-panel-radius']).toBe('22px');
     expect(variables['--component-content-shadow']).toBe('none');
     expect(variables['--component-panel-shadow']).toBe('none');
-    // 重点按钮配方只由 vivid 提供:细边 + 双层背景裁切 + 悬停配方。
-    expect(variables['--component-accent-button-border']).toBe('1.5px solid transparent');
-    expect(variables['--component-accent-button-clip']).toBe('padding-box, border-box');
-    expect(variables['--component-accent-button-image']).toContain('linear-gradient');
-    expect(variables['--component-accent-button-image']).toContain('oklch(from var(--primary)');
-    expect(variables['--component-accent-button-hover-image']).toContain('linear-gradient');
+    // 主操作是纯色 default variant,不携带任何按钮装饰配方。
+    expect(variables['--component-accent-button-image']).toBeUndefined();
   });
   it('keeps vivid surface recipes isolated from the solid material', () => {
     const fallback = resolve('vivid', 'solid');

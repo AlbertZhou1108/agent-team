@@ -42,18 +42,7 @@ export const DESIGN_PRESETS = freezeConfiguration({
   },
   vivid: {
     id: 'vivid', label: '活力', dimensions: {
-      style: {
-        themePack: 'leap', colorMode: 'system',
-        // 渐变细边框 + 实色底的重点按钮配方(A 方向预算:仅 data-accent 的重点按钮消费,
-        // 一个独立操作区最多一处)。颜色在应用时从当前主题 primary 派生:色相 ±85°
-        // 给出红→紫→蓝端;主题更换后随之重解析,不残留固定品牌色。
-        tokens: {
-          '--component-accent-button-border': '1.5px solid transparent',
-          '--component-accent-button-image': "linear-gradient(var(--primary), var(--primary)), linear-gradient(135deg, oklch(from var(--primary) calc(l + 0.09) calc(c * 0.95) calc(h + 85)), var(--primary) 52%, oklch(from var(--primary) calc(l - 0.02) calc(c * 0.9) calc(h - 85)))",
-          '--component-accent-button-clip': 'padding-box, border-box',
-          '--component-accent-button-hover-image': "linear-gradient(color-mix(in oklch, var(--primary), var(--background) 12%), color-mix(in oklch, var(--primary), var(--background) 12%)), linear-gradient(135deg, oklch(from var(--primary) calc(l + 0.09) calc(c * 0.95) calc(h + 85)), var(--primary) 52%, oklch(from var(--primary) calc(l - 0.02) calc(c * 0.9) calc(h - 85)))",
-        },
-      },
+      style: { themePack: 'leap', colorMode: 'system' },
       typography: {},
       material: getMaterialCategory('vivid'),
       behavior: { preference: 'simple' },
