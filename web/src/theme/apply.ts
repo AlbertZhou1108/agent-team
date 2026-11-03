@@ -1,6 +1,6 @@
 import { resolveMotionStyle, systemReducedMotion, type MotionStyle } from '@/shared/motion';
 import { resolveComponentDesign } from './design-presets';
-import { MATERIAL_CATEGORIES, getMaterialCategory, SURFACE_ROLES, type MaterialId, type MaterialCategory } from './materials';
+import { MATERIAL_CATEGORIES, PAPER_TEXTURES, getMaterialCategory, SURFACE_ROLES, type MaterialId, type MaterialCategory } from './materials';
 import { TOKEN_KEYS, type ThemeTokens } from './tokens';
 
 /**
@@ -171,5 +171,18 @@ export function applyAppearance(preferences: ReadingPreference & {
   applyReading(preferences);
   writeMaterial(resolved.material);
   applyComponentDesign(preferences, resolved);
+  applyPaperTexture(isDark);
   applyMotion(resolveMotionStyle(preferences.motionPreference, systemReducedMotion()));
+}
+
+/**
+ * 纸质的深色纹理不能沿用浅色那套叠加层:深底会把高频噪点放大成沙点。
+ * 在组件变量写完之后按明暗替换纹理变量;其他材质不参与。
+ */
+export function applyPaperTexture(isDark: boolean): void {
+  if (typeof document === 'undefined' || getAppliedMaterial().id !== 'paper') return;
+  const texture = isDark ? PAPER_TEXTURES.dark : PAPER_TEXTURES.light;
+  const root = document.documentElement;
+  root.style.setProperty('--component-content-image', texture.content);
+  root.style.setProperty('--component-surface-texture', texture.surface);
 }
