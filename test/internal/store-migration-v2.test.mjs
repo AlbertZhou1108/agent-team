@@ -27,7 +27,8 @@ function seedV1(directory) {
       VALUES('pm1','p1','private','user','private hello',NULL,'${NOW}');
     INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created) VALUES
       ('msg1','g','m2','m1','send','hello',NULL,'${NOW}'),
-      ('msg2','g','p1','user','send','panel reply',NULL,'${NOW}');
+      ('msg2','g','p1','user','send','panel reply',NULL,'${NOW}'),
+      ('msg3','g','m2','m1','send','queued',NULL,'${NOW}');
     INSERT INTO turns(id,endpoint_id,session,created) VALUES('t1','e1','sess-t1','${NOW}');
     INSERT INTO runtime_attempts(turn_id,group_id,endpoint_id,state,policy,detail,created,ended)
       VALUES('t1','g','e1','completed','{}',NULL,'${NOW}','${NOW}');
@@ -60,7 +61,7 @@ test('v1 data is migrated to the unified v2 schema without loss', t => {
   seedV1(directory);
 
   const store = new Store(directory);
-  assert.equal(store.schemaVersion(), 2);
+  assert.equal(store.schemaVersion(), 3);
 
   // 会话:两条成员 + 两条 Panel，id 原样保留。
   assert.deepEqual(
@@ -97,6 +98,11 @@ test('v1 data is migrated to the unified v2 schema without loss', t => {
     { id: 'o2', conversation_id: 's1', accepted: null, error: 'boom' },
   ]);
   assert.equal(store.get('SELECT COUNT(*) AS n FROM attached').n, 1);
+  // v3 待投递标记:已进入 attached 的清零，未投递的 send 置 1，user 收件人不参与投递。
+  assert.deepEqual(
+    store.all('SELECT id,awaiting FROM messages ORDER BY id').map(row => ({ ...row })),
+    [{ id: 'msg1', awaiting: 0 }, { id: 'msg2', awaiting: 0 }, { id: 'msg3', awaiting: 1 }],
+  );
 
   // 绑定/策略/格式、Panel 私聊消息、互动卡都保留。
   assert.equal(store.get('SELECT session FROM conversation_session_bindings WHERE conversation_id=?', 'e1').session, 'sess-e1');
@@ -121,7 +127,7 @@ test('reopening a migrated directory is idempotent', t => {
   const before = store.all('SELECT id FROM conversations ORDER BY id').map(row => row.id);
   store.close();
   store = new Store(directory);
-  assert.equal(store.schemaVersion(), 2);
+  assert.equal(store.schemaVersion(), 3);
   assert.deepEqual(store.all('SELECT id FROM conversations ORDER BY id').map(row => row.id), before);
   assert.equal(store.get('SELECT COUNT(*) AS n FROM history').n, 2);
   store.close();

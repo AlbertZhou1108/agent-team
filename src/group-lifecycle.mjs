@@ -289,6 +289,7 @@ export class GroupLifecycle {
     const member = this.bus.resolveMember(groupId, memberId);
     if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
     this.bus.store.run('UPDATE members SET removed=? WHERE id=?', new Date().toISOString(), member.id);
+    this.bus.store.run('UPDATE messages SET awaiting=0 WHERE recipient=? AND awaiting=1', member.id);
     for (const row of this.bus.store.pendingMemberInteractions(groupId, member.id)) this.bus.store.setInteractionState(row.id, 'cancelled');
     await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);
     return { removed: member.id };

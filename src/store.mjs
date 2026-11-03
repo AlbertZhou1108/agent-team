@@ -6,7 +6,7 @@ import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAtta
 
 // 数据目录的 schema 版本。v1 = 当前双轨（endpoints + panel_sessions）；
 // v2 将合并为 conversations/turns 并统一投递队列，迁移细节见 docs/v2-dedup-plan.md。
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -46,12 +46,14 @@ export class Store {
     }
     this.isFreshDatabase = !this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='groups'");
     this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;');
-    if (existingVersion < SCHEMA_VERSION) this.upgradeFromV1(existingVersion);
+    if (existingVersion < 2) this.upgradeFromV1();
+    this.migrateSchema(existingVersion);
     this.ensureV2Schema();
+    if (this.schemaVersion() !== SCHEMA_VERSION) this.setSchemaVersion(SCHEMA_VERSION);
   }
 
   // v0/v1 数据目录先补齐到 v1 形状，再交给 v1->v2 迁移。仅在 user_version < SCHEMA_VERSION 时执行。
-  upgradeFromV1(existingVersion) {
+  upgradeFromV1() {
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL,charter TEXT,policy TEXT NOT NULL DEFAULT 'workspace-write',allow_shell INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS team_creation_requests(operation_id TEXT PRIMARY KEY,payload TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE SET NULL);
@@ -178,8 +180,6 @@ export class Store {
         .run(new Date().toISOString());
     }
     this.migrate();
-    this.migrateSchema(existingVersion);
-    this.setSchemaVersion(SCHEMA_VERSION);
   }
 
 
@@ -196,7 +196,21 @@ export class Store {
   // 在单个事务内完成，失败回滚；迁移后由 foreign_key_check 兜底。
   migrateSchema(fromVersion) {
     if (fromVersion >= SCHEMA_VERSION) return;
-    this.migrateV2();
+    if (fromVersion < 2) this.migrateV2();
+    if (fromVersion < 3) this.migrateV3();
+  }
+
+  // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
+  // 只有 kind='send' 且接收者不是 user 的消息置 1；进入 outbox/attached 后清零。
+  migrateV3() {
+    const hasAwaiting = this.all('PRAGMA table_info(messages)').some(column => column.name === 'awaiting');
+    this.transaction(() => {
+      if (!hasAwaiting) this.db.exec('ALTER TABLE messages ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0');
+      this.db.exec(`UPDATE messages SET awaiting = CASE WHEN kind='send' AND recipient!='user'
+          AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=messages.id) THEN 1 ELSE 0 END;
+        CREATE INDEX IF NOT EXISTS messages_awaiting ON messages(seq) WHERE awaiting=1;
+        CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(accepted) WHERE accepted IS NULL;`);
+    });
   }
 
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。
@@ -522,17 +536,18 @@ export class Store {
   append(groupId, sender, recipient, kind, text, replyTo = null) {
     this.group(groupId);
     const id = randomUUID();
-    this.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created) VALUES(?,?,?,?,?,?,?,?)', id, groupId, sender, recipient, kind, text, replyTo, new Date().toISOString());
+    // user 收件人不会进入投递队列；note/system 随下一次批量交付，不参与 pending 扫描。
+    const awaiting = kind === 'send' && recipient !== 'user' ? 1 : 0;
+    this.run('INSERT INTO messages(id,group_id,sender,recipient,kind,text,reply_to,created,awaiting) VALUES(?,?,?,?,?,?,?,?,?)', id, groupId, sender, recipient, kind, text, replyTo, new Date().toISOString(), awaiting);
     return this.get('SELECT * FROM messages WHERE id=?', id);
   }
   pending() {
     return this.all(`SELECT m.* FROM messages m JOIN groups g ON g.id=m.group_id
-      WHERE (g.state IS NULL OR g.state='open') AND m.kind='send'
+      WHERE (g.state IS NULL OR g.state='open') AND m.kind='send' AND m.awaiting=1
       AND (
         EXISTS(SELECT 1 FROM members r WHERE r.id=m.recipient AND r.removed IS NULL)
         OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
-      )
-      AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`);
+      ) ORDER BY m.seq`);
   }
   createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {
     this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -568,13 +583,16 @@ export class Store {
       const notes = this.all(`SELECT m.* FROM messages m WHERE m.recipient=? AND m.kind IN ('note','system')
         AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, message.recipient);
       const candidates = this.all(`SELECT m.* FROM messages m WHERE ${conversation.context === 'coordination' ? '' : 'm.sender=? AND '}m.recipient=? AND m.kind='send' AND m.id!=?
-        AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=m.id) ORDER BY m.seq`, ...(conversation.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
+        AND m.awaiting=1 ORDER BY m.seq`, ...(conversation.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
       const additional = [];
       for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
       const payload = { groupId: message.group_id, conversation: conversation.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
       const id = randomUUID();
       this.run('INSERT INTO outbox(id,conversation_id,payload) VALUES(?,?,?)', id, conversation.id, JSON.stringify(payload));
-      for (const item of [message, ...additional, ...notes]) this.run('INSERT INTO attached VALUES(?,?)', item.id, id);
+      for (const item of [message, ...additional, ...notes]) {
+        this.run('INSERT INTO attached VALUES(?,?)', item.id, id);
+        this.run('UPDATE messages SET awaiting=0 WHERE id=?', item.id);
+      }
       return { id, conversation_id: conversation.id, owner_kind: conversation.owner_kind, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
@@ -583,8 +601,10 @@ export class Store {
   }
   // 待投递队列的统一读取:v1 仍是两张表,顺序保持"先 Panel 后成员"，与旧 pump 一致。
   pendingDeliveries() {
-    return this.all(`SELECT o.*,c.member_id,c.panel_agent_id FROM outbox o JOIN conversations c ON c.id=o.conversation_id
-      WHERE o.accepted IS NULL AND o.error IS NULL ORDER BY o.rowid`)
+    // 部分索引覆盖 accepted IS NULL;ORDER BY rowid 会迫使 SQLite 全表扫描,排序放到 JS。
+    return this.all(`SELECT o.rowid AS rowid,o.*,c.member_id,c.panel_agent_id FROM outbox o JOIN conversations c ON c.id=o.conversation_id
+      WHERE o.accepted IS NULL AND o.error IS NULL`)
+      .sort((a, b) => a.rowid - b.rowid)
       .map(row => ({ ...row, owner_kind: row.member_id ? 'member' : 'panel_agent' }));
   }
   hasPendingDelivery(conversationId) {
