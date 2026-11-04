@@ -229,7 +229,7 @@ async function setupPanelAnswer(t, host) {
   bus.start();
   t.after(async () => {
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
   await bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
   const agent = bus.panelAgent();
