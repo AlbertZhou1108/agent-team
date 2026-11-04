@@ -410,3 +410,11 @@ test('upload failure cleans up: disk write failure and db insert failure leave n
   );
   assert.deepEqual(readdirSync(root), [seed.id], '只剩此前的 seed 文件');
 });
+
+
+test('upload accepts the exact .env filename from the text allowlist', async t => {
+  const { bus, agentId } = await setup(t);
+  const uploaded = await bus.attachmentUpload(agentId, textBuffer('EXAMPLE=value\n'), { name: '.env' });
+  assert.equal(uploaded.name, '.env');
+  assert.equal(uploaded.mediaType, 'text/plain');
+});

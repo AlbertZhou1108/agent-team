@@ -298,6 +298,9 @@ export class GroupLifecycle {
     this.bus.store.run('UPDATE messages SET awaiting=0 WHERE recipient=? AND awaiting=1', member.id);
     for (const row of this.bus.store.pendingMemberInteractions(groupId, member.id)) this.bus.store.setInteractionState(row.id, 'cancelled');
     await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);
+    // 已移除成员不会再接收输入。等待回合收尾后丢弃未接受的投递队列，
+    // 消息与回合历史仍保留；避免重试重新激活永远无法投递的条目。
+    this.bus.store.run('DELETE FROM outbox WHERE accepted IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE member_id=?)', member.id);
     return { removed: member.id };
   }
   async deleteGroup(groupId, { archivedOnly = false } = {}) {

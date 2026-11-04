@@ -242,3 +242,10 @@ describe('Panel attachment drafts and idempotent sending', () => {
     expect(await store.addAttachmentFiles([textFile('b.txt')], tight)).toMatch(/最多 1 个附件/);
   });
 });
+
+
+it('accepts .env files during attachment preflight', () => {
+  const store = usePanelAgentStore();
+  const file = new File(['EXAMPLE=value'], '.env', { type: 'text/plain' });
+  expect(store.validateAttachmentFile(file, undefined, 0)).toBe('');
+});

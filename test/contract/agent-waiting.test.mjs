@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { busScenario, serverScenario } from '../support/fixture.mjs';
+import { busScenario, serverScenario, seedPanelAgent } from '../support/fixture.mjs';
 import { until } from '../support/wait.mjs';
 import { homeWorkbench, dismissWorkbench } from '../../src/productivity.mjs';
 
@@ -146,4 +146,39 @@ test('recent activity dismissal hides only the current window and rejects runnin
   bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)',
     running, endpoint.id, 'member', member.id, group.id, endpoint.session, 'running', new Date().toISOString());
   assert.throws(() => dismissWorkbench(bus, [{ category: 'activity:recent', id: running }]), /失效/);
+});
+
+
+test('removed members do not leave deliveries blocking controller switches or retries', async t => {
+  const { bus, group, members, calls } = busScenario(t);
+  await settled(bus);
+  const worker = members[1];
+  const endpoint = bus.store.endpoint(worker.id, 'pair:user');
+  const message = bus.store.append(group.id, 'user', worker.id, 'send', 'pending at removal');
+  bus.store.prepareDelivery(endpoint, message);
+  await bus.removeMember(group.id, worker.id);
+  seedPanelAgent(bus, { host: 'fake' });
+  assert.equal(bus.takeoverTeam(group.id, 0).controller.kind, 'panel_agent');
+  const callCount = calls.length;
+  bus.retry(group.id);
+  assert.equal(calls.length, callCount);
+  assert.equal(bus.handbackTeam(group.id, 1).controller.kind, 'member');
+});
+
+test('archived turns cannot crowd active teams out of recent activity', async t => {
+  const { bus, group, members } = busScenario(t);
+  await settled(bus);
+  const endpoint = bus.store.endpoint(members[0].id, 'coordination');
+  bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES(?,?,?,?,?,?,?)',
+    randomUUID(), endpoint.id, 'member', endpoint.member_id, group.id, 'completed', new Date(Date.now() - 1000).toISOString());
+  const archived = bus.createGroup({ name: 'archive', workspace: group.workspace, lead: { name: 'lead', host: 'fake' } });
+  await settled(bus);
+  const archivedEndpoint = bus.store.endpoint(bus.members(archived.id)[0].id, 'coordination');
+  for (let i = 0; i < 31; i++) {
+    bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES(?,?,?,?,?,?,?)',
+      randomUUID(), archivedEndpoint.id, 'member', archivedEndpoint.member_id, archived.id, 'completed', new Date(Date.now() + i * 1000).toISOString());
+  }
+  await bus.archiveGroup(archived.id);
+  assert.ok(homeWorkbench(bus).recent.some(row => row.endpoint_id === endpoint.id));
+  assert.ok(homeWorkbench(bus).recent.every(row => row.group_id !== archived.id));
 });

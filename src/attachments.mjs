@@ -45,7 +45,7 @@ export const ATTACHMENT_TEXT_EXTENSIONS = new Set([
 
 // 无扩展名但常见的文本文件(按整名匹配)。
 export const ATTACHMENT_TEXT_NAMES = new Set([
-  'makefile', 'dockerfile', 'license', 'readme', 'changelog', '.gitignore', '.editorconfig', '.npmrc',
+  '.env', 'makefile', 'dockerfile', 'license', 'readme', 'changelog', '.gitignore', '.editorconfig', '.npmrc',
 ]);
 
 // 按扩展名分类;返回 'image/png' | 'image/jpeg' | 'text/plain' | null(不支持)。

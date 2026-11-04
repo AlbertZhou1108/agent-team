@@ -179,7 +179,9 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
         t.conversation_id AS endpoint_id
        FROM turns t JOIN conversations c ON c.id=t.conversation_id
        LEFT JOIN members m ON m.id=c.member_id LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
-       WHERE t.state!='running' ORDER BY t.created DESC LIMIT 30`,
+       WHERE t.state!='running' AND (t.group_id IS NULL OR EXISTS(
+         SELECT 1 FROM groups g WHERE g.id=t.group_id AND (g.state IS NULL OR g.state!='archived')
+       )) ORDER BY t.created DESC LIMIT 30`,
     )
     .filter((run) => !run.group_id || names.has(run.group_id))
     .slice(0, 10)

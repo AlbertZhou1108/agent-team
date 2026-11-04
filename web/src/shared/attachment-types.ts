@@ -15,7 +15,7 @@ export const ATTACHMENT_TEXT_EXTENSIONS = [
 ] as const;
 
 export const ATTACHMENT_TEXT_NAMES = [
-  'makefile', 'dockerfile', 'license', 'readme', 'changelog', '.gitignore', '.editorconfig', '.npmrc',
+  '.env', 'makefile', 'dockerfile', 'license', 'readme', 'changelog', '.gitignore', '.editorconfig', '.npmrc',
 ] as const;
 
 export const ATTACHMENT_ACCEPT = [
