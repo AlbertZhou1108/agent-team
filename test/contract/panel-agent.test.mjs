@@ -421,6 +421,11 @@ test('private creation forwards to its team coordination and receives an explici
  assert.equal(requests[0].source_user_message_id,response.message.id);
  assert.equal(requests[0].original_text,'create and run'); assert.equal(requests[0].receipts.length,1);
  assert.equal(requests[0].receipts[0].text,'received');
+ const privateReport = bus.store.get(
+   "SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND role='assistant' AND text LIKE '%received%'",
+   state.agent.id,
+ );
+ assert.ok(privateReport, '回执应同步为私聊汇报消息(assistant)');
  assert.deepEqual(bus.queryUnread().receipts, requests.flatMap(request => request.receipts).map(({id,isSourceCopy,sourceMessageIds}) => ({id,isSourceCopy,sourceMessageIds})));  assert.equal(privateCalls,1);
  assert.equal(response.message.active_team_id,null);
  const message=bus.store.get('SELECT * FROM messages WHERE id=?',requests[0].message_id);

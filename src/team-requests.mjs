@@ -64,6 +64,9 @@ export class TeamRequests {
       s.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', message.id, turn.id, null, origin.callId, origin.nativeCallId ?? null);
       const id = randomUUID();
       s.run('INSERT INTO team_request_receipts(id,request_id,source_turn_id,operation_id,text,source_message_ids,created) VALUES(?,?,?,?,?,?,?)', id, requestId, turn.id, operationId, text, JSON.stringify([message.id, ...sourceMessageIds]), new Date().toISOString());
+      // 团队流的回执消息对私聊不可见(两套消息存储隔离);不在私聊落一条,
+      // 用户扫私聊时感知不到主控已汇报——回执全文以主控口吻同步进私人会话。
+      s.run('INSERT INTO panel_messages(id,panel_agent_id,context,role,text,active_team_id,created) VALUES(?,?,?,?,?,?,?)', randomUUID(), agent.id, 'private', 'assistant', text, session.group_id, new Date().toISOString());
       return { row: s.get('SELECT * FROM team_request_receipts WHERE id=?', id), message };
     });
     this.bus.emit('message', receipt.message);
