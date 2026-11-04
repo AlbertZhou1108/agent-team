@@ -5,6 +5,15 @@ import { randomUUID } from 'node:crypto';
 
 const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
 
+/** 动作请求的「同一决策」判据:只有同主体的新请求才替换旧 pending 卡,不同主体是独立决策、互不挤占。
+ *  member_model/group_add/group_create 的主体记录在 args 里;takeover/handback/group_delete 每群只有一个决策槽。
+ *  @param {string} kind @param {Record<string, any> | null | undefined} args */
+export function actionSubjectKey(kind, args = {}) {
+  if (kind === 'member_model') return args?.member ?? '';
+  if (kind === 'group_add' || kind === 'group_create') return args?.name ?? '';
+  return '';
+}
+
 /** @param {unknown} text */
 function questionPreview(text) {
   const points = Array.from(typeof text === 'string' ? text : '');
@@ -139,15 +148,17 @@ export class Interactions {
   }
   /** @param {Record<string, any>} member @param {Record<string, any>} endpoint @param {Record<string, any> | null} origin @param {string} kind @param {string} text @param {object} args */
   requestGroupAction(member, endpoint, origin, kind, text, args) {
-    const existing = this.bus.store.get(
-      "SELECT * FROM interactions WHERE member_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC LIMIT 1",
+    const subject = actionSubjectKey(kind, args);
+    const existing = this.bus.store.all(
+      "SELECT * FROM interactions WHERE member_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC",
       member.id,
       member.group_id,
       kind,
-    );
+    ).map(row => ({ row, payload: JSON.parse(row.payload) }))
+      .find(item => actionSubjectKey(kind, item.payload.args) === subject);
     if (existing) {
-      if (JSON.parse(existing.payload).text === text) return interactionView(existing);
-      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '请求内容已变化');
+      if (existing.payload.text === text) return interactionView(existing.row);
+      this.bus.store.setInteractionState(existing.row.id, 'cancelled', null, null, '请求内容已变化');
     }
     const message = this.bus.memberInteractionAnchor(member, text);
     const row = this.bus.store.createInteraction({

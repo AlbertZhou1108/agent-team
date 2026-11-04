@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
-import { interactionView } from './interactions.mjs';
+import { interactionView, actionSubjectKey } from './interactions.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
@@ -966,14 +966,16 @@ export class PanelSessions {
     return interactionView(row);
   }
   requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
-    const existing = this.bus.store.get(
-      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC LIMIT 1",
+    const subject = actionSubjectKey('member_model', args);
+    const existing = this.bus.store.all(
+      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC",
       panelAgent.id,
       group.id,
-    );
+    ).map(row => ({ row, payload: JSON.parse(row.payload) }))
+      .find(item => actionSubjectKey('member_model', item.payload.args) === subject);
     if (existing) {
-      if (JSON.parse(existing.payload).text === text) return interactionView(existing);
-      this.bus.store.setInteractionState(existing.id, 'cancelled', null, null, '请求内容已变化');
+      if (existing.payload.text === text) return interactionView(existing.row);
+      this.bus.store.setInteractionState(existing.row.id, 'cancelled', null, null, '请求内容已变化');
     }
     const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
     const row = this.bus.store.createInteraction({

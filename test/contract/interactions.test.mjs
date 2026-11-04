@@ -336,6 +336,45 @@ test('member_model becomes an interaction card and approval updates the member m
   await assert.rejects(() => f.server.bus.tool(leadEndpoint.id, leadEndpoint.key, 'member_model', { member: 'ghost', model: 'test', reasoning_effort: 'low' }), /找不到成员/);
 });
 
+test('member_model cards for different members stay independent; same member supersedes', async t => {
+  let requested = 0;
+  const f = await setup(t, async c => {
+    if (c.endpoint.context === 'coordination' && requested < 2) {
+      requested += 1;
+      if (requested === 1) {
+        await c.onTool('member_model', { member: '助手', model: 'test', reasoning_effort: 'low' });
+        await c.onTool('member_model', { member: '助手二', model: 'test', reasoning_effort: 'low' });
+      } else {
+        await c.onTool('member_model', { member: '助手' });
+      }
+      c.onAccepted(); return 'requested';
+    }
+    c.onAccepted(); return 'done';
+  }, { members: [{ name: '助手', host: 'fake' }, { name: '助手二', host: 'fake' }] });
+  f.server.bus.directive(f.group.id, '调整模型');
+  const pendingRows = () => f.server.bus.store.all(
+    "SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending' ORDER BY created",
+    f.group.id,
+  );
+  await until(() => pendingRows().length === 2);
+  // 不同成员是独立决策,两张卡并存
+  assert.deepEqual(pendingRows().map(row => JSON.parse(row.payload).args.member).sort(), ['助手', '助手二']);
+
+  // 同成员换内容 → 只替换该成员的旧卡,另一成员的卡不受影响
+  await f.server.bus.directive(f.group.id, '助手恢复默认');
+  await until(() => f.server.bus.store.get(
+    "SELECT COUNT(*) n FROM interactions WHERE group_id=? AND kind='member_model' AND state='cancelled'",
+    f.group.id,
+  ).n === 1);
+  assert.deepEqual(pendingRows().map(row => JSON.parse(row.payload).args.member).sort(), ['助手', '助手二']);
+  const cancelled = f.server.bus.store.get(
+    "SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='cancelled'",
+    f.group.id,
+  );
+  assert.equal(JSON.parse(cancelled.payload).args.member, '助手');
+  assert.equal(cancelled.detail, '请求内容已变化');
+});
+
 test('panel coordination group_member_model creates a card and approval updates the member', async t => {
   const f = await setup(t, async c => { c.onAccepted(); return 'done'; }, { members: [{ name: '助手', host: 'fake' }] });
   await f.server.bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
@@ -367,6 +406,49 @@ test('panel coordination group_member_model creates a card and approval updates 
   assert.equal(memberRow.model, 'test');
   assert.equal(memberRow.reasoning_effort, 'low');
   await until(() => !f.server.bus.running.size);
+});
+
+test('panel group_member_model cards for different members stay independent', async t => {
+  const f = await setup(t, async c => { c.onAccepted(); return 'done'; }, { members: [{ name: '助手', host: 'fake' }, { name: '助手二', host: 'fake' }] });
+  await f.server.bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
+  const agent = f.server.bus.panelAgent();
+  const session = f.server.bus.store.panelSession(agent.id, 'private');
+  const takeover = await f.server.bus.panelTool(session.id, session.key, 'request_team_takeover', { groupId: f.group.id }, { activeTeamId: f.group.id });
+  f.server.bus.decideInteraction(takeover.id, { approved: true });
+  await until(() => !f.server.bus.running.size);
+
+  const coordination = f.server.bus.store.panelSession(agent.id, 'coordination', f.group.id);
+  const second = f.server.bus.store.get("SELECT * FROM members WHERE group_id=? AND name='助手二'", f.group.id);
+  const setModel = member => f.server.bus.panelTool(
+    coordination.id, coordination.key, 'group_member_model',
+    { groupId: f.group.id, member, model: 'test', reasoning_effort: 'low' },
+    { activeTeamId: f.group.id },
+  );
+  const resetModel = member => f.server.bus.panelTool(
+    coordination.id, coordination.key, 'group_member_model',
+    { groupId: f.group.id, member },
+    { activeTeamId: f.group.id },
+  );
+
+  // 不同成员是独立决策,两张卡并存(后发的卡不挤掉先发的)
+  const cardA = await setModel(f.member.id);
+  const cardB = await setModel(second.id);
+  assert.equal(cardA.state, 'pending');
+  assert.equal(cardB.state, 'pending');
+  assert.notEqual(cardA.id, cardB.id);
+  assert.equal(f.server.bus.store.interaction(cardA.id).state, 'pending');
+
+  // 同成员改内容 → 只替换该成员的旧卡
+  const changed = await resetModel(f.member.id);
+  assert.equal(changed.state, 'pending');
+  assert.notEqual(changed.id, cardA.id);
+  assert.equal(f.server.bus.store.interaction(cardA.id).state, 'cancelled');
+  assert.equal(f.server.bus.store.interaction(cardA.id).detail, '请求内容已变化');
+  assert.equal(f.server.bus.store.interaction(cardB.id).state, 'pending');
+
+  // 同成员同参数 → 幂等复用
+  const again = await resetModel(f.member.id);
+  assert.equal(again.id, changed.id);
 });
 
 test('member model HTTP route applies directly with catalog validation', async t => {
