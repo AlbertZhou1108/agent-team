@@ -31,7 +31,7 @@ function metricLabel(key: keyof TelemetrySourceSubtotal['totals']) {
       暂无可归入来源小计的单一来源批次。
     </p>
     <Disclosure
-      v-for="subtotal in subtotals"
+      v-for="subtotal in subtotals.filter(item => item.includedBatchIds.length)"
       :key="subtotal.sourceActorId"
       variant="card"
       :data-source-actor-id="subtotal.sourceActorId"

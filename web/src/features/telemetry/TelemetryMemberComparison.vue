@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import type { TelemetryMembersResponse } from '@/shared/api/raw-types';
 import { compactNumber, relativeValues } from './visuals';
@@ -19,8 +18,6 @@ const rows = computed(() => {
     <Button v-for="row in rows" :key="row.id" :variant="row.id === selectedId ? 'secondary' : 'ghost'" class="h-auto min-w-0 justify-between gap-2 py-2" :aria-label="row.executor.name + '，' + (row.value == null ? '暂无观测' : row.value.toLocaleString() + ' Token') + '，查看详情'" :aria-pressed="row.id === selectedId" @click="emit('select', row.id)">
       <span class="min-w-0 truncate" :title="row.executor.name">{{ row.executor.name }}</span>
       <span class="flex shrink-0 items-center gap-1 tabular-nums">
-        <Badge v-if="row.value != null && row.metric.completeness !== 'complete'" variant="outline">部分</Badge>
-        <Badge v-if="row.metric.quality === 'estimated'" variant="outline">估算</Badge>
         <span :title="row.value?.toLocaleString()">{{ row.value == null ? '—' : compactNumber(row.value) }}</span>
       </span>
     </Button>
