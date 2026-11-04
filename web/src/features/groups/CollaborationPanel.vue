@@ -30,6 +30,13 @@ const doingCount = computed(() =>
     0,
   ),
 );
+// 收起态也要给完成留痕:没有进行中时显示已完成计数,展开可见灰显明细。
+const finishedCount = computed(() =>
+  (props.tasks ?? []).reduce(
+    (total, entry) => total + entry.tasks.filter(task => task.state !== 'doing').length,
+    0,
+  ),
+);
 const archived = computed(() =>
   summary.value ? !summary.value.communicationOpen : false,
 );
@@ -106,6 +113,7 @@ async function restoreTeam() {
             任务面板
           </h3>
           <Badge v-if="doingCount" variant="secondary">{{ doingCount }} 进行中</Badge>
+          <Badge v-else-if="finishedCount" variant="outline">{{ finishedCount }} 项已完成</Badge>
           <span v-else class="text-xs font-normal text-muted-foreground">
             {{ (props.tasks ?? []).length ? '暂无进行中任务' : '未使用' }}
           </span>
