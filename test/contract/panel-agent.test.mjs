@@ -647,7 +647,7 @@ test('panel private turns bind attachments, record requests and replay idempoten
   assert.equal(replay.result.replayed, true);
   await until(() => !bus.running.size);
   assert.equal(calls.length, 1, '重试不触发第二条回合');
-  assert.equal(bus.store.all('SELECT 1 FROM panel_message_requests WHERE client_message_id=?', clientMessageId).length, 1);
+  assert.equal(bus.store.all("SELECT 1 FROM operation_records WHERE scope='panel-private-message' AND client_key=?", clientMessageId).length, 1);
   assert.equal(bus.store.get("SELECT COUNT(*) AS count FROM panel_messages WHERE panel_agent_id=? AND role='user'", agentId).count, 1);
 
   // 同 ID 改正文、改附件集合、改顺序 → 409 语义冲突。

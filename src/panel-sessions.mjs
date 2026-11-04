@@ -718,7 +718,7 @@ export class PanelSessions {
 
   // 幂等重试:返回原请求的用户消息及其后的回复状态,不再创建消息或触发回合。
   replayPanelRequest(panelAgentId, request) {
-    const message = this.bus.store.get('SELECT * FROM panel_messages WHERE id=?', request.panel_message_id);
+    const message = this.bus.store.get('SELECT * FROM panel_messages WHERE id=?', request.ref);
     const reply = message
       ? this.bus.store.get(
           "SELECT * FROM panel_messages WHERE panel_agent_id=? AND context='private' AND seq>? AND role='assistant' ORDER BY seq DESC LIMIT 1",
@@ -745,18 +745,18 @@ export class PanelSessions {
     // 正文和附件都为空才拒绝;附件-only 是合法消息。
     if (!prompt && !attachmentIds.length) throw new Error('消息内容不能为空');
 
-    // 幂等层:clientMessageId 缺省时保持旧客户端兼容,不写 request 记录。
+    // 幂等层:clientMessageId 缺省时保持旧客户端兼容,不写 operation 记录。
     let payloadHash = null;
     if (clientMessageId != null) {
       if (typeof clientMessageId !== 'string' || !clientMessageId.trim() || clientMessageId.length > 200) throw new Error('clientMessageId 无效');
       payloadHash = this.panelRequestHash(prompt, attachmentIds);
       const existing = this.bus.store.get(
-        'SELECT * FROM panel_message_requests WHERE panel_agent_id=? AND client_message_id=?',
+        "SELECT * FROM operation_records WHERE scope='panel-private-message' AND scope_id=? AND client_key=?",
         panelAgent.id,
         clientMessageId,
       );
       if (existing) {
-        if (existing.payload_hash !== payloadHash) {
+        if (existing.payload !== payloadHash) {
           throw attachmentError('conflict', '同一消息 ID 已用于不同的正文或附件,请刷新会话后重新发送');
         }
         return this.replayPanelRequest(panelAgent.id, existing);
@@ -776,7 +776,7 @@ export class PanelSessions {
         if (attachmentIds.length) this.bus.attachments.bindTx(panelAgent.id, user.id, attachmentIds);
         if (clientMessageId != null) {
           this.bus.store.run(
-            'INSERT INTO panel_message_requests(panel_agent_id,client_message_id,payload_hash,panel_message_id,created_at) VALUES(?,?,?,?,?)',
+            "INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('panel-private-message',?,?,?,?,?)",
             panelAgent.id,
             clientMessageId,
             payloadHash,
@@ -789,12 +789,12 @@ export class PanelSessions {
       // 并发同 ID 提交:唯一键冲突时按幂等语义回放或拒绝。
       if (clientMessageId != null && this.isUniqueViolation(error)) {
         const existing = this.bus.store.get(
-          'SELECT * FROM panel_message_requests WHERE panel_agent_id=? AND client_message_id=?',
+          "SELECT * FROM operation_records WHERE scope='panel-private-message' AND scope_id=? AND client_key=?",
           panelAgent.id,
           clientMessageId,
         );
         if (existing) {
-          if (existing.payload_hash !== payloadHash) {
+          if (existing.payload !== payloadHash) {
             throw attachmentError('conflict', '同一消息 ID 已用于不同的正文或附件,请刷新会话后重新发送');
           }
           return this.replayPanelRequest(panelAgent.id, existing);

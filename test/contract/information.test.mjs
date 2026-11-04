@@ -85,11 +85,11 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   assert.match(first.instructions, /框架只负责投递消息，不检查工作流程/);
   assert.doesNotMatch(first.instructions, /当前有效契约与执行状态：/);
   const format = bus.store.get(
-    'SELECT * FROM conversation_context_formats WHERE conversation_id=?',
+    'SELECT * FROM conversation_session_meta WHERE conversation_id=?',
     first.endpoint.id,
   );
   assert.equal(format.schema_version, CONTEXT_SCHEMA_VERSION);
-  assert.equal(format.source, 'new-session');
+  assert.equal(format.format_source, 'new-session');
 
   // Another turn to the same session keeps identical fixed rules and only
   // changes the dynamic input.
@@ -107,11 +107,11 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   bus.store.append(group.id, lead.id, lead.id, 'note', 'legacy body');
   await bus.runEndpoint(legacy, 'legacy turn');
   const legacyFormat = bus.store.get(
-    'SELECT * FROM conversation_context_formats WHERE conversation_id=?',
+    'SELECT * FROM conversation_session_meta WHERE conversation_id=?',
     legacy.id,
   );
   assert.equal(legacyFormat.schema_version, 0);
-  assert.equal(legacyFormat.source, 'legacy-detected');
+  assert.equal(legacyFormat.format_source, 'legacy-detected');
   const legacyCall = calls.filter(call => call.endpoint.id === legacy.id).at(-1);
   assert.match(legacyCall.prompt, /legacy turn/);
   assert.equal(bus.store.get('SELECT session FROM conversations WHERE id=?', legacy.id).session, 'legacy-native-session');

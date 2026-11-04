@@ -81,8 +81,8 @@ export class BusQueries {
     const endpoints = this.bus.store.conversationsForGroup(groupId)
       .filter(conversation => conversation.context !== 'private')
       .map(conversationView);
-    const sessionBindings = this.bus.store.all(`SELECT b.conversation_id AS endpoint_id,b.session_key,b.session,b.updated FROM conversation_session_bindings b
-      WHERE b.conversation_id IN (SELECT id FROM conversations WHERE group_id=? AND context!='private') ORDER BY b.conversation_id,b.session_key`, groupId);
+    const sessionBindings = this.bus.store.all(`SELECT b.conversation_id AS endpoint_id,b.session_key,b.session,b.session_updated AS updated FROM conversation_session_meta b
+      WHERE b.session IS NOT NULL AND b.conversation_id IN (SELECT id FROM conversations WHERE group_id=? AND context!='private') ORDER BY b.conversation_id,b.session_key`, groupId);
     return { endpoints, sessionBindings };
   }
   querySession(groupId, endpointId) {
@@ -113,7 +113,7 @@ export class BusQueries {
         || (panelAgent && conversation.panel_agent_id === panelAgent.id))
       .map(conversation => ({ ...conversationView(conversation), modelState: this.bus.store.endpointModelSummary(conversation.id) }));
     const endpointIds = new Set(visibleEndpoints.map(e => e.id));
-    const sessionBindings = this.bus.store.all('SELECT conversation_id AS endpoint_id,session_key,session,updated FROM conversation_session_bindings ORDER BY conversation_id,session_key').filter(b => groupId === undefined || endpointIds.has(b.endpoint_id));
+    const sessionBindings = this.bus.store.all('SELECT conversation_id AS endpoint_id,session_key,session,session_updated AS updated FROM conversation_session_meta WHERE session IS NOT NULL ORDER BY conversation_id,session_key').filter(b => groupId === undefined || endpointIds.has(b.endpoint_id));
     return {
       ...this.bus.overview(),
       endpoints: visibleEndpoints,

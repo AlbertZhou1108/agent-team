@@ -169,10 +169,10 @@ export class MessageDispatch {
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) throw new Error('宿主会话域无效');
-    const binding = this.bus.store.get('SELECT * FROM conversation_session_bindings WHERE conversation_id=? AND session_key=?', endpoint.id, sessionKey);
+    const binding = this.bus.store.get('SELECT * FROM conversation_session_meta WHERE conversation_id=? AND session_key=? AND session IS NOT NULL', endpoint.id, sessionKey);
     const fallbackSession = sessionKey === 'default' ? endpoint.session : null;
     const effectiveEndpoint = { ...endpoint, session: binding?.session ?? fallbackSession };
-    const previousPolicy = this.bus.store.get('SELECT signature FROM conversation_session_policies WHERE conversation_id=? AND session_key=?', endpoint.id, sessionKey)?.signature
+    const previousPolicy = this.bus.store.get('SELECT policy_signature FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', endpoint.id, sessionKey)?.policy_signature
       ?? (!binding && fallbackSession ? this.bus.store.get('SELECT policy_signature FROM conversations WHERE id=?', endpoint.id)?.policy_signature : null);
     const schema = this.bus.information.memberSchemaForSession(endpoint, sessionKey, binding?.session ?? fallbackSession);
     const prompt = typeof text === 'function'
@@ -215,7 +215,7 @@ export class MessageDispatch {
       executeTool: (turnId, name, args, metadata) => this.bus.tool(endpoint.id, endpoint.key, name, args, { ...metadata, turnId }),
       accepted: () => onAccepted(),
       onSession: (turnId, session) => {
-        this.bus.store.run('INSERT INTO conversation_session_bindings VALUES(?,?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET session=excluded.session,updated=excluded.updated', endpoint.id, sessionKey, session, new Date().toISOString());
+        this.bus.store.run('INSERT INTO conversation_session_meta(conversation_id,session_key,session,session_updated) VALUES(?,?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET session=excluded.session,session_updated=excluded.session_updated', endpoint.id, sessionKey, session, new Date().toISOString());
         this.bus.store.setConversationSession(endpoint.id, session);
         endpoint.session = session;
         effectiveEndpoint.session = session;
@@ -295,21 +295,18 @@ export class MessageDispatch {
     const rotationKeys = sessionKey
       ? [sessionKey]
       : [...new Set([
-          ...this.bus.store.all('SELECT session_key FROM conversation_session_bindings WHERE conversation_id=?', e.id).map(row => row.session_key),
+          ...this.bus.store.all('SELECT session_key FROM conversation_session_meta WHERE conversation_id=? AND session IS NOT NULL', e.id).map(row => row.session_key),
           'default',
         ])];
     for (const key of rotationKeys) this.bus.telemetry.rotateSession(e.id, key);
     if (sessionKey) {
-      this.bus.store.run('DELETE FROM conversation_session_bindings WHERE conversation_id=? AND session_key=?', e.id, sessionKey);
-      this.bus.store.run('DELETE FROM conversation_session_policies WHERE conversation_id=? AND session_key=?', e.id, sessionKey);
-      this.bus.information.forgetSessionFormats(e.id, sessionKey);
+      // v7 起绑定/策略/格式同表;resetSession 本就三者同步删除,整行删除语义一致。
+      this.bus.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', e.id, sessionKey);
     } else {
-      this.bus.store.run('DELETE FROM conversation_session_bindings WHERE conversation_id=?', e.id);
-      this.bus.store.run('DELETE FROM conversation_session_policies WHERE conversation_id=?', e.id);
+      this.bus.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=?', e.id);
       this.bus.store.run('UPDATE conversations SET policy_signature=NULL,updated=? WHERE id=?', new Date().toISOString(), e.id);
-      this.bus.information.forgetSessionFormats(e.id);
     }
-    const remaining = this.bus.store.get('SELECT session FROM conversation_session_bindings WHERE conversation_id=? ORDER BY updated DESC LIMIT 1', e.id);
+    const remaining = this.bus.store.get('SELECT session FROM conversation_session_meta WHERE conversation_id=? AND session IS NOT NULL ORDER BY session_updated DESC LIMIT 1', e.id);
     this.bus.store.setConversationSession(e.id, remaining?.session ?? null);
     return { endpointId: e.id, previousSession: e.session, sessionKey, historyRetained: true };
   }

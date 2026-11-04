@@ -151,11 +151,11 @@ export class GroupLifecycle {
     if (operationId !== undefined && (typeof operationId !== 'string' || !/^[\w-]{1,128}$/.test(operationId))) throw new Error('请求编号无效');
     const creationPayload = JSON.stringify({ name, workspace, lead, members, panelAgentId, charter, policy, allowShell });
     if (operationId) {
-      const previous = this.bus.store.get('SELECT * FROM team_creation_requests WHERE operation_id=?', operationId);
+      const previous = this.bus.store.get("SELECT * FROM operation_records WHERE scope='group-create' AND client_key=?", operationId);
       if (previous) {
         if (previous.payload !== creationPayload) throw new Error('请求编号已用于不同建群内容');
-        if (!previous.group_id) throw new Error('该请求创建的团队已删除');
-        return this.bus.store.group(previous.group_id);
+        if (!previous.ref) throw new Error('该请求创建的团队已删除');
+        return this.bus.store.group(previous.ref);
       }
     }
     const panelAgent = panelAgentId ? this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', panelAgentId) : null;
@@ -208,7 +208,7 @@ export class GroupLifecycle {
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
         if (person.role === 'lead') this.bus.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
       }
-      if (operationId) this.bus.store.run('INSERT INTO team_creation_requests VALUES(?,?,?)', operationId, creationPayload, id);
+      if (operationId) this.bus.store.run("INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('group-create','',?,?,?,?)", operationId, creationPayload, id, new Date().toISOString());
       if (panelAgent) {
         this.bus.store.run(
           "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated) VALUES(?,'panel_agent',?,'active',NULL,1,?)",

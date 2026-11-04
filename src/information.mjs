@@ -164,15 +164,6 @@ export class Information {
         session_key TEXT,
         created TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS conversation_context_formats(
-        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-        session_key TEXT NOT NULL,
-        schema_version INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        created TEXT NOT NULL,
-        updated TEXT NOT NULL,
-        PRIMARY KEY(conversation_id,session_key)
-      );
     `);
   }
 
@@ -180,15 +171,16 @@ export class Information {
 
   memberSchemaForSession(endpoint, sessionKey, existingSession) {
     const row = this.store.get(
-      'SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key=?',
+      'SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key=?',
       endpoint.id,
       sessionKey,
     );
-    if (row) return row.schema_version;
+    if (row?.schema_version != null) return row.schema_version;
     const schema = existingSession ? LEGACY_SCHEMA_VERSION : CONTEXT_SCHEMA_VERSION;
     const timestamp = now();
     this.store.run(
-      'INSERT OR REPLACE INTO conversation_context_formats VALUES(?,?,?,?,?,?)',
+      `INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) VALUES(?,?,?,?,?,?)
+       ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated`,
       endpoint.id,
       sessionKey,
       schema,
@@ -201,7 +193,7 @@ export class Information {
 
   memberSchemaForEndpoint(endpointId) {
     return this.store.get(
-      'SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? ORDER BY updated DESC LIMIT 1',
+      'SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND schema_version IS NOT NULL ORDER BY format_updated DESC LIMIT 1',
       endpointId,
     )?.schema_version ?? LEGACY_SCHEMA_VERSION;
   }
@@ -232,22 +224,23 @@ export class Information {
 
   panelSchemaForStart(session) {
     const row = this.store.get(
-      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
+      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
       session.id,
     );
-    if (row) return row.schema_version;
+    if (row?.schema_version != null) return row.schema_version;
     return session.session ? LEGACY_SCHEMA_VERSION : CONTEXT_SCHEMA_VERSION;
   }
 
   rememberPanelSchema(session, schema) {
     const existing = this.store.get(
-      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
+      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
       session.id,
     );
-    if (!existing) {
+    if (existing?.schema_version == null) {
       const timestamp = now();
       this.store.run(
-        'INSERT INTO conversation_context_formats VALUES(?,?,?,?,?,?)',
+        `INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) VALUES(?,?,?,?,?,?)
+         ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated`,
         session.id,
         'default',
         schema,
@@ -270,14 +263,15 @@ export class Information {
 
   panelSchemaForSession(session) {
     return this.store.get(
-      "SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'",
+      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
       session.id,
     )?.schema_version ?? LEGACY_SCHEMA_VERSION;
   }
 
   forgetSessionFormats(endpointId, sessionKey = null) {
-    if (sessionKey) this.store.run('DELETE FROM conversation_context_formats WHERE conversation_id=? AND session_key=?', endpointId, sessionKey);
-    else this.store.run('DELETE FROM conversation_context_formats WHERE conversation_id=?', endpointId);
+    // v7 起格式与会话绑定同表;调用方(resetSession)本就同步删除三者,整行删除语义一致。
+    if (sessionKey) this.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', endpointId, sessionKey);
+    else this.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=?', endpointId);
   }
 
   pruneOrphanTurnSchemas() {

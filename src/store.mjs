@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -200,6 +200,7 @@ export class Store {
     if (fromVersion < 4) this.migrateV4();
     if (fromVersion < 5) this.migrateV5();
     if (fromVersion < 6) this.migrateV6();
+    if (fromVersion < 7) this.migrateV7();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -255,6 +256,54 @@ export class Store {
       CREATE INDEX IF NOT EXISTS notes_archived ON notes(archived DESC) WHERE state='archived';`);
   }
 
+  // v7:会话域三表(bindings/policies/context_formats)合一为 conversation_session_meta
+  // (panel 会话只写 policy/format 不写 binding,读 binding 时须过滤 session IS NOT NULL);
+  // 三张幂等去重表(team_creation_requests/team_directive_requests/panel_message_requests)
+  // 合一为 operation_records(scope+scope_id+client_key 定位,payload 比对内容,ref 指回业务行)。
+  // 只迁移存在旧表的库;新库由 ensureV2Schema 直接建新形状。
+  migrateV7() {
+    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      // 目标表必须在迁移内自建:v6 库走到这里时 ensureV2Schema 还没执行。
+      this.db.exec(`CREATE TABLE IF NOT EXISTS conversation_session_meta(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT,session_updated TEXT,policy_signature TEXT,schema_version INTEGER,format_source TEXT,format_created TEXT,format_updated TEXT,PRIMARY KEY(conversation_id,session_key));
+        CREATE TABLE IF NOT EXISTS operation_records(scope TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',client_key TEXT NOT NULL,payload TEXT,ref TEXT,created TEXT NOT NULL,PRIMARY KEY(scope,scope_id,client_key));
+        CREATE INDEX IF NOT EXISTS operation_records_ref ON operation_records(scope,ref);`);
+      if (hasTable('conversation_session_bindings')) {
+        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,session,session_updated)
+            SELECT conversation_id,session_key,session,updated FROM conversation_session_bindings;`);
+      }
+      if (hasTable('conversation_session_policies')) {
+        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature)
+            SELECT conversation_id,session_key,signature FROM conversation_session_policies WHERE true
+            ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature;`);
+      }
+      if (hasTable('conversation_context_formats')) {
+        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated)
+            SELECT conversation_id,session_key,schema_version,source,created,updated FROM conversation_context_formats WHERE true
+            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;`);
+      }
+      this.db.exec(`DROP TABLE IF EXISTS conversation_session_bindings;
+        DROP TABLE IF EXISTS conversation_session_policies;
+        DROP TABLE IF EXISTS conversation_context_formats;`);
+      if (hasTable('team_creation_requests')) {
+        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
+          SELECT 'group-create','',operation_id,payload,COALESCE(group_id,''),'${now}' FROM team_creation_requests;`);
+      }
+      if (hasTable('team_directive_requests')) {
+        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
+          SELECT 'team-directive',group_id,operation_id,NULL,message_id,'${now}' FROM team_directive_requests;`);
+      }
+      if (hasTable('panel_message_requests')) {
+        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
+          SELECT 'panel-private-message',panel_agent_id,client_message_id,payload_hash,panel_message_id,created_at FROM panel_message_requests;`);
+      }
+      this.db.exec(`DROP TABLE IF EXISTS team_creation_requests;
+        DROP TABLE IF EXISTS team_directive_requests;
+        DROP TABLE IF EXISTS panel_message_requests;`);
+    });
+  }
+
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。
   ensureV2Schema() {
     this.db.exec(`CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,peer TEXT,session TEXT,policy_signature TEXT,key TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,CHECK((member_id IS NULL)!=(panel_agent_id IS NULL)));
@@ -275,9 +324,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
       CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
       CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS conversation_session_bindings(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
-      CREATE TABLE IF NOT EXISTS conversation_session_policies(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
-      CREATE TABLE IF NOT EXISTS conversation_context_formats(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(conversation_id,session_key));
+      CREATE TABLE IF NOT EXISTS conversation_session_meta(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT,session_updated TEXT,policy_signature TEXT,schema_version INTEGER,format_source TEXT,format_created TEXT,format_updated TEXT,PRIMARY KEY(conversation_id,session_key));
+      CREATE TABLE IF NOT EXISTS operation_records(scope TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',client_key TEXT NOT NULL,payload TEXT,ref TEXT,created TEXT NOT NULL,PRIMARY KEY(scope,scope_id,client_key));
+      CREATE INDEX IF NOT EXISTS operation_records_ref ON operation_records(scope,ref);
       CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,kind TEXT NOT NULL DEFAULT 'update' CHECK(kind IN ('update','continuation')),text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
       CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
       CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
@@ -332,10 +381,13 @@ export class Store {
           INSERT INTO outbox(id,conversation_id,payload,accepted,error) SELECT id,session_id,payload,accepted,error FROM panel_outbox;
           INSERT INTO attached SELECT * FROM attached_v1;
           INSERT INTO attached SELECT * FROM panel_attached;
-          INSERT INTO conversation_session_bindings SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings;
-          INSERT INTO conversation_session_policies SELECT endpoint_id,session_key,signature FROM endpoint_session_policies;
-          INSERT INTO conversation_context_formats SELECT endpoint_id,session_key,schema_version,source,created,updated FROM endpoint_context_formats;
-          INSERT INTO conversation_context_formats SELECT session_id,'default',schema_version,source,created,updated FROM panel_session_context_formats;
+          INSERT INTO conversation_session_meta(conversation_id,session_key,session,session_updated) SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings;
+          INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature) SELECT endpoint_id,session_key,signature FROM endpoint_session_policies WHERE true
+            ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature;
+          INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) SELECT endpoint_id,session_key,schema_version,source,created,updated FROM endpoint_context_formats WHERE true
+            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;
+          INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) SELECT session_id,'default',schema_version,source,created,updated FROM panel_session_context_formats WHERE true
+            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;
           INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered)
             SELECT id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered FROM panel_updates_v1;
           INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
@@ -528,7 +580,7 @@ export class Store {
   setConversationPolicySignature(id, signature, sessionKey = 'default') {
     const changed = this.run('UPDATE conversations SET policy_signature=?,updated=? WHERE id=?', signature, new Date().toISOString(), id);
     if (!changed.changes) throw new Error('会话不存在');
-    this.run('INSERT INTO conversation_session_policies VALUES(?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET signature=excluded.signature', id, sessionKey, signature);
+    this.run('INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature) VALUES(?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature', id, sessionKey, signature);
   }
   endpoint(memberId, context, peer = null) {
     return this.conversation('member', memberId, context, { peer });

@@ -51,6 +51,10 @@ function seedV1(directory) {
       VALUES('u1','p1','g','pt1','update','note','[]','${NOW}',NULL,NULL);
     INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created)
       VALUES('i1','g','m1',NULL,'e1','coordination','t1','call1',NULL,NULL,'choice','{}','pending',NULL,'${NOW}');
+    INSERT INTO team_creation_requests(operation_id,payload,group_id) VALUES('op-create','{}','g');
+    INSERT INTO team_directive_requests(group_id,operation_id,message_id) VALUES('g','op-directive','msg1');
+    INSERT INTO panel_message_requests(panel_agent_id,client_message_id,payload_hash,panel_message_id,created_at)
+      VALUES('p1','cm-1','hash-1','pm1','${NOW}');
   `);
   db.close();
 }
@@ -106,18 +110,26 @@ test('v1 data is migrated to the unified v2 schema without loss', t => {
     [{ id: 'msg1', awaiting: 0 }, { id: 'msg2', awaiting: 0 }, { id: 'msg3', awaiting: 1 }],
   );
 
-  // 绑定/策略/格式、Panel 私聊消息、互动卡都保留。
-  assert.equal(store.get('SELECT session FROM conversation_session_bindings WHERE conversation_id=?', 'e1').session, 'sess-e1');
-  assert.equal(store.get('SELECT signature FROM conversation_session_policies WHERE conversation_id=?', 'e1').signature, 'sig-e1');
-  assert.equal(store.get('SELECT schema_version FROM conversation_context_formats WHERE conversation_id=?', 'e1').schema_version, 2);
-  assert.equal(store.get("SELECT schema_version FROM conversation_context_formats WHERE conversation_id=? AND session_key='default'", 's1').schema_version, 2);
+  // 绑定/策略/格式(v7 合一为 conversation_session_meta)、Panel 私聊消息、互动卡都保留。
+  const meta = store.get('SELECT * FROM conversation_session_meta WHERE conversation_id=?', 'e1');
+  assert.equal(meta.session, 'sess-e1');
+  assert.equal(meta.policy_signature, 'sig-e1');
+  assert.equal(meta.schema_version, 2);
+  assert.equal(store.get("SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'", 's1').schema_version, 2);
   assert.equal(store.get('SELECT text FROM panel_messages WHERE id=?', 'pm1').text, 'private hello');
   assert.equal(store.get('SELECT conversation_id FROM interactions WHERE id=?', 'i1').conversation_id, 'e1');
   assert.equal(store.get('SELECT source_turn_id FROM panel_updates WHERE id=?', 'u1').source_turn_id, 'pt1');
 
+  // v7 幂等表合一:三张旧表的行进入 operation_records(scope+scope_id+client_key 定位)。
+  assert.deepEqual(store.all('SELECT scope,scope_id,client_key,payload,ref FROM operation_records ORDER BY scope').map(row => ({ ...row })), [
+    { scope: 'group-create', scope_id: '', client_key: 'op-create', payload: '{}', ref: 'g' },
+    { scope: 'panel-private-message', scope_id: 'p1', client_key: 'cm-1', payload: 'hash-1', ref: 'pm1' },
+    { scope: 'team-directive', scope_id: 'g', client_key: 'op-directive', payload: null, ref: 'msg1' },
+  ]);
+
   // 旧表全部清掉，外键自洽。
   assert.deepEqual(store.all('PRAGMA foreign_key_check'), []);
-  assert.deepEqual(store.all("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('endpoints','panel_sessions','panel_turns','runtime_attempts','panel_history','panel_outbox')"), []);
+  assert.deepEqual(store.all("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('endpoints','panel_sessions','panel_turns','runtime_attempts','panel_history','panel_outbox','conversation_session_bindings','conversation_session_policies','conversation_context_formats','team_creation_requests','team_directive_requests','panel_message_requests')"), []);
   store.close();
 });
 

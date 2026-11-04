@@ -1,20 +1,15 @@
 // User-facing directive receipts share the existing trusted-user dispatch path.
+// operation_records(scope='team-directive') 记录 指令编号 -> 触发消息 的幂等链接。
 export class TeamDirectives {
   constructor(bus) {
     this.bus = bus;
-    bus.store.db.exec(`CREATE TABLE IF NOT EXISTS team_directive_requests(
-      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-      operation_id TEXT NOT NULL,
-      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      PRIMARY KEY(group_id,operation_id)
-    )`);
   }
   publishOutput(turnId, text) {
     if (typeof text !== 'string' || !text.trim()) return;
     const s = this.bus.store;
     const replies = s.transaction(() => {
       const messages = s.all(`SELECT m.* FROM turn_inputs i JOIN messages m ON m.id=i.message_id
-        JOIN team_directive_requests d ON d.message_id=m.id WHERE i.turn_id=? AND m.sender='user'`, turnId);
+        JOIN operation_records d ON d.scope='team-directive' AND d.ref=m.id WHERE i.turn_id=? AND m.sender='user'`, turnId);
       const published = [];
       for (const input of messages) {
         // Only a response to this user or the same final text counts as a duplicate.
@@ -36,10 +31,10 @@ export class TeamDirectives {
     const s = this.bus.store;
     // Recover persisted outputs after a restart, including outputs created before
     // user-facing replies were supported. Never invoke the model again.
-    const rows = s.all(`SELECT DISTINCT h.turn_id,h.event FROM team_directive_requests d
-      JOIN turn_inputs i ON i.message_id=d.message_id JOIN history h ON h.turn_id=i.turn_id
+    const rows = s.all(`SELECT DISTINCT h.turn_id,h.event FROM operation_records d
+      JOIN turn_inputs i ON i.message_id=d.ref JOIN history h ON h.turn_id=i.turn_id
       JOIN turns t ON t.id=i.turn_id
-      WHERE t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`);
+      WHERE d.scope='team-directive' AND t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`);
     for (const row of rows) this.publishOutput(row.turn_id, JSON.parse(row.event).text);
   }
   submit(groupId, body, { transaction = true } = {}) {
@@ -52,15 +47,15 @@ export class TeamDirectives {
     if (typeof controllerId !== 'string' || !controllerId) throw new Error('缺少主 Agent 身份');
     const write = () => {
       this.bus.store.group(groupId);
-      const previous = this.bus.store.get(`SELECT m.* FROM team_directive_requests d JOIN messages m ON m.id=d.message_id
-        WHERE d.group_id=? AND d.operation_id=?`, groupId, operationId);
+      const previous = this.bus.store.get(`SELECT m.* FROM operation_records d JOIN messages m ON m.id=d.ref
+        WHERE d.scope='team-directive' AND d.scope_id=? AND d.client_key=?`, groupId, operationId);
       if (previous) {
         if (previous.text !== text || previous.recipient !== controllerId) throw new Error('请求编号已用于不同内容或主 Agent');
         return this.receipt(groupId, previous.id, operationId);
       }
       if (this.bus.teamController(groupId).id !== controllerId) throw new Error('主 Agent 已变更，请刷新团队后重新发送');
       const { messageId } = this.bus.directive(groupId, text);
-      this.bus.store.run('INSERT INTO team_directive_requests VALUES(?,?,?)', groupId, operationId, messageId);
+      this.bus.store.run("INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('team-directive',?,?,NULL,?,?)", groupId, operationId, messageId, new Date().toISOString());
       return this.receipt(groupId, messageId, operationId);
     };
     return transaction ? this.bus.store.transaction(write) : write();
@@ -78,8 +73,8 @@ export class TeamDirectives {
   }
   list(groupId) {
     this.bus.store.group(groupId);
-    return this.bus.store.all(`SELECT d.operation_id,m.id FROM team_directive_requests d JOIN messages m ON m.id=d.message_id
-      WHERE d.group_id=? ORDER BY m.seq DESC LIMIT 50`, groupId)
+    return this.bus.store.all(`SELECT d.client_key AS operation_id,m.id FROM operation_records d JOIN messages m ON m.id=d.ref
+      WHERE d.scope='team-directive' AND d.scope_id=? ORDER BY m.seq DESC LIMIT 50`, groupId)
       .map(r => this.receipt(groupId, r.id, r.operation_id));
   }
 }
