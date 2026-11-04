@@ -31,7 +31,45 @@ function writeAttachmentError(response, error) {
 
 export function apiRoutes(context) {
     const { bus, url, request, fail, failJson, readJsonBody, cursor, response, panelEventStreams } = context;
-    const teamEventsMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/events$/);
+    // 流式事件路由工厂:panel 流与团队流共用同一套 SSE 生命周期
+    // (连接 -> 初始快照 -> 按谓词转发 -> 心跳 -> 清理),差异只在事件名、快照来源与转发谓词。
+    const streamRoute = (pattern, { eventName, before = null, snapshot, forward }) => ({
+        methods: ['GET'],
+        archived: false,
+        matches: probe => pattern.test(probe.pathname),
+        handle: async () => {
+            const capture = pattern.exec(url.pathname)?.[1];
+            const param = capture ? decodeURIComponent(capture) : null;
+            before?.(param);
+            panelEventStreams.add(response);
+            response.writeHead(200, {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            });
+            response.write(': connected\n\n');
+            const send = event => {
+                if (response.writableEnded) return;
+                if (event.type !== 'snapshot' && !forward(event, param)) return;
+                response.write(`event: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
+            };
+            send({ type: 'snapshot', streams: snapshot(param) });
+            bus.on(eventName, send);
+            const heartbeat = setInterval(() => {
+                if (!response.writableEnded)
+                    response.write(': heartbeat\n\n');
+            }, 15000);
+            heartbeat.unref();
+            const cleanup = () => {
+                clearInterval(heartbeat);
+                bus.off(eventName, send);
+                panelEventStreams.delete(response);
+            };
+            request.once('close', cleanup);
+            response.once('close', cleanup);
+            return;
+        },
+    });
     const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
     const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
     const isDirectiveMutation = request.method === 'POST';
@@ -141,75 +179,17 @@ export function apiRoutes(context) {
             try { return bus.notes.remove(decodeURIComponent(url.pathname.split('/')[3])); }
             catch (error) { return failJson(error?.status ?? 400, error); }
         } },
-        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/panel-agent/events', handle: async () => {
-                panelEventStreams.add(response);
-                response.writeHead(200, {
-                    'Content-Type': 'text/event-stream; charset=utf-8',
-                    Connection: 'keep-alive',
-                    'X-Accel-Buffering': 'no',
-                });
-                response.write(': connected\n\n');
-                const send = event => {
-                    if (!response.writableEnded) {
-                        response.write(`event: panel-stream\ndata: ${JSON.stringify(event)}\n\n`);
-                    }
-                };
-                const active = bus.panelStreaming();
-                send({ type: 'snapshot', streams: active });
-                bus.on('panel-stream', send);
-                const heartbeat = setInterval(() => {
-                    if (!response.writableEnded)
-                        response.write(': heartbeat\n\n');
-                }, 15000);
-                heartbeat.unref();
-                const cleanup = () => {
-                    clearInterval(heartbeat);
-                    bus.off('panel-stream', send);
-                    panelEventStreams.delete(response);
-                };
-                request.once('close', cleanup);
-                response.once('close', cleanup);
-                return;
-            } },
-        { methods: ['GET'], archived: false, matches: url => /^\/api\/teams\/([^/]+)\/events$/.test(url.pathname), handle: async () => {
-                const groupId = decodeURIComponent(teamEventsMatch[1]);
-                bus.store.group(groupId);
-                panelEventStreams.add(response);
-                response.writeHead(200, {
-                    'Content-Type': 'text/event-stream; charset=utf-8',
-                    Connection: 'keep-alive',
-                    'X-Accel-Buffering': 'no',
-                });
-                response.write(': connected\n\n');
-                const send = event => {
-                    if (response.writableEnded)
-                        return;
-                    if (event.type === 'snapshot') {
-                        response.write(`event: team-stream\ndata: ${JSON.stringify(event)}\n\n`);
-                        return;
-                    }
-                    if (event.stream?.groupId !== groupId)
-                        return;
-                    response.write(`event: team-stream\ndata: ${JSON.stringify(event)}\n\n`);
-                };
-                const active = bus.teamStreaming(groupId);
-                if (active.length)
-                    send({ type: 'snapshot', streams: active });
-                bus.on('team-stream', send);
-                const heartbeat = setInterval(() => {
-                    if (!response.writableEnded)
-                        response.write(': heartbeat\n\n');
-                }, 15000);
-                heartbeat.unref();
-                const cleanup = () => {
-                    clearInterval(heartbeat);
-                    bus.off('team-stream', send);
-                    panelEventStreams.delete(response);
-                };
-                request.once('close', cleanup);
-                response.once('close', cleanup);
-                return;
-            } },
+        streamRoute(/^\/api\/panel-agent\/events$/, {
+            eventName: 'panel-stream',
+            snapshot: () => bus.panelStreaming(),
+            forward: () => true,
+        }),
+        streamRoute(/^\/api\/teams\/([^/]+)\/events$/, {
+            eventName: 'team-stream',
+            before: groupId => bus.store.group(groupId),
+            snapshot: groupId => bus.teamStreaming(groupId),
+            forward: (event, groupId) => event.stream?.groupId === groupId,
+        }),
         { methods: ["POST"], archived: false, matches: url => (/^\/api\/hosts\/([^/]+)\/install$/.test(url.pathname)), handle: async () => {
                 let value;
                 if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
