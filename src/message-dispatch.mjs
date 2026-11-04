@@ -88,12 +88,23 @@ export class MessageDispatch {
     try {
       if (schema === CONTEXT_SCHEMA_VERSION) {
         const group = this.bus.store.group(session.group_id);
+        // 用户请求的未回执清单随回合输入注入:让主控凭可见状态行动,不凭跨回合记忆;
+        // 回执发布后查询为空,注入自动消失。主控完成任务须先发布回执,未发布不得声称已发布。
+        const awaitingReceipt = this.bus.store.all(
+          `SELECT r.id AS requestId, r.operation_id AS operationId, r.created
+           FROM team_requests r
+           WHERE r.group_id=? AND r.controller_id=?
+             AND NOT EXISTS (SELECT 1 FROM team_request_receipts x WHERE x.request_id=r.id)`,
+          group.id,
+          panelAgent.id,
+        );
         prompt = JSON.stringify(this.bus.information.turnInput({
           group,
           charter: group.charter,
           policy: { mode: 'communication', allowShell: false, domain: 'communication' },
           input,
           schema,
+          ...(awaitingReceipt.length ? { awaitingReceipt } : {}),
         }));
       } else {
         prompt = legacyPanelDeliveryPrompt(input);

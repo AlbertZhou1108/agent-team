@@ -382,7 +382,7 @@ test('Panel main receives member reports and can write only in the bound team co
 
 test('private creation forwards to its team coordination and receives an explicit receipt', async t => {
  const directory = mkdtempSync(join(tmpdir(), 'agent-team-request-')); const base = hostFixture([]);
- let bus; let created; let privateCalls=0;
+ let bus; let created; let privateCalls=0; const coordinationPrompts=[];
  const host={...base, async run(context) {
    if(context.endpoint.owner_kind==='panel_agent' && context.endpoint.context==='private') {
      privateCalls++; context.onAccepted();
@@ -401,6 +401,7 @@ test('private creation forwards to its team coordination and receives an explici
      return 'transferred';
    }
    if(context.endpoint.owner_kind==='panel_agent' && context.endpoint.context==='coordination') {
+     coordinationPrompts.push(context.prompt);
      context.onAccepted(); const requests=await context.onTool('team_requests',{}); const request=requests[0];
      assert.ok(request);
      assert.equal('original_text' in request,false);
@@ -424,6 +425,14 @@ test('private creation forwards to its team coordination and receives an explici
  assert.equal(response.message.active_team_id,null);
  const message=bus.store.get('SELECT * FROM messages WHERE id=?',requests[0].message_id);
  assert.equal(message.sender,'user'); assert.equal(message.recipient,state.agent.id);
+
+ // 未回执的请求随回合输入注入:第一回合可见(requestId/operationId 齐备);
+ // 回执发布后,后续协调回合的输入不再携带,注入自动消失。
+ assert.match(coordinationPrompts[0], /"awaitingReceipt"/);
+ assert.match(coordinationPrompts[0], /"operationId":"one"/);
+ bus.directive(created.id, '请确认回执状态');
+ await until(()=>coordinationPrompts.length>=2 && !bus.running.size);
+ assert.ok(!coordinationPrompts.at(-1).includes('awaitingReceipt'), '回执发布后注入应消失');
 });
 
 test('lead takeover and handback are revisioned and require an idle team', async t => {

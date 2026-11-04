@@ -115,6 +115,7 @@ export function projectTurnInput({
   policy,
   input,
   schema = CONTEXT_SCHEMA_VERSION,
+  awaitingReceipt,
 } = {}) {
   const view = {
     contextSchemaVersion: schema,
@@ -128,6 +129,9 @@ export function projectTurnInput({
       notes: (input.notes ?? []).map(row => fullInputMessage(row)),
     },
   };
+  // 用户请求的未回执状态进回合输入:主控凭可见状态行动,不凭跨回合记忆;
+  // 回执一旦发布,查询自然为空,字段随之消失。
+  if (awaitingReceipt?.length) view.awaitingReceipt = awaitingReceipt;
   const budget = DEFAULT_BUDGETS.turnInputBytes;
   if (byteSize(view) > budget) {
     throw new Error(`本轮输入超过 ${budget} 字节预算：触发消息不会被静默截断；请缩减触发消息或改用 read 分页读取历史`);
@@ -310,8 +314,8 @@ export class Information {
     return expandMessageText(row, { hash, offset, bodyLimit, schema });
   }
 
-  turnInput({ group, charter, policy, input, schema = CONTEXT_SCHEMA_VERSION }) {
-    return projectTurnInput({ group, charter, policy, input, schema });
+  turnInput({ group, charter, policy, input, schema = CONTEXT_SCHEMA_VERSION, awaitingReceipt }) {
+    return projectTurnInput({ group, charter, policy, input, schema, awaitingReceipt });
   }
 
   // --- measurement (metadata only; never message bodies) -----------------
