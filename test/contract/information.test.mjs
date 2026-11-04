@@ -260,7 +260,7 @@ test('bounded message list, database body references and measurements work throu
       hash: captured.trigger.ref.hash,
       bodyLimit: 5000,
     }),
-    /无效整数/,
+    /bodyLimit不能大于4096/,
   );
   const other = createTestGroup(bus, {
     name: 'other team',

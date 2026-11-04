@@ -1,3 +1,5 @@
+import { validateToolValue } from './tool-schema.mjs';
+
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
 const groupId = { type: 'string', minLength: 1, maxLength: 200 };
@@ -140,48 +142,6 @@ export function panelToolsFor(context) {
   return schema([...all.values()]);
 }
 
-function validateValue(rule, value, path) {
-  if (!rule) return;
-  const types = Array.isArray(rule.type) ? rule.type : [rule.type];
-  if (rule.type) {
-    const valid = types.some(type => {
-      if (type === 'null') return value === null;
-      if (type === 'array') return Array.isArray(value);
-      if (type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
-      if (type === 'integer') return Number.isInteger(value);
-      return typeof value === type;
-    });
-    if (!valid) throw new Error(`${path}类型无效`);
-  }
-  if (rule.enum && !rule.enum.includes(value)) throw new Error(`${path}必须是以下值之一: ${rule.enum.join(', ')}`);
-  if (Object.hasOwn(rule, 'const') && value !== rule.const) throw new Error(`${path}必须为${rule.const}`);
-  if (typeof value === 'string') {
-    if (rule.minLength !== undefined && value.trim().length < rule.minLength) throw new Error(`${path}需要非空文本`);
-    if (rule.maxLength !== undefined && value.length > rule.maxLength) throw new Error(`${path}文本过长`);
-  }
-  if (typeof value === 'number') {
-    if (rule.minimum !== undefined && value < rule.minimum) throw new Error(`${path}不能小于${rule.minimum}`);
-    if (rule.maximum !== undefined && value > rule.maximum) throw new Error(`${path}不能大于${rule.maximum}`);
-  }
-  if (Array.isArray(value)) {
-    if (rule.minItems !== undefined && value.length < rule.minItems) throw new Error(`${path}至少需要${rule.minItems}项`);
-    if (rule.items) value.forEach((item, index) => validateValue(rule.items, item, `${path}[${index}]`));
-  }
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const properties = rule.properties ?? {};
-    for (const key of rule.required ?? []) {
-      if (!Object.hasOwn(value, key)) throw new Error(`${path}.${key}为必填项`);
-    }
-    for (const [key, item] of Object.entries(value)) {
-      if (Object.hasOwn(properties, key)) validateValue(properties[key], item, `${path}.${key}`);
-      else if (rule.additionalProperties === false) throw new Error(`${path}不允许字段: ${key}`);
-      else if (rule.additionalProperties && typeof rule.additionalProperties === 'object') {
-        validateValue(rule.additionalProperties, item, `${path}.${key}`);
-      }
-    }
-  }
-}
-
 export function validatePanelTool(context, name, args) {
   const tool = panelToolsFor(context).find(candidate => candidate.name === name);
   if (!tool) throw new Error('Panel Agent 当前上下文不能使用此工具');
@@ -189,6 +149,6 @@ export function validatePanelTool(context, name, args) {
   const properties = tool.inputSchema.properties;
   for (const key of Object.keys(args)) if (!Object.hasOwn(properties, key)) throw new Error(`不允许的参数: ${key}`);
   for (const key of tool.inputSchema.required) if (!Object.hasOwn(args, key)) throw new Error(`缺少参数: ${key}`);
-  for (const [key, value] of Object.entries(args)) validateValue(properties[key], value, key);
+  for (const [key, value] of Object.entries(args)) validateToolValue(properties[key], value, key);
   return args;
 }

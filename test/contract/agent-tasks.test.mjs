@@ -143,8 +143,8 @@ test('tasks_set validates shape, states and limits', async t => {
   assert.throws(() => normalize(Array.from({ length: 21 }, () => ({ text: '任务', state: 'doing' }))), /20/);
   // 工具层先于总线校验拦截畸形参数
   const call = tasks => f.server.bus.tool(f.leadEndpoint.id, f.leadEndpoint.key, 'tasks_set', { tasks });
-  await assert.rejects(() => call('不是数组'), /无效列表/);
-  await assert.rejects(() => call([{ text: '任务', state: 'blocked' }]), /无效列表项/);
+  await assert.rejects(() => call('不是数组'), /tasks类型无效/);
+  await assert.rejects(() => call([{ text: '任务', state: 'blocked' }]), /必须是以下值之一/);
 });
 
 test('tasks_set is available to every member context except private and profile', () => {
@@ -155,6 +155,6 @@ test('tasks_set is available to every member context except private and profile'
     assert.throws(() => validateTool(role, 'tasks_set', valid, 'private'), /不可使用/);
     assert.throws(() => validateTool(role, 'tasks_set', valid, 'profile'), /不可使用/);
   }
-  assert.throws(() => validateTool('member', 'tasks_set', { tasks: [{ text: 'x', state: 'blocked' }] }, 'coordination'), /无效列表项/);
+  assert.throws(() => validateTool('member', 'tasks_set', { tasks: [{ text: 'x', state: 'blocked' }] }, 'coordination'), /必须是以下值之一/);
   assert.doesNotThrow(() => validateTool('member', 'tasks_set', { tasks: [] }, 'coordination'));
 });

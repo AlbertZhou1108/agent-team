@@ -1,3 +1,5 @@
+import { validateToolValue } from './tool-schema.mjs';
+
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const definitions = [
   ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。', {
@@ -72,30 +74,6 @@ export function validateTool(role, name, args, context) {
   const schema = spec.inputSchema;
   for (const key of Object.keys(args)) if (!Object.hasOwn(schema.properties, key)) throw new Error(`不允许的参数: ${key}`);
   for (const key of schema.required) if (!Object.hasOwn(args, key)) throw new Error(`缺少参数: ${key}`);
-  for (const [key, value] of Object.entries(args)) {
-    const rule = schema.properties[key];
-    if (rule.type === 'string' && (typeof value !== 'string' || !value.trim() || value.length > rule.maxLength)) throw new Error(`无效文本: ${key}`);
-    if (rule.type === 'string' && rule.enum && !rule.enum.includes(value)) throw new Error(`无效取值: ${key}`);
-    if (rule.type === 'integer' && (!Number.isInteger(value) || value < rule.minimum || value > (rule.maximum ?? Number.MAX_SAFE_INTEGER))) throw new Error(`无效整数: ${key}`);
-    if (rule.type === 'boolean' && typeof value !== 'boolean') throw new Error(`无效布尔值: ${key}`);
-    if (rule.type === 'array') {
-      if (!Array.isArray(value) || value.length < (rule.minItems ?? 0) || value.length > (rule.maxItems ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表: ${key}`);
-      if (rule.items?.type === 'object') {
-        for (const item of value) {
-          if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`无效列表项: ${key}`);
-          for (const [field, fieldRule] of Object.entries(rule.items.properties ?? {})) {
-            const fieldValue = item[field];
-            if (fieldRule.type === 'string' && (typeof fieldValue !== 'string' || !fieldValue.trim() || fieldValue.length > (fieldRule.maxLength ?? 500))) throw new Error(`无效列表项: ${key}`);
-            if (fieldRule.enum && !fieldRule.enum.includes(fieldValue)) throw new Error(`无效列表项: ${key}`);
-          }
-        }
-      } else {
-        if (new Set(value).size !== value.length) throw new Error(`列表项重复: ${key}`);
-        for (const item of value) {
-          if (typeof item !== 'string' || !item.trim() || item.length > (rule.items?.maxLength ?? Number.MAX_SAFE_INTEGER)) throw new Error(`无效列表项: ${key}`);
-        }
-      }
-    }
-  }
+  for (const [key, value] of Object.entries(args)) validateToolValue(schema.properties[key], value, key);
   return args;
 }

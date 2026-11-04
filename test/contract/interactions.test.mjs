@@ -42,8 +42,8 @@ test('ask tool is available to every member context except private and profile',
     assert.throws(() => validateTool(role, 'ask', { kind: 'input', text: 'x' }, 'private'), /不可使用/);
     assert.throws(() => validateTool(role, 'ask', { kind: 'input', text: 'x' }, 'profile'), /不可使用/);
   }
-  assert.throws(() => validateTool('member', 'ask', { kind: 'choice', text: 'x', options: ['只有一个'] }, 'coordination'), /无效列表/);
-  assert.throws(() => validateTool('member', 'ask', { kind: 'choice', text: 'x', options: ['同意', '同意'] }, 'coordination'), /重复/);
+  assert.throws(() => validateTool('member', 'ask', { kind: 'choice', text: 'x', options: ['只有一个'] }, 'coordination'), /至少需要2项/);
+  assert.throws(() => validateTool('member', 'ask', { kind: 'choice', text: 'x', options: ['同意', '同意'] }, 'coordination'), /存在重复项/);
   // options 与 kind 的配对约束在 Bus 层执行：choice 缺 options 时 validateTool 放行、executeTool 拒绝。
   assert.doesNotThrow(() => validateTool('member', 'ask', { kind: 'choice', text: 'x' }, 'coordination'));
 });
