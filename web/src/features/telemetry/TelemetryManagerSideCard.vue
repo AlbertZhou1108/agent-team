@@ -18,7 +18,6 @@ import type {
 } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
 import TelemetryContextCard from './TelemetryContextCard.vue';
-import TelemetryCoveragePanel from './TelemetryCoverage.vue';
 import {
   formatTimestamp,
   metricDisplay,
@@ -52,9 +51,6 @@ withDefaults(
       <CardTitle class="flex flex-wrap items-center gap-2 text-sm">
         {{ title }}
         <Badge variant="outline">{{ executor.host }}</Badge>
-        <Badge :variant="side === 'member' ? 'secondary' : 'default'">
-          {{ side === 'member' ? '独占可加' : '相关性 · 不可加' }}
-        </Badge>
       </CardTitle>
       <CardDescription class="text-xs">
         {{ batchCount }} 个批次 · {{ physicalSessions.length }} 个物理 session ·
@@ -83,8 +79,6 @@ withDefaults(
             : '管理者侧上下文参考（相关批次最新采样）'
         "
       />
-      <TelemetryCoveragePanel :coverage="coverage" />
-      <p v-if="note" class="text-2xs text-muted-foreground">{{ note }}</p>
 
       <Separator />
       <section class="flex min-w-0 flex-col gap-2">
@@ -92,7 +86,6 @@ withDefaults(
           <h4 class="text-xs font-semibold">
             物理 session 累计（{{ physicalSessions.length }}）
           </h4>
-          <Badge variant="outline">不与批次相加</Badge>
         </div>
         <p v-if="!physicalSessions.length" class="text-xs text-muted-foreground">
           暂无物理 session 观测。

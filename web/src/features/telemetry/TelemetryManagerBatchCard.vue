@@ -76,7 +76,6 @@ function recipientKindLabel(
       </span>
       <span class="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>{{ batchStateLabel(batch.state) }}</span>
-        <span v-if="batch.completeness !== 'complete'">{{ completenessLabel(batch.completeness) }}</span>
         <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
         <span>展开执行详情</span>
       </span>
@@ -109,30 +108,9 @@ function recipientKindLabel(
           {{ involvementLabel }}
         </Badge>
         <Badge variant="outline">{{ batchStateLabel(batch.state) }}</Badge>
-        <Badge :variant="completenessVariant">{{
-          completenessLabel(batch.completeness)
-        }}</Badge>
       </CardDescription>
     </CardHeader>
     <CardContent class="flex min-w-0 flex-col gap-4">
-      <div class="flex flex-wrap gap-1">
-        <Badge
-          v-for="label in mergeLabels"
-          :key="label"
-          :variant="label === '合并投递' ? 'default' : 'outline'"
-          >{{ label }}</Badge
-        >
-        <Badge variant="outline">整批归执行方一次</Badge>
-        <Badge v-if="batch.involvement?.exclusiveToMember" variant="secondary"
-          >独占批次</Badge
-        >
-        <Badge
-          v-if="batch.involvement?.sharedWithOtherMembers"
-          variant="secondary"
-          >共享批次 · 整批展示</Badge
-        >
-      </div>
-
       <p
         v-if="batch.involvement"
         class="text-xs text-muted-foreground"
@@ -201,9 +179,6 @@ function recipientKindLabel(
             }}</span>
           </li>
         </ul>
-        <p class="text-2xs text-muted-foreground">
-          输出触达仅用于相关性判断，不改变执行归属，也不拆分整批消耗。
-        </p>
       </section>
 
       <Separator />
@@ -228,12 +203,9 @@ function recipientKindLabel(
 
       <Disclosure>
         <template #summary>
-          来源与完整性 · 批次 {{ completenessLabel(batch.completeness) }}
+          来源与完整性
         </template>
         <div class="mt-2 flex flex-col gap-1">
-          <p v-if="batch.completeness !== 'complete'">
-            未完整批次不补零；缺失字段显示“—”与原因。
-          </p>
           <div class="flex flex-wrap gap-1">
             <Badge
               v-for="key in ['inputTokensTotal', 'outputTokens', 'totalTokens'] as const"
@@ -243,9 +215,6 @@ function recipientKindLabel(
             >
               {{ key }}：
               {{ batch.metrics[key].value == null ? '—' : batch.metrics[key].value }}
-              <template v-if="batch.metrics[key].value == null">
-                （{{ missingReasonLabel(batch.metrics[key].missingReason) }}）
-              </template>
             </Badge>
           </div>
         </div>

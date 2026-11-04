@@ -11,7 +11,7 @@ defineProps<{ request: TeamRequest; teamName: string }>();
   <Card class="mt-3 min-w-0">
     <CardHeader>
       <CardTitle>{{ teamName }} · 请求回执</CardTitle>
-      <CardDescription>{{ directiveStatus(request.delivery) }}；投递状态不代表执行结果。</CardDescription>
+      <CardDescription>{{ directiveStatus(request.delivery) }}</CardDescription>
     </CardHeader>
     <CardContent v-if="request.receipts.length" class="flex flex-col gap-3">
       <p v-for="receipt in request.receipts" :key="receipt.id" class="whitespace-pre-wrap wrap-anywhere">{{ receipt.text }}</p>

@@ -18,7 +18,6 @@ import type {
 } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
 import TelemetryContextCard from './TelemetryContextCard.vue';
-import TelemetryCoveragePanel from './TelemetryCoverage.vue';
 import { formatTimestamp, sessionStatusLabel } from './format';
 
 defineProps<{
@@ -56,15 +55,12 @@ defineProps<{
         <template #summary>上下文、会话与采集详情</template>
         <div class="mt-3 flex max-h-[min(28rem,60vh)] min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="上下文、会话与采集详情内容" tabindex="0">
       <TelemetryContextCard :context-reference="contextReference" />
-      <TelemetryCoveragePanel :coverage="coverage" />
-
       <Separator />
       <section class="flex min-w-0 flex-col gap-2">
         <div class="flex items-center justify-between gap-2">
           <h4 class="text-xs font-semibold">
             物理 session 累计（{{ physicalSessions.length }}）
           </h4>
-          <Badge variant="outline">不与批次相加</Badge>
         </div>
         <p
           v-if="!physicalSessions.length"
@@ -102,7 +98,6 @@ defineProps<{
               :context-reference="session.contextReference"
               title="该物理 session 的上下文参考"
             />
-            <TelemetryCoveragePanel :coverage="session.coverage" />
           </div>
         </Disclosure>
       </section>

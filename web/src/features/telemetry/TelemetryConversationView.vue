@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { Disclosure } from '@/components/ui/disclosure';
-import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -148,8 +146,6 @@ async function loadMore() {
       </Select>
     </div>
 
-    <div class="flex items-center gap-1"><p class="text-xs text-muted-foreground">双方消耗分别统计，来源小计不可与执行总量相加。</p><HelpPopover title="统计口径"><p>双方执行归属消耗分开显示，互不合并；来源小计是触发来源分析视图，不能与执行归属总量相加。合并投递整批计入执行方一次。</p></HelpPopover></div>
-
     <PanelState
       v-if="!selectedPair && selectedEndpointIsNonMemberPair"
       :icon="Bot"
@@ -196,30 +192,12 @@ async function loadMore() {
         :coverage="entry.coverage"
       />
 
-      <section class="flex flex-wrap items-center gap-1 text-xs">
-        <Badge variant="outline"
-          >单一来源 {{ summary?.singleSourceBatchIds.length ?? 0 }}</Badge
-        >
-        <Badge variant="outline"
-          >合并投递 {{ summary?.mergedBatchIds.length ?? 0 }}</Badge
-        >
-        <Badge variant="default"
-          >共同批次 {{ summary?.sharedSourceBatchIds.length ?? 0 }}</Badge
-        >
-      </section>
-
-      <Disclosure>
-        <template #summary>来源归因与去重口径</template>
-        <div class="mt-3">
       <TelemetrySourceSubtotals
         v-if="summary"
         :subtotals="summary.sourceSubtotals"
         :merged-batch-ids="summary.mergedBatchIds"
         :shared-source-batch-ids="summary.sharedSourceBatchIds"
       />
-
-        </div>
-      </Disclosure>
 
       <TelemetryBatchList
         v-if="summary"

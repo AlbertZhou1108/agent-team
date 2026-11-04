@@ -107,16 +107,11 @@ function clearFilters() {
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-1">
         <h3 class="text-sm font-semibold">成员 ↔ 主 Agent</h3>
-        <Badge variant="outline">仅成员端</Badge>
-        <Badge variant="secondary">成员侧 ≠ 管理者侧</Badge>
-        <Badge variant="outline">管理者侧 ≠ 协调总量</Badge>
       </div>
       <span class="text-2xs text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
-
-    <div class="flex items-center gap-1" data-manager-non-additive><p class="text-xs text-muted-foreground">成员侧与管理侧不可相加；管理侧不可与主 Agent 协调总量相加。</p><HelpPopover title="统计口径"><p>成员侧与管理侧并排展示，互不相加；管理者侧是相关性视图，不能与主 Agent 协调会话总量相加。本页不提供任何合计数字；共享批次整批展示一次、不拆分。</p></HelpPopover></div>
 
     <div class="grid gap-2 sm:grid-cols-2">
       <label class="flex flex-col gap-1 text-2xs text-muted-foreground">
@@ -186,7 +181,6 @@ function clearFilters() {
           :batch-count="data.memberSide.batchCount"
           :physical-sessions="data.memberSide.physicalSessions"
           :badges="[`成员侧批次 ${data.memberSide.batchCount}`]"
-          note="成员侧为 pair 批次的独占小计，可在本栏内部相加；不得与管理者侧、协调会话或成员概览的数值相加。"
         />
         <TelemetryManagerSideCard
           side="manager"
@@ -198,7 +192,6 @@ function clearFilters() {
           :batch-count="data.managerSide.batchCount"
           :physical-sessions="data.managerSide.physicalSessions"
           :badges="managerBadges"
-          note="管理者侧包含输入发送者=该成员与输出收件人=该成员的相关批次；共享批次整批计一次，不能跨成员相加，也不能与协调会话总量相加。"
         />
       </div>
 
@@ -208,11 +201,7 @@ function clearFilters() {
           <Badge variant="outline">管理者侧批次 {{ data.summary.managerBatchIds.length }}</Badge>
           <Badge variant="secondary">独占 {{ data.summary.exclusiveManagerBatchIds.length }}</Badge>
           <Badge variant="secondary">共享 {{ data.summary.sharedManagerBatchIds.length }}</Badge>
-          <Badge variant="outline">共享批次整批展示</Badge>
         </div>
-        <p class="text-2xs text-muted-foreground">
-          {{ data.summary.note }}
-        </p>
 
         <PanelState
           v-if="!query.batches.value.length"

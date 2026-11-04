@@ -132,7 +132,7 @@ function prettyEvent(value: string) {
       <header class="flex flex-col gap-2">
         <h2 class="text-base font-semibold">团队详情</h2>
         <p class="text-xs text-muted-foreground">
-          未选择会话：以下为团队级用量。执行轨迹、原始事件与模型观测按会话记录，选择会话后查看。
+          以下为团队级用量，选择会话查看明细。
         </p>
         <Button variant="outline" size="sm" class="w-fit" @click="emit('chooseSession')">浏览会话</Button>
       </header>

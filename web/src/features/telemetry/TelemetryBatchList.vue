@@ -50,15 +50,7 @@ const invariantOk = computed(() =>
   <div class="flex min-w-0 flex-col gap-3">
     <div class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
       <Badge variant="outline">批次 {{ batches.length }}</Badge>
-      <Badge v-if="mergedBatchIds.length" variant="outline"
-        >合并 {{ mergedBatchIds.length }}</Badge
-      >
-      <Badge v-if="sharedSourceBatchIds.length" variant="default"
-        >共同批次 {{ sharedSourceBatchIds.length }}</Badge
-      >
-      <Badge :variant="invariantOk ? 'outline' : 'destructive'">{{
-        invariantOk ? '归因口径一致' : '归因口径异常'
-      }}</Badge>
+      <Badge v-if="!invariantOk" variant="destructive">归因异常</Badge>
     </div>
     <p v-if="!invariantOk" class="text-xs text-destructive">
       服务端返回的来源小计包含合并批次，或共同批次未列入合并批次；页面不自行重算，请回查 API。

@@ -21,7 +21,7 @@ const rows = computed(() => {
       <span class="flex shrink-0 items-center gap-1 tabular-nums">
         <Badge v-if="row.value != null && row.metric.completeness !== 'complete'" variant="outline">部分</Badge>
         <Badge v-if="row.metric.quality === 'estimated'" variant="outline">估算</Badge>
-        <span :title="row.value?.toLocaleString()">{{ row.value == null ? '未采集' : compactNumber(row.value) }}</span>
+        <span :title="row.value?.toLocaleString()">{{ row.value == null ? '—' : compactNumber(row.value) }}</span>
       </span>
     </Button>
   </section>

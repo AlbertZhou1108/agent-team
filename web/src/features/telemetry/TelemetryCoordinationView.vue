@@ -34,10 +34,6 @@ async function loadMore() {
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
       >
     </div>
-    <p class="text-xs text-muted-foreground">
-      每个输入批次只出现一次。合并投递展示整批总消耗与全部来源，不拆分、不平均、不向每个来源重复计入；跨来源共同批次独立展示且不计入对话独占小计。
-    </p>
-
     <PanelState
       v-if="query.isPending.value"
       loading
@@ -59,32 +55,11 @@ async function loadMore() {
         title="协调执行方"
       />
 
-      <section class="flex flex-wrap items-center gap-1 text-xs">
-        <Badge variant="outline"
-          >单一来源 {{ summary.singleSourceBatchIds.length }}</Badge
-        >
-        <Badge variant="outline"
-          >合并投递 {{ summary.mergedBatchIds.length }}</Badge
-        >
-        <Badge variant="default"
-          >共同批次 {{ summary.sharedSourceBatchIds.length }}</Badge
-        >
-        <Badge variant="outline"
-          >合计覆盖批次 {{ summary.coverage.batchCount }}</Badge
-        >
-      </section>
-
-      <Disclosure>
-        <template #summary>来源归因与去重口径</template>
-        <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="summary.sourceSubtotals"
         :merged-batch-ids="summary.mergedBatchIds"
         :shared-source-batch-ids="summary.sharedSourceBatchIds"
       />
-
-        </div>
-      </Disclosure>
 
       <TelemetryBatchList
         :batches="query.batches.value"

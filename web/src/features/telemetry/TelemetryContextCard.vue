@@ -1,14 +1,8 @@
 <script setup lang="ts">
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { computed } from 'vue';
-import { Badge } from '@/components/ui/badge';
 import type { TelemetryContextReference } from '@/shared/api/raw-types';
-import TelemetryMetricBadge from './TelemetryMetricBadge.vue';
-import {
-  CONTEXT_METRIC_LABELS,
-  contextMetricDisplay,
-  formatTimestamp,
-} from './format';
+import { CONTEXT_METRIC_LABELS, contextMetricDisplay } from './format';
 
 const props = withDefaults(
   defineProps<{
@@ -35,12 +29,7 @@ const metrics = computed(() =>
 <template>
   <Card size="compact">
     <CardHeader>
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <CardTitle>
-        {{ title ?? '上下文参考（最近请求采样）' }}
-      </CardTitle>
-      <Badge variant="outline">不可相加</Badge>
-    </div>
+      <CardTitle>{{ title ?? '上下文参考' }}</CardTitle>
     </CardHeader>
     <CardContent class="flex min-w-0 flex-col gap-3">
     <dl
@@ -58,21 +47,11 @@ const metrics = computed(() =>
           <span class="text-sm font-medium tabular-nums">{{
             contextMetricDisplay(item.metric, item.key)
           }}</span>
-          <TelemetryMetricBadge :metric="item.metric" compact />
         </dd>
       </div>
     </dl>
-    <p class="text-2xs text-muted-foreground">
-      模型：
-      {{
-        contextReference.model
-          ? `${contextReference.model.provider ? `${contextReference.model.provider}/` : ''}${contextReference.model.model}`
-          : '未报告'
-      }}
-      · 采样：{{ formatTimestamp(contextReference.sampledAt) }}
-    </p>
-    <p class="text-2xs text-muted-foreground">
-      最近请求输入与窗口容量是采样值，不是累计消耗，也不预测下一次请求占用。
+    <p v-if="contextReference.model" class="text-2xs text-muted-foreground">
+      模型：{{ contextReference.model.provider ? `${contextReference.model.provider}/` : '' }}{{ contextReference.model.model }}
     </p>
     </CardContent>
   </Card>

@@ -4,7 +4,6 @@ import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Users } from '@lucide/vue';
-import HelpPopover from '@/components/panel/HelpPopover.vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import {
   useMembersTelemetryQuery,
@@ -13,7 +12,6 @@ import {
 import TelemetryMemberComparison from './TelemetryMemberComparison.vue';
 import TelemetryExecutorCard from './TelemetryExecutorCard.vue';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
-import TelemetryCapabilitiesView from './TelemetryCapabilitiesView.vue';
 import { numeric } from './visuals';
 import { formatTimestamp } from './format';
 
@@ -36,19 +34,6 @@ const selectedMember = computed(() => data.value?.members.find(m => m.executor.m
   ?? [...(data.value?.members ?? [])].sort((a, b) => (numeric(b.totals.totalTokens) ?? -1) - (numeric(a.totals.totalTokens) ?? -1))[0]);
 const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
 
-function capabilitySummary(host: string): string {
-  const entry = hosts.value.find(item => item.host === host);
-  if (!entry) return '能力声明未返回';
-  const values = Object.values(entry.metrics);
-  const direct = values.filter(metric => metric.capability === 'direct').length;
-  const derived = values.filter(
-    metric => metric.capability === 'derived',
-  ).length;
-  const unsupported = values.filter(
-    metric => metric.capability === 'unsupported',
-  ).length;
-  return `能力：直接 ${direct} · 派生 ${derived} · 不支持 ${unsupported}`;
-}
 
 </script>
 
@@ -57,8 +42,6 @@ function capabilitySummary(host: string): string {
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-1">
         <h3 class="text-sm font-semibold">成员开销</h3>
-        <HelpPopover title="消耗统计口径"><p>按已观测 Token 汇总，不同宿主的采集范围可能不同；未采集显示为“未采集”。</p></HelpPopover>
-
       </div>
       <span class="text-2xs text-muted-foreground"
         >更新 {{ formatTimestamp(data?.generatedAt ?? null) }}</span
@@ -94,35 +77,15 @@ function capabilitySummary(host: string): string {
         :batch-count="selectedMember.batchCount"
         :coverage="selectedMember.coverage"
       >
-        <template #footer>
-          <div class="flex flex-wrap items-center gap-1 text-2xs">
-            <Badge variant="outline">{{ capabilitySummary(selectedMember.executor.host) }}</Badge>
-          </div>
-        </template>
       </TelemetryExecutorCard>
       </Disclosure>
 
-      <Disclosure>
-        <template #summary>来源归因与去重口径</template>
-        <div class="mt-3">
       <TelemetrySourceSubtotals
         :subtotals="data.sourceAnalysis.actors"
         :merged-batch-ids="data.sourceAnalysis.mergedBatchIds"
         :shared-source-batch-ids="data.sourceAnalysis.sharedSourceBatchIds"
         :note="data.sourceAnalysis.note"
       />
-
-        </div>
-      </Disclosure>
-
-      <Disclosure>
-        <template #summary>
-          宿主采集能力
-        </template>
-        <div class="mt-3">
-          <TelemetryCapabilitiesView :group-id="groupId" />
-        </div>
-      </Disclosure>
     </template>
   </div>
 </template>

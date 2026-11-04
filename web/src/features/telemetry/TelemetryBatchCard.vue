@@ -88,10 +88,6 @@ const roleLabels: Record<
           "
           >{{ label }}</Badge
         >
-        <Badge v-if="batchHasExclusiveSubtotal(batch)" variant="secondary"
-          >可计入独占小计</Badge
-        >
-        <Badge v-else variant="outline">不计入独占小计</Badge>
         <Badge v-if="shared" variant="default">共同批次 · 独立展示</Badge>
       </div>
 

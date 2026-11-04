@@ -1,13 +1,10 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
-import TelemetryMetricBadge from './TelemetryMetricBadge.vue';
-import { METRIC_KEYS, METRIC_LABELS, aggregationLabel, completenessLabel, formatTimestamp,
-  metricDisplay, missingReasonLabel, qualityLabel } from './format';
+import { METRIC_KEYS, METRIC_LABELS, metricDisplay } from './format';
 import { compactDuration, compactNumber, numeric, ratioPercent, tokenComposition } from './visuals';
 const props = withDefaults(defineProps<{ metrics: TelemetryMetrics; showDetail?: boolean; columns?: 1 | 2 | 3 }>(), { showDetail: true, columns: 2 });
 const primary = ['totalTokens', 'cacheReadRatio', 'executionWallMs'] as const;
@@ -26,9 +23,6 @@ function display(key: keyof TelemetryMetrics) {
         <dt class="text-xs text-muted-foreground">{{ key === 'totalTokens' ? 'Token 消耗' : key === 'cacheReadRatio' ? '缓存占比' : METRIC_LABELS[key] }}</dt>
         <dd class="flex min-w-0 flex-col gap-1">
           <span :class="cn('font-medium tabular-nums', showDetail ? 'text-lg' : 'text-sm')" :title="metricDisplay(metrics[key], key)">{{ display(key) }}</span>
-          <Badge v-if="metrics[key].quality === 'estimated'" variant="outline" class="w-fit">估算</Badge>
-          <span v-if="metrics[key].value == null" class="text-xs text-muted-foreground">未采集</span>
-          <Badge v-else-if="metrics[key].completeness !== 'complete'" variant="outline" class="w-fit">{{ completenessLabel(metrics[key].completeness) }}</Badge>
         </dd>
       </div>
     </dl>
@@ -46,15 +40,11 @@ function display(key: keyof TelemetryMetrics) {
       <Progress :model-value="cache" :aria-label="`缓存读取占输入 ${cache.toFixed(1)}%`" class="h-1.5" />
     </div>
     <Disclosure v-if="showDetail">
-      <template #summary>全部指标与来源</template>
-      <dl class="mt-3 flex max-h-[min(24rem,50vh)] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="全部指标与来源内容" tabindex="0">
-        <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-col gap-1">
-          <div class="flex flex-wrap items-center justify-between gap-2 text-foreground"><dt>{{ METRIC_LABELS[key] }}</dt><dd>{{ metricDisplay(metrics[key], key) }} <TelemetryMetricBadge :metric="metrics[key]" compact /></dd></div>
-          <span class="break-all">{{ qualityLabel(metrics[key].quality) }} · {{ completenessLabel(metrics[key].completeness) }} · {{ aggregationLabel(metrics[key].aggregation) }} · {{ metrics[key].source }}</span>
-          <span v-if="metrics[key].formula" class="break-all">公式：{{ metrics[key].formula }}</span>
-          <Badge v-if="metrics[key].quality === 'estimated'" variant="outline" class="w-fit">估算</Badge>
-          <span v-if="metrics[key].value == null">{{ missingReasonLabel(metrics[key].missingReason) }}</span>
-          <span>采样：{{ formatTimestamp(metrics[key].observedAt) }}</span>
+      <template #summary>全部指标</template>
+      <dl class="mt-3 flex max-h-[min(24rem,50vh)] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="全部指标内容" tabindex="0">
+        <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-wrap items-center justify-between gap-2 text-foreground">
+          <dt>{{ METRIC_LABELS[key] }}</dt>
+          <dd>{{ metricDisplay(metrics[key], key) }}</dd>
         </div>
       </dl>
     </Disclosure>
