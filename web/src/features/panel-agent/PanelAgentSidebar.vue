@@ -19,7 +19,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 
 import {
   DropdownMenu,
@@ -61,6 +60,27 @@ const teamsOpen = ref(props.teams.length > 0);
 const notificationsOpen = ref(false);
 const teamsHeading = ref<HTMLElement | null>(null);
 const notificationsHeading = ref<HTMLElement | null>(null);
+const splitContainer = ref<HTMLElement | null>(null);
+const teamsShare = ref(50);
+const canResize = computed(() => teamsOpen.value && notificationsOpen.value);
+let resizeStart: { y: number; share: number } | undefined;
+function setTeamsShare(value: number) { teamsShare.value = Math.max(15, Math.min(85, value)); }
+function beginTeamsResize(event: PointerEvent) {
+  if (event.button !== 0 || !canResize.value) return;
+  event.preventDefault();
+  resizeStart = { y: event.clientY, share: teamsShare.value };
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+function moveTeamsResize(event: PointerEvent) {
+  if (!resizeStart) return;
+  const height = splitContainer.value?.clientHeight ?? 1;
+  setTeamsShare(resizeStart.share + (event.clientY - resizeStart.y) / height * 100);
+}
+function resizeTeamsByKey(event: KeyboardEvent) {
+  if (!canResize.value || !['ArrowUp', 'ArrowDown', 'Home'].includes(event.key)) return;
+  event.preventDefault();
+  setTeamsShare(event.key === 'Home' ? 50 : teamsShare.value + (event.key === 'ArrowUp' ? -5 : 5));
+}
 const sidebarActions = [
   { value: 'teams', label: '团队关系', icon: Users },
   { value: 'notifications', label: '团队来源通知', icon: Bell },
@@ -102,8 +122,8 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
 <template>
   <aside class="agent-side" aria-label="Panel Agent 团队信息">
   <CollapsibleRightSidebar v-model:collapsed="ui.contextCollapsed" :collapsed-actions="sidebarActions" @action="openSidebarSection" class="flex-1" @update:collapsed="ui.persist()">
-    <div class="panel-side-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4">
-    <Disclosure :heading-level="2" v-model:open="teamsOpen" class="shrink-0">
+    <div ref="splitContainer" class="panel-side-scroll flex min-h-0 flex-1 flex-col overflow-hidden px-4">
+    <Disclosure :heading-level="2" v-model:open="teamsOpen" class="split-section" :style="{ flex: teamsOpen ? `${notificationsOpen ? teamsShare : 1} 1 0%` : '0 0 auto' }">
 <template #summary><span ref="teamsHeading" tabindex="-1" class="flex items-center gap-2"><Users />团队关系</span><Badge>{{ teams.length }}</Badge></template>
 <template #actions><Tooltip>
             <TooltipTrigger as-child>
@@ -115,11 +135,12 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
             </TooltipTrigger>
             <TooltipContent>将全局私人会话和请求回执标为已读</TooltipContent>
           </Tooltip></template>
-<div class="flex min-h-0 flex-col gap-4">
+<div class="flex min-h-0 flex-1 flex-col gap-4">
         <ScrollArea
-          class="w-full"
+          class="w-full min-h-0"
+          style="height: 100%"
           item-selector="[data-team-relation-item]"
-          :max-visible-items="10"
+
           aria-label="团队关系列表"
         >
           <ItemGroup>
@@ -217,12 +238,29 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
       </div>
 </Disclosure>
 
-      <Separator />
-      <Disclosure :heading-level="2" v-model:open="notificationsOpen" class="shrink-0">
+      <div
+        role="separator"
+        aria-label="调整团队关系高度"
+        aria-orientation="horizontal"
+        :aria-valuenow="teamsShare"
+        :aria-valuemin="15"
+        :aria-valuemax="85"
+        :aria-disabled="!canResize"
+        :tabindex="canResize ? 0 : -1"
+        class="flex h-3 shrink-0 touch-none items-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        :class="canResize ? 'cursor-row-resize' : ''"
+        @pointerdown="beginTeamsResize"
+        @pointermove="moveTeamsResize"
+        @pointerup="resizeStart = undefined"
+        @pointercancel="resizeStart = undefined"
+        @lostpointercapture="resizeStart = undefined"
+        @keydown="resizeTeamsByKey"
+      ><span class="h-px w-full bg-border" /></div>
+      <Disclosure :heading-level="2" v-model:open="notificationsOpen" class="split-section" :style="{ flex: notificationsOpen ? `${teamsOpen ? 100 - teamsShare : 1} 1 0%` : '0 0 auto' }">
 <template #summary><span ref="notificationsHeading" tabindex="-1" class="flex items-center gap-2"><Bell />团队来源通知</span><Badge variant="secondary">{{ notifications.length }}</Badge></template>
 
           <p v-if="!notifications.length" class="text-sm text-muted-foreground">暂无团队来源通知。</p>
-          <div v-else class="flex max-h-64 flex-col gap-3 overflow-y-auto">
+          <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
             <Card v-for="notification in notifications" :key="notification.id" size="compact"><CardContent class="flex min-w-0 flex-col gap-3 text-sm">
               <p class="whitespace-pre-wrap wrap-anywhere">{{ notification.text }}</p>
               <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
@@ -260,3 +298,11 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
   </CollapsibleRightSidebar>
   </aside>
 </template>
+
+<style scoped>
+.split-section { display: flex; flex-direction: column; min-height: 0; }
+.split-section :deep([data-slot='disclosure-header']) { flex-shrink: 0; }
+.split-section :deep(.collapse-reveal[data-open='true']) { flex: 1; min-height: 0; }
+.split-section :deep(.collapse-reveal-clip) { display: flex; min-height: 0; }
+.split-section :deep([data-slot='disclosure-content']) { flex: 1; min-height: 0; overflow: hidden; }
+</style>

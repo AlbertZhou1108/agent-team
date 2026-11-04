@@ -120,3 +120,30 @@ test('dismiss HTTP route hides entries and rejects malformed requests', async t 
   assert.equal((await post('{}', 'text/plain')).status, 415);
   assert.ok(members.length >= 1);
 });
+
+test('recent activity dismissal hides only the current window and rejects running turns', async t => {
+  const { bus, group, members } = busScenario(t);
+  await settled(bus);
+  const member = members[0];
+  const endpoint = bus.store.endpoint(member.id, 'coordination');
+  const ids = [];
+  for (let i = 0; i < 12; i++) {
+    const id = randomUUID();
+    ids.push(id);
+    bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)',
+      id, endpoint.id, 'member', member.id, group.id, endpoint.session, 'completed', new Date(Date.now() + i * 1000).toISOString());
+  }
+  const before = homeWorkbench(bus).recent;
+  assert.equal(before.length, 10);
+  assert.equal(dismissWorkbench(bus, before.map(row => ({ category: 'activity:recent', id: row.id }))).dismissed, 10);
+  assert.deepEqual(homeWorkbench(bus).recent, []);
+  assert.throws(() => dismissWorkbench(bus, [{ category: 'activity:recent', id: ids[0] }]), /失效/);
+  const next = randomUUID();
+  bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    next, endpoint.id, 'member', member.id, group.id, endpoint.session, 'completed', new Date(Date.now() + 20000).toISOString());
+  assert.deepEqual(homeWorkbench(bus).recent.map(row => row.id), [next]);
+  const running = randomUUID();
+  bus.store.run('INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,state,created) VALUES(?,?,?,?,?,?,?,?)',
+    running, endpoint.id, 'member', member.id, group.id, endpoint.session, 'running', new Date().toISOString());
+  assert.throws(() => dismissWorkbench(bus, [{ category: 'activity:recent', id: running }]), /失效/);
+});

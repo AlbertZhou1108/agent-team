@@ -24,7 +24,8 @@ import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyDescription } from '@/components/ui/empty';
 import MarkdownRenderer from '@/components/ai-elements/MarkdownRenderer.vue';
-import { LoaderCircle, RefreshCw, Trash2 } from '@lucide/vue';
+import { LoaderCircle, RefreshCw } from '@lucide/vue';
+import WorkbenchCleanButton from './WorkbenchCleanButton.vue';
 type Activity = {
   id: string;
   name: string;
@@ -173,6 +174,22 @@ async function cleanEntries() {
   }
 }
 const workbenchOpen = ref(true);
+const confirmCleanActivity = ref(false);
+const cleaningActivity = ref(false);
+const cleanActivityError = ref('');
+async function cleanRecentActivity() {
+  const items = data.value?.recent ?? [];
+  if (!items.length || cleaningActivity.value) return;
+  cleaningActivity.value = true;
+  cleanActivityError.value = '';
+  try {
+    await api.dismissWorkbench(items.map(item => ({ category: 'activity:recent' as const, id: item.id })));
+    confirmCleanActivity.value = false;
+    await query.refetch();
+  } catch (error) {
+    cleanActivityError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
+  } finally { cleaningActivity.value = false; }
+}
 const activityTab = ref('running');
 const generating = ref(false);
 const error = ref('');
@@ -340,18 +357,13 @@ async function summarize() {
                 >
               </SelectContent>
             </Select>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              :disabled="!entries.length || cleaning"
-              :aria-label="cleaning ? '正在清理' : '清理当前列表'"
-              title="从工作台隐藏当前列表（不删除消息）"
-              @click="confirmClean = true"
-            >
-              <LoaderCircle v-if="cleaning" class="animate-spin" /><Trash2
-                v-else
-              />
-            </Button>
+            <WorkbenchCleanButton
+              :disabled="!entries.length"
+              :busy="cleaning"
+              label="清理当前列表"
+              description="从工作台隐藏当前列表（不删除消息）"
+              @click="cleanError = ''; confirmClean = true"
+            />
           </div>
         </CardHeader>
         <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
@@ -389,9 +401,6 @@ async function summarize() {
               ></Button
             >
           </div>
-          <p v-if="cleanError" class="text-xs text-destructive">
-            {{ cleanError }}
-          </p>
         </CardContent>
         <ConfirmDialog
           :open="confirmClean"
@@ -399,6 +408,8 @@ async function summarize() {
           :description="cleanDescription"
           confirm-text="清理"
           destructive
+          :busy="cleaning"
+          :error="cleanError"
           @cancel="confirmClean = false"
           @confirm="cleanEntries"
         />
@@ -407,10 +418,10 @@ async function summarize() {
             <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
               <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
                 <CardTitle>执行活动</CardTitle>
-                <TabsList class="grid w-fit grid-cols-2">
+                <div class="flex items-center gap-2"><TabsList class="grid w-fit grid-cols-2">
                   <TabsTrigger value="running">运行活动</TabsTrigger>
                   <TabsTrigger value="recent">最近执行</TabsTrigger>
-                </TabsList>
+                </TabsList><WorkbenchCleanButton v-if="activityTab === 'recent'" :disabled="!data?.recent.length" :busy="cleaningActivity" label="清理最近执行" description="从工作台隐藏最近执行（不删除执行记录）" @click="cleanActivityError = ''; confirmCleanActivity = true" /></div>
               </CardHeader>
               <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
                 <TabsContent value="running" class="flex min-h-0 flex-1 flex-col gap-3">
@@ -467,7 +478,7 @@ async function summarize() {
                   </div>
                 </TabsContent>
               </CardContent>
-            </Tabs>
+            </Tabs><ConfirmDialog :open="confirmCleanActivity" title="清理最近执行？" :description="`将从工作台隐藏当前最近执行的 ${data?.recent.length ?? 0} 项；执行记录仍保留。`" confirm-text="清理" destructive :busy="cleaningActivity" :error="cleanActivityError" @cancel="confirmCleanActivity = false" @confirm="cleanRecentActivity" />
           </Card>
         </div>
     <Card size="compact" class="home-card min-w-0">

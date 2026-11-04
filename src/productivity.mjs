@@ -75,6 +75,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   );
   const names = new Map(groups.map((g) => [g.id, g.name]));
   const dismissed = new Map([
+    ['activity:recent', new Set()],
     ['interaction', new Set()],
     ['waiting:user', new Set()],
     ['waiting:agent', new Set()],
@@ -182,6 +183,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     )
     .filter((run) => !run.group_id || names.has(run.group_id))
     .slice(0, 10)
+    .filter((run) => !dismissed.get('activity:recent').has(run.id))
     .map((run) => ({
       ...run,
       groupName: names.get(run.group_id) ?? 'Panel Agent',
@@ -214,7 +216,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   };
 }
 
-const DISMISS_CATEGORIES = new Set(['interaction', 'waiting:user', 'waiting:agent']);
+const DISMISS_CATEGORIES = new Set(['interaction', 'waiting:user', 'waiting:agent', 'activity:recent']);
 
 /**
  * 只把条目从工作台隐藏:消息、互动卡和 reply_to 关系都不删除。
@@ -224,6 +226,7 @@ export function dismissWorkbench(bus, items) {
   if (!Array.isArray(items) || items.length === 0 || items.length > 300) throw new Error('清理项无效');
   const store = bus.store;
   const live = new Map([
+    ['activity:recent', new Set(homeWorkbench(bus).recent.map(row => row.id))],
     ['interaction', new Set(store.all("SELECT id FROM interactions WHERE state='pending'").map(row => row.id))],
     ['waiting:user', new Set(store.all(`SELECT m.id FROM messages m JOIN groups g ON g.id=m.group_id
       WHERE m.sender='user' AND m.kind='send' AND m.reply_to IS NULL
