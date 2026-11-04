@@ -1749,10 +1749,12 @@ html[data-density='loose'] {
 [data-component='navigation-item']:hover { background: var(--state-hover); }
 [data-component='navigation-item'][data-selected='true'] {
   background: var(--component-nav-selected-bg);
+  color: var(--component-selection-fg);
   border-color: var(--primary);
 }
 [data-component='navigation-item'][data-current='true'] {
   background: var(--component-nav-current-bg);
+  color: var(--component-selection-fg);
   border-color: var(--component-nav-current-border);
   box-shadow: var(--component-nav-state-shadow);
 }
@@ -1805,6 +1807,7 @@ html[data-density='loose'] {
 
 [data-slot='tabs-trigger'][data-state='active'] {
   background: var(--component-tab-active-bg);
+  color: var(--component-selection-fg);
   border-color: var(--component-tab-active-border);
   border-radius: var(--component-control-radius);
   box-shadow: var(--component-tab-active-shadow);

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyComponentDesign, applyMaterial } from './apply';
+import type { MaterialId } from './materials';
 import { COMPONENT_DEFAULTS } from './component-contract';
 import { DESIGN_PRESETS, resolveComponentDesign, type DesignPreset } from './design-presets';
 
@@ -11,12 +12,48 @@ describe('five-dimension component configuration', () => {
     const root = { dataset: {} as Record<string, string>, style: { setProperty: (key: string, value: string) => values.set(key, value) } };
     vi.stubGlobal('document', { documentElement: root });
     try {
-      for (const id of ['liquid-glass', 'paper', 'classic', 'paper', 'liquid-glass'] as const) {
+      for (const id of ['liquid-glass', 'paper', 'vivid', 'classic', 'vivid', 'paper', 'liquid-glass'] as const) {
         const material = DESIGN_PRESETS[id].dimensions.material.id;
         const output = resolve(id, material);
         applyComponentDesign({ designPreset: id, materialPreference: material, density: 'standard' }, output);
         expect(root.dataset.designPreset).toBe(id);
         expect(Object.fromEntries(values)).toEqual(output.variables);
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('matches a fresh application after every ordered preset switch, including material cleanup', () => {
+    const makeRoot = () => {
+      const values = new Map<string, string>();
+      return {
+        dataset: {} as Record<string, string>,
+        style: {
+          setProperty: (key: string, value: string) => values.set(key, value),
+          removeProperty: (key: string) => values.delete(key),
+        },
+        snapshot: () => ({ dataset: { ...root.dataset }, variables: Object.fromEntries(values) }),
+      };
+    };
+    let root = makeRoot();
+    vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) });
+    vi.stubGlobal('CSS', { supports: () => true });
+    const apply = (preset: DesignPreset) => {
+      applyMaterial(preset.dimensions.material.id as MaterialId);
+      applyComponentDesign({ designPreset: preset.id, materialPreference: preset.dimensions.material.id, density: 'standard' });
+    };
+    try {
+      for (const target of Object.values(DESIGN_PRESETS)) {
+        root = makeRoot();
+        vi.stubGlobal('document', { documentElement: root });
+        apply(target);
+        const fresh = root.snapshot();
+        for (const source of Object.values(DESIGN_PRESETS)) {
+          root = makeRoot();
+          vi.stubGlobal('document', { documentElement: root });
+          apply(source);
+          // Keep the same DOM and inline styles across the switch.
+          apply(target);
+          expect(root.snapshot(), `${source.id} → ${target.id}`).toEqual(fresh);
+        }
       }
     } finally { vi.unstubAllGlobals(); }
   });

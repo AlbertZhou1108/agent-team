@@ -864,7 +864,7 @@ watch(
                     <div
                       v-for="pack in allThemePacks"
                       :key="pack.id"
-                      class="flex w-36 shrink-0 flex-col gap-1.5 rounded-md border p-2 shadow-xs"
+                      class="flex w-36 shrink-0 flex-col gap-1.5 rounded-(--component-panel-radius) border p-2 shadow-xs"
                       :class="preferences.themePack === pack.id
                         ? 'border-input bg-accent text-accent-foreground'
                         : 'border-input bg-transparent hover:bg-(--state-hover)'"
@@ -876,7 +876,7 @@ watch(
                         :title="`使用「${pack.name}」`"
                         @click="selectTheme(pack)"
                       >
-                        <span class="flex flex-1 overflow-hidden rounded-md border border-border">
+                        <span class="flex flex-1 overflow-hidden rounded-[max(0px,calc(var(--component-panel-radius)-8px))] border border-border">
                           <span
                             v-for="swatch in themeSwatches(pack)"
                             :key="swatch.key"
@@ -910,7 +910,7 @@ watch(
                     </div>
                     <button
                       type="button"
-                      class="flex w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed p-2 text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
+                      class="flex w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-(--component-panel-radius) border border-dashed p-2 text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
                       @click="beginAddTheme"
                     >
                       <Upload class="size-4" />

@@ -164,7 +164,7 @@ function modalityLabel(model: CatalogModel) {
               v-for="model in selectedHost?.catalog.models ?? []"
               :key="model.key"
               type="button"
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+              class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm hover:bg-accent"
               @click="selectedHost && selectModel(selectedHost, model)"
             >
               <span class="min-w-0 flex-1 truncate">{{ model.label }}</span>
@@ -216,7 +216,7 @@ function modalityLabel(model: CatalogModel) {
             v-for="host in hosts"
             :key="host.host"
             type="button"
-            class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+            class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm hover:bg-accent"
             @click="chooseHost(host)"
           >
             <span class="min-w-0 flex-1 truncate">{{ hostLabel(host.host) }}</span>
