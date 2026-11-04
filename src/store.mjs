@@ -761,7 +761,12 @@ export class Store {
   }
   messageTrace(id) {
     const message = this.get('SELECT id,kind FROM messages WHERE id=?', id);
-    if (!message) return null;
+    if (!message) {
+      // Panel 私聊消息存于 panel_messages,未记录回合来源(v6 无消息→turn 映射);
+      // 按成员私聊同语义返回 private,前端据此显示「没有可用轨迹」而不是把已知消息当 404。
+      if (!this.get('SELECT id FROM panel_messages WHERE id=?', id)) return null;
+      return { messageId: id, source: { kind: 'private' }, inputAttempts: [] };
+    }
     const origin = this.get(`SELECT o.*,c.context,c.id AS conversation_id,c.member_id,c.panel_agent_id,t.executor_kind,t.group_id AS turn_group_id
       FROM message_origins o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.message_id=?`, id);
     const source = !origin

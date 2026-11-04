@@ -328,6 +328,14 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   const message = server.bus.store.append(group.id, 'system', group.lead, 'system', 'notice');
   const trace = await (await fetch(`${base}/api/message-trace?message=${message.id}`, { headers })).json();
   assert.deepEqual(trace.source, { kind: 'system' });
+  // Panel 私聊消息不在 messages 表:按 private 语义返回 200(无可用轨迹),未知 ID 仍 404
+  const now = new Date().toISOString();
+  server.bus.store.run("INSERT INTO panel_agents(id,name,host,created,updated) VALUES('panel-trace-probe','Panel','fake',?,?)", now, now);
+  const panelMessage = server.bus.store.panelAppend('panel-trace-probe', 'private', 'assistant', 'private reply', null);
+  const panelTrace = await (await fetch(`${base}/api/message-trace?message=${panelMessage.id}`, { headers })).json();
+  assert.deepEqual(panelTrace.source, { kind: 'private' });
+  assert.equal(panelTrace.inputAttempts.length, 0);
+  assert.equal((await fetch(`${base}/api/message-trace?message=missing-id`, { headers })).status, 404);
   await server.bus.deleteGroup(group.id);
   assert.equal(server.bus.store.all('SELECT * FROM turns').length, 0);
   assert.equal(server.bus.store.all('SELECT * FROM history').length, 0);
