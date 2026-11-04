@@ -87,21 +87,23 @@ export class TurnExecutor {
       bus.publishTeamStream({ type: 'start', stream: { ...teamInitial } });
     }
 
-    // 阶段既驱动 Panel 流,也镜像到团队流;成员回合只有团队流。
+    // 本回合的流接收器:panel 流与 team 流形状不同、广播通道不同,但阶段/增量
+    // 管线完全一致——统一按接收器遍历,不再为三种组合各写一份镜像。
+    // 条目可能被 tool-streams 的消息流替换,每次都从映射表取当前对象。
+    const sinks = [
+      ...(hasPanel ? [{ streams: bus.panelStreams, publish: event => bus.publishPanelStream(event) }] : []),
+      ...(hasTeam ? [{ streams: bus.teamStreams, publish: event => bus.publishTeamStream(event) }] : []),
+    ];
+
     const setPhase = (phase, tool = null, publish = true) => {
-      const panelCurrent = hasPanel ? bus.panelStreams.get(turnId) : null;
-      if (panelCurrent && (panelCurrent.runPhase !== phase || panelCurrent.tool !== tool)) {
-        panelCurrent.runPhase = phase;
-        panelCurrent.tool = tool;
-        panelCurrent.updatedAt = new Date().toISOString();
-        if (publish) bus.publishPanelStream({ type: 'phase', stream: { ...panelCurrent } });
-      }
-      const teamCurrent = hasTeam ? bus.teamStreams.get(turnId) : null;
-      if (teamCurrent && (teamCurrent.runPhase !== phase || teamCurrent.tool !== tool)) {
-        teamCurrent.runPhase = phase;
-        teamCurrent.tool = tool;
-        teamCurrent.updatedAt = new Date().toISOString();
-        if (publish) bus.publishTeamStream({ type: 'phase', stream: { ...teamCurrent } });
+      for (const sink of sinks) {
+        const current = sink.streams.get(turnId);
+        if (current && (current.runPhase !== phase || current.tool !== tool)) {
+          current.runPhase = phase;
+          current.tool = tool;
+          current.updatedAt = new Date().toISOString();
+          if (publish) sink.publish({ type: 'phase', stream: { ...current } });
+        }
       }
     };
 
@@ -114,73 +116,33 @@ export class TurnExecutor {
         throw error;
       } finally {
         // 工具结束后回到内容阶段:有正文即输出中,否则回到思考中。
-        const settled = (hasPanel ? bus.panelStreams.get(turnId) : null) ?? (hasTeam ? bus.teamStreams.get(turnId) : null);
+        const settled = sinks.map(sink => sink.streams.get(turnId)).find(Boolean);
         if (settled) setPhase(settled.text ? 'writing' : 'thinking');
+      }
+    };
+
+    const appendDelta = (field, delta, type, metadata) => {
+      // 原有增量负载形状:text 增量只挖空 text,reasoning 增量挖空两者。
+      const blank = field === 'text' ? { text: '' } : { text: '', reasoning: '' };
+      for (const sink of sinks) {
+        const current = sink.streams.get(turnId);
+        if (!current || current[field].length + delta.length > 2_000_000) continue;
+        current[field] += delta;
+        current.runPhase = field === 'text' ? 'writing' : 'thinking';
+        current.tool = null;
+        current.updatedAt = new Date().toISOString();
+        sink.publish({ type, stream: { ...current, ...blank }, delta, metadata });
       }
     };
 
     const onTextDelta = (delta, metadata = {}) => {
       if (typeof delta !== 'string' || !delta) return;
-      if (hasPanel) {
-        const current = bus.panelStreams.get(turnId);
-        if (!current || current.text.length + delta.length > 2_000_000) return;
-        current.text += delta;
-        current.runPhase = 'writing';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (hasTeam) {
-          const teamCurrent = bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.text = current.text;
-            teamCurrent.runPhase = 'writing';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            bus.publishTeamStream({ type: 'delta', stream: { ...teamCurrent, text: '' }, delta, metadata });
-          }
-        }
-        bus.publishPanelStream({ type: 'delta', stream: { ...current, text: '' }, delta, metadata });
-        return;
-      }
-      if (!hasTeam) return;
-      const current = bus.teamStreams.get(turnId);
-      if (!current || current.text.length + delta.length > 2_000_000) return;
-      current.text += delta;
-      current.runPhase = 'writing';
-      current.tool = null;
-      current.updatedAt = new Date().toISOString();
-      bus.publishTeamStream({ type: 'delta', stream: { ...current, text: '' }, delta, metadata });
+      appendDelta('text', delta, 'delta', metadata);
     };
 
     const onReasoningDelta = (delta, metadata = {}) => {
       if (typeof delta !== 'string' || !delta) return;
-      if (hasPanel) {
-        const current = bus.panelStreams.get(turnId);
-        if (!current || current.reasoning.length + delta.length > 2_000_000) return;
-        current.reasoning += delta;
-        current.runPhase = 'thinking';
-        current.tool = null;
-        current.updatedAt = new Date().toISOString();
-        if (hasTeam) {
-          const teamCurrent = bus.teamStreams.get(turnId);
-          if (teamCurrent) {
-            teamCurrent.reasoning = current.reasoning;
-            teamCurrent.runPhase = 'thinking';
-            teamCurrent.tool = null;
-            teamCurrent.updatedAt = current.updatedAt;
-            bus.publishTeamStream({ type: 'reasoning-delta', stream: { ...teamCurrent, text: '', reasoning: '' }, delta, metadata });
-          }
-        }
-        bus.publishPanelStream({ type: 'reasoning-delta', stream: { ...current, text: '', reasoning: '' }, delta, metadata });
-        return;
-      }
-      if (!hasTeam) return;
-      const current = bus.teamStreams.get(turnId);
-      if (!current || current.reasoning.length + delta.length > 2_000_000) return;
-      current.reasoning += delta;
-      current.runPhase = 'thinking';
-      current.tool = null;
-      current.updatedAt = new Date().toISOString();
-      bus.publishTeamStream({ type: 'reasoning-delta', stream: { ...current, text: '', reasoning: '' }, delta, metadata });
+      appendDelta('reasoning', delta, 'reasoning-delta', metadata);
     };
 
     const promise = Promise.resolve().then(() => {
