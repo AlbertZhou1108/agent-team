@@ -7,7 +7,7 @@ const definitions = [
     reply_to: { type: 'string', minLength: 1, maxLength: 100 },
   }, ['to', 'text']],
   ['note', '给一位成员留言，不唤醒，随下一条正式消息交付。', { to: string, text: string }, ['to', 'text']],
-  ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标。新会话默认返回有界列表（ID/seq/作者/接收者/kind/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
+  ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标，只返回 seq 大于 after 的消息（不含该序号本身）；续读把上一次返回的 nextAfter 原样传入 after，不要自行推算序号。新会话默认返回有界列表（ID/seq/作者/接收者/kind/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     after: { type: 'integer', minimum: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 200 },
     sender: string,

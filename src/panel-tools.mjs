@@ -11,7 +11,7 @@ const readRange = {
 const observerDefinitions = [
   ['teams_list', '列出当前数据目录中的团队及 Panel Agent 与每个团队的关系。', {}, []],
   ['team_snapshot', '读取一个团队的基础快照、成员、运行状态和沟通状态。', { groupId }, ['groupId']],
-  ['team_read', '读取当前团队共享消息；after 是消息序号游标。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
+  ['team_read', '读取当前团队共享消息；after 是消息序号游标，只返回 seq 大于 after 的消息（不含该序号本身）；续读把上一次返回的 nextAfter 原样传入 after，不要自行推算序号。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 200 },
@@ -23,7 +23,7 @@ const observerDefinitions = [
     groupId,
     messageId: string,
   }, ['groupId', 'messageId']],
-  ['team_turn_trace', '读取一个公开团队回合的事件和模型观测。', {
+  ['team_turn_trace', '读取一个公开团队回合的事件和模型观测。after 是事件序号游标，只返回 seq 大于 after 的事件（不含该序号本身）；续读把上一次返回的 nextAfter 传入 after。', {
     groupId,
     turnId: string,
     after: { type: 'integer', minimum: 0 },
@@ -42,7 +42,7 @@ const preparationDefinitions = [
 ];
 
 const mainDefinitions = [
-  ['team_read', '读取当前团队共享消息；after 是消息序号游标。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
+  ['team_read', '读取当前团队共享消息；after 是消息序号游标，只返回 seq 大于 after 的消息（不含该序号本身）；续读把上一次返回的 nextAfter 原样传入 after，不要自行推算序号。新会话默认返回有界列表；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
     groupId,
     after: { type: 'integer', minimum: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 200 },

@@ -137,6 +137,12 @@ test('message pagination reports the exact 200-row boundary with an explicit cur
   const second = await bus.tool(endpoint.id, endpoint.key, 'read', { after: first.nextAfter, limit: 200 });
   assert.equal(second.messages.length, 1);
   assert.equal(second.hasMore, false);
+  // 追平后再读:空页、complete 为真、游标原样回显——这是"已读到最新"的判定依据
+  const caughtUp = await bus.tool(endpoint.id, endpoint.key, 'read', { after: second.nextAfter, limit: 200 });
+  assert.equal(caughtUp.messages.length, 0);
+  assert.equal(caughtUp.complete, true);
+  assert.equal(caughtUp.hasMore, false);
+  assert.equal(caughtUp.nextAfter, second.nextAfter);
 });
 
 test('rules budget overrun fails explicitly before the host runs and is not silently clipped', async t => {
