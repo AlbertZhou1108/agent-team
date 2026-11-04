@@ -148,11 +148,31 @@ export class Interactions {
   }
   /** @param {Record<string, any>} member @param {Record<string, any>} endpoint @param {Record<string, any> | null} origin @param {string} kind @param {string} text @param {object} args */
   requestGroupAction(member, endpoint, origin, kind, text, args) {
+    return this.requestActionCard({
+      requesterKind: 'member',
+      requesterId: member.id,
+      groupId: member.group_id,
+      endpoint,
+      origin,
+      kind,
+      text,
+      args,
+      anchor: anchorText => {
+        const message = this.memberInteractionAnchor(member, anchorText);
+        return { groupId: member.group_id, messageId: message.id, panelMessageId: null };
+      },
+    });
+  }
+  /** 动作卡统一入口:成员与 Panel 共用同一套「同主体去重 + 锚点 + 建卡」;
+   *  同主体同文案复用 pending 卡,同主体不同文案以「请求内容已变化」取消旧卡。
+   *  @param {{ requesterKind: 'member' | 'panel_agent', requesterId: string, groupId: string, endpoint: Record<string, any>, origin: Record<string, any> | null, kind: string, text: string, args: object, anchor: (anchorText: string) => { groupId?: string | null, messageId: string | null, panelMessageId: string | null }}} spec */
+  requestActionCard({ requesterKind, requesterId, groupId, endpoint, origin, kind, text, args, anchor }) {
     const subject = actionSubjectKey(kind, args);
+    const requesterColumn = requesterKind === 'member' ? 'member_id' : 'panel_agent_id';
     const existing = this.bus.store.all(
-      "SELECT * FROM interactions WHERE member_id=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC",
-      member.id,
-      member.group_id,
+      `SELECT * FROM interactions WHERE ${requesterColumn}=? AND group_id=? AND kind=? AND state='pending' ORDER BY created DESC`,
+      requesterId,
+      groupId,
       kind,
     ).map(row => ({ row, payload: JSON.parse(row.payload) }))
       .find(item => actionSubjectKey(kind, item.payload.args) === subject);
@@ -160,16 +180,17 @@ export class Interactions {
       if (existing.payload.text === text) return interactionView(existing.row);
       this.bus.store.setInteractionState(existing.row.id, 'cancelled', null, null, '请求内容已变化');
     }
-    const message = this.bus.memberInteractionAnchor(member, text);
+    const anchorRow = anchor(text);
     const row = this.bus.store.createInteraction({
       id: randomUUID(),
-      groupId: member.group_id,
-      memberId: member.id,
+      groupId: anchorRow.groupId ?? groupId,
+      ...(requesterKind === 'member' ? { memberId: requesterId } : { panelAgentId: requesterId }),
       endpointId: endpoint.id,
       context: endpoint.context,
       turnId: origin?.turnId ?? '',
       callId: origin?.callId ?? randomUUID(),
-      messageId: message.id,
+      messageId: anchorRow.messageId,
+      panelMessageId: anchorRow.panelMessageId,
       kind,
       payload: { kind, text, args },
     });

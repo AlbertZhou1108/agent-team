@@ -10,6 +10,7 @@ import { BusQueries } from './bus-queries.mjs';
 import { ToolStreams } from './tool-streams.mjs';
 import { toolsFor, validateTool } from './tools.mjs';
 import { panelToolsFor } from './panel-tools.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './tool-ops.mjs';
 import { Collaboration } from './collaboration.mjs';
 import { GroupLifecycle } from './group-lifecycle.mjs';
 import { Information, CONTEXT_SCHEMA_VERSION } from './information.mjs';
@@ -491,29 +492,11 @@ export class Bus extends EventEmitter {
     if (name === 'members') return this.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
     if (name === 'read') {
       const schema = this.information.toolSchema(origin?.turnId, endpoint.id);
-      if (args.messageId) {
-        if (args.after !== undefined || args.limit !== undefined || args.sender !== undefined) {
-          throw new Error('正文展开不能同时使用列表参数');
-        }
-        return this.information.readBody({
-          groupId,
-          messageId: args.messageId,
-          hash: args.hash,
-          offset: args.offset ?? 0,
-          bodyLimit: args.bodyLimit ?? 1024,
-          schema,
-        });
-      }
-      if (args.hash !== undefined || args.offset !== undefined || args.bodyLimit !== undefined) {
-        throw new Error('hash、offset、bodyLimit 需要同时提供 messageId');
-      }
-      const senderId = args.sender ? this.resolveMember(groupId, args.sender).id : null;
-      return this.information.listMessages({
+      return readSharedMessages(this, {
         groupId,
-        after: args.after ?? 0,
-        limit: args.limit ?? 50,
-        senderId,
+        args,
         schema,
+        resolveSenderId: sender => (sender ? this.resolveMember(groupId, sender).id : null),
       });
     }
     if (name === 'profile_set') { this.store.run('UPDATE members SET profile=? WHERE id=?', args.text, member.id); return { member: member.id, profile: args.text }; }
@@ -521,18 +504,19 @@ export class Bus extends EventEmitter {
       this.collaboration.requireCommunication(groupId);
       const target = this.resolveRecipient(groupId, args.to);
       if (target.id === member.id) throw new Error('不能向自己发消息');
-      if (name === 'send' && args.reply_to !== undefined) {
-        const replyTarget = this.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', args.reply_to, groupId);
-        if (!replyTarget) throw new Error('回复的原消息不存在或不属于当前团队');
-        if (replyTarget.kind !== 'send' || replyTarget.expects_reply !== 1) throw new Error('只能回复一条期待答复的消息');
-        if (replyTarget.recipient !== member.id) throw new Error('不能回复不是发给自己的请求');
-        if (replyTarget.sender !== target.id) throw new Error('回复对象必须是原请求的发送者');
-      }
       const expectsReply = name === 'send' && args.expects_reply === true;
-      const message = this.store.transaction(() => {
-        const value = this.store.append(groupId, member.id, target.id, name, args.text, args.reply_to ?? null, expectsReply);
-        if (origin) this.store.run('INSERT INTO message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId, origin.eventSeq, origin.callId, origin.nativeCallId);
-        return value;
+      if (name === 'send' && args.reply_to !== undefined) {
+        assertReplyTarget(this.store, groupId, args.reply_to, member.id, target.id);
+      }
+      const message = appendRoutedMessage(this.store, {
+        groupId,
+        senderId: member.id,
+        targetId: target.id,
+        kind: name,
+        text: args.text,
+        replyTo: args.reply_to ?? null,
+        expectsReply,
+        origin,
       });
       this.emit('message', message);
       if (origin?.turnId) {
@@ -550,13 +534,15 @@ export class Bus extends EventEmitter {
     if (name === 'ask') {
       if (!origin) throw new Error('互动卡只能在执行回合内发出');
       this.collaboration.requireCommunication(groupId);
-      if (args.kind === 'choice' && !Array.isArray(args.options)) throw new Error('choice 必须提供 options');
-      if (args.kind === 'input' && args.options !== undefined) throw new Error('input 不接受 options');
+      assertAskCard(args);
       if (member.role !== 'lead') this.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
-      const message = this.store.transaction(() => {
-        const value = this.store.append(groupId, member.id, 'user', 'send', args.text);
-        this.store.run('INSERT INTO message_origins VALUES(?,?,?,?,?)', value.id, origin.turnId, origin.eventSeq, origin.callId, origin.nativeCallId);
-        return value;
+      const message = appendRoutedMessage(this.store, {
+        groupId,
+        senderId: member.id,
+        targetId: 'user',
+        kind: 'send',
+        text: args.text,
+        origin,
       });
       this.emit('message', message);
       const interaction = this.store.createInteraction({
@@ -569,7 +555,7 @@ export class Bus extends EventEmitter {
         callId: origin.callId,
         messageId: message.id,
         kind: args.kind,
-        payload: { kind: args.kind, text: args.text, ...(args.options ? { options: args.options } : {}) },
+        payload: askCardPayload(args),
       });
       return { interaction: interaction.id, state: interaction.state };
     }

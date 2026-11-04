@@ -1,7 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
-import { interactionView, actionSubjectKey } from './interactions.mjs';
+import { interactionView } from './interactions.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './tool-ops.mjs';
 import { memberModelSummary } from './model-policy.mjs';
 import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
@@ -375,8 +376,7 @@ export class PanelSessions {
       return group;
     }
     if (name === 'ask') {
-      if (args.kind === 'choice' && !Array.isArray(args.options)) throw new Error('choice 必须提供 options');
-      if (args.kind === 'input' && args.options !== undefined) throw new Error('input 不接受 options');
+      assertAskCard(args);
       const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, args.text);
       const interaction = this.bus.store.createInteraction({
         id: randomUUID(),
@@ -389,7 +389,7 @@ export class PanelSessions {
         messageId: anchor.messageId,
         panelMessageId: anchor.panelMessageId,
         kind: args.kind,
-        payload: { kind: args.kind, text: args.text, ...(args.options ? { options: args.options } : {}) },
+        payload: askCardPayload(args),
       });
       return { interaction: interaction.id, state: interaction.state };
     }
@@ -434,33 +434,15 @@ export class PanelSessions {
     if (name === 'team_members') return this.bus.members(group.id);
     if (name === 'team_read') {
       const schema = this.bus.information.panelSchemaForTurn(origin.turnId) ?? this.bus.information.panelSchemaForSession(session);
-      if (args.messageId) {
-        if (args.after !== undefined || args.limit !== undefined || args.sender !== undefined) {
-          throw new Error('正文展开不能同时使用列表参数');
-        }
-        return this.bus.information.readBody({
-          groupId: group.id,
-          messageId: args.messageId,
-          hash: args.hash,
-          offset: args.offset ?? 0,
-          bodyLimit: args.bodyLimit ?? 1024,
-          schema,
-        });
-      }
-      if (args.hash !== undefined || args.offset !== undefined || args.bodyLimit !== undefined) {
-        throw new Error('hash、offset、bodyLimit 需要同时提供 messageId');
-      }
-      const senderId = args.sender === panelAgent.id || args.sender === panelAgent.name
-        ? panelAgent.id
-        : args.sender
-          ? this.bus.resolveMember(group.id, args.sender).id
-          : null;
-      return this.bus.information.listMessages({
+      return readSharedMessages(this.bus, {
         groupId: group.id,
-        after: args.after ?? 0,
-        limit: args.limit ?? 50,
-        senderId,
+        args,
         schema,
+        resolveSenderId: sender => (sender === panelAgent.id || sender === panelAgent.name
+          ? panelAgent.id
+          : sender
+            ? this.bus.resolveMember(group.id, sender).id
+            : null),
       });
     }
     if (name === 'team_message_trace') {
@@ -485,18 +467,19 @@ export class PanelSessions {
     if (name === 'team_send' || name === 'team_note') {
       this.bus.collaboration.requireCommunication(group.id);
       const target = this.bus.resolveMember(group.id, args.to);
-      if (name === 'team_send' && args.reply_to !== undefined) {
-        const replyTarget = this.bus.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', args.reply_to, group.id);
-        if (!replyTarget) throw new Error('回复的原消息不存在或不属于当前团队');
-        if (replyTarget.kind !== 'send' || replyTarget.expects_reply !== 1) throw new Error('只能回复一条期待答复的消息');
-        if (replyTarget.recipient !== panelAgent.id) throw new Error('不能回复不是发给自己的请求');
-        if (replyTarget.sender !== target.id) throw new Error('回复对象必须是原请求的发送者');
-      }
       const expectsReply = name === 'team_send' && args.expects_reply === true;
-      const message = this.bus.store.transaction(() => {
-        const value = this.bus.store.append(group.id, panelAgent.id, target.id, name === 'team_send' ? 'send' : 'note', args.text, args.reply_to ?? null, expectsReply);
-        this.bus.store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', value.id, origin.turnId ?? null, null, origin.callId, origin.nativeCallId ?? null);
-        return value;
+      if (name === 'team_send' && args.reply_to !== undefined) {
+        assertReplyTarget(this.bus.store, group.id, args.reply_to, panelAgent.id, target.id);
+      }
+      const message = appendRoutedMessage(this.bus.store, {
+        groupId: group.id,
+        senderId: panelAgent.id,
+        targetId: target.id,
+        kind: name === 'team_send' ? 'send' : 'note',
+        text: args.text,
+        replyTo: args.reply_to ?? null,
+        expectsReply,
+        origin,
       });
       this.bus.emit('message', message);
       this.bus.completeToolMessageStream(
@@ -956,32 +939,20 @@ export class PanelSessions {
     return interactionView(row);
   }
   requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
-    const subject = actionSubjectKey('member_model', args);
-    const existing = this.bus.store.all(
-      "SELECT * FROM interactions WHERE panel_agent_id=? AND group_id=? AND kind='member_model' AND state='pending' ORDER BY created DESC",
-      panelAgent.id,
-      group.id,
-    ).map(row => ({ row, payload: JSON.parse(row.payload) }))
-      .find(item => actionSubjectKey('member_model', item.payload.args) === subject);
-    if (existing) {
-      if (existing.payload.text === text) return interactionView(existing.row);
-      this.bus.store.setInteractionState(existing.row.id, 'cancelled', null, null, '请求内容已变化');
-    }
-    const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, text);
-    const row = this.bus.store.createInteraction({
-      id: randomUUID(),
+    return this.bus.interactions.requestActionCard({
+      requesterKind: 'panel_agent',
+      requesterId: panelAgent.id,
       groupId: group.id,
-      panelAgentId: panelAgent.id,
-      endpointId: session.id,
-      context: session.context,
-      turnId: origin.turnId ?? '',
-      callId: origin.callId,
-      messageId: anchor.messageId,
-      panelMessageId: anchor.panelMessageId,
+      endpoint: session,
+      origin,
       kind: 'member_model',
-      payload: { kind: 'member_model', text, args },
+      text,
+      args,
+      anchor: anchorText => {
+        const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, anchorText);
+        return { groupId: group.id, messageId: anchor.messageId, panelMessageId: anchor.panelMessageId };
+      },
     });
-    return interactionView(row);
   }
   // 私聊互动答复的持久投递入口:答复文本先落 panel_messages(用户立即可见),
   // outbox 行只持投递任务;忙碌/待核实时由 pump 挂起,重启后仍可补投。
