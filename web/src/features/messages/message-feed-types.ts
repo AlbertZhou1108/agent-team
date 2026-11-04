@@ -22,6 +22,8 @@ export interface MessageFeedProps {
   fetchingNextPage?: boolean;
   /** 连续 system 消息是否折叠为通知堆栈;Panel 的自动进度消息不折叠。 */
   groupSystemMessages?: boolean;
+  /** 是否渲染逐条消息的执行轨迹展开器;Panel 私聊的消息没有回合轨迹,应关闭以免展开全是空态。 */
+  traceable?: boolean;
   /** 助手/系统正文按 Markdown 渲染。 */
   markdown?: boolean;
   ariaLabel?: string;

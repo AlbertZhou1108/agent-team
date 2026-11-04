@@ -131,6 +131,7 @@ const suggestions = [
     :stream-source="readPanelStreamViews"
     :interactions="interactions ?? []"
     :group-system-messages="false"
+    :traceable="false"
     :markdown="true"
     :hosts="{}"
     :group-names="Object.fromEntries(teams.map(team => [team.id, team.name]))"

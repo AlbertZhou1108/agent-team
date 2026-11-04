@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<MessageFeedProps & {
   error?: string;
   retryable?: boolean;
   readonly?: boolean;
-}>(), { groupSystemMessages: true, markdown: true, readonly: false });
+}>(), { groupSystemMessages: true, traceable: true, markdown: true, readonly: false });
 const references=ref<MessageReference[]>([]);
 provide(referenceContext,{items:references,enabled:computed(()=>!props.readonly),add(item){if(!references.value.some(x=>x.id===item.id))references.value.push(item);}});
 watch(()=>[props.resetKey,props.selectedPair,props.heading],()=>{references.value=[];});

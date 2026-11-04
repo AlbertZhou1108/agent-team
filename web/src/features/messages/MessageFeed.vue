@@ -30,6 +30,7 @@ const props = withDefaults(
     hasNextPage: false,
     fetchingNextPage: false,
     groupSystemMessages: true,
+    traceable: true,
     markdown: true,
     ariaLabel: '团队消息',
     resetKey: undefined,
@@ -168,6 +169,7 @@ const messageIds = computed(() => {
       </Disclosure>
       <template v-else-if="group.fanout">
         <MessageTrace
+          v-if="traceable"
           :message-id="group.messages[0]!.id"
           :hosts="hosts ?? {}"
         />
@@ -205,8 +207,9 @@ const messageIds = computed(() => {
         </div>
       </template>
       <template v-else>
+        <!-- 执行轨迹只在可能有关联回合时渲染:系统通知与 Panel 私聊消息永远没有轨迹,展开必是空态。 -->
         <MessageTrace
-          v-if="!group.messages[0]!.senderIsUser"
+          v-if="traceable && group.messages[0]!.kind !== 'system' && !group.messages[0]!.senderIsUser"
           :message-id="group.messages[0]!.id"
           :hosts="hosts ?? {}"
         />
