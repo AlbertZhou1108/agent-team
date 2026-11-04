@@ -270,7 +270,7 @@ test('coordination updates remain source notifications without waking the privat
   assert.equal(update.text, '成员已完成本轮任务，当前等待主 Agent 验收。');
   assert.deepEqual(JSON.parse(update.source_message_ids), [message.id]);
   await until(() => !bus.running.size);
-  await bus.pumpPanelUpdates();
+  await bus.pump();
   assert.equal(calls.filter(call => call.context === 'panel-private').length, 0);
   assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
   assert.ok(bus.panelAgentState().notifications.some(row => row.id === update.id));
@@ -324,12 +324,12 @@ test('legacy notifications do not wake an idle private host', async t => {
     text: '需要用户立即确认下一步。',
     sourceMessageIds: [],
   });
-  await bus.pumpPanelUpdates();
+  await bus.pump();
   assert.equal(calls.filter(call => call.context === 'panel-private').length, 1);
 
   releasePrivate();
   await privateTurn;
-  await bus.pumpPanelUpdates();
+  await bus.pump();
   assert.equal(calls.filter(call => call.context === 'panel-private').length, 1);
   assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
 });

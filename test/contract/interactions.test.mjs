@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startServer } from '../../src/server.mjs';
+import { Bus } from '../../src/bus.mjs';
 import { Store } from '../../src/store.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
 import { validateTool } from '../../src/tools.mjs';
@@ -195,6 +196,133 @@ test('panel agent ask in private chat creates a card and the answer wakes its pr
     agent.id,
   );
   assert.ok(userMessage.text.includes('用户选择:创建'));
+});
+
+function panelAnswerHost(calls, { busyGate = null, failText = null, dieText = null } = {}) {
+  return {
+    async listModels() { return { version: 1, host: 'fake', source: 'test', defaultModel: 'test', models: [{ id: 'test', key: 'test', reasoningEfforts: [{ id: 'low' }] }] }; },
+    async run(c) {
+      calls.push(c);
+      c.onSession(c.endpoint.session ?? c.endpoint.id);
+      if (c.endpoint.context !== 'panel-private') { c.onAccepted(); return 'done'; }
+      if (busyGate && String(c.prompt) === busyGate.text) {
+        c.onAccepted();
+        return new Promise((resolve, reject) => {
+          busyGate.release = resolve;
+          c.signal.addEventListener('abort', () => reject(new Error('宿主随总线停止')));
+        });
+      }
+      if (dieText && String(c.prompt) === dieText) {
+        c.onAccepted();
+        throw Object.assign(new Error('宿主失联，无法确认是否停止'), { runtimeUnknown: true });
+      }
+      if (failText && String(c.prompt).includes(failText)) throw new Error('宿主拒绝输入');
+      c.onAccepted();
+      return 'done';
+    },
+  };
+}
+
+async function setupPanelAnswer(t, host) {
+  const directory = mkdtempSync(join(tmpdir(), 'panel-answer-queue-'));
+  const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
+  bus.start();
+  t.after(async () => {
+    if (!bus.closing) await bus.close();
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  await bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
+  const agent = bus.panelAgent();
+  const session = bus.store.panelSession(agent.id, 'private');
+  const askCard = async options => {
+    const card = await bus.panelTool(session.id, session.key, 'ask', { kind: 'choice', text: '选择方案', options }, { activeTeamId: null });
+    return bus.store.interaction(card.interaction);
+  };
+  return { bus, directory, agent, session, askCard };
+}
+
+const panelPrivateCalls = calls => calls.filter(c => c.endpoint.context === 'panel-private');
+
+test('panel private answers survive a restart through the outbox', async t => {
+  const busyGate = { text: 'BUSY', release: null };
+  const calls = [];
+  const f = await setupPanelAnswer(t, panelAnswerHost(calls, { busyGate }));
+  const busy = f.bus.panelPrivateTurn({ text: 'BUSY' });
+  await until(() => typeof busyGate.release === 'function');
+
+  const row = await f.askCard(['A', 'B']);
+  const answered = f.bus.decideInteraction(row.id, { selected: 'A' });
+  assert.equal(answered.state, 'answered');
+  // 答复文本立即入私聊记录;宿主在忙碌期间不会收到新回合
+  await until(() => f.bus.store.get("SELECT 1 FROM panel_messages WHERE panel_agent_id=? AND role='user' AND text LIKE '%用户选择:A%'", f.agent.id));
+  assert.equal(panelPrivateCalls(calls).length, 1);
+
+  await f.bus.close();
+  await busy.catch(() => {});
+  // 重启后由 outbox 补投:答复文本原样送达宿主
+  const callsAfter = [];
+  const revived = new Bus({ directory: f.directory, hosts: new Map([['fake', panelAnswerHost(callsAfter)]]) });
+  t.after(async () => { if (!revived.closing) await revived.close(); });
+  revived.start();
+  await until(() => panelPrivateCalls(callsAfter).some(c => String(c.prompt).includes('用户选择:A')));
+  await until(() => !revived.running.size);
+});
+
+test('panel private answers wait out an unverified turn and deliver after resolution', async t => {
+  const calls = [];
+  const f = await setupPanelAnswer(t, panelAnswerHost(calls, { dieText: 'DIE' }));
+  await assert.rejects(f.bus.panelPrivateTurn({ text: 'DIE' }), /宿主失联/);
+  const unknown = f.bus.panelUnknown();
+  assert.equal(unknown.length, 1);
+
+  const row = await f.askCard(['B', 'C']);
+  f.bus.decideInteraction(row.id, { selected: 'B' });
+  // 答复先持久化;存在待核实运行时不投递,宿主不会收到新回合
+  await until(() => f.bus.store.get("SELECT 1 FROM panel_messages WHERE panel_agent_id=? AND role='user' AND text LIKE '%用户选择:B%'", f.agent.id));
+  f.bus.pump();
+  assert.equal(panelPrivateCalls(calls).length, 1);
+
+  f.bus.resolvePanelRuntime(unknown[0].id, '用户核实宿主已停止');
+  await until(() => panelPrivateCalls(calls).some(c => String(c.prompt).includes('用户选择:B')));
+  await until(() => !f.bus.running.size);
+});
+
+test('failed panel private answer delivery leaves a visible system notice', async t => {
+  const calls = [];
+  const f = await setupPanelAnswer(t, panelAnswerHost(calls, { failText: '用户选择:C' }));
+  const row = await f.askCard(['C', 'D']);
+  f.bus.decideInteraction(row.id, { selected: 'C' });
+  await until(() => panelPrivateCalls(calls).length === 1);
+  await until(() => !f.bus.running.size);
+  const notice = f.bus.store.get(
+    "SELECT * FROM panel_messages WHERE panel_agent_id=? AND role='system' ORDER BY seq DESC LIMIT 1",
+    f.agent.id,
+  );
+  assert.ok(notice, 'system notice recorded');
+  assert.ok(notice.text.includes('投递失败'));
+  assert.ok(notice.text.includes('宿主拒绝输入'));
+});
+
+test('queued panel private answers deliver in enqueue order', async t => {
+  const busyGate = { text: 'BUSY', release: null };
+  const calls = [];
+  const f = await setupPanelAnswer(t, panelAnswerHost(calls, { busyGate }));
+  const busy = f.bus.panelPrivateTurn({ text: 'BUSY' });
+  await until(() => typeof busyGate.release === 'function');
+  const first = await f.askCard(['A', 'X']);
+  const second = await f.askCard(['B', 'Y']);
+  f.bus.decideInteraction(first.id, { selected: 'A' });
+  f.bus.decideInteraction(second.id, { selected: 'B' });
+  await until(() => f.bus.store.get("SELECT 1 FROM panel_messages WHERE panel_agent_id=? AND role='user' AND text LIKE '%用户选择:A%'", f.agent.id));
+  await until(() => f.bus.store.get("SELECT 1 FROM panel_messages WHERE panel_agent_id=? AND role='user' AND text LIKE '%用户选择:B%'", f.agent.id));
+  assert.equal(panelPrivateCalls(calls).length, 1);
+
+  busyGate.release();
+  await busy;
+  await until(() => panelPrivateCalls(calls).length === 3 && !f.bus.running.size);
+  const prompts = panelPrivateCalls(calls).map(c => String(c.prompt));
+  assert.ok(prompts[1].includes('用户选择:A'));
+  assert.ok(prompts[2].includes('用户选择:B'));
 });
 
 test('group_add becomes an interaction card and approval performs the add', async t => {

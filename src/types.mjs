@@ -76,7 +76,7 @@
  * @property {(id: string, answer: Record<string, any> | null | undefined) => Promise<unknown>} decideInteraction
  * @property {(row: Record<string, any>, payload: Record<string, any>, answer: Record<string, any> | null | undefined) => Promise<unknown>} decideActionInteraction
  * @property {(row: Record<string, any>, deliver: (text: string) => unknown, text: string) => void} deliverOutcomeSafe
- * @property {(row: object, text: string) => void} deliverToPanelPrivate
+ * @property {(agentId: string, text: string) => void} enqueuePanelPrivateAnswer
  * @property {(member: Record<string, any>, text: string) => Record<string, any>} memberInteractionAnchor
  * @property {(groupId: string, expectedRevision?: number) => Promise<unknown>} takeoverTeam
  * @property {(groupId: string, expectedRevision?: number) => Promise<unknown>} handbackTeam

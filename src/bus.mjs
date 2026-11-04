@@ -83,7 +83,6 @@ export class Bus extends EventEmitter {
     this.teamDirectives.recoverOutputs();
     this.startAttachmentCleanup();
     this.startRetentionCleanup();
-    this.pumpPanelUpdates();
     this.pump();
   }
   requireHost(host) { if (!this.hosts.has(host)) throw new Error(`宿主未配置: ${host}`); }
@@ -170,7 +169,6 @@ export class Bus extends EventEmitter {
   pendingPanelUpdates(...args) { return this.panel.pendingPanelUpdates(...args); }
   publishPanelUpdate(...args) { return this.panel.publishPanelUpdate(...args); }
   markPanelUpdatesDelivered(...args) { return this.panel.markPanelUpdatesDelivered(...args); }
-  pumpPanelUpdates(...args) { return this.panel.pumpPanelUpdates(...args); }
   runPanelTurn(...args) { return this.panel.runPanelTurn(...args); }
 
   panelPrivateTurn(...args) { return this.panel.panelPrivateTurn(...args); }
@@ -179,10 +177,10 @@ export class Bus extends EventEmitter {
   panelInteractionAnchor(...args) { return this.panel.panelInteractionAnchor(...args); }
   requestPanelControllerAction(...args) { return this.panel.requestPanelControllerAction(...args); }
   requestPanelMemberModel(...args) { return this.panel.requestPanelMemberModel(...args); }
-  deliverToPanelPrivate(...args) { return this.panel.deliverToPanelPrivate(...args); }
-  flushPanelPrivateDeliveries(...args) { return this.panel.flushPanelPrivateDeliveries(...args); }
+  enqueuePanelPrivateAnswer(...args) { return this.panel.enqueuePanelPrivateAnswer(...args); }
   panelUnknown(...args) { return this.panel.panelUnknown(...args); }
   deliverPanel(...args) { return this.panel.deliverPanel(...args); }
+  deliverPanelPrivate(...args) { return this.panel.deliverPanelPrivate(...args); }
   failPanelDelivery(...args) { return this.panel.failPanelDelivery(...args); }
 
   decideInteraction(...args) { return this.interactions.decideInteraction(...args); }

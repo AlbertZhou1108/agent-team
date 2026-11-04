@@ -68,9 +68,9 @@ export class Interactions {
         this.bus.emit('message', message);
         queueMicrotask(() => this.bus.pump());
       } else {
-        // 私人上下文发起:答复写入 Panel 私人会话并唤醒。
+        // 私人上下文发起:答复持久入队,经 outbox 投递唤醒 Panel 私人会话。
         this.bus.store.setInteractionState(id, 'answered', answer);
-        this.bus.deliverToPanelPrivate(row, text);
+        this.bus.enqueuePanelPrivateAnswer(row.panel_agent_id, text);
       }
       return interactionView(this.bus.store.interaction(id));
     }
@@ -100,7 +100,7 @@ export class Interactions {
       } : null),
     });
     const deliverOutcome = /** @param {string} text */ text => {
-      if (row.panel_agent_id) return this.bus.deliverToPanelPrivate(row, text);
+      if (row.panel_agent_id) return this.bus.enqueuePanelPrivateAnswer(row.panel_agent_id, text);
       const message = this.bus.store.append(row.group_id, 'user', row.member_id, 'send', text, row.message_id);
       this.bus.emit('message', message);
       queueMicrotask(() => this.bus.pump());

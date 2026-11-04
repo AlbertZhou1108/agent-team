@@ -19,8 +19,13 @@ export class MessageDispatch {
     if (this.bus.closing) return;
     for (const entry of this.bus.store.pendingDeliveries()) {
       const conversation = this.bus.store.conversationById(entry.conversation_id);
-      if (!conversation || !this.bus.canRun(conversation.group_id) || this.bus.running.has(conversation.id)) continue;
-      if (entry.owner_kind === 'panel_agent') this.bus.deliverPanel(entry);
+      // 群级守卫(归档/群待核实)只作用于有群归属的会话;私聊会话的忙碌与
+      // unknown 守卫在 deliverPanelPrivate 内做会话级判断。
+      if (!conversation || (conversation.group_id && !this.bus.canRun(conversation.group_id)) || this.bus.running.has(conversation.id)) continue;
+      if (entry.owner_kind === 'panel_agent') {
+        if (conversation.context === 'private') this.bus.deliverPanelPrivate(entry);
+        else this.bus.deliverPanel(entry);
+      }
       else this.bus.deliver(entry);
     }
     for (const message of this.bus.store.pending()) {

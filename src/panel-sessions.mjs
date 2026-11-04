@@ -14,8 +14,6 @@ import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 export class PanelSessions {
   constructor(bus) {
     this.bus = bus;
-    this.pumpingPanelUpdates = false;
-    this.panelPrivateDeliveries = [];
   }
   panelAccessValue(agent) {
     const access = agent?.access ?? 'read-only';
@@ -604,11 +602,6 @@ export class PanelSessions {
     });
   }
 
-  async pumpPanelUpdates() {
-    // Only explicit user answers may resume the private host. Legacy updates never do.
-    this.bus.flushPanelPrivateDeliveries();
-  }
-
   async runPanelTurn({
     sourceUserMessageId = null,
     session,
@@ -755,10 +748,7 @@ export class PanelSessions {
       },
       nativeTurnEvent: true,
       failureDetail: false,
-      onFinally: () => {
-        setImmediate(() => this.bus.pumpPanelUpdates());
-        setImmediate(() => this.bus.pump());
-      },
+      onFinally: () => setImmediate(() => this.bus.pump()),
     });
   }
 
@@ -993,25 +983,56 @@ export class PanelSessions {
     });
     return interactionView(row);
   }
-  deliverToPanelPrivate(row, text) {
+  // 私聊互动答复的持久投递入口:答复文本先落 panel_messages(用户立即可见),
+  // outbox 行只持投递任务;忙碌/待核实时由 pump 挂起,重启后仍可补投。
+  // 与团队消息共用同一张 outbox 表,payload 形状为 {kind:'panel-private', panelMessageId}。
+  enqueuePanelPrivateAnswer(agentId, text) {
     const agent = this.bus.panelAgent();
-    if (!agent || agent.id !== row.panel_agent_id || this.bus.closing) return;
+    if (!agent || agent.id !== agentId) return;
     const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
-    if (this.bus.running.has(session.id)) {
-      this.panelPrivateDeliveries.push({ text, groupId: row.group_id });
+    this.bus.store.transaction(() => {
+      const row = this.bus.store.panelAppend(agent.id, 'private', 'user', text, null);
+      this.bus.store.run('INSERT INTO outbox(id,conversation_id,payload) VALUES(?,?,?)',
+        randomUUID(),
+        session.id,
+        JSON.stringify({ kind: 'panel-private', panelMessageId: row.id }),
+      );
+    });
+    queueMicrotask(() => this.bus.pump());
+  }
+  deliverPanelPrivate(entry) {
+    const session = this.bus.store.conversationById(entry.conversation_id);
+    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'private') return;
+    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    if (!panelAgent) {
+      this.bus.store.setDeliveryError(entry, 'Panel Agent 不存在');
       return;
     }
-    void this.bus.panelPrivateTurn({ text }).catch(() => {});
+    // 会话忙碌或存在待核实运行时挂起:条目保持 pending,回合收尾或用户核实后由 pump 续投。
+    if (this.bus.running.has(session.id)) return;
+    if (this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) return;
+    const payload = JSON.parse(entry.payload);
+    const row = this.bus.store.get('SELECT * FROM panel_messages WHERE id=? AND panel_agent_id=?', payload.panelMessageId, panelAgent.id);
+    if (!row) {
+      this.bus.store.setDeliveryError(entry, '答复消息已被删除');
+      return;
+    }
+    this.bus.runPanelTurn({
+      session,
+      panelAgent,
+      sourceUserMessageId: row.id,
+      prompt: row.text,
+      activeTeamId: null,
+      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
+    }).catch(error => {
+      this.failPanelPrivateDelivery(session, entry, error);
+    });
   }
-  // 私人会话忙碌期间积压的互动答复/动作结果,在会话空闲后按序补投。
-  flushPanelPrivateDeliveries() {
-    if (this.bus.closing || !this.panelPrivateDeliveries.length) return;
-    const agent = this.bus.panelAgent();
-    if (!agent) return;
-    const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
-    if (this.bus.running.has(session.id) || this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) return;
-    const item = this.panelPrivateDeliveries.shift();
-    void this.bus.panelPrivateTurn({ text: item.text }).catch(() => {});
+  failPanelPrivateDelivery(session, entry, error) {
+    this.bus.store.setDeliveryError(entry, error.message);
+    if (this.bus.closing) return;
+    this.bus.store.panelAppend(session.panel_agent_id, 'private', 'system',
+      `一条互动答复投递失败：${error.message}。不会自动重试。`);
   }
 
   panelUnknown(groupId = null) {
