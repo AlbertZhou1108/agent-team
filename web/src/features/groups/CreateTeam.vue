@@ -16,7 +16,7 @@ import HostStatuses from '@/features/settings/HostStatuses.vue';
 
 const router = useRouter(), client = useQueryClient();
 const key = 'agent-team:create-team-draft';
-const initial = () => ({ operationId: crypto.randomUUID(), name: '', text: '', workspace: '', host: '', worker: '协作助手', policy: 'read-only', submitted: false, group: null as Group | null });
+const initial = () => ({ operationId: crypto.randomUUID(), name: '', text: '', workspace: '', host: '', worker: '协作助手', policy: 'workspace-write', submitted: false, group: null as Group | null });
 function restore() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(key) || 'null');

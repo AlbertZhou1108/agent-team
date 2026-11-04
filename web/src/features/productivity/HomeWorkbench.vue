@@ -257,6 +257,12 @@ watch(
   },
 );
 const summarizing = computed(() => generating.value || live.value.active);
+// 摘要是主控生成的快照:超过一天提示可能过期(刷新会发起真实模型回合,不做自动刷新)。
+const summaryStale = computed(() => {
+  const created = data.value?.summary?.created;
+  if (!created) return false;
+  return Date.now() - new Date(created).getTime() > 24 * 3600_000;
+});
 const summaryText = computed(
   () => live.value.stream?.text ?? (summarizing.value ? '' : data.value?.summary?.text ?? ''),
 );
@@ -516,7 +522,10 @@ async function summarize() {
             v-if="!summarizing && !live.stream?.text && data?.summary"
             class="text-xs text-muted-foreground"
           >
-            生成于 {{ new Date(data.summary.created).toLocaleString() }}
+            生成于 {{ new Date(data.summary.created).toLocaleString()
+            }}<template v-if="summaryStale"
+              > · 摘要已超过一天，可能过期，可点击右上角刷新</template
+            >
           </p>
           <div
             role="region"
