@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { toolsFor } from './tools.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
-import { legacyGroupDeliveryPrompt } from './prompts.mjs';
+import { legacyGroupDeliveryPrompt, legacyPanelDeliveryPrompt } from './prompts.mjs';
 
 // 消息调度:outbox 与待处理消息的投递循环、成员回合执行与会话重建。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -75,6 +75,88 @@ export class MessageDispatch {
       const accepted = this.bus.store.deliveryAccepted(entry);
       this.bus.notify(endpoint.group_id, input.message.sender, `消息 ${input.message.id} 发给成员 ${endpoint.member_id} 的会话失败：${error.message}。${accepted ? '宿主已经接受输入；请查看宿主记录决定是否另发消息。' : '不会自动重试；核实后可用 /retry 明确重试。'}`);
     });
+  }
+  // Panel 主控协作会话投递:与成员投递同构(turnInput 构造、legacy 回落、accepted/error 写点)。
+  deliverPanel(entry) {
+    const session = this.bus.store.conversationById(entry.conversation_id);
+    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'coordination') return;
+    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    if (!panelAgent) return;
+    const input = JSON.parse(entry.payload);
+    const schema = this.bus.information.panelSchemaForStart(session);
+    let prompt;
+    try {
+      if (schema === CONTEXT_SCHEMA_VERSION) {
+        const group = this.bus.store.group(session.group_id);
+        prompt = JSON.stringify(this.bus.information.turnInput({
+          group,
+          charter: group.charter,
+          policy: { mode: 'communication', allowShell: false, domain: 'communication' },
+          input,
+          schema,
+        }));
+      } else {
+        prompt = legacyPanelDeliveryPrompt(input);
+      }
+    } catch (error) {
+      this.failPanelDelivery(session, input, entry, error);
+      return;
+    }
+    this.bus.runPanelTurn({
+      session: { ...session, group_id: session.group_id },
+      panelAgent,
+      prompt,
+      activeTeamId: session.group_id,
+      inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
+      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
+    }).catch(error => {
+      this.failPanelDelivery(session, input, entry, error);
+    });
+  }
+  failPanelDelivery(session, input, entry, error) {
+    this.bus.store.setDeliveryError(entry, error.message);
+    if (this.bus.closing) return;
+    const message = this.bus.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
+    if (message?.sender) {
+      const notice = this.bus.store.append(session.group_id, 'system', message.sender, 'system',
+        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
+      this.bus.emit('notice', notice);
+    }
+  }
+  // Panel 私聊互动答复投递:答复消息已先行落库,这里只负责发起回合。
+  deliverPanelPrivate(entry) {
+    const session = this.bus.store.conversationById(entry.conversation_id);
+    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'private') return;
+    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
+    if (!panelAgent) {
+      this.bus.store.setDeliveryError(entry, 'Panel Agent 不存在');
+      return;
+    }
+    // 会话忙碌或存在待核实运行时挂起:条目保持 pending,回合收尾或用户核实后由 pump 续投。
+    if (this.bus.running.has(session.id)) return;
+    if (this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) return;
+    const payload = JSON.parse(entry.payload);
+    const row = this.bus.store.get('SELECT * FROM panel_messages WHERE id=? AND panel_agent_id=?', payload.panelMessageId, panelAgent.id);
+    if (!row) {
+      this.bus.store.setDeliveryError(entry, '答复消息已被删除');
+      return;
+    }
+    this.bus.runPanelTurn({
+      session,
+      panelAgent,
+      sourceUserMessageId: row.id,
+      prompt: row.text,
+      activeTeamId: null,
+      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
+    }).catch(error => {
+      this.failPanelPrivateDelivery(session, entry, error);
+    });
+  }
+  failPanelPrivateDelivery(session, entry, error) {
+    this.bus.store.setDeliveryError(entry, error.message);
+    if (this.bus.closing) return;
+    this.bus.store.panelAppend(session.panel_agent_id, 'private', 'system',
+      `一条互动答复投递失败：${error.message}。不会自动重试。`);
   }
   async runEndpoint(endpoint, text, onAccepted = () => {}, inputs = []) {
     this.bus.collaboration.requireCommunication(endpoint.group_id);

@@ -167,9 +167,7 @@ export class Bus extends EventEmitter {
   executePanelTool(...args) { return this.panel.executePanelTool(...args); }
   panelInstructions(...args) { return this.panel.panelInstructions(...args); }
   panelUpdate(...args) { return this.panel.panelUpdate(...args); }
-  pendingPanelUpdates(...args) { return this.panel.pendingPanelUpdates(...args); }
   publishPanelUpdate(...args) { return this.panel.publishPanelUpdate(...args); }
-  markPanelUpdatesDelivered(...args) { return this.panel.markPanelUpdatesDelivered(...args); }
   runPanelTurn(...args) { return this.panel.runPanelTurn(...args); }
 
   panelPrivateTurn(...args) { return this.panel.panelPrivateTurn(...args); }
@@ -180,9 +178,8 @@ export class Bus extends EventEmitter {
   requestPanelMemberModel(...args) { return this.panel.requestPanelMemberModel(...args); }
   enqueuePanelPrivateAnswer(...args) { return this.panel.enqueuePanelPrivateAnswer(...args); }
   panelUnknown(...args) { return this.panel.panelUnknown(...args); }
-  deliverPanel(...args) { return this.panel.deliverPanel(...args); }
-  deliverPanelPrivate(...args) { return this.panel.deliverPanelPrivate(...args); }
-  failPanelDelivery(...args) { return this.panel.failPanelDelivery(...args); }
+  deliverPanel(...args) { return this.dispatch.deliverPanel(...args); }
+  deliverPanelPrivate(...args) { return this.dispatch.deliverPanelPrivate(...args); }
 
   decideInteraction(...args) { return this.interactions.decideInteraction(...args); }
   decideActionInteraction(...args) { return this.interactions.decideActionInteraction(...args); }

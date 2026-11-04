@@ -4,11 +4,10 @@ import { statSync } from 'node:fs';
 import { interactionView } from './interactions.mjs';
 import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './tool-ops.mjs';
 import { memberModelSummary } from './model-policy.mjs';
-import { panelCoordinationInstructions, panelPrivateInstructions, legacyPanelDeliveryPrompt } from './prompts.mjs';
+import { panelCoordinationInstructions, panelPrivateInstructions } from './prompts.mjs';
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { attachmentError } from './attachments.mjs';
 import { ensureDefaultPanelWorkspace } from './default-workspace.mjs';
-import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 
 // Panel 会话模块:Panel Agent 创建配置、私聊协作回合、面板更新与 Panel 工具。
 
@@ -532,18 +531,6 @@ export class PanelSessions {
     };
   }
 
-  pendingPanelUpdates(groupId) {
-    const agent = this.bus.panelAgent();
-    if (!agent || !groupId) return [];
-    return this.bus.store.all(
-      `SELECT * FROM panel_updates
-       WHERE panel_agent_id=? AND group_id=? AND delivered_turn_id IS NULL
-       ORDER BY created LIMIT 5`,
-      agent.id,
-      groupId,
-    ).map(row => this.bus.panelUpdate(row));
-  }
-
   publishPanelUpdate({
     panelAgentId,
     groupId,
@@ -568,21 +555,6 @@ export class PanelSessions {
     const update = this.bus.panelUpdate(this.bus.store.get('SELECT * FROM panel_updates WHERE id=?', id));
     this.bus.emit('panel-update', update);
     return update;
-  }
-
-  markPanelUpdatesDelivered(updateIds, turnId) {
-    if (!updateIds.length) return;
-    const delivered = new Date().toISOString();
-    this.bus.store.transaction(() => {
-      for (const id of updateIds) {
-        this.bus.store.run(
-          'UPDATE panel_updates SET delivered_turn_id=?,delivered=? WHERE id=? AND delivered_turn_id IS NULL',
-          turnId,
-          delivered,
-          id,
-        );
-      }
-    });
   }
 
   async runPanelTurn({
@@ -834,7 +806,6 @@ export class PanelSessions {
     // 宿主调用前准备附件输入;文件缺失在此明确报错,不悄悄只发文字。
     const preparedAttachments = attachmentIds.length ? this.bus.attachmentPrepare(panelAgent.id, attachmentIds) : [];
     const session = this.bus.store.conversation('panel_agent', panelAgent.id, 'private');
-    const updates = [];
     let accepted = false;
     let acceptedTurnId = null;
     try {
@@ -850,9 +821,6 @@ export class PanelSessions {
           acceptedTurnId = turnId;
         },
       });
-      if (result && acceptedTurnId) {
-        this.bus.markPanelUpdatesDelivered(updates.map(update => update.id), acceptedTurnId);
-      }
       let finalActiveTeamId = activeTeamId ?? null;
       if (acceptedTurnId) {
         finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
@@ -971,40 +939,6 @@ export class PanelSessions {
     });
     queueMicrotask(() => this.bus.pump());
   }
-  deliverPanelPrivate(entry) {
-    const session = this.bus.store.conversationById(entry.conversation_id);
-    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'private') return;
-    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
-    if (!panelAgent) {
-      this.bus.store.setDeliveryError(entry, 'Panel Agent 不存在');
-      return;
-    }
-    // 会话忙碌或存在待核实运行时挂起:条目保持 pending,回合收尾或用户核实后由 pump 续投。
-    if (this.bus.running.has(session.id)) return;
-    if (this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) return;
-    const payload = JSON.parse(entry.payload);
-    const row = this.bus.store.get('SELECT * FROM panel_messages WHERE id=? AND panel_agent_id=?', payload.panelMessageId, panelAgent.id);
-    if (!row) {
-      this.bus.store.setDeliveryError(entry, '答复消息已被删除');
-      return;
-    }
-    this.bus.runPanelTurn({
-      session,
-      panelAgent,
-      sourceUserMessageId: row.id,
-      prompt: row.text,
-      activeTeamId: null,
-      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
-    }).catch(error => {
-      this.failPanelPrivateDelivery(session, entry, error);
-    });
-  }
-  failPanelPrivateDelivery(session, entry, error) {
-    this.bus.store.setDeliveryError(entry, error.message);
-    if (this.bus.closing) return;
-    this.bus.store.panelAppend(session.panel_agent_id, 'private', 'system',
-      `一条互动答复投递失败：${error.message}。不会自动重试。`);
-  }
 
   panelUnknown(groupId = null) {
     return this.bus.store.all(
@@ -1012,51 +946,5 @@ export class PanelSessions {
        WHERE t.executor_kind='panel_agent' AND t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
       ...(groupId ? [groupId] : []),
     );
-  }
-  failPanelDelivery(session, input, entry, error) {
-    this.bus.store.setDeliveryError(entry, error.message);
-    if (this.bus.closing) return;
-    const message = this.bus.store.get('SELECT sender FROM messages WHERE id=?', input.message.id);
-    if (message?.sender) {
-      const notice = this.bus.store.append(session.group_id, 'system', message.sender, 'system',
-        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
-      this.bus.emit('notice', notice);
-    }
-  }
-  deliverPanel(entry) {
-    const session = this.bus.store.conversationById(entry.conversation_id);
-    if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'coordination') return;
-    const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
-    if (!panelAgent) return;
-    const input = JSON.parse(entry.payload);
-    const schema = this.bus.information.panelSchemaForStart(session);
-    let prompt;
-    try {
-      if (schema === CONTEXT_SCHEMA_VERSION) {
-        const group = this.bus.store.group(session.group_id);
-        prompt = JSON.stringify(this.bus.information.turnInput({
-          group,
-          charter: group.charter,
-          policy: { mode: 'communication', allowShell: false, domain: 'communication' },
-          input,
-          schema,
-        }));
-      } else {
-        prompt = legacyPanelDeliveryPrompt(input);
-      }
-    } catch (error) {
-      this.bus.failPanelDelivery(session, input, entry, error);
-      return;
-    }
-    this.bus.runPanelTurn({
-      session: { ...session, group_id: session.group_id },
-      panelAgent,
-      prompt,
-      activeTeamId: session.group_id,
-      inputs: [input.message, ...(input.additionalMessages ?? []), ...input.notes],
-      onAccepted: () => this.bus.store.setDeliveryAccepted(entry),
-    }).catch(error => {
-      this.bus.failPanelDelivery(session, input, entry, error);
-    });
   }
 }
