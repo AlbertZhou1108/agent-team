@@ -1,0 +1,104 @@
+<script setup lang="ts">
+import { computed } from 'vue';
+import { Search as SearchIcon } from '@lucide/vue';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import type { Note, NoteCounts, NoteState } from '@/shared/api/raw-types';
+import { cn } from '@/lib/utils';
+import {
+  NOTE_STATES,
+  formatNoteTime,
+  groupNotesByDay,
+  noteExcerpt,
+  noteStateLabel,
+} from './notes-state';
+
+const props = defineProps<{
+  notes: Note[];
+  filter: NoteState;
+  counts: NoteCounts;
+  search: string;
+  selectedId: string | null;
+  loading: boolean;
+  error: string;
+}>();
+
+const emit = defineEmits<{
+  'update:filter': [state: NoteState];
+  'update:search': [value: string];
+  select: [id: string];
+}>();
+
+const groups = computed(() => groupNotesByDay(props.notes));
+const filters = NOTE_STATES;
+</script>
+
+<template>
+  <div class="flex min-w-0 flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-1" role="tablist" aria-label="记录状态">
+        <Button
+          v-for="state in filters"
+          :key="state"
+          size="sm"
+          :variant="state === filter ? 'secondary' : 'ghost'"
+          role="tab"
+          :aria-selected="state === filter"
+          @click="emit('update:filter', state)"
+        >
+          {{ noteStateLabel(state) }}
+          <span class="text-xs text-muted-foreground tabular-nums">{{ counts[state] }}</span>
+        </Button>
+      </div>
+      <div class="relative ms-auto w-full sm:w-56">
+        <SearchIcon class="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          :model-value="search"
+          class="ps-8"
+          placeholder="搜索记录"
+          aria-label="搜索记录"
+          @update:model-value="emit('update:search', String($event))"
+        />
+      </div>
+    </div>
+
+    <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+    <p v-else-if="loading && !notes.length" class="text-sm text-muted-foreground">正在读取…</p>
+    <p v-else-if="!notes.length" class="py-10 text-center text-sm text-muted-foreground">
+      {{ search ? '没有匹配的记录' : filter === 'archived' ? '还没有归档的记录' : '还没有记录' }}
+    </p>
+
+    <div v-else class="flex flex-col gap-4">
+      <section v-for="group in groups" :key="group.key" class="flex flex-col gap-1">
+        <h2 class="px-1 text-xs font-medium text-muted-foreground">{{ group.label }}</h2>
+        <ul class="flex flex-col">
+          <li v-for="note in group.notes" :key="note.id">
+            <button
+              type="button"
+              :class="cn(
+                'note-row flex w-full min-w-0 flex-col gap-1 rounded-(--component-control-radius) px-2 py-2 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
+                note.id === selectedId && 'bg-accent/70',
+              )"
+              :aria-current="note.id === selectedId ? 'true' : undefined"
+              @click="emit('select', note.id)"
+            >
+              <span class="flex min-w-0 items-center gap-2">
+                <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
+                <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
+                <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
+              </span>
+              <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
+                <span v-if="note.todos.length" class="shrink-0 tabular-nums">
+                  {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                </span>
+                <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</template>

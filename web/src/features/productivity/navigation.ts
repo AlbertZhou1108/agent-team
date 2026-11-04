@@ -12,6 +12,12 @@ export const navigationEntries: SearchEntry[] = [
     keywords: '首页 待处理 运行活动 统计 摘要',
   },
   {
+    id: 'notes',
+    label: '随心记',
+    path: '/notes',
+    keywords: '想法 记录 笔记 灵感 备忘 随手记 待办',
+  },
+  {
     id: 'agent',
     label: 'Panel Agent',
     path: '/agent',

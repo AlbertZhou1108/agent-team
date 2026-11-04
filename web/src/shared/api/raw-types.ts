@@ -898,3 +898,38 @@ export interface ArchiveSnapshot {
     interactions: { id: string; state: string; payload: { text?: string; options?: string[] }; answer: { value?: string; selected?: string; approved?: boolean } | null; created: string }[];
   };
 }
+
+// 随心记：用户的私人想法。服务端只落内容与三态，不记录任何执行状态。
+export type NoteState = 'active' | 'done' | 'archived';
+
+export interface NoteTodo {
+  text: string;
+  done: boolean;
+}
+
+export interface Note {
+  id: string;
+  title: string;
+  titleManual: boolean;
+  body: string;
+  todos: NoteTodo[];
+  due: string | null;
+  state: NoteState;
+  revision: number;
+  created: string;
+  updated: string;
+  completed: string | null;
+  archived: string | null;
+}
+
+export interface NoteCounts {
+  active: number;
+  done: number;
+  archived: number;
+}
+
+export interface NotePage {
+  notes: Note[];
+  nextCursor: string | null;
+  counts: NoteCounts;
+}

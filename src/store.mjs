@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -199,6 +199,7 @@ export class Store {
     if (fromVersion < 3) this.migrateV3();
     if (fromVersion < 4) this.migrateV4();
     if (fromVersion < 5) this.migrateV5();
+    if (fromVersion < 6) this.migrateV6();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -232,6 +233,26 @@ export class Store {
       group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
       id TEXT NOT NULL UNIQUE,created TEXT NOT NULL,facts TEXT NOT NULL,
       summary TEXT,summary_created TEXT,error TEXT);`);
+  }
+
+  // v6:随心记。笔记不挂团队、不记录执行状态；Panel Agent 交互只通过一段提示词。
+  migrateV6() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS notes(
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      title_manual INTEGER NOT NULL DEFAULT 0,
+      body TEXT NOT NULL,
+      todos TEXT NOT NULL DEFAULT '[]',
+      due TEXT,
+      state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','done','archived')),
+      archived_from TEXT CHECK(archived_from IN ('active','done')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      created TEXT NOT NULL,
+      updated TEXT NOT NULL,
+      completed TEXT,
+      archived TEXT);
+      CREATE INDEX IF NOT EXISTS notes_state ON notes(state, updated DESC);
+      CREATE INDEX IF NOT EXISTS notes_archived ON notes(archived DESC) WHERE state='archived';`);
   }
 
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。

@@ -28,6 +28,7 @@ import { Attachments } from './attachments.mjs';
 import { PanelSessions } from './panel-sessions.mjs';
 import { TurnExecutor } from './turn-executor.mjs';
 import { ArchiveSnapshots } from './archive-snapshots.mjs';
+import { Notes } from './notes.mjs';
 
 export { interactionView } from './interactions.mjs';
 
@@ -65,6 +66,7 @@ export class Bus extends EventEmitter {
     this.queries = new BusQueries(this);
     this.turnExecutor = new TurnExecutor(this);
     this.archiveSnapshots = new ArchiveSnapshots(this);
+    this.notes = new Notes(this);
   }
   get panelStreams() { return this.toolStreams.panelStreams; }
   get teamStreams() { return this.toolStreams.teamStreams; }

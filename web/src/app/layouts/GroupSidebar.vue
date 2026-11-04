@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Search } from '@lucide/vue';
 import { Surface } from '@/components/surface';
 import { computed, ref, watch } from 'vue';
+import { useMediaQuery } from '@vueuse/core';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
 import AgentTeamLogo from './AgentTeamLogo.vue';
 import TeamRow from './TeamRow.vue';
@@ -18,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   House,
+  NotebookPen,
   Settings2,
 } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
@@ -33,6 +35,7 @@ const props = defineProps<{
   groups: Group[];
   currentGroupId?: string;
   homeActive: boolean;
+  notesActive: boolean;
   agentActive: boolean;
   agentUnreadCount: number;
   settingsActive: boolean;
@@ -41,6 +44,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   archive: [id: string];
+  openNotes: [];
   openAgent: [];
   openSettings: [];
 }>();
@@ -48,6 +52,9 @@ const emit = defineEmits<{
 const ui = useUiStore();
 const connection = useConnectionStore();
 const org = useTeamOrganization();
+// 窄屏把侧栏压成一条顶部导航:只保留图标入口,团队列表交给主页,避免首屏被侧栏占满。
+const compact = useMediaQuery('(max-width: 760px)');
+const navCollapsed = computed(() => ui.sidebarCollapsed || compact.value);
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
 const creating = ref(false);
@@ -283,21 +290,25 @@ function submitRenameFolder() {
       class="flex min-w-0 items-center gap-3 px-2"
       :class="{ 'justify-center px-0': ui.sidebarCollapsed }"
     >
-      <AgentTeamLogo :collapsed="ui.sidebarCollapsed" />
-      <div v-if="!ui.sidebarCollapsed" class="min-w-0">
+      <AgentTeamLogo :collapsed="navCollapsed" />
+      <div v-if="!navCollapsed" class="min-w-0">
         <p class="truncate text-sm font-semibold tracking-tight">Agent Team</p>
       </div>
     </div>
 
     <nav aria-label="主导航" class="mt-6 flex flex-col gap-1">
-      <SidebarEntry :collapsed="ui.sidebarCollapsed" title="全局搜索 · ⌘K / Ctrl+K" @activate="ui.searchOpen=true"><template #icon><Search /></template>全局搜索</SidebarEntry>
-      <SidebarEntry :current="homeActive" :collapsed="ui.sidebarCollapsed" title="主页" @activate="emit('select', '')">
+      <SidebarEntry :collapsed="navCollapsed" title="全局搜索 · ⌘K / Ctrl+K" @activate="ui.searchOpen=true"><template #icon><Search /></template>全局搜索</SidebarEntry>
+      <SidebarEntry :current="homeActive" :collapsed="navCollapsed" title="主页" @activate="emit('select', '')">
         <template #icon><House /></template>
         主页
       </SidebarEntry>
+      <SidebarEntry :current="notesActive" :collapsed="navCollapsed" title="随心记" @activate="emit('openNotes')">
+        <template #icon><NotebookPen /></template>
+        随心记
+      </SidebarEntry>
       <SidebarEntry
         :current="agentActive"
-        :collapsed="ui.sidebarCollapsed"
+        :collapsed="navCollapsed"
         :label="agentUnreadCount ? `Panel Agent，${agentUnreadCount} 条新消息` : 'Panel Agent'"
         :title="agentUnreadCount ? `Panel Agent（${agentUnreadCount} 条新消息）` : 'Panel Agent'"
         @activate="emit('openAgent')"
@@ -310,7 +321,7 @@ function submitRenameFolder() {
       </SidebarEntry>
     </nav>
     <div
-      v-if="!ui.sidebarCollapsed"
+      v-if="!navCollapsed"
       class="mt-7 flex items-center justify-between px-2"
     >
       <span class="flex items-center gap-2"
@@ -328,7 +339,7 @@ function submitRenameFolder() {
     </div>
 
     <form
-      v-if="creating && !ui.sidebarCollapsed"
+      v-if="creating && !navCollapsed"
       class="mt-2 flex flex-col gap-2"
       @submit.prevent="createFolder"
     >
@@ -348,7 +359,7 @@ function submitRenameFolder() {
       </div>
     </form>
     <nav
-      v-if="!ui.sidebarCollapsed"
+      v-if="!navCollapsed"
       class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
       aria-label="团队列表"
       @dragover.prevent
@@ -498,7 +509,7 @@ function submitRenameFolder() {
       </p>
     </nav>
 
-    <div v-if="!ui.sidebarCollapsed" class="mt-5 flex flex-col gap-3 pt-4">
+    <div v-if="!navCollapsed" class="mt-5 flex flex-col gap-3 pt-4">
       <div class="flex items-center gap-2 px-2 text-muted-foreground">
         <span
           :class="[
@@ -534,12 +545,12 @@ function submitRenameFolder() {
     </div>
 
     <div class="sidebar-actions">
-      <SidebarEntry :current="settingsActive" :collapsed="ui.sidebarCollapsed" label="设置" :title="ui.sidebarCollapsed ? '设置' : '打开设置'" @activate="emit('openSettings')">
+      <SidebarEntry :current="settingsActive" :collapsed="navCollapsed" label="设置" :title="navCollapsed ? '设置' : '打开设置'" @activate="emit('openSettings')">
         <template #icon><Settings2 /></template>
         设置
       </SidebarEntry>
 
-      <SidebarCollapseButton side="left" :collapsed="ui.sidebarCollapsed" @toggle="ui.toggleSidebar()" />
+      <SidebarCollapseButton v-if="!compact" side="left" :collapsed="ui.sidebarCollapsed" @toggle="ui.toggleSidebar()" />
     </div>
   </Surface>
 </template>

@@ -21,6 +21,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/pages/GroupWorkspacePage.vue'),
   },
   {
+    path: '/notes',
+    name: 'notes',
+    component: () => import('@/pages/GroupWorkspacePage.vue'),
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/pages/GroupWorkspacePage.vue'),

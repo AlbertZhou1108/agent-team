@@ -29,6 +29,7 @@ import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import CreateTeam from '@/features/groups/CreateTeam.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
+import NotesWorkspace from '@/features/notes/NotesWorkspace.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
@@ -137,6 +138,7 @@ const groups = computed(() =>
 const archivedGroups = computed(() => archivedQuery.data.value ?? []);
 const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
 const isSettingsRoute = computed(() => route.name === 'settings');
+const isNotesRoute = computed(() => route.name === 'notes');
 const group = computed(() =>
   groups.value.find((item) => item.id === groupId.value),
 );
@@ -659,6 +661,12 @@ function openPanelAgent() {
   router.push({ name: 'panel-agent' });
 }
 
+function openNotes() {
+  if (isNotesRoute.value) return;
+  ui.closeInspector();
+  router.push({ name: 'notes' });
+}
+
 function openSettingsPage() {
   router.push({
     name: 'settings',
@@ -827,12 +835,14 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
     <GroupSidebar
       :groups="groups"
       :current-group-id="sidebarGroupId"
-      :home-active="!isPanelAgentRoute && !isSettingsRoute && !group"
+      :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
+      :notes-active="isNotesRoute"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
       @select="selectGroup"
       @archive="archiveTeam"
+      @open-notes="openNotes"
       @open-agent="openPanelAgent"
       @open-settings="openSettingsPage"
     />
@@ -868,6 +878,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       />
       <Card v-else-if="groupId && !group" class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">正在读取团队…</CardContent></Card>
       <CreateTeam v-else-if="route.name === 'create-team'" />
+      <NotesWorkspace v-else-if="isNotesRoute" />
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
         :groups="groups"

@@ -181,6 +181,69 @@
   padding: 32px 24px;
 }
 
+/* 随心记:主列与详情各自滚动，长列表不会把整页顶开；窄屏回到顺序滚动。 */
+.notes-page {
+  block-size: calc(100dvh - 32px);
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.notes-page-inner {
+  display: flex;
+  block-size: 100%;
+  min-block-size: 0;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.notes-page-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-block-size: 0;
+  flex: 1;
+  gap: 16px;
+}
+
+/* 详情展开后才有第二列;默认列必须显式 minmax(0,1fr)，否则隐式 auto 列会被
+   最宽的行内容撑出视口，窄屏直接横向溢出。 */
+@media (min-width: 1024px) {
+  .notes-page-body.has-detail {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+}
+
+.notes-page-column {
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
+/* 详情列:桌面上用分隔线而不是再套一张卡片。 */
+.notes-detail-pane {
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 16px;
+}
+
+@media (max-width: 1023px) {
+  .notes-page {
+    block-size: auto;
+    overflow: visible;
+  }
+
+  .notes-page-column {
+    overflow: visible;
+  }
+
+  /* 窄屏选中一条记录时，详情排在列表前面：否则点完还要往下滚过整张列表。 */
+  .notes-detail-pane {
+    order: -1;
+    border-inline-start: 0;
+    padding-inline-start: 0;
+    border-block-end: 1px solid var(--border);
+    padding-block-end: 16px;
+  }
+}
+
 /* 固定高度的首页卡片:内部滚动，不按内容长度改变外部布局。 */
 .home-card {
   block-size: var(--home-card-block-size);
@@ -1147,20 +1210,59 @@ button {
   .app-shell,
   .app-shell.sidebar-is-collapsed {
     grid-template-columns: minmax(0, 1fr);
+    /* 单列时两行各自 auto 会被 align-content: stretch 拉伸:多余空间塞给第一行，
+       顶部导航下方凭空多出几百像素空白。显式行定义 + start 让主内容紧跟导航。 */
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: start;
   }
 
   .group-sidebar,
   .group-sidebar-collapsed {
+    /* 窄屏侧栏压成一条顶部导航:图标入口一行排开，团队列表交给主页。 */
     position: relative;
     height: auto;
-    align-items: stretch;
-    padding: 12px;
+    align-self: start;
+    max-height: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
-  .group-sidebar nav {
-    display: flex;
-    overflow-x: auto;
-    padding-top: 4px;
+  .group-sidebar > div:first-child {
+    flex: none;
+    padding-inline: 0;
+  }
+
+  .group-sidebar nav[aria-label='主导航'] {
+    flex: none;
+    flex-direction: row;
+    gap: 6px;
+    margin-top: 0;
+  }
+
+  .group-sidebar nav[aria-label='主导航'] > div {
+    width: auto;
+  }
+
+  /* 折叠态把导航项挤到只剩图标宽度;顶部条里需要给足点击区域。 */
+  .group-sidebar nav[aria-label='主导航'] [data-component='navigation-item'] {
+    min-inline-size: 36px;
+    min-block-size: 36px;
+  }
+
+  .group-sidebar .sidebar-actions {
+    width: auto;
+    flex: none;
+    flex-direction: row;
+    margin-top: 0;
+    margin-inline-start: auto;
+  }
+
+  .group-sidebar .sidebar-actions > div {
+    width: auto;
   }
 
   .group-sidebar > button:last-child {

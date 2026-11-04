@@ -66,6 +66,7 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | 消息与调度 | [bus.mjs](../src/bus.mjs)、[message-dispatch.mjs](../src/message-dispatch.mjs) |
 | 存储 | [store.mjs](../src/store.mjs) |
 | 私人会话、请求与回执 | [panel-sessions.mjs](../src/panel-sessions.mjs)、[team-requests.mjs](../src/team-requests.mjs) |
+| 随心记（笔记与提示词） | [notes.mjs](../src/notes.mjs)、[notes-prompt.mjs](../src/notes-prompt.mjs) |
 | 前端设计基线 | [DESIGN.md](../DESIGN.md) |
 
 

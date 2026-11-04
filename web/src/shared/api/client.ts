@@ -17,6 +17,8 @@ import type {
   ModelPolicyPreset,
   MessageRow,
   ModelsPage,
+  Note,
+  NotePage,
   Overview,
   PanelAccess,
   PanelAgentState,
@@ -84,6 +86,15 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 async function mutate<T>(path: string, body: unknown): Promise<T> {
   return jsonRequest<T>(path, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/** PATCH/DELETE 用:DELETE 没有请求体,不能复用 mutate 的固定 POST。 */
+async function mutateWith<T>(path: string, method: 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
+  return jsonRequest<T>(path, {
+    method,
+    headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 
 async function throwAttachmentError(response: Response): Promise<never> {
@@ -372,5 +383,26 @@ export const api = {
       query('/api/telemetry/capabilities', { group }),
       signal,
     );
+  },
+  notes(params: { state?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
+    return request<NotePage>(query('/api/notes', params), signal);
+  },
+  note(id: string, signal?: AbortSignal) {
+    return request<Note>(`/api/notes/${encodeURIComponent(id)}`, signal);
+  },
+  createNote(body: { id?: string; body: string; title?: string; todos?: Array<{ text: string; done?: boolean }>; due?: string | null }) {
+    return mutate<Note>('/api/notes', body);
+  },
+  updateNote(id: string, body: { revision: number; body?: string; title?: string; todos?: Array<{ text: string; done: boolean }>; due?: string | null }) {
+    return mutateWith<Note>(`/api/notes/${encodeURIComponent(id)}`, 'PATCH', body);
+  },
+  setNoteState(id: string, body: { state: 'active' | 'done' | 'archived' | 'restore'; revision: number }) {
+    return mutate<Note>(`/api/notes/${encodeURIComponent(id)}/state`, body);
+  },
+  deleteNote(id: string) {
+    return mutateWith<{ deleted: string }>(`/api/notes/${encodeURIComponent(id)}`, 'DELETE');
+  },
+  notePrompt(id: string, instruction = '') {
+    return request<{ text: string }>(query(`/api/notes/${encodeURIComponent(id)}/prompt`, { instruction }));
   },
 };
