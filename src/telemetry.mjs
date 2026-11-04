@@ -165,7 +165,7 @@ export class Telemetry {
     observation,
   }) {
     if (!groupId || !observation || typeof observation !== 'object') return null;
-    if (context && ['profile', 'private', 'preparation', 'panel-private'].includes(context)) return null;
+    if (context && ['profile', 'private', 'preparation'].includes(context)) return null;
     const source = typeof observation.source === 'string' && observation.source.trim() ? observation.source : 'adapter.unknown';
     const scope = observation.scope ?? 'turn';
     const aggregation = observation.aggregation ?? 'delta';
@@ -553,7 +553,8 @@ export class Telemetry {
       latest.endpoint_id,
       latest.session_key,
     );
-    const rawContext = turn.turnKind === 'panel' ? 'panel-coordination' : turn.context;
+    // Panel 与成员回合共用存储层原始 context;执行者身份看 turn.executor.kind,不再合成 panel-* 词汇。
+    const rawContext = turn.context;
     const sessionContext = rawContext === 'pair' || String(rawContext).startsWith('pair:') ? 'pair' : rawContext;
     const sessionPeer = sessionContext === 'pair'
       ? (turn.peer ?? (String(rawContext).startsWith('pair:') ? String(rawContext).slice(5) : null))
@@ -627,7 +628,7 @@ export class Telemetry {
       if (!turn) continue;
       const batch = this._buildBatch(turn, rows);
       const context = String(batch.physicalSession.context ?? '');
-      if (!['pair', 'coordination', 'panel-coordination'].includes(context)) continue;
+      if (!['pair', 'coordination'].includes(context)) continue;
       batches.push(batch);
     }
     return batches.sort((a, b) => {
@@ -914,7 +915,7 @@ export class Telemetry {
       });
     const allManagerBatches = this._batches(groupId).filter(batch => batch.executor.kind === 'panel_agent'
       && batch.executor.memberId === controller.id
-      && batch.physicalSession.context === 'panel-coordination');
+      && batch.physicalSession.context === 'coordination');
     const managerBatches = [];
     for (const batch of allManagerBatches) {
       if (range.from && Date.parse(batch.startedAt) < Date.parse(range.from)) continue;

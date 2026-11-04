@@ -146,7 +146,7 @@ test('Panel private turns use the user-level access and workspace while coordina
   bus.takeoverTeam(group.id, 0);
 
   await bus.panelPrivateTurn({ text: 'private hello' });
-  const privateCall = calls.find(call => call.context === 'panel-private' && call.prompt === 'private hello');
+  const privateCall = calls.find(call => call.context === 'private' && call.prompt === 'private hello');
   assert.ok(privateCall);
   assert.equal(privateCall.workspace, workspace);
   assert.equal(privateCall.policy.mode, 'workspace-write');
@@ -161,7 +161,7 @@ test('Panel private turns use the user-level access and workspace while coordina
     prompt: 'coordination hello',
     activeTeamId: group.id,
   });
-  const coordinationCall = calls.find(call => call.context === 'panel-coordination' && call.prompt === 'coordination hello');
+  const coordinationCall = calls.find(call => call.context === 'coordination' && call.prompt === 'coordination hello');
   assert.ok(coordinationCall);
   assert.equal(coordinationCall.workspace, group.workspace);
   assert.equal(coordinationCall.policy.mode, 'communication');

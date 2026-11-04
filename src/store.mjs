@@ -876,7 +876,7 @@ export class Store {
         created: turn.created,
         group_id: turn.group_id,
         member_id: turn.executor_kind === 'panel_agent' ? turn.panel_agent_id : turn.member_id,
-        context: turn.executor_kind === 'panel_agent' ? 'panel-coordination' : turn.context,
+        context: turn.context,
         peer: turn.peer ?? null,
       },
       nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),

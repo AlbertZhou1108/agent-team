@@ -60,7 +60,7 @@ test('controller change rejects stale submissions; panel takeover routes to its 
  assert.equal((await f.send({text:'hello',operationId:'stale',controllerId:f.group.lead})).status,400);
  const sent=await f.send({text:'hello panel lead',operationId:'panel',controllerId:controller.id});assert.equal(sent.status,200);
  await until(()=>!f.server.bus.running.size);await tick();
- assert.equal((await f.read())[0].status,'delivered');assert.ok(f.calls.some(c=>c.endpoint.context==='panel-coordination'));
+ assert.equal((await f.read())[0].status,'delivered');assert.ok(f.calls.some(c=>c.endpoint.owner_kind==='panel_agent'&&c.endpoint.context==='coordination'));
  assert.equal(f.server.bus.panelConversation().messages.length,before);
 });
 test('open targets accept directives; archived targets reject new input until restored',async t=>{
@@ -355,7 +355,7 @@ test('failed message tool removes its live draft immediately', async t => {
 test('Panel Agent team_note streams with note semantics', async t => {
   const f = await setup(t, async context => {
     context.onAccepted();
-    if (context.endpoint.context !== 'panel-coordination') return '';
+    if (!(context.endpoint.owner_kind === 'panel_agent' && context.endpoint.context === 'coordination')) return '';
     context.onToolCallDelta({
       callId: 'panel-note',
       name: 'mcp__agent_team__team_note',

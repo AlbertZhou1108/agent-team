@@ -111,7 +111,7 @@ export class PanelSessions {
         ),
       ),
       running: [...this.bus.running.values()]
-        .filter(item => item.endpoint.context === 'panel-private' || item.endpoint.context === 'panel-coordination')
+        .filter(item => item.endpoint.owner_kind === 'panel_agent')
         .map(item => ({ endpoint: item.endpoint.id, groupId: item.activeTeamId ?? item.endpoint.group_id ?? null, turnId: item.turnId, created: item.created ?? null })),
       unknown: this.bus.panelUnknown(),
       streaming: this.bus.panelStreaming(agent.id),
@@ -211,7 +211,7 @@ export class PanelSessions {
   async updatePanelAgent({ name, host, model_provider, model, reasoning_effort, workspace, access }) {
     const agent = this.bus.panelAgent();
     if (!agent) throw new Error('Panel Agent 尚未创建');
-    if ([...this.bus.running.values()].some(item => item.endpoint.context === 'panel-private' || item.endpoint.context === 'panel-coordination')) {
+    if ([...this.bus.running.values()].some(item => item.endpoint.owner_kind === 'panel_agent')) {
       throw new Error('Panel Agent 正在运行，不能修改配置');
     }
     if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.trim().length > 100)) {
@@ -590,9 +590,9 @@ export class PanelSessions {
     const instructions = this.bus.panelInstructions(session, panelAgent, activeTeamId);
     this.bus.information.assertRuleBudget(instructions, schema);
     const sourceMessage = sourceUserMessageId ? this.bus.store.get('SELECT text FROM panel_messages WHERE id=?', sourceUserMessageId) : null;
-    const liveContext = privateContext ? 'panel-private' : 'panel-coordination';
-    const liveEndpoint = { ...session, group_id: session.group_id ?? null, context: liveContext };
-    const hostEndpoint = { ...session, context: liveContext, group_id: session.group_id ?? null };
+    // 运行态端点保持存储层的原始 context;owner 身份由 owner_kind 表达,不再合成 panel-* 词汇。
+    const liveEndpoint = { ...session, group_id: session.group_id ?? null };
+    const hostEndpoint = { ...session, group_id: session.group_id ?? null };
     return this.bus.turnExecutor.run({
       conversation: session,
       actor: panelAgent,
@@ -842,7 +842,7 @@ export class PanelSessions {
   async stopPanel() {
     const agent = this.bus.panelAgent();
     if (!agent) return { stopped: [] };
-    const active = [...this.bus.running.values()].filter(item => item.endpoint.context === 'panel-private');
+    const active = [...this.bus.running.values()].filter(item => item.endpoint.owner_kind === 'panel_agent' && item.endpoint.context === 'private');
     for (const item of active) item.abort.abort();
     await Promise.allSettled(active.map(item => item.done));
     return { stopped: active.map(item => item.turnId) };

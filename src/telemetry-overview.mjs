@@ -6,7 +6,7 @@ export function telemetryOverview(bus, { from, to, bucket = 'day', host, model, 
   if (!['hour', 'day'].includes(bucket)) throw new Error('分桶仅支持 hour 或 day');
   const width = bucket === 'hour' ? 3600000 : 86400000;
   const groups = bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
-  const liveRuns = [...bus.running.values()].filter(r => ['coordination','panel-coordination'].includes(r.endpoint?.context) || r.endpoint?.context?.startsWith('pair:'));
+  const liveRuns = [...bus.running.values()].filter(r => r.endpoint?.context === 'coordination' || r.endpoint?.context?.startsWith('pair:'));
   const matches = batch => (!host || batch.physicalSession.host === host)
     && (!model || (batch.model?.model ?? 'unknown') === model);
   const breakdown = (batches, key) => [...Map.groupBy(batches, key)].map(([id, items]) => ({

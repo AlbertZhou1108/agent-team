@@ -94,7 +94,7 @@ export class BusQueries {
   }
   queryRuntime(groupId) {
     if (groupId) this.bus.store.group(groupId);
-    return [...this.bus.running.values()].filter(({ endpoint }) => endpoint.context !== 'private' && endpoint.context !== 'panel-private' && (!groupId || endpoint.group_id === groupId))
+    return [...this.bus.running.values()].filter(({ endpoint }) => endpoint.context !== 'private' && (!groupId || endpoint.group_id === groupId))
       .map(({ endpoint }) => ({ id: endpoint.id, group_id: endpoint.group_id, member_id: endpoint.member_id }));
   }
   queryUnread(current = false) {
@@ -120,7 +120,7 @@ export class BusQueries {
       sessionBindings,
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.bus.running.values()]
-        .filter(({ endpoint }) => endpoint.context !== 'private' && endpoint.context !== 'panel-private')
+        .filter(({ endpoint }) => endpoint.context !== 'private')
         .map(({ endpoint }) => endpoint.id),
       panelRunning: [...this.bus.running.values()]
         .filter(({ endpoint }) => String(endpoint.context).startsWith('panel-'))

@@ -325,7 +325,7 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
         context.onAccepted();
         return 'profile';
       }
-      if (context.endpoint.context === 'panel-coordination' && !captures.done) {
+      if (context.endpoint.owner_kind === 'panel_agent' && context.endpoint.context === 'coordination' && !captures.done) {
         const read = await context.onTool('team_read', { groupId: captures.groupId, limit: 5 });
         const message = read.messages.find(row => row.id === captures.messageId);
         let restored = '';

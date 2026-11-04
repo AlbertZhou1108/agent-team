@@ -122,7 +122,7 @@ function addPanelTurn(bus, { group, session, agentId, id, created, inputs = [], 
     turnKind: 'panel',
     host: 'fake',
     hostSessionNamespace: 'fake:panel',
-    context: 'panel-coordination',
+    context: 'coordination',
     observation: telemetryObservation({
       source: 'fake.usage', scope: 'turn', aggregation: 'delta', nativeTurnId: `native-${id}`,
       usage: { inputTokensTotal: 100, uncachedInputTokens: 80, cacheReadTokens: 10, cacheWriteTokens: 10, outputTokens: 10, totalTokens: 110 },

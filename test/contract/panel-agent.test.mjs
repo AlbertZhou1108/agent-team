@@ -50,7 +50,7 @@ function hostFixture(calls = []) {
         await context.onTool('profile_set', { text: 'test profile' });
       }
       context.onAccepted();
-      return context.endpoint.context.startsWith('panel-') ? 'panel reply' : 'done';
+      return context.endpoint.owner_kind === 'panel_agent' ? 'panel reply' : 'done';
     },
   };
 }
@@ -138,7 +138,7 @@ test('Panel coordination tools expose messaging and update publishing schemas', 
     null,
   );
   const live = {
-    endpoint: { ...coordination, context: 'panel-coordination' },
+    endpoint: { ...coordination },
     activeTeamId: group.id,
     turnId,
     abort: new AbortController(),
@@ -230,7 +230,7 @@ test('coordination updates remain source notifications without waking the privat
   const host = {
     ...base,
     async run(context) {
-      if (context.endpoint.context === 'panel-coordination') {
+      if (context.endpoint.owner_kind === 'panel_agent' && context.endpoint.context === 'coordination') {
         calls.push({
           endpoint: context.endpoint.id,
           context: context.endpoint.context,
@@ -271,7 +271,7 @@ test('coordination updates remain source notifications without waking the privat
   assert.deepEqual(JSON.parse(update.source_message_ids), [message.id]);
   await until(() => !bus.running.size);
   await bus.pump();
-  assert.equal(calls.filter(call => call.context === 'panel-private').length, 0);
+  assert.equal(calls.filter(call => call.context === 'private').length, 0);
   assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
   assert.ok(bus.panelAgentState().notifications.some(row => row.id === update.id));
 });
@@ -291,7 +291,7 @@ test('legacy notifications do not wake an idle private host', async t => {
         prompt: context.prompt,
         attachments: (context.attachments ?? []).map(item => ({ id: item.id, name: item.name, mediaType: item.mediaType, hasPath: typeof item.path === 'string' && item.path.length > 0 })),
       });
-      if (context.endpoint.context === 'panel-private' && context.prompt === 'BUSY') {
+      if (context.endpoint.owner_kind === 'panel_agent' && context.endpoint.context === 'private' && context.prompt === 'BUSY') {
         context.onSession(context.endpoint.session ?? context.endpoint.id);
         context.onAccepted();
         await new Promise(resolve => { releasePrivate = resolve; });
@@ -325,12 +325,12 @@ test('legacy notifications do not wake an idle private host', async t => {
     sourceMessageIds: [],
   });
   await bus.pump();
-  assert.equal(calls.filter(call => call.context === 'panel-private').length, 1);
+  assert.equal(calls.filter(call => call.context === 'private').length, 1);
 
   releasePrivate();
   await privateTurn;
   await bus.pump();
-  assert.equal(calls.filter(call => call.context === 'panel-private').length, 1);
+  assert.equal(calls.filter(call => call.context === 'private').length, 1);
   assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
 });
 
@@ -373,10 +373,10 @@ test('Panel main receives member reports and can write only in the bound team co
 
   const report = bus.store.append(group.id, worker.id, state.agent.id, 'send', 'work report');
   bus.pump();
-  await until(() => calls.some(call => call.context === 'panel-coordination'));
+  await until(() => calls.some(call => call.context === 'coordination'));
   await until(() => !bus.running.size);
   assert.equal(bus.store.get('SELECT accepted FROM outbox WHERE id=(SELECT outbox_id FROM attached WHERE message_id=?)', report.id).accepted != null, true);
-  assert.ok(calls.some(call => call.context === 'panel-coordination' && call.groupId === group.id));
+  assert.ok(calls.some(call => call.context === 'coordination' && call.groupId === group.id));
   assert.equal(bus.store.pending().filter(m => m.group_id === group.id).length, 0);
 });
 
@@ -384,7 +384,7 @@ test('private creation forwards to its team coordination and receives an explici
  const directory = mkdtempSync(join(tmpdir(), 'agent-team-request-')); const base = hostFixture([]);
  let bus; let created; let privateCalls=0;
  const host={...base, async run(context) {
-   if(context.endpoint.context==='panel-private') {
+   if(context.endpoint.owner_kind==='panel_agent' && context.endpoint.context==='private') {
      privateCalls++; context.onAccepted();
      created=await context.onTool('team_create',{name:'request team',workspace:directory,members:'worker=fake'});
      const args={groupId:created.id,text:'do team work',operationId:'one'};
@@ -400,7 +400,7 @@ test('private creation forwards to its team coordination and receives an explici
      await assert.rejects(context.onTool('team_request_submit',{groupId:observer.id,text:'must reject',operationId:'observer'}),/不是该团队的主 Agent/);
      return 'transferred';
    }
-   if(context.endpoint.context==='panel-coordination') {
+   if(context.endpoint.owner_kind==='panel_agent' && context.endpoint.context==='coordination') {
      context.onAccepted(); const requests=await context.onTool('team_requests',{}); const request=requests[0];
      assert.ok(request);
      assert.equal('original_text' in request,false);
@@ -564,8 +564,8 @@ test('stopping the global assistant does not stop its team coordination', async 
   await createAgent(bus);
   const privateAbort = new AbortController();
   const teamAbort = new AbortController();
-  bus.running.set('test-private', { endpoint: { context: 'panel-private' }, turnId: 'private', abort: privateAbort, done: Promise.resolve() });
-  bus.running.set('test-team', { endpoint: { context: 'panel-coordination' }, turnId: 'team', abort: teamAbort, done: Promise.resolve() });
+  bus.running.set('test-private', { endpoint: { context: 'private', owner_kind: 'panel_agent' }, turnId: 'private', abort: privateAbort, done: Promise.resolve() });
+  bus.running.set('test-team', { endpoint: { context: 'coordination', owner_kind: 'panel_agent' }, turnId: 'team', abort: teamAbort, done: Promise.resolve() });
   try {
     assert.deepEqual(await bus.stopPanel(), { stopped: ['private'] });
     assert.equal(privateAbort.signal.aborted, true);

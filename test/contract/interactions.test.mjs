@@ -190,7 +190,7 @@ test('panel agent ask in private chat creates a card and the answer wakes its pr
   const answered = server.bus.decideInteraction(row.id, { selected: '创建' });
   assert.equal(answered.state, 'answered');
   assert.equal(answered.message_id, row.panel_message_id);
-  await until(() => calls.some(c => c.endpoint.context === 'panel-private' && String(c.prompt).includes('用户选择:创建')));
+  await until(() => calls.some(c => c.endpoint.owner_kind === 'panel_agent' && c.endpoint.context === 'private' && String(c.prompt).includes('用户选择:创建')));
   const userMessage = server.bus.store.get(
     "SELECT * FROM panel_messages WHERE panel_agent_id=? AND role='user' ORDER BY seq DESC LIMIT 1",
     agent.id,
@@ -204,7 +204,7 @@ function panelAnswerHost(calls, { busyGate = null, failText = null, dieText = nu
     async run(c) {
       calls.push(c);
       c.onSession(c.endpoint.session ?? c.endpoint.id);
-      if (c.endpoint.context !== 'panel-private') { c.onAccepted(); return 'done'; }
+      if (c.endpoint.owner_kind !== 'panel_agent') { c.onAccepted(); return 'done'; }
       if (busyGate && String(c.prompt) === busyGate.text) {
         c.onAccepted();
         return new Promise((resolve, reject) => {
@@ -241,7 +241,7 @@ async function setupPanelAnswer(t, host) {
   return { bus, directory, agent, session, askCard };
 }
 
-const panelPrivateCalls = calls => calls.filter(c => c.endpoint.context === 'panel-private');
+const panelPrivateCalls = calls => calls.filter(c => c.endpoint.owner_kind === 'panel_agent' && c.endpoint.context === 'private');
 
 test('panel private answers survive a restart through the outbox', async t => {
   const busyGate = { text: 'BUSY', release: null };
