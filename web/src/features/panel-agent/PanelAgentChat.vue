@@ -13,7 +13,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Badge } from '@/components/ui/badge';
 import ConversationWorkspace from '@/features/messages/ConversationWorkspace.vue';
 import type {
   Interaction,
@@ -194,12 +193,6 @@ const suggestions = [
 
     <template #footer="{ message }">
       <TeamRequestCard v-for="request in (requests ?? []).filter(row => row.source_user_message_id === message.id)" :key="request.id" :request="request" :team-name="teams.find(team => team.id === request.group_id)?.name ?? '团队'" />
-      <Badge
-        v-if="message.kind === 'system'"
-        variant="default"
-        class="mt-1 w-fit"
-        >自动进度</Badge
-      >
     </template>
 
     <template #composer>
