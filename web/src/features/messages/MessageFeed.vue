@@ -161,7 +161,7 @@ const messageIds = computed(() => {
       </Button>
     </div>
     <div v-for="group in renderGroups" :key="group.id" class="chat-message">
-      <Disclosure v-if="group.stack" class="notification-stack">
+      <Disclosure v-if="group.stack" class="notification-stack feed-panel">
         <template #summary>
           <span class="font-medium"
             >系统通知

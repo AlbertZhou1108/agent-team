@@ -70,7 +70,7 @@ const duration = computed(() => {
 </script>
 
 <template>
-  <Disclosure class="inline-trace" :class="align === 'end' && 'inline-trace-end'" @update:open="expanded = $event">
+  <Disclosure class="inline-trace feed-panel" :class="align === 'end' && 'inline-trace-end'" @update:open="expanded = $event">
     <template #summary><Clock3 class="size-3.5" />执行轨迹</template>
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value" loading title="正在读取执行轨迹" />
