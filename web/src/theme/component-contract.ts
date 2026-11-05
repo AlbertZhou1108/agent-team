@@ -57,9 +57,19 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-highlight-rest': '0.12',
   },
   behavior: {
+    // 动效语义层:组件只认「这是什么变化」,不认具体毫秒。
+    // 三档面积——微反馈 / 状态与进出 / 大面积结构——映射到 --motion-duration-*;
+    // 缓动按用途分:进入减速停稳,离场加速让位,双向 standard。
     '--component-feedback-duration': 'var(--motion-duration-fast)',
     '--component-disclosure-duration': 'var(--motion-duration-normal)',
     '--component-disclosure-easing': 'var(--motion-ease-standard)',
+    '--component-content-duration': 'var(--motion-duration-normal)',
+    '--component-content-easing': 'var(--motion-ease-out)',
+    '--component-overlay-duration': 'var(--motion-duration-normal)',
+    '--component-overlay-enter-easing': 'var(--motion-ease-out)',
+    '--component-overlay-exit-easing': 'var(--motion-ease-in)',
+    '--component-layout-duration': 'var(--motion-duration-slow)',
+    '--component-layout-easing': 'var(--motion-ease-standard)',
   },
   layout: {
     '--component-choice-track-padding': '0px',

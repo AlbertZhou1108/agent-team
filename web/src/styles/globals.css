@@ -205,23 +205,81 @@
   gap: 16px;
 }
 
-/* 详情展开后才有第二列;默认列必须显式 minmax(0,1fr)，否则隐式 auto 列会被
-   最宽的行内容撑出视口，窄屏直接横向溢出。 */
-@media (min-width: 1024px) {
-  .notes-page-body.has-detail {
-    grid-template-columns: minmax(0, 1fr) 400px;
-  }
-}
-
 .notes-page-column {
   min-block-size: 0;
   overflow-y: auto;
 }
 
-/* 详情列:桌面上用分隔线而不是再套一张卡片。 */
+/* 详情槽:第二列即使收起也保留轨道(宽 0),列宽才能从 0 插值到 400px,
+   卡片才有「展开/收起」而不是「闪现」。列表与详情的间距用槽的 margin 表达,
+   收起时不会在列表右侧留一条空档。 */
+.notes-detail-slot {
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+/* 槽里没有卡片时(含退场动画结束)不占位,窄屏堆叠时不会多出一段间距。 */
+.notes-detail-slot:empty {
+  display: none;
+}
+
+/* 详情卡:独立一张内容卡片(间距与圆角由 Card 与它的语义变量决定),
+   这里只管它自己滚动,不画分隔线。 */
 .notes-detail-pane {
-  border-inline-start: 1px solid var(--border);
-  padding-inline-start: 16px;
+  align-self: start;
+  max-block-size: 100%;
+}
+
+/* 桌面:详情是第二列,列宽走结构级时长(展开收起 = slow),双向用 standard,
+   被打断也不会跳。卡片固定 400px 宽、贴住右缘,由槽裁切 —— 展开是「从右缘
+   长出来」,收起是「向右滑出」,而不是把表单挤窄重排。 */
+@media (min-width: 1024px) {
+  .notes-page-body {
+    grid-template-columns: minmax(0, 1fr) 0px;
+    column-gap: 0;
+    transition: grid-template-columns var(--component-layout-duration) var(--component-layout-easing);
+  }
+
+  /* 轨道 = 卡片 400 + 间距 16:间距落在槽的 margin 上,卡片本身仍是 400 宽。 */
+  .notes-page-body.has-detail {
+    grid-template-columns: minmax(0, 1fr) 416px;
+  }
+
+  .notes-detail-slot {
+    display: flex;
+    justify-content: flex-end;
+    overflow: hidden;
+    transition: margin-inline-start var(--component-layout-duration) var(--component-layout-easing);
+  }
+
+  .notes-page-body.has-detail .notes-detail-slot {
+    margin-inline-start: 16px;
+  }
+
+  .notes-detail-pane {
+    flex: none;
+    inline-size: 400px;
+  }
+}
+
+/* 侧栏/详情这类「面板进出」的通用语义:容器几何由结构级动效负责(列宽/位移),
+   内容本身只做内容出现档的淡入与 12px 归位,不抢结构的戏。
+   进入走进入曲线、离场走离场曲线;减少动态效果由全局 kill-switch 压制。 */
+.pane-reveal-enter-active,
+.pane-reveal-leave-active {
+  transition:
+    opacity var(--component-content-duration) var(--component-content-easing),
+    transform var(--component-content-duration) var(--component-content-easing);
+}
+
+.pane-reveal-leave-active {
+  transition-timing-function: var(--component-overlay-exit-easing);
+}
+
+.pane-reveal-enter-from,
+.pane-reveal-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
 }
 
 @media (max-width: 1023px) {
@@ -234,13 +292,14 @@
     overflow: visible;
   }
 
-  /* 窄屏选中一条记录时，详情排在列表前面：否则点完还要往下滚过整张列表。 */
-  .notes-detail-pane {
+  /* 窄屏选中一条记录时，详情排在列表前面：否则点完还要往下滚过整张列表。
+     卡片自带边界,不再补分割线。 */
+  .notes-detail-slot {
     order: -1;
-    border-inline-start: 0;
-    padding-inline-start: 0;
-    border-block-end: 1px solid var(--border);
-    padding-block-end: 16px;
+  }
+
+  .notes-detail-pane {
+    max-block-size: none;
   }
 }
 
@@ -1188,7 +1247,7 @@ button {
     max-height: 100vh;
     overflow-y: auto;
     transform: translateX(105%);
-    transition: transform var(--motion-duration-slow) var(--motion-ease-standard);
+    transition: transform var(--component-layout-duration) var(--component-layout-easing);
   }
 
   .context-panel-open {
@@ -1567,16 +1626,19 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
   --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Tailwind 的 transition-* 工具类在没写时长/曲线时读这两个默认值。
+     在这里改指契约,而不是在每个类上补 duration-*:默认即契约,
+     漏写的地方也不会掉到框架自带的 150ms / ease 上。 */
+  --default-transition-duration: var(--motion-duration-fast);
+  --default-transition-timing-function: var(--motion-ease-standard);
 }
 html[data-motion='soft'] {
   --motion-pace: 1.35;
-  --default-transition-duration: var(--motion-duration-fast);
   --animate-spin: spin calc(1s * var(--motion-pace, 1)) linear infinite;
   --animate-pulse: pulse calc(2s * var(--motion-pace, 1)) cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 html[data-motion='lively'] {
   --motion-pace: 0.7;
-  --default-transition-duration: var(--motion-duration-fast);
   --animate-spin: spin calc(1s * var(--motion-pace, 1)) linear infinite;
   --animate-pulse: pulse calc(2s * var(--motion-pace, 1)) cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --motion-ease-out: var(--motion-ease-spring);
@@ -1591,11 +1653,41 @@ html[data-material-spring='suppress'] {
   --motion-ease-out: var(--motion-ease-standard);
 }
 
-/* 弹层进出(弹窗/浮层/下拉/选择/提示)统一消费 normal 档时长;
-   简洁档即 220ms 基准,柔和/灵动经 pace 缩放,reduced 仍由 kill-switch 压制。 */
-html[data-motion='soft'] :is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='popover-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='tooltip-content']),
-html[data-motion='lively'] :is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='popover-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='tooltip-content']) {
-  animation-duration: var(--motion-duration-normal);
+/* 浮层进出(弹窗/浮层/下拉/选择/提示):形状仍由组件声明(animate-in/fade/zoom/slide),
+   时长与缓动归契约 —— 进入 normal 档减速停稳,离场同档加速让位。组件不再各自写
+   duration-[var(...)],三档动效风格与减少动效因此一次性覆盖全部弹层。 */
+:is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='dialog-overlay'],
+    [data-slot='popover-content'], [data-slot='dropdown-menu-content'],
+    [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'],
+    [data-slot='tooltip-content']) {
+  --tw-duration: var(--component-overlay-duration);
+  --tw-ease: var(--component-overlay-enter-easing);
+}
+
+/* 离场换加速曲线:reka 收起时把 data-state 置为 closed,变量在这一档解析。 */
+:is([data-slot='dialog-content'], [data-slot='dialog-scroll-content'], [data-slot='dialog-overlay'],
+    [data-slot='popover-content'], [data-slot='dropdown-menu-content'],
+    [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'],
+    [data-slot='tooltip-content'])[data-state='closed'] {
+  --tw-ease: var(--component-overlay-exit-easing);
+}
+
+/* 内容出现(页签内容):只有进入没有离场,同属 normal 档但用进入曲线。 */
+[data-slot='tabs-content'] {
+  --tw-duration: var(--component-content-duration);
+  --tw-ease: var(--component-content-easing);
+}
+
+/* 内容出现(无离场)的通用原语:换掉内容时只让新内容淡入,不做新旧交叠
+   (交叠会让布局翻倍)。面板换记录、输入区两态互换这类「高度本来就要跳」的
+   场景用它 —— 高度变化交给布局,淡入负责盖住那一下跳变。
+   时长与曲线取内容出现档;减少动效由全局 kill-switch 压制。 */
+@keyframes content-appear {
+  from { opacity: 0; }
+}
+
+.content-appear {
+  animation: content-appear var(--component-content-duration) var(--component-content-easing);
 }
 
 /* ===== 材质:表面参数由材质大类规格表(theme/materials.ts)经 applier 写成
@@ -1808,7 +1900,7 @@ html[data-density='loose'] {
 .app-shell,
 .workspace-shell,
 .agent-workspace {
-  transition: grid-template-columns var(--motion-duration-slow) var(--motion-ease-standard);
+  transition: grid-template-columns var(--component-layout-duration) var(--component-layout-easing);
 }
 .app-shell.is-resizing,
 .workspace-shell.is-resizing {

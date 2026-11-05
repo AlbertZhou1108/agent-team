@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
-import { useQueryClient } from '@tanstack/vue-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
 import { Surface } from '@/components/surface';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { api, ApiError } from '@/shared/api/client';
 import { useResourceQuery } from '@/features/queries';
@@ -32,18 +32,32 @@ const composer = ref<InstanceType<typeof NoteComposer> | null>(null);
 const detailDirty = ref(false);
 const pendingLeave = ref<string | null>(null);
 const pendingRoute = ref<string | null>(null);
+const pendingFilter = ref<NoteState | null>(null);
 let bypassLeaveGuard = false;
 
-const notesQuery = useResourceQuery(
-  () => ['notes', filter.value, search.value],
-  signal => api.notes({ state: filter.value, q: search.value }, signal),
-  true,
-  10000,
-);
+const notesQuery = useInfiniteQuery({
+  queryKey: computed(() => ['notes', filter.value, search.value] as const),
+  // 服务端按 updated 倒序游标分页;前端按需追加,不做页码跳转。
+  initialPageParam: null as string | null,
+  queryFn: ({ pageParam, signal }) =>
+    api.notes({ state: filter.value, q: search.value, cursor: pageParam ?? undefined }, signal),
+  getNextPageParam: last => last.nextCursor,
+  refetchInterval: 10000,
+  refetchOnWindowFocus: false,
+  retry: 1,
+});
 const directoryQuery = useResourceQuery(['directory'], api.directory, true, 30000);
 const panelReady = computed(() => Boolean(directoryQuery.data.value?.panelAgent));
-const notes = computed(() => notesQuery.data.value?.notes ?? []);
-const counts = computed(() => notesQuery.data.value?.counts ?? { active: 0, done: 0, archived: 0 });
+const notes = computed(() => notesQuery.data.value?.pages.flatMap(page => page.notes) ?? []);
+// 计数是全局事实,不随已加载页变化,只认第一页。
+const counts = computed(() => notesQuery.data.value?.pages[0]?.counts ?? { active: 0, done: 0, archived: 0 });
+const hasMore = computed(() => Boolean(notesQuery.hasNextPage.value));
+const loadingMore = computed(() => notesQuery.isFetchingNextPage.value);
+
+function loadMore() {
+  if (!hasMore.value || loadingMore.value) return;
+  void notesQuery.fetchNextPage();
+}
 const selectedId = computed(() => (typeof route.query.note === 'string' ? route.query.note : null));
 const detailQuery = useResourceQuery(
   () => ['note', selectedId.value],
@@ -90,9 +104,36 @@ function closeNote() {
 }
 
 function applyClose() {
+  const closingId = selectedId.value;
+  // 卡片里被点掉的按钮会随卡片一起消失:焦点必须有人接手,否则落回 body。
+  // 从卡片外收起的(比如切页签点的是页签本身)不动焦点。
+  const active = document.activeElement;
+  const focusWasInPane = !active
+    || active === document.body
+    || (active instanceof Element && Boolean(active.closest('.notes-detail-pane')));
   const query = { ...route.query };
   delete query.note;
   void router.replace({ query });
+  if (!closingId || !focusWasInPane) return;
+  void nextTick(() => {
+    // 记录还在列表里就回到它那一行;已经离开当前页签(归档/完成)就回到当前页签。
+    const row = document.querySelector<HTMLElement>(`.note-row[data-note-id="${CSS.escape(closingId)}"]`);
+    const fallback = document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    (row ?? fallback)?.focus({ preventScroll: true });
+  });
+}
+
+// 详情卡只展示「当前页签里还在」的那一条：切页签先收起,
+// 有未保存内容时仍旧先问,不静默丢弃。
+function changeFilter(next: NoteState) {
+  if (next === filter.value) return;
+  if (detailDirty.value) {
+    pendingFilter.value = next;
+    pendingLeave.value = '__filter__';
+    return;
+  }
+  filter.value = next;
+  if (selectedId.value) applyClose();
 }
 
 function confirmLeave() {
@@ -100,7 +141,12 @@ function confirmLeave() {
   pendingLeave.value = null;
   detailDirty.value = false;
   if (target === '__close__') applyClose();
-  else if (target === '__route__') {
+  else if (target === '__filter__') {
+    const next = pendingFilter.value;
+    pendingFilter.value = null;
+    if (next) filter.value = next;
+    if (selectedId.value) applyClose();
+  } else if (target === '__route__') {
     const path = pendingRoute.value;
     pendingRoute.value = null;
     if (path) {
@@ -153,6 +199,9 @@ async function changeState(state: NoteState | 'restore') {
   try {
     await api.setNoteState(note.id, { state, revision: note.revision });
     await refresh();
+    // 归档 / 完成 / 恢复都会让这条记录离开当前页签(恢复回到归档前的状态,
+    // 由服务端决定落哪个页签)。列表里已经没有了,卡片就不再挂着。
+    if (selectedId.value === note.id && !notes.value.some(item => item.id === note.id)) applyClose();
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : String(cause);
     conflict.value = cause instanceof ApiError && cause.status === 409;
@@ -241,29 +290,41 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             :selected-id="selectedId"
             :loading="notesQuery.isPending.value"
             :error="listError"
-            @update:filter="value => { filter = value; }"
+            :has-more="hasMore"
+            :loading-more="loadingMore"
+            @update:filter="changeFilter"
             @update:search="value => { search = value; }"
             @select="openNote"
+            @load-more="loadMore"
           />
         </div>
 
-        <aside v-if="selectedNote" class="notes-page-column notes-detail-pane min-w-0">
-          <NoteDetail
-            :key="selectedNote.id"
-            :note="selectedNote"
-            :panel-ready="panelReady"
-            :saving="saving"
-            :error="detailError"
-            :conflict="conflict"
-            @save="save"
-            @state="changeState"
-            @remove="remove"
-              @handoff="handoff"
-              @reload="reloadDetail"
-              @close="closeNote"
-              @dirty="detailDirty = $event"
-          />
-        </aside>
+        <!-- 详情是独立一张内容卡片,不做「一条竖线切两半」。槽位常驻、宽 0,
+             列宽与卡片的进出才有一段可打断的过渡。 -->
+        <div class="notes-detail-slot">
+          <Transition name="pane-reveal">
+            <Card v-if="selectedNote" size="compact" class="notes-page-column notes-detail-pane min-w-0">
+              <CardContent class="min-h-0">
+                <NoteDetail
+                  :key="selectedNote.id"
+                  class="content-appear"
+                  :note="selectedNote"
+                  :panel-ready="panelReady"
+                  :saving="saving"
+                  :error="detailError"
+                  :conflict="conflict"
+                  @save="save"
+                  @state="changeState"
+                  @remove="remove"
+                  @handoff="handoff"
+                  @reload="reloadDetail"
+                  @close="closeNote"
+                  @dirty="detailDirty = $event"
+                />
+              </CardContent>
+            </Card>
+          </Transition>
+        </div>
       </div>
     </div>
 
@@ -273,7 +334,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       description="切换后这些修改会丢失。可以先取消，回到记录里保存。"
       confirm-text="放弃修改"
       destructive
-      @cancel="pendingLeave = null; pendingRoute = null"
+      @cancel="pendingLeave = null; pendingRoute = null; pendingFilter = null"
       @confirm="confirmLeave"
     />
 

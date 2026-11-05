@@ -188,7 +188,7 @@ function keyboardResize(event: KeyboardEvent) {
   <!-- 折叠态是仍可输入的简洁行:单行输入、发送、展开切换,不展示模型与权限等次要控件。 -->
   <form
     v-if="collapsed"
-    class="agent-composer-compact"
+    class="agent-composer-compact content-appear"
     @submit.prevent="submit"
     @dragenter="onDragEnter"
     @dragleave="onDragLeave"
@@ -270,7 +270,7 @@ function keyboardResize(event: KeyboardEvent) {
     />
   </form>
   <Surface v-else role="action" as="form"
-    :class="cn('agent-ai-composer', resizing && 'is-resizing', dragging && 'is-dragging')"
+    :class="cn('agent-ai-composer content-appear', resizing && 'is-resizing', dragging && 'is-dragging')"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
     @dragenter="onDragEnter"

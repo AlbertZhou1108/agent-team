@@ -47,6 +47,31 @@ export function motionPace(): number {
 }
 
 /**
+ * 契约基准时长(毫秒),与 globals.css 的 --motion-duration-* 一一对应。
+ * 语义档位与 CSS 同义:fast 微反馈、normal 状态与进出、slow 大面积结构。
+ * JS 不猜第四个数字 —— 需要动画时长就取这里的档位,再乘当前节奏。
+ */
+const MOTION_BASE_MS = { fast: 150, normal: 220, slow: 320 } as const;
+
+export type MotionTier = keyof typeof MOTION_BASE_MS;
+
+/** 语义时长的实际毫秒数(已乘节奏系数),供 WAAPI 等 JS 动画使用。 */
+export function motionDurationMs(tier: MotionTier): number {
+  return Math.round(MOTION_BASE_MS[tier] * motionPace());
+}
+
+/**
+ * JS 侧缓动曲线:WAAPI 不能读 var(),这里镜像 --motion-ease-* 的取值,
+ * 与 globals.css 同一组曲线,改契约时两边一起改。
+ * 弹性/材质抑制只作用于 CSS 变量,JS 动画按进入曲线处理。
+ */
+export const MOTION_EASING = {
+  out: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  in: 'cubic-bezier(0.4, 0, 1, 1)',
+  standard: 'cubic-bezier(0.2, 0, 0, 1)',
+} as const;
+
+/**
  * 共享的减少动态效果判断:唯一依据是外观收口写到 `<html data-motion>` 的解析结果,
  * 全局 CSS(html[data-motion='reduced'])与所有 JS 侧动效决策(平滑滚动、高度动画等)
  * 因此始终同源;属性尚未就绪的极端时序回落到系统媒体查询。

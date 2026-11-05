@@ -84,7 +84,9 @@ Agent Team 是用于组织团队协作、推进任务和理解执行过程的工
 
 动效契约（已实现）：时长按变化面积分档并统一乘风格节奏（--motion-pace）——微反馈 150ms（fast：悬停、按压、图标）、状态/浮层/折叠 220ms（normal）、大面积结构 320ms（slow，侧栏与面板网格列宽、抽屉）。缓动按用途分档：进入用减速曲线（ease-out）停稳，离场用加速曲线（ease-in）让位，双向变化用 standard；灵动档对进入与双向启用弹性曲线（spring）。JS 侧动画经 motionPace() 读取同一节奏，与 CSS 同源。
 
-语义覆盖：微过渡（悬停/按压/焦点，含按钮按压缩放）、浮层进出（弹窗/下拉/选择/提示）、展开收起（共享折叠组件与侧栏/面板网格列宽，拖拽把手期间暂停过渡保证跟手）、循环状态（加载点、转圈、脉冲）、内容出现（标签页切换、回到底部按钮）、JS 动画（WAAPI）。
+语义别名层（已实现）：组件与页面只消费 `--component-*`，不直接读 `--motion-*`——`--component-feedback-duration`（微反馈）、`--component-disclosure-duration/easing`（展开收起）、`--component-content-duration/easing`（内容出现）、`--component-overlay-duration/enter-easing/exit-easing`（浮层进出）、`--component-layout-duration/easing`（大面积结构）。同一套别名在 `theme/component-contract.ts` 注册，预设可整体改写。Tailwind 的过渡工具类默认值 `--default-transition-duration` 与 `--default-transition-timing-function` 在根上改指契约，因此没写时长的 `transition-colors`/`transition-all` 也落在 fast/standard，而不是框架自带的 150ms 与 ease。浮层的形状（animate-in/fade/zoom/slide）由组件声明，时长与缓动由 `[data-slot]` 契约统一给出并随 `data-state` 换档，组件不再各自写 `duration-[...]`。该分层由 `scripts/check-design.mjs` 强制：业务代码直读 `--motion-*` 即视为违例（契约定义处与 `shared/motion.ts` 的 JS 读取入口除外）。
+
+语义覆盖：微过渡（悬停/按压/焦点，含按钮按压缩放）、浮层进出（弹窗/下拉/选择/提示）、展开收起（共享折叠组件与侧栏/面板网格列宽，拖拽把手期间暂停过渡保证跟手）、循环状态（加载点、转圈、脉冲）、内容出现（标签页切换、回到底部按钮）、面板进出（详情卡：结构级列宽 + 内容出现档淡入）、JS 动画（WAAPI，档位经 motionDurationMs 取）。
 
 明确不做：消息流入场（流式追加不重复入场）、页面外壳过渡（本应用是单一持久外壳，按路由重挂载会丢失会话草稿、滚动与展开状态）、Toast 节奏（vue-sonner 内建时序与手势测量耦合，减少档已由全局压制覆盖）、列表重排动画（团队首页为虚拟滚动，待结构调整后以 FLIP 补齐）。
 

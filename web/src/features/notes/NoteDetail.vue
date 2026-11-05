@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import type { Note, NoteState } from '@/shared/api/raw-types';
 import { draftFrom, isDirty, noteStateLabel, toggleTodo } from './notes-state';
@@ -116,7 +115,7 @@ function handoff() {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col gap-3">
+  <div class="flex min-h-0 flex-col gap-4">
     <header class="flex items-start justify-between gap-2">
       <div class="flex min-w-0 flex-col gap-1">
         <Badge variant="outline">{{ noteStateLabel(note.state) }}</Badge>
@@ -195,17 +194,22 @@ function handoff() {
       </div>
     </section>
 
-    <section class="flex items-center gap-2">
-      <CalendarDays class="size-4 shrink-0 text-muted-foreground" />
-      <Input
-        :model-value="draft.due ?? ''"
-        type="date"
-        :disabled="archived"
-        aria-label="截止日期"
-        class="h-8 w-40"
-        @update:model-value="value => { draft.due = String(value ?? '') || null; }"
-      />
-      <Button v-if="draft.due && !archived" variant="ghost" size="sm" @click="draft.due = null">清除</Button>
+    <section class="flex flex-col gap-2">
+      <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <CalendarDays class="size-3.5" />
+        截止日期
+      </div>
+      <div class="flex items-center gap-2">
+        <Input
+          :model-value="draft.due ?? ''"
+          type="date"
+          :disabled="archived"
+          aria-label="截止日期"
+          class="h-8 w-40"
+          @update:model-value="value => { draft.due = String(value ?? '') || null; }"
+        />
+        <Button v-if="draft.due && !archived" variant="ghost" size="sm" @click="draft.due = null">清除</Button>
+      </div>
     </section>
 
     <p v-if="error" class="flex flex-col gap-1 text-xs text-destructive">
@@ -214,8 +218,6 @@ function handoff() {
         重新载入最新内容
       </Button>
     </p>
-
-    <Separator />
 
     <div class="flex flex-wrap items-center gap-2">
       <Button v-if="!archived" size="sm" :disabled="!dirty || saving" @click="save">
@@ -257,7 +259,6 @@ function handoff() {
       </Button>
     </div>
 
-    <Separator />
 
     <section class="flex flex-col gap-2">
       <Button

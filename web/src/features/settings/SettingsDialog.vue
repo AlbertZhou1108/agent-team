@@ -18,6 +18,7 @@ import {
   Upload,
 } from '@lucide/vue';
 import { api } from '@/shared/api/client';
+import { prefersReducedMotion } from '@/shared/motion';
 import type {
   Group,
   ModelPolicy,
@@ -250,7 +251,7 @@ function updateThemeCarousel() {
 }
 function scrollThemeTrack(direction: -1 | 1) {
   const track = themeTrack.value;
-  track?.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: 'smooth' });
+  track?.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 }
 watch(
   [userThemePacks, themeOpen],

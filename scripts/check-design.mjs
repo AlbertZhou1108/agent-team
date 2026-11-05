@@ -5,6 +5,7 @@
  *  2. 业务代码不得出现十六进制色值字面量 —— 必须消费语义令牌。
  *  3. data-surface 的取值必须在表面角色注册表内。
  *  4. CSS 中的 --surface-* 变量消费必须指向已注册的角色。
+ *  5. 动效只能经语义别名(--component-*)消费,不得直读 --motion-*(契约原语)。
  * 违例以非零码退出,阻止进入提交;豁免清单在本文件底部显式维护。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -25,7 +26,7 @@ const SURFACE_ROLES = new Set([
 
 const COMPONENT_VARIABLES = new Set([...readFileSync(join(srcDir, 'theme/component-contract.ts'), 'utf8').matchAll(/['"](--component-[a-z-]+)['"]:/g)].map(match => match[1]));
 
-// 豁免:未接线的引擎组件、测试文件、数据级色板(内容而非样式)。
+// 豁免:测试文件、数据级色板(内容而非样式)。引擎组件(message-scroller)已接入动效契约,不再豁免。
 const EXEMPT_PATHS = [
   /components\/ui\/message-scroller\//,
   /\.test\./,
@@ -52,9 +53,18 @@ const CHECKS = [
   },
 
   {
-    name: '字面量动效时长(应消费 --motion-duration-*)',
+    name: '字面量动效时长(应消费动效契约)',
     pattern: /duration-\[\d|duration-\d+/,
     scopes: ['components', 'features', 'pages', 'app'],
+  },
+  {
+    // 分层要靠检查兜住:组件与页面只认「这是哪种变化」(--component-*),
+    // 具体毫秒与曲线归契约层。直读 --motion-* 等于绕过语义层,等下次调档就会漏。
+    name: '直读动效原语(应消费 --component-* 语义别名)',
+    pattern: /--motion-(?:duration|ease|pace)[a-z-]*/,
+    scopes: ['components', 'features', 'pages', 'app', 'shared', 'styles'],
+    // 契约定义处与 JS 侧唯一读取入口不在此列:前者是原语的家,后者必须读 --motion-pace。
+    exempt: [/^shared\/motion\.ts$/, /^styles\/globals\.css$/],
   },
   {
     name: '十六进制色值字面量(应消费语义令牌)',
@@ -102,6 +112,7 @@ for (const check of CHECKS) {
       if (!/\.(vue|ts|css)$/.test(path)) return;
       const rel = relative(srcDir, path).replaceAll('\\', '/');
       if (EXEMPT_PATHS.some((re) => re.test(rel))) return;
+      if (check.exempt?.some((re) => re.test(rel))) return;
       const source = readFileSync(path, 'utf8');
       const lines = source.split('\n');
       lines.forEach((line, index) => {

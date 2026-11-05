@@ -202,7 +202,7 @@ defineExpose({ scrollToBottom });
          (ResizeObserver 注入)悬浮其上,任何滚动位置都可见可点。 -->
     <Button
       v-if="!atBottom"
-      class="jump-to-bottom animate-in fade-in-0 slide-in-from-bottom-2 duration-[var(--motion-duration-fast)]"
+      class="jump-to-bottom animate-in fade-in-0 slide-in-from-bottom-2 duration-[var(--component-content-duration)]"
       :style="{ bottom: `${barBottomHeight + 12}px` }"
       variant="secondary"
       size="sm"

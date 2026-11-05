@@ -13,10 +13,11 @@ function load() {
       contextWidth: 360,
       composerHeight: 96,
       composerCollapsed: true,
+      noteComposerCollapsed: true,
       ...JSON.parse(localStorage.getItem(storageKey) ?? '{}'),
     };
   } catch {
-    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true };
+    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true, noteComposerCollapsed: true };
   }
 }
 
@@ -32,6 +33,7 @@ export const useUiStore = defineStore('ui', {
         contextWidth: this.contextWidth,
         composerHeight: this.composerHeight,
         composerCollapsed: this.composerCollapsed,
+        noteComposerCollapsed: this.noteComposerCollapsed,
       }));
     },
     toggleSidebar() {
