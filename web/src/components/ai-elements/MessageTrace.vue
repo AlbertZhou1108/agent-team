@@ -16,6 +16,8 @@ type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
 const props = defineProps<{
   messageId: string;
   hosts: Record<string, string>;
+  /** 轨迹跟随消息气泡的一侧:用户的提问在右,其他人的发言在左。 */
+  align?: 'start' | 'end';
 }>();
 
 const expanded = ref(false);
@@ -68,7 +70,7 @@ const duration = computed(() => {
 </script>
 
 <template>
-  <Disclosure class="inline-trace" @update:open="expanded = $event">
+  <Disclosure class="inline-trace" :class="align === 'end' && 'inline-trace-end'" @update:open="expanded = $event">
     <template #summary><Clock3 class="size-3.5" />执行轨迹</template>
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value" loading title="正在读取执行轨迹" />

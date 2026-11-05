@@ -325,10 +325,11 @@
 }
 
 .conversation-outline-tick {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  inline-size: 16px;
+  inline-size: 26px;
   block-size: 8px;
   padding: 0;
   border: 0;
@@ -340,7 +341,7 @@
 
 .conversation-outline-tick::before {
   content: '';
-  inline-size: 8px;
+  inline-size: 16px;
   block-size: 2px;
   border-radius: 1px;
   background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
@@ -350,7 +351,7 @@
 }
 
 .conversation-outline-tick:hover::before {
-  inline-size: 12px;
+  inline-size: 22px;
   background: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
 }
 
@@ -360,9 +361,37 @@
 }
 
 .conversation-outline-tick[data-current='true']::before {
-  inline-size: 12px;
+  inline-size: 22px;
   block-size: 3px;
   background: var(--foreground);
+}
+
+/* 悬停/聚焦时给出这一段的开头预览:内容就是刻度标题(消息首行的截断)。
+   贴在轨道左侧,不参与布局,也不吃指针事件。 */
+.conversation-outline-preview {
+  display: none;
+  position: absolute;
+  inset-inline-end: calc(100% + 8px);
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  max-inline-size: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--component-control-radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--component-panel-shadow);
+  font-size: var(--component-control-font-size);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.conversation-outline-tick:hover .conversation-outline-preview,
+.conversation-outline-tick:focus-visible .conversation-outline-preview {
+  display: block;
 }
 
 /* 固定高度的首页卡片:内部滚动，不按内容长度改变外部布局。 */
@@ -941,6 +970,11 @@ button {
 .status-error { background: var(--destructive); }
 .status-connecting { background: var(--warning); }
 
+.message-feed {
+  /* 头像(32) + 行距(12):轨迹等"贴着气泡"的元素靠它算缩进。 */
+  --message-avatar-column: 44px;
+}
+
 .message-row {
   display: flex;
   width: 100%;
@@ -1179,22 +1213,33 @@ button {
   place-items: center;
 }
 
+/* 轨迹跟着气泡走:左边让开头像列(25px 头像 + 12px 行距),右边贴齐;
+   宽度上限也是「扣掉头像列」,不再横贯整栏 —— 点到气泡右侧的空白不会展开轨迹。
+   触发条收成一小块:可点区域就是「执行轨迹」那几个字。 */
 .inline-trace {
-  width: 100%;
+  inline-size: 100%;
+  max-inline-size: calc(100% - var(--message-avatar-column));
+  min-inline-size: 0;
+  margin-inline-start: var(--message-avatar-column);
 }
 
-.inline-trace-right {
-  display: flex;
-  justify-content: flex-end;
+.inline-trace-end {
+  margin-inline-start: 0;
+  margin-inline-end: var(--message-avatar-column);
 }
 
-.inline-trace > [data-slot="disclosure"] {
-  width: 100%;
+/* 注意:class 与 data-slot 落在同一个元素上(Disclosure 的根),不能再套一层 > [data-slot]。 */
+.inline-trace > [data-slot="disclosure-header"] {
+  display: block;
 }
 
-.inline-trace-right > [data-slot="disclosure"] {
-  width: 100%;
-  max-width: none;
+.inline-trace > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"] {
+  inline-size: fit-content;
+}
+
+/* 用户在右侧发言:轨迹靠右对齐,和气泡同一侧。 */
+.inline-trace-end > [data-slot="disclosure-header"] {
+  text-align: end;
 }
 
 
@@ -1426,9 +1471,6 @@ button {
     max-width: 88%;
   }
 
-  .inline-trace-right > [data-slot="disclosure"] {
-    max-width: 88%;
-  }
 }
 
 @media (min-width: 1280px) {

@@ -92,8 +92,9 @@ onBeforeUnmount(() => {
       :data-current="segment.id === currentId ? 'true' : 'false'"
       :aria-current="segment.id === currentId ? 'location' : undefined"
       :aria-label="`第 ${segment.index + 1} 段，共 ${segments.length} 段：${segment.title}`"
-      :title="segment.title"
       @click="jump(segment.id)"
-    />
+    >
+      <span class="conversation-outline-preview" aria-hidden="true">{{ segment.title }}</span>
+    </button>
   </nav>
 </template>

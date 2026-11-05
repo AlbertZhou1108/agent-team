@@ -211,6 +211,7 @@ const messageIds = computed(() => {
             v-if="traceable && traceCandidates.has(message.id)"
             :message-id="message.id"
             :hosts="hosts ?? {}"
+            :align="message.senderIsUser ? 'end' : 'start'"
           />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
@@ -241,6 +242,7 @@ const messageIds = computed(() => {
             v-if="traceable && traceCandidates.has(message.id)"
             :message-id="message.id"
             :hosts="hosts ?? {}"
+            :align="message.senderIsUser ? 'end' : 'start'"
           />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
