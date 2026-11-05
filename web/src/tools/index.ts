@@ -62,8 +62,7 @@ const coordinationTool: ToolDefinition = {
   description: '主 Agent 协调会话的执行方、来源与批次概览。',
   scope: 'team',
   mounts: [
-    // 详情卡片是默认形态;也可以在右栏工具页里打开 —— 两个位置独立开关。
-    { slot: 'right-details', component: TelemetryCoordinationView },
+    // 按设计意图只在「工具」标签页呈现;详情卡片槽(right-details)保留给未来的工具。
     { slot: 'right-tools', component: TelemetryCoordinationView },
   ],
 };

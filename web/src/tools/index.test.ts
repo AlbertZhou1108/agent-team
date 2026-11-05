@@ -31,9 +31,10 @@ describe('内置工具注册表', () => {
     }
   });
 
-  it('首批工具覆盖两个侧栏的多种形态', () => {
+  it('首批工具的挂载位置符合设计意图', () => {
+    // 协调遥测只进工具页;详情卡片与左栏组件是保留通路,暂无内置消费者。
     const coordination = builtinTool('builtin.coordination')!;
-    expect(coordination.mounts.map(mount => mount.slot)).toEqual(['right-details', 'right-tools']);
+    expect(coordination.mounts.map(mount => mount.slot)).toEqual(['right-tools']);
     const notes = builtinTool('builtin.notes')!;
     expect(notes.mounts.map(mount => mount.slot)).toEqual(['left-nav', 'right-tools']);
   });
@@ -81,24 +82,22 @@ describe('isMountVisible', () => {
 
 describe('activeMounts', () => {
   it('按槽位取挂载,内容与归属都在', () => {
-    const mounts = activeMounts('right-details', {});
-    expect(mounts).toHaveLength(1);
-    expect(mounts[0]!.tool.id).toBe('builtin.coordination');
+    const mounts = activeMounts('right-tools', {});
+    expect(mounts.map(entry => entry.tool.id)).toEqual(['builtin.coordination', 'builtin.notes']);
     expect(mounts[0]!.mount.component).toBeTruthy();
   });
 
-  it('right-tools 与 right-details 是独立开关的两个槽位', () => {
-    const prefs = { hidden: { 'builtin.coordination:right-details': true } };
-    expect(activeMounts('right-details', prefs)).toHaveLength(0);
-    // 随心记的快捷输入也挂在工具页:协调遥测隐藏详情卡片不影响它。
-    expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id)).toEqual([
-      'builtin.coordination',
-      'builtin.notes',
-    ]);
+  it('right-details 通路保留但暂无内置消费者', () => {
+    expect(activeMounts('right-details', {})).toHaveLength(0);
   });
 
-  it('left-widget 槽位当前没有内置消费者(通路为外部工具保留)', () => {
+  it('left-widget 槽位当前没有内置消费者(通路为状态监看类工具保留)', () => {
     expect(activeMounts('left-widget', {})).toHaveLength(0);
+  });
+
+  it('挂载级隐藏只影响那一个槽位', () => {
+    const prefs = { hidden: { 'builtin.coordination:right-tools': true } };
+    expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id)).toEqual(['builtin.notes']);
   });
 });
 
