@@ -1156,6 +1156,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 >
                   <Disclosure>
                     <template #summary>
+                      <h3 class="min-w-0 flex-1 truncate text-sm font-semibold">{{ entry.tool.name }}</h3>
                       <span
                         class="-mx-1 inline-flex cursor-grab items-center rounded px-1 text-muted-foreground/60 active:cursor-grabbing"
                         draggable="true"
@@ -1163,7 +1164,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                         @dragstart="startToolDrag(mountKey(entry.tool.id, 'right-tools'), $event)"
                         @dragend="clearToolDrag"
                       ><GripVertical class="size-3.5" /></span>
-                      <h3 class="text-sm font-semibold">{{ entry.tool.name }}</h3>
                     </template>
                     <div class="mt-3">
                       <component :is="entry.mount.component" :group-id="groupId" />
