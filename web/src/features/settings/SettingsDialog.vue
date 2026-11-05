@@ -66,6 +66,8 @@ import { MATERIAL_CATEGORIES } from '@/theme/materials';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
+import { BUILTIN_TOOLS, TOOL_SURFACE_LABELS, resolveSurface, type ToolSurface } from '@/tools';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { THEME_TEMPLATE_JSON } from '@/theme/template';
 import { parseThemePackJson } from '@/theme/validate';
 import type { ThemePack, UserThemePack } from '@/theme/tokens';
@@ -90,7 +92,7 @@ const activeTab = ref('appearance');
 const route = useRoute();
 watch(() => [route.query.section, route.query.setting], async () => {
   const section=String(route.query.section??'appearance');
-  if(['appearance','general','policy','teams'].includes(section))activeTab.value=section;
+  if(['appearance','general','policy','teams','tools'].includes(section))activeTab.value=section;
   await nextTick();
   const setting=String(route.query.setting??'');
   if(setting)Array.from(document.querySelectorAll('h3')).find(el=>el.textContent?.includes(setting))?.scrollIntoView({block:'center'});
@@ -686,6 +688,7 @@ watch(
             <TabsList class="sticky top-0 z-10 grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
               <TabsTrigger value="appearance" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">外观</TabsTrigger>
               <TabsTrigger value="general" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">通用</TabsTrigger>
+              <TabsTrigger value="tools" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">工具</TabsTrigger>
               <TabsTrigger value="policy" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">模型策略</TabsTrigger>
               <TabsTrigger value="teams" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">团队管理</TabsTrigger>
             </TabsList>
@@ -953,6 +956,53 @@ watch(
 
           <section class="flex flex-col gap-3">
             <AttachmentSettings />
+          </section>
+          </TabsContent>
+
+          <TabsContent value="tools" class="flex flex-col gap-6">
+          <section class="flex flex-col gap-3 pt-6">
+            <p class="text-xs text-muted-foreground">
+              工具是面板里的功能模块：可以临时禁用，也可以选择展示位置。内置工具随应用发布，未来可安装外部工具。
+            </p>
+            <div
+              v-for="tool in BUILTIN_TOOLS"
+              :key="tool.id"
+              class="flex items-center justify-between gap-3 rounded-lg border p-3"
+              :class="{ 'opacity-60': preferences.toolModules.disabled[tool.id] }"
+            >
+              <div class="flex min-w-0 items-start gap-2.5">
+                <component :is="tool.icon" v-if="tool.icon" class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-semibold">{{ tool.name }}</h3>
+                    <Badge variant="outline">{{ tool.scope === 'global' ? '全局' : '团队' }}</Badge>
+                  </div>
+                  <p v-if="tool.description" class="mt-0.5 text-xs text-muted-foreground">{{ tool.description }}</p>
+                </div>
+              </div>
+              <div class="flex shrink-0 items-center gap-3">
+                <Select
+                  v-if="tool.surfaces.length > 1"
+                  :model-value="resolveSurface(tool, preferences.toolModules.surfaces[tool.id])"
+                  @update:model-value="preferences.setToolSurface(tool.id, $event as ToolSurface)"
+                >
+                  <SelectTrigger class="h-8 w-28 text-xs" :aria-label="`「${tool.name}」的展示位置`">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="surface in tool.surfaces" :key="surface" :value="surface">
+                      {{ TOOL_SURFACE_LABELS[surface] }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Switch
+                  :model-value="!preferences.toolModules.disabled[tool.id]"
+                  class="shrink-0"
+                  :aria-label="`启用${tool.name}`"
+                  @update:model-value="preferences.setToolEnabled(tool.id, Boolean($event))"
+                />
+              </div>
+            </div>
           </section>
           </TabsContent>
 

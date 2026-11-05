@@ -29,7 +29,6 @@ import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import CreateTeam from '@/features/groups/CreateTeam.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
-import NotesWorkspace from '@/features/notes/NotesWorkspace.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
 import SettingsDialog from '@/features/settings/SettingsDialog.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
@@ -57,6 +56,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
+import { usePreferencesStore } from '@/stores/preferences';
+import { builtinTool, navToolEntries as navToolEntriesFor, toolsForSurface } from '@/tools';
 import {
   usePanelAgentStore,
 } from '@/stores/panel-agent';
@@ -266,7 +267,8 @@ type ContextPanel =
   | 'collaboration'
   | 'members'
   | 'sessions'
-  | 'details';
+  | 'details'
+  | `tool:${string}`;
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
   if (
@@ -276,6 +278,11 @@ const contextPanel = computed<ContextPanel>(() => {
     value === 'details'
   )
     return value;
+  // 工具 tab 以 tool:<id> 形式出现在 query 里,只有当前启用且挂在 right-tab 的才算数。
+  if (value.startsWith('tool:')) {
+    const id = value.slice('tool:'.length);
+    if (rightTabToolIds.value.includes(id)) return value as ContextPanel;
+  }
   return selectedSessionId.value ? 'details' : 'collaboration';
 });
 
@@ -293,16 +300,35 @@ const selectedEndpointIsManagerPair = computed(() => {
 const managerConversationActive = computed(
   () => selectedEndpointIsManagerPair.value && activeTab.value === 'usage',
 );
-const contextTabs: Array<{
+// 固定四个 tab;挂在 right-tab 的工具追加在后面(contextTabs 由 computed 推导,
+// 设置里切换工具挂载点后 tab 列表自动跟随)。
+const rightTabTools = computed(() =>
+  groupId.value ? toolsForSurface('right-tab', preferences.toolModules) : [],
+);
+const rightTabToolIds = computed(() => rightTabTools.value.map(tool => tool.id));
+
+function isToolPanel(panel: ContextPanel): boolean {
+  return panel.startsWith('tool:');
+}
+
+function rightTabTool(panel: ContextPanel) {
+  return rightTabTools.value.find(tool => `tool:${tool.id}` === panel);
+}
+const contextTabs = computed<Array<{
   value: ContextPanel;
   label: string;
   icon: typeof Bot;
-}> = [
+}>>(() => [
   { value: 'collaboration', label: '概览', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
   { value: 'sessions', label: '会话', icon: MessagesSquare },
   { value: 'details', label: '详情', icon: Activity },
-];
+  ...rightTabTools.value.map(tool => ({
+    value: `tool:${tool.id}` as ContextPanel,
+    label: tool.name,
+    icon: (tool.icon ?? Bot) as typeof Bot,
+  })),
+]);
 
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
@@ -663,10 +689,19 @@ function openPanelAgent() {
   router.push({ name: 'panel-agent' });
 }
 
-function openNotes() {
-  if (isNotesRoute.value) return;
+// 工具模块:左导航条目与启用状态全部由注册表 + 用户偏好推导。
+const preferences = usePreferencesStore();
+const notesTool = builtinTool('builtin.notes')!;
+const navToolEntries = computed(() =>
+  navToolEntriesFor(preferences.toolModules, route.name as string | undefined),
+);
+const notesEnabled = computed(() => !preferences.toolModules.disabled[notesTool.id]);
+
+function openTool(id: string) {
+  const tool = builtinTool(id);
+  if (!tool?.routeName || route.name === tool.routeName) return;
   ui.closeInspector();
-  router.push({ name: 'notes' });
+  router.push({ name: tool.routeName });
 }
 
 function openSettingsPage() {
@@ -746,7 +781,7 @@ function setTab(tab: InspectorTab) {
 }
 
 function selectContextTab(value: string | number) {
-  const tab = contextTabs.find((item) => item.value === value);
+  const tab = contextTabs.value.find((item) => item.value === value);
   if (tab) setContextPanel(tab.value);
 }
 
@@ -838,13 +873,13 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       :groups="groups"
       :current-group-id="sidebarGroupId"
       :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
-      :notes-active="isNotesRoute"
+      :tool-entries="navToolEntries"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
       @select="selectGroup"
       @archive="archiveTeam"
-      @open-notes="openNotes"
+      @activate-tool="openTool"
       @open-agent="openPanelAgent"
       @open-settings="openSettingsPage"
     />
@@ -880,7 +915,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       />
       <Card v-else-if="groupId && !group" class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">正在读取团队…</CardContent></Card>
       <CreateTeam v-else-if="route.name === 'create-team'" />
-      <NotesWorkspace v-else-if="isNotesRoute" />
+      <!-- 工具页面:启用时渲染工具组件,禁用时保留路由但给出占位。 -->
+      <template v-else-if="isNotesRoute">
+        <component :is="notesTool.component" v-if="notesEnabled" />
+        <Card v-else class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">「{{ notesTool.name }}」已在设置中禁用。</CardContent></Card>
+      </template>
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
         :groups="groups"
@@ -1044,6 +1083,13 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
+              <!-- 工具 tab:挂在 right-tab 的工具按 id 渲染自己的组件。 -->
+              <template v-else-if="isToolPanel(contextPanel)">
+                <component
+                  :is="rightTabTool(contextPanel)!.component"
+                  :group-id="groupId"
+                />
+              </template>
               <InspectorPanel
                 v-else
                 class="inspector-embedded"

@@ -52,7 +52,36 @@ describe('preferences appearance', () => {
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
+      toolModules: { disabled: {}, surfaces: {} },
     });
+  });
+
+  it('loads tool module state, discarding unknown tool ids and surfaces', () => {
+    stubStorage(JSON.stringify({
+      toolModules: {
+        disabled: { 'builtin.notes': true, 'builtin.ghost': true, ghost: 'yes' },
+        surfaces: { 'builtin.coordination': 'right-tab', 'builtin.notes': 'nav', bogus: 3 },
+      },
+    }));
+    const store = usePreferencesStore();
+    expect(store.toolModules).toEqual({
+      disabled: { 'builtin.notes': true },
+      surfaces: { 'builtin.coordination': 'right-tab', 'builtin.notes': 'nav' },
+    });
+  });
+
+  it('toggles and persists tool enablement', () => {
+    const written: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => written.push(value),
+    });
+    const store = usePreferencesStore();
+    store.setToolEnabled('builtin.notes', false);
+    expect(store.toolModules.disabled['builtin.notes']).toBe(true);
+    store.setToolEnabled('builtin.notes', true);
+    expect(store.toolModules.disabled['builtin.notes']).toBeUndefined();
+    expect(JSON.parse(written.at(-1)!).toolModules.disabled).toEqual({});
   });
 
   it('falls back to system motion when the saved value is unknown', () => {

@@ -20,8 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { InspectorTab } from './types';
 import TelemetryConversationView from '@/features/telemetry/TelemetryConversationView.vue';
-import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinationView.vue';
 import TelemetryManagerConversationView from '@/features/telemetry/TelemetryManagerConversationView.vue';
+import { toolsForSurface } from '@/tools';
+import { usePreferencesStore } from '@/stores/preferences';
+
+const preferences = usePreferencesStore();
+/** 详情 tab 的卡片槽位:挂在 details-card 的工具按注册顺序渲染。 */
+const detailCardTools = computed(() => toolsForSurface('details-card', preferences.toolModules));
 
 const props = defineProps<{
   groupId: string;
@@ -137,7 +142,12 @@ function prettyEvent(value: string) {
         <Button variant="outline" size="sm" class="w-fit" @click="emit('chooseSession')">浏览会话</Button>
       </header>
       <div class="min-h-0 flex-1 overflow-y-auto">
-        <TelemetryCoordinationView :group-id="groupId" />
+        <component
+          v-for="tool in detailCardTools"
+          :key="tool.id"
+          :is="tool.component"
+          :group-id="groupId"
+        />
       </div>
     </template>
     <template v-else>

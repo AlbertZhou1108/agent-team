@@ -17,6 +17,7 @@ import {
   type ReadingWidth,
 } from '@/theme/apply';
 import type { ThemeTokens } from '@/theme/tokens';
+import { TOOL_SURFACES, builtinTool, type ToolSurface } from '@/tools';
 
 export type ColorMode = 'dark' | 'light' | 'system';
 
@@ -24,6 +25,12 @@ export type ColorMode = 'dark' | 'light' | 'system';
 export interface ThemePackSnapshot {
   light: ThemeTokens;
   dark: ThemeTokens;
+}
+
+/** 工具模块的用户级状态:禁用开关与挂载位置覆盖,键是工具 id。 */
+export interface ToolModulesState {
+  disabled: Record<string, boolean>;
+  surfaces: Record<string, ToolSurface>;
 }
 
 interface PreferencesState {
@@ -41,6 +48,7 @@ interface PreferencesState {
   showReasoning: boolean;
   showRawPayloads: boolean;
   refreshInterval: number;
+  toolModules: ToolModulesState;
 }
 
 const storageKey = 'agent-team:preferences';
@@ -54,6 +62,33 @@ function isThemePackSnapshot(value: unknown): value is ThemePackSnapshot {
     record.dark !== null &&
     typeof record.dark === 'object'
   );
+}
+
+/** 键值都过白名单:非法值直接丢弃,坏数据不进状态。 */
+function loadToolModules(value: unknown): ToolModulesState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { disabled: {}, surfaces: {} };
+  }
+  const record = value as Record<string, unknown>;
+  const entries = (input: unknown) =>
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? Object.entries(input as Record<string, unknown>)
+      : [];
+  const disabled = Object.fromEntries(
+    entries(record.disabled).filter(
+      (entry): entry is [string, boolean] =>
+        typeof entry[1] === 'boolean' && Boolean(builtinTool(entry[0])),
+    ),
+  );
+  const surfaces = Object.fromEntries(
+    entries(record.surfaces).filter(
+      (entry): entry is [string, ToolSurface] =>
+        typeof entry[1] === 'string' &&
+        (TOOL_SURFACES as readonly string[]).includes(entry[1]) &&
+        Boolean(builtinTool(entry[0])),
+    ),
+  );
+  return { disabled, surfaces };
 }
 
 function load(): PreferencesState {
@@ -72,6 +107,7 @@ function load(): PreferencesState {
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
+    toolModules: { disabled: {}, surfaces: {} },
   };
   try {
     const saved = JSON.parse(
@@ -107,6 +143,7 @@ function load(): PreferencesState {
       showReasoning: saved.showReasoning ?? fallback.showReasoning,
       showRawPayloads: saved.showRawPayloads ?? fallback.showRawPayloads,
       refreshInterval: saved.refreshInterval ?? fallback.refreshInterval,
+      toolModules: loadToolModules(saved.toolModules),
     };
   } catch {
     return fallback;
@@ -176,6 +213,15 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     toggleRawPayloads() {
       this.showRawPayloads = !this.showRawPayloads;
+      this.persist();
+    },
+    setToolEnabled(id: string, enabled: boolean) {
+      if (enabled) delete this.toolModules.disabled[id];
+      else this.toolModules.disabled[id] = true;
+      this.persist();
+    },
+    setToolSurface(id: string, surface: ToolSurface) {
+      this.toolModules.surfaces[id] = surface;
       this.persist();
     },
   },

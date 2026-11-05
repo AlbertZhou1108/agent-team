@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   House,
-  NotebookPen,
   Settings2,
 } from '@lucide/vue';
 import type { Group } from '@/shared/api/raw-types';
@@ -35,7 +34,8 @@ const props = defineProps<{
   groups: Group[];
   currentGroupId?: string;
   homeActive: boolean;
-  notesActive: boolean;
+  /** 工具模块的左导航条目(注册表 + 用户启停推导),跟在主页之后渲染。 */
+  toolEntries: Array<{ id: string; label: string; icon?: unknown; current: boolean }>;
   agentActive: boolean;
   agentUnreadCount: number;
   settingsActive: boolean;
@@ -44,7 +44,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   archive: [id: string];
-  openNotes: [];
+  activateTool: [id: string];
   openAgent: [];
   openSettings: [];
 }>();
@@ -302,9 +302,16 @@ function submitRenameFolder() {
         <template #icon><House /></template>
         主页
       </SidebarEntry>
-      <SidebarEntry :current="notesActive" :collapsed="navCollapsed" title="随心记" @activate="emit('openNotes')">
-        <template #icon><NotebookPen /></template>
-        随心记
+      <SidebarEntry
+        v-for="entry in toolEntries"
+        :key="entry.id"
+        :current="entry.current"
+        :collapsed="navCollapsed"
+        :title="entry.label"
+        @activate="emit('activateTool', entry.id)"
+      >
+        <template #icon><component :is="entry.icon" v-if="entry.icon" /></template>
+        {{ entry.label }}
       </SidebarEntry>
       <SidebarEntry
         :current="agentActive"
