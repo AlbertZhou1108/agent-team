@@ -995,6 +995,14 @@ button {
   flex: 1;
   overflow-y: auto;
   padding: var(--density-context-pad, 16px);
+  /* 滚动条不占布局宽:tabs 行在滚动区外,占位滚动条会让下方内容比 tabs
+     窄一截(实测 11px)。右栏内容以卡片/区块为主,隐藏原生滚动条,
+     滚轮滚动保留 —— 全部 tab 的可视宽度因此与 tabs 行严格一致。 */
+  scrollbar-width: none;
+}
+.context-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .field-select {
@@ -1313,6 +1321,13 @@ button {
   inline-size: fit-content;
   padding-inline: 8px;
   margin-inline: -8px;
+}
+
+/* 工具页区块:trigger 自带的水平内距用负外边距抵回去,hover 背景
+   才能与上方 tabs 行严格等宽(手法同 feed-panel 药丸)。 */
+.tools-panel-section > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"] {
+  padding-inline: 4px;
+  margin-inline: -4px;
 }
 
 /* 展开的行内轨迹:跟在气泡后面,是消息的一部分。

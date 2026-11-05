@@ -1136,6 +1136,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 <div
                   v-for="entry in toolsPanelMounts"
                   :key="entry.tool.id"
+                  class="tools-panel-section"
                   data-drop-axis="y"
                   :data-drop-side="toolInsertionSide(entry.tool.id)"
                   @dragover.prevent="showToolInsertion(entry.tool.id, $event)"
