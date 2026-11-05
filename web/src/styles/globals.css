@@ -303,6 +303,68 @@
   }
 }
 
+/* 会话大纲:滚动区右缘的一条刻度轨。刻度 = 用户的一次提问,当前那根更长更亮;
+   悬停给出标题,点击瞬时跳到那一条。轨道本身不吃指针事件,只有刻度可点,
+   所以不挡正文选字与覆盖式滚动条。 */
+.conversation-outline {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 14px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  padding-block: 96px;
+  pointer-events: none;
+}
+
+@media (max-width: 1023px) {
+  .conversation-outline { display: none; }
+}
+
+.conversation-outline-tick {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  inline-size: 16px;
+  block-size: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+  outline: none;
+}
+
+.conversation-outline-tick::before {
+  content: '';
+  inline-size: 8px;
+  block-size: 2px;
+  border-radius: 1px;
+  background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+  transition:
+    inline-size var(--component-feedback-duration) var(--component-layout-easing),
+    background-color var(--component-feedback-duration) var(--component-layout-easing);
+}
+
+.conversation-outline-tick:hover::before {
+  inline-size: 12px;
+  background: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+}
+
+.conversation-outline-tick:focus-visible::before {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.conversation-outline-tick[data-current='true']::before {
+  inline-size: 12px;
+  block-size: 3px;
+  background: var(--foreground);
+}
+
 /* 固定高度的首页卡片:内部滚动，不按内容长度改变外部布局。 */
 .home-card {
   block-size: var(--home-card-block-size);

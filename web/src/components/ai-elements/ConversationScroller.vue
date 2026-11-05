@@ -34,6 +34,8 @@ defineSlots<{
   'bar-top'?: () => unknown;
   /** 滚动区底栏:sticky 输入区。 */
   'bar-bottom'?: () => unknown;
+  /** 滚动区之上的浮层(与回底按钮同层):会话大纲这类挂在视口边的控件。 */
+  overlay?: (props: { viewport?: HTMLElement }) => unknown;
 }>();
 
 const viewport = ref<InstanceType<typeof ScrollAreaViewport>>();
@@ -198,6 +200,7 @@ defineExpose({ scrollToBottom });
     </ScrollAreaViewport>
     <!-- 覆盖式滚动条只占绘制层,不占布局宽度;轨道避开顶栏和输入区。 -->
     <ScrollBar class="z-30" :style="{ top: `${barTopHeight}px`, bottom: `${barBottomHeight}px`, height: 'auto' }" />
+    <slot name="overlay" :viewport="stream" />
     <!-- 回底按钮锚在 viewport 层:底栏 sticky 钉在滚动口下沿,按钮按底栏实高
          (ResizeObserver 注入)悬浮其上,任何滚动位置都可见可点。 -->
     <Button

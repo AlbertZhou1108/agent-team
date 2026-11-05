@@ -26,6 +26,7 @@ defineSlots<{
   composer?: () => unknown;
   'bar-top'?: () => unknown;
   'bar-bottom'?: () => unknown;
+  overlay?: (props: { viewport?: HTMLElement }) => unknown;
 }>();
 </script>
 
@@ -46,6 +47,7 @@ defineSlots<{
         <slot />
         <template #bar-top><slot name="bar-top" /></template>
         <template #bar-bottom><slot name="bar-bottom" /></template>
+        <template #overlay="slotProps"><slot name="overlay" v-bind="slotProps" /></template>
       </ConversationScroller>
     </div>
     <slot name="footer" />

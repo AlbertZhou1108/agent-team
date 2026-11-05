@@ -6,6 +6,7 @@ import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
+import ConversationOutline from './ConversationOutline.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
 import { Badge } from '@/components/ui/badge';
@@ -148,6 +149,10 @@ const messageIds = computed(() => {
         @select="selectedRunKey = $event"
       />
       <slot name="bar-bottom" />
+    </template>
+    <!-- 会话大纲挂在滚动区之上的浮层里:只跟视口位置走,不随内容滚走。 -->
+    <template #overlay="{ viewport }">
+      <ConversationOutline :messages="messages" :viewport="viewport" />
     </template>
     <div v-if="hasNextPage" class="flex justify-center py-2">
       <Button variant="outline" size="sm" :disabled="fetchingNextPage" @click="emit('loadMore')">
