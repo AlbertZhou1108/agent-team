@@ -1218,7 +1218,9 @@ button {
    触发条收成一小块:可点区域就是「执行轨迹」那几个字。 */
 .inline-trace {
   inline-size: 100%;
-  max-inline-size: calc(100% - var(--message-avatar-column));
+  /* 气泡实宽由 MessageFeed 量好写进变量:轨迹跟着它,不越到右边的刻度轨上。
+     没有变量时退回到"扣掉头像列的整列"。 */
+  max-inline-size: var(--message-bubble-width, calc(100% - var(--message-avatar-column)));
   min-inline-size: 0;
   margin-inline-start: var(--message-avatar-column);
 }
@@ -1233,13 +1235,20 @@ button {
   display: block;
 }
 
+/* 收起成小药丸后,横向内边距要自己给:hover 背景才不会贴着文字。
+   负外边距把这圈内边距抵回去,文字仍然贴住气泡左缘,只有背景向外扩。 */
 .inline-trace > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"] {
   inline-size: fit-content;
+  padding-inline: 8px;
+  margin-inline: -8px;
 }
 
-/* 用户在右侧发言:轨迹靠右对齐,和气泡同一侧。 */
+/* 用户在右侧发言:轨迹靠右对齐,和气泡同一侧。
+   用 flex 而不是 text-align —— 触发条是块级 flex 容器(fit-content),
+   文字对齐影响不到它,只有 flex 的 justify 能把它推到右端。 */
 .inline-trace-end > [data-slot="disclosure-header"] {
-  text-align: end;
+  display: flex;
+  justify-content: flex-end;
 }
 
 
