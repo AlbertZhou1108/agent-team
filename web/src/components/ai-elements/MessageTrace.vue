@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
+import FeedPanel from './FeedPanel.vue';
 import { computed, ref } from 'vue';
 import { Clock3, AlertTriangle, CheckCircle2, CircleDot, LoaderCircle } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
@@ -70,8 +71,13 @@ const duration = computed(() => {
 </script>
 
 <template>
-  <Disclosure class="inline-trace feed-panel" :class="align === 'end' && 'inline-trace-end'" @update:open="expanded = $event">
-    <template #summary><Clock3 class="size-3.5" />执行轨迹</template>
+  <FeedPanel
+    class="inline-trace"
+    label="执行轨迹"
+    :icon="Clock3"
+    :align="align"
+    @update:open="expanded = $event"
+  >
     <template v-if="expanded">
       <PanelState v-if="traceQuery.isPending.value" loading title="正在读取执行轨迹" />
       <PanelState v-else-if="traceQuery.isError.value" title="轨迹加载失败">
@@ -122,5 +128,5 @@ const duration = computed(() => {
         </CardContent>
       </Card>
     </template>
-  </Disclosure>
+  </FeedPanel>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Disclosure } from '@/components/ui/disclosure';
+import FeedPanel from '@/components/ai-elements/FeedPanel.vue';
 import { computed, ref, watch } from 'vue';
 import type { MessageFeedProps } from './message-feed-types';
 import PanelState from '@/components/panel/PanelState.vue';
@@ -161,15 +161,12 @@ const messageIds = computed(() => {
       </Button>
     </div>
     <div v-for="group in renderGroups" :key="group.id" class="chat-message">
-      <Disclosure v-if="group.stack" class="notification-stack feed-panel">
-        <template #summary>
-          <span class="font-medium"
-            >系统通知
-            <span class="text-xs text-muted-foreground"
-              >{{ group.messages.length }} 条</span
-            ></span
-          >
-        </template>
+      <FeedPanel
+        v-if="group.stack"
+        class="notification-stack"
+        label="系统通知"
+        :count="group.messages.length"
+      >
         <div class="flex flex-col gap-2 p-3">
           <AgentMessage
             v-for="message in group.messages"
@@ -177,7 +174,7 @@ const messageIds = computed(() => {
             :message="message"
           />
         </div>
-      </Disclosure>
+      </FeedPanel>
       <template v-else-if="group.fanout">
         <!-- 轨迹以消息为单位:同一指令发往多个成员是多次独立的发送,各自一段轨迹。
              正文只展示一次,但每条消息保留自己的锚点、轨迹与回执。 -->
