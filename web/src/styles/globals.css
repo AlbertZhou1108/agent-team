@@ -1243,9 +1243,12 @@ button {
   display: block;
 }
 
-/* 收起成小药丸后,横向内边距要自己给:hover 背景才不会贴着文字。
-   负外边距把这圈内边距抵回去,文字仍然贴住气泡左缘,只有背景向外扩。 */
-.inline-trace > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"] {
+/* 会话里的顶层折叠面板(系统通知、执行轨迹)收起成一颗药丸:标题只有几个字,
+   可点区域与背景不需要横贯整栏。展开后的内容仍按内容列的宽度排。
+   横向内边距要自己给:hover 背景才不会贴字;再用负外边距把这圈内边距抵回去,
+   标签仍然贴住内容左缘,只有背景向外扩。 */
+.inline-trace > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"],
+.notification-stack > [data-slot="disclosure-header"] [data-slot="disclosure-trigger"] {
   inline-size: fit-content;
   padding-inline: 8px;
   margin-inline: -8px;
