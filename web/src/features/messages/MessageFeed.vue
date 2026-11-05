@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { MessageFeedProps } from './message-feed-types';
 import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare } from '@lucide/vue';
@@ -114,46 +114,10 @@ const messageIds = computed(() => {
   previousIds = next;
   return next;
 });
-
-// 轨迹要与气泡等宽,但气泡宽度由内容决定 —— CSS 拿不到,只能量。一个
-// ResizeObserver 同时观察所有气泡,把宽度写成该消息块上的变量;气泡只在
-// 布局变化时回调,开销可忽略。
-const panel = ref<InstanceType<typeof ConversationPanel>>();
-const observedBubbles = new WeakSet<Element>();
-let bubbleObserver: ResizeObserver | undefined;
-
-function syncBubbleWidths() {
-  const root = panel.value?.$el as HTMLElement | undefined;
-  if (!root) return;
-  bubbleObserver ??= new ResizeObserver(entries => {
-    for (const entry of entries) {
-      const block = (entry.target as HTMLElement).closest<HTMLElement>('[data-message-id]');
-      block?.style.setProperty('--message-bubble-width', `${Math.round(entry.contentRect.width)}px`);
-    }
-  });
-  for (const bubble of root.querySelectorAll<HTMLElement>('[data-message-id] [data-slot="bubble"]')) {
-    if (observedBubbles.has(bubble)) continue;
-    observedBubbles.add(bubble);
-    bubbleObserver.observe(bubble);
-  }
-}
-
-onMounted(() => void nextTick(syncBubbleWidths));
-// 新增消息要补观察;切换会话时条数可能恰好相同,所以 resetKey 也一起看。
-watch(
-  () => [props.messages.length, props.resetKey] as const,
-  () => void nextTick(syncBubbleWidths),
-  { flush: 'post' },
-);
-onBeforeUnmount(() => {
-  bubbleObserver?.disconnect();
-  bubbleObserver = undefined;
-});
 </script>
 
 <template>
   <ConversationPanel
-    ref="panel"
     class="message-feed min-w-0"
     :ids="messageIds"
     :reset-key="resetKey ?? selectedPair"

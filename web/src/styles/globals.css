@@ -1216,13 +1216,21 @@ button {
 /* 轨迹跟着气泡走:左边让开头像列(25px 头像 + 12px 行距),右边贴齐;
    宽度上限也是「扣掉头像列」,不再横贯整栏 —— 点到气泡右侧的空白不会展开轨迹。
    触发条收成一小块:可点区域就是「执行轨迹」那几个字。 */
+/* 宽度取「这一类气泡能长到的最大宽」,不是当前气泡的实宽:短消息的气泡很窄,
+   但轨迹里是步骤列表,跟着缩成一条窄柱就没法读了。
+   气泡自己的上限是 max-w-[80%](ghost 变体为 max-w-full),而轨迹的包含块与
+   气泡所在的 .message-row 同宽 —— 照抄同一个百分比,就得到同一个像素值,
+   不需要测量。 */
 .inline-trace {
   inline-size: 100%;
-  /* 气泡实宽由 MessageFeed 量好写进变量:轨迹跟着它,不越到右边的刻度轨上。
-     没有变量时退回到"扣掉头像列的整列"。 */
-  max-inline-size: var(--message-bubble-width, calc(100% - var(--message-avatar-column)));
+  max-inline-size: 80%;
   min-inline-size: 0;
   margin-inline-start: var(--message-avatar-column);
+}
+
+/* 成员发言的气泡是 ghost(max-w-full):轨迹跟着铺满整行(扣掉头像列)。 */
+[data-message-id]:has([data-slot='bubble'][data-variant='ghost']) .inline-trace {
+  max-inline-size: calc(100% - var(--message-avatar-column));
 }
 
 .inline-trace-end {
