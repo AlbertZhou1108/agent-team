@@ -1511,13 +1511,6 @@ button {
 .inline-trace .trace-step > [data-slot="disclosure-trigger"] {
   width: 100%;
 }
-.notification-stack .notification-collapse,
-.notification-stack[data-state="open"] .notification-expand {
-  display: none;
-}
-.notification-stack[data-state="open"] .notification-collapse {
-  display: inline;
-}
 
 .sidebar-resize-handle {
   display: none;

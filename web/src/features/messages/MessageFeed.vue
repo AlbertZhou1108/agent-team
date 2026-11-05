@@ -169,12 +169,6 @@ const messageIds = computed(() => {
               >{{ group.messages.length }} 条</span
             ></span
           >
-          <span class="notification-expand text-xs text-muted-foreground"
-            >展开</span
-          >
-          <span class="notification-collapse text-xs text-muted-foreground"
-            >收起</span
-          >
         </template>
         <div class="flex flex-col gap-2 p-3">
           <AgentMessage
