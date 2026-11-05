@@ -72,6 +72,8 @@ const router = useRouter();
 const ui = useUiStore();
 const connection = useConnectionStore();
 const panelAgentState = usePanelAgentStore();
+// 工具状态在 contextPanel 等 computed 里被读取,必须先于它们声明。
+const preferences = usePreferencesStore();
 const groupId = computed(() => routeString(route.params.groupId));
 provide('result-scope', computed(() => groupId.value ? { group: groupId.value } : route.name === 'panel-agent' ? { panel: '1' } : null));
 const selectedSessionId = computed(() => teamConversationSession(route.query));
@@ -690,7 +692,6 @@ function openPanelAgent() {
 }
 
 // 工具模块:左导航条目与启用状态全部由注册表 + 用户偏好推导。
-const preferences = usePreferencesStore();
 const notesTool = builtinTool('builtin.notes')!;
 const navToolEntries = computed(() =>
   navToolEntriesFor(preferences.toolModules, route.name as string | undefined),
@@ -1033,13 +1034,14 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
           >
             <TabsList
               v-if="!ui.contextCollapsed"
-              class="mx-4 w-auto shrink-0"
+              class="mx-4 w-auto max-w-full shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               aria-label="团队详情"
             >
               <TabsTrigger
                 v-for="item in contextTabs"
                 :key="item.value"
                 :value="item.value"
+                class="shrink-0"
                 ><component :is="item.icon" />{{ item.label }}</TabsTrigger
               >
             </TabsList>
@@ -1083,13 +1085,11 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
-              <!-- 工具 tab:挂在 right-tab 的工具按 id 渲染自己的组件。 -->
-              <template v-else-if="isToolPanel(contextPanel)">
-                <component
-                  :is="rightTabTool(contextPanel)!.component"
-                  :group-id="groupId"
-                />
-              </template>
+              <component
+                v-else-if="isToolPanel(contextPanel)"
+                :is="rightTabTool(contextPanel)?.component"
+                :group-id="groupId"
+              />
               <InspectorPanel
                 v-else
                 class="inspector-embedded"

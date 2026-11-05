@@ -685,12 +685,13 @@ watch(
 
           <CardContent class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain">
           <Tabs v-model="activeTab" class="flex min-h-0 flex-col gap-6">
-            <TabsList class="sticky top-0 z-10 grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
-              <TabsTrigger value="appearance" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">外观</TabsTrigger>
-              <TabsTrigger value="general" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">通用</TabsTrigger>
-              <TabsTrigger value="tools" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">工具</TabsTrigger>
-              <TabsTrigger value="policy" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">模型策略</TabsTrigger>
-              <TabsTrigger value="teams" class="min-w-0 px-1 text-xs sm:px-2 sm:text-sm">团队管理</TabsTrigger>
+            <!-- 药丸组按内容宽换行:tab 数量变化(工具/未来分组)不再撑破网格。 -->
+            <TabsList class="sticky top-0 z-10 flex h-auto w-fit max-w-full flex-wrap gap-1">
+              <TabsTrigger value="appearance" class="flex-none px-2 text-xs sm:text-sm">外观</TabsTrigger>
+              <TabsTrigger value="general" class="flex-none px-2 text-xs sm:text-sm">通用</TabsTrigger>
+              <TabsTrigger value="tools" class="flex-none px-2 text-xs sm:text-sm">工具</TabsTrigger>
+              <TabsTrigger value="policy" class="flex-none px-2 text-xs sm:text-sm">模型策略</TabsTrigger>
+              <TabsTrigger value="teams" class="flex-none px-2 text-xs sm:text-sm">团队管理</TabsTrigger>
             </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
           <section class="flex flex-col gap-3">
