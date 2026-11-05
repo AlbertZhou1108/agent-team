@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { MessageView } from '@/shared/models/view-types';
+import { prefersReducedMotion } from '@/shared/motion';
 import {
   buildOutlineSegments,
   layoutOutlineBands,
@@ -96,10 +97,14 @@ function jump(band: OutlineBand) {
   const node = messageNode(band.id);
   if (!element || !node) return;
   const top = node.getBoundingClientRect().top - element.getBoundingClientRect().top + element.scrollTop;
-  // 瞬时到位:跳转的目的是到达,不播平滑滚动,也就没有"高亮一路扫过去"的问题。
+  // 平滑滚过去,与「回到底部」按钮同一套行为;减少动效档直接到位。
+  // 高亮不在这里手动指定:滚动事件会沿途逐段刷新当前段,高亮自然扫过去,
+  // 终点恰好落在被点的块上 —— 手动指定反而会先跳到目标再扫回来。
   // 让目标停在会话头下沿,落点才和判定线是同一处。
-  element.scrollTo({ top: Math.max(0, top - headerHeight(element)) });
-  currentId.value = band.id;
+  element.scrollTo({
+    top: Math.max(0, top - headerHeight(element)),
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+  });
 }
 
 function bandLabel(band: OutlineBand) {
