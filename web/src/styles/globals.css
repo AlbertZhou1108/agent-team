@@ -1225,6 +1225,9 @@ button {
   inline-size: 100%;
   max-inline-size: 80%;
   min-inline-size: 0;
+  /* 与上面的气泡拉开:药丸自带 8px 纵向内距,不加外边距时它的背景直接贴住
+     气泡下沿。 */
+  margin-block-start: 8px;
   margin-inline-start: var(--message-avatar-column);
 }
 
@@ -1502,7 +1505,7 @@ button {
 
 .notification-stack {
   width: 100%;
-  margin-bottom: 6px;
+  margin-block: 8px 6px;
 }
 
 .inline-trace .trace-step > [data-slot="disclosure-trigger"] {
