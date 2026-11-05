@@ -60,14 +60,14 @@ describe('preferences appearance', () => {
     stubStorage(JSON.stringify({
       toolModules: {
         disabled: { 'builtin.notes': true, 'builtin.ghost': true },
-        hidden: { 'builtin.coordination:right-details': true, 'builtin.notes:bogus': true },
+        hidden: { 'builtin.coordination:right-tools': true, 'builtin.notes:bogus': true },
         surfaces: { 'builtin.coordination': 'right-tab' },
       },
     }));
     const store = usePreferencesStore();
     expect(store.toolModules).toEqual({
       disabled: { 'builtin.notes': true },
-      hidden: { 'builtin.coordination:right-details': true },
+      hidden: { 'builtin.coordination:right-tools': true },
       order: {},
     });
   });

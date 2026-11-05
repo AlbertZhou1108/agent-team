@@ -9,11 +9,9 @@ import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinatio
  * 自己在两个侧栏里以什么形态出现,用户决定装不装(禁用)、每个挂载显不显示。
  * 本文件同时是契约、内置注册表与解析层;阶段 2 引入外部安装包时再拆。
  *
- * 位置只有两个(左侧栏/右侧栏),细分四种槽位:
+ * 位置只有两个,槽位也只有两个:
  * - left-nav     左导航入口(点击打开工具页面)
- * - left-widget  左栏内嵌内容(如状态监看图)
  * - right-tools  右栏固定的「工具」标签页:每个工具一个可折叠区块,堆叠展示
- * - right-details 右栏「详情」标签页里的卡片
  *
  * 工具只提供内容组件,入口的按钮/标签/折叠区块外壳由宿主渲染 —— 形态与内容解耦。
  *
@@ -25,16 +23,14 @@ import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinatio
  * 注意与 `src/tools.mjs`(Agent 可调用的 send/tasks_set 等工具)无关。
  */
 
-export const TOOL_SLOTS = ['left-nav', 'left-widget', 'right-tools', 'right-details'] as const;
+export const TOOL_SLOTS = ['left-nav', 'right-tools'] as const;
 export type ToolSlot = (typeof TOOL_SLOTS)[number];
 export type ToolScope = 'global' | 'team';
 
 /** 设置页与提示里对槽位的统一称呼。 */
 export const TOOL_SLOT_LABELS: Record<ToolSlot, string> = {
   'left-nav': '左导航入口',
-  'left-widget': '左栏组件',
   'right-tools': '右栏工具页',
-  'right-details': '详情卡片',
 };
 
 export interface ToolMount {
@@ -61,10 +57,8 @@ const coordinationTool: ToolDefinition = {
   name: '协调遥测',
   description: '主 Agent 协调会话的执行方、来源与批次概览。',
   scope: 'team',
-  mounts: [
-    // 按设计意图只在「工具」标签页呈现;详情卡片槽(right-details)保留给未来的工具。
-    { slot: 'right-tools', component: TelemetryCoordinationView },
-  ],
+  // 按设计意图只在「工具」标签页呈现。
+  mounts: [{ slot: 'right-tools', component: TelemetryCoordinationView }],
 };
 
 const notesTool: ToolDefinition = {

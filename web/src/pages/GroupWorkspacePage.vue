@@ -323,10 +323,6 @@ const toolsPanelMounts = computed(() =>
   groupId.value ? activeMounts('right-tools', preferences.toolModules) : [],
 );
 
-// 详情卡片槽(右栏的另一种呈现)。
-const detailCardTools = computed(() =>
-  groupId.value ? activeMounts('right-details', preferences.toolModules) : [],
-);
 
 // 工具页的拖拽排序:抓手拖动,落点用与左栏一致的 before/after 判定,
 // 新顺序整表写回偏好(只含当前槽位的键)。
@@ -733,13 +729,6 @@ const notesTool = builtinTool('builtin.notes')!;
 const navToolEntries = computed(() =>
   navToolEntriesFor(preferences.toolModules, route.name as string | undefined),
 );
-// 左栏内嵌组件(left-widget 挂载):跟随当前选中团队,全局上下文时 groupId 为空。
-const sidebarWidgets = computed(() =>
-  activeMounts('left-widget', preferences.toolModules).map(({ tool, mount }) => ({
-    id: tool.id,
-    component: mount.component,
-  })),
-);
 const notesPageComponent = computed(
   () => notesTool.mounts.find(mount => mount.slot === 'left-nav')!.component,
 );
@@ -923,7 +912,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       :current-group-id="sidebarGroupId"
       :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
       :tool-entries="navToolEntries"
-      :widget-mounts="sidebarWidgets"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"

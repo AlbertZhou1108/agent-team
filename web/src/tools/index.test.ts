@@ -87,14 +87,6 @@ describe('activeMounts', () => {
     expect(mounts[0]!.mount.component).toBeTruthy();
   });
 
-  it('right-details 通路保留但暂无内置消费者', () => {
-    expect(activeMounts('right-details', {})).toHaveLength(0);
-  });
-
-  it('left-widget 槽位当前没有内置消费者(通路为状态监看类工具保留)', () => {
-    expect(activeMounts('left-widget', {})).toHaveLength(0);
-  });
-
   it('挂载级隐藏只影响那一个槽位', () => {
     const prefs = { hidden: { 'builtin.coordination:right-tools': true } };
     expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id)).toEqual(['builtin.notes']);

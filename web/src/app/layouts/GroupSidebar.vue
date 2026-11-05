@@ -36,8 +36,6 @@ const props = defineProps<{
   homeActive: boolean;
   /** 工具模块的左导航条目(left-nav 挂载),跟在主页之后渲染。 */
   toolEntries: Array<{ id: string; label: string; icon?: unknown; current: boolean }>;
-  /** 工具的内嵌组件(left-widget 挂载),渲染在团队列表与底部状态之间。 */
-  widgetMounts: Array<{ id: string; component: unknown }>;
   agentActive: boolean;
   agentUnreadCount: number;
   settingsActive: boolean;
@@ -305,17 +303,6 @@ function submitRenameFolder() {
         主页
       </SidebarEntry>
       <SidebarEntry
-        v-for="entry in toolEntries"
-        :key="entry.id"
-        :current="entry.current"
-        :collapsed="navCollapsed"
-        :title="entry.label"
-        @activate="emit('activateTool', entry.id)"
-      >
-        <template #icon><component :is="entry.icon" v-if="entry.icon" /></template>
-        {{ entry.label }}
-      </SidebarEntry>
-      <SidebarEntry
         :current="agentActive"
         :collapsed="navCollapsed"
         :label="agentUnreadCount ? `Panel Agent，${agentUnreadCount} 条新消息` : 'Panel Agent'"
@@ -328,10 +315,23 @@ function submitRenameFolder() {
           <Badge variant="default" class="sidebar-unread-count" aria-hidden="true">{{ agentUnreadLabel }}</Badge>
         </template>
       </SidebarEntry>
+
+      <SidebarEntry
+        v-for="entry in toolEntries"
+        :key="entry.id"
+        :current="entry.current"
+        :collapsed="navCollapsed"
+        :title="entry.label"
+        @activate="emit('activateTool', entry.id)"
+      >
+        <template #icon><component :is="entry.icon" v-if="entry.icon" /></template>
+        {{ entry.label }}
+      </SidebarEntry>
     </nav>
+    <Separator class="mt-3" />
     <div
       v-if="!navCollapsed"
-      class="mt-7 flex items-center justify-between px-2"
+      class="mt-3 flex items-center justify-between px-2"
     >
       <span class="flex items-center gap-2"
         ><span class="eyebrow">团队</span></span
@@ -518,15 +518,6 @@ function submitRenameFolder() {
       </p>
     </nav>
 
-    <!-- 工具内嵌组件(left-widget 挂载):团队列表与底部状态之间,收起时不显示。 -->
-    <div v-if="widgetMounts.length && !navCollapsed" class="mt-4 flex flex-col gap-3 px-2">
-      <component
-        v-for="entry in widgetMounts"
-        :key="entry.id"
-        :is="entry.component"
-        :group-id="currentGroupId"
-      />
-    </div>
 
     <div v-if="!navCollapsed" class="mt-5 flex flex-col gap-3 pt-4">
       <div class="flex items-center gap-2 px-2 text-muted-foreground">
