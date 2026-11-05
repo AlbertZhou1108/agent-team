@@ -303,19 +303,23 @@
   }
 }
 
-/* 会话大纲:滚动区右缘的一条刻度轨。刻度 = 用户的一次提问,当前那根更长更亮;
-   悬停给出标题,点击瞬时跳到那一条。轨道本身不吃指针事件,只有刻度可点,
-   所以不挡正文选字与覆盖式滚动条。 */
+/* 会话大纲:滚动区右缘的一条目录轨。一块 = 用户的一次提问,每块等高 8px 一格,
+   可见的只是一道细线。轨道有最大高度(OUTLINE_MAX_HEIGHT):段少时整条轨抱住
+   内容并垂直居中,段多超过容量(40 块)就放粗粒度、把相邻段并成一块 ——
+   组件高度封顶,粒度由它推出。当前那块更长更亮;悬停给出标题,点击瞬时跳段。
+
+   细线放在「铺满整格高度的透明按钮」里:视觉上是 2px,命中区仍是整格 ——
+   轨道上任何一处指针都归属于唯一一块,不存在点空的死区。 */
 .conversation-outline {
   position: absolute;
   inset-block: 0;
-  inset-inline-end: 14px;
+  inset-inline-end: 12px;
   z-index: 20;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 6px;
+  inline-size: 24px;
+  align-items: center;
+  justify-content: flex-end;
+  /* 让开会话头与输入区,轨道只在中间那段高度里居中。 */
   padding-block: 96px;
   pointer-events: none;
 }
@@ -324,13 +328,20 @@
   .conversation-outline { display: none; }
 }
 
-.conversation-outline-tick {
+/* 高度由组件按块数给出(块数 × 格高),不撑满容器。 */
+.conversation-outline-rail {
   position: relative;
+  inline-size: 100%;
+  pointer-events: none;
+}
+
+.conversation-outline-band {
+  position: absolute;
+  inset-inline-end: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  inline-size: 26px;
-  block-size: 8px;
+  inline-size: 100%;
   padding: 0;
   border: 0;
   background: none;
@@ -339,34 +350,60 @@
   outline: none;
 }
 
-.conversation-outline-tick::before {
-  content: '';
-  inline-size: 16px;
-  block-size: 2px;
-  border-radius: 1px;
-  background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+/* 细线本身。悬停的层次用 --band-lift(0 常态 / 0.45 外圈 / 1 邻格 / 2 被指向)
+   驱动,让指针附近形成一小段连贯的"脊",而不是孤零零一条忽然变长。 */
+.conversation-outline-fill {
+  --band-lift: 0;
+  flex: none;
+  inline-size: calc(10px + var(--band-lift) * 6px);
+  block-size: calc(2px + var(--band-lift) * 0.5px);
+  border-radius: 999px;
+  background: color-mix(
+    in oklch,
+    var(--muted-foreground) calc(34% + var(--band-lift) * 33%),
+    transparent
+  );
   transition:
     inline-size var(--component-feedback-duration) var(--component-layout-easing),
+    block-size var(--component-feedback-duration) var(--component-layout-easing),
     background-color var(--component-feedback-duration) var(--component-layout-easing);
 }
 
-.conversation-outline-tick:hover::before {
-  inline-size: 22px;
-  background: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
-}
-
-.conversation-outline-tick:focus-visible::before {
+.conversation-outline-band:focus-visible .conversation-outline-fill {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
-.conversation-outline-tick[data-current='true']::before {
-  inline-size: 22px;
-  block-size: 3px;
+/* 当前段:常驻比常态长,用前景色,扫一眼就能定位"我在哪"。 */
+.conversation-outline-band[data-current='true'] .conversation-outline-fill {
+  inline-size: 16px;
+  block-size: 2.5px;
   background: var(--foreground);
 }
 
-/* 悬停/聚焦时给出这一段的开头预览:内容就是刻度标题(消息首行的截断)。
+/* 悬停:被指向的那条最长最亮;左右各一格次之,再外一格更弱。
+   两侧都写是因为 :has() 只能向前看,后继兄弟要靠 + 选择器。 */
+.conversation-outline-band:hover .conversation-outline-fill {
+  --band-lift: 2;
+  background: var(--foreground);
+}
+
+.conversation-outline-band:has(+ .conversation-outline-band:hover) .conversation-outline-fill,
+.conversation-outline-band:hover + .conversation-outline-band .conversation-outline-fill {
+  --band-lift: 1;
+}
+
+.conversation-outline-band:has(+ .conversation-outline-band + .conversation-outline-band:hover) .conversation-outline-fill,
+.conversation-outline-band:hover + .conversation-outline-band + .conversation-outline-band .conversation-outline-fill {
+  --band-lift: 0.45;
+}
+
+/* 悬停时当前段也要让位:指针才是此刻的焦点。 */
+.conversation-outline-rail:has(:hover) .conversation-outline-band[data-current='true'] .conversation-outline-fill {
+  background: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+
+/* 悬停/聚焦时给出这一段的开头预览:内容就是段的标题(消息首行的截断)。
    贴在轨道左侧,不参与布局,也不吃指针事件。 */
 .conversation-outline-preview {
   display: none;
@@ -382,6 +419,7 @@
   color: var(--popover-foreground);
   box-shadow: var(--component-panel-shadow);
   font-size: var(--component-control-font-size);
+  font-weight: 400;
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
@@ -389,8 +427,8 @@
   pointer-events: none;
 }
 
-.conversation-outline-tick:hover .conversation-outline-preview,
-.conversation-outline-tick:focus-visible .conversation-outline-preview {
+.conversation-outline-band:hover .conversation-outline-preview,
+.conversation-outline-band:focus-visible .conversation-outline-preview {
   display: block;
 }
 
@@ -898,7 +936,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 14px;
+  /* 这一行只交代标题与条数,不承载操作;压薄一点,让首条消息更早出现。 */
+  padding: 6px 14px;
 }
 
 .message-viewport {
@@ -928,8 +967,11 @@ button {
      才能贴满帧宽,内容也才能从栏下满幅穿过。 */
 }
 
+/* 组与组之间的节奏。20px 时换一个人说话和同一个人再说看起来一样远,
+   分组只能靠轨迹药丸撑;收到 16px 后相邻组的呼吸更紧凑,也更接近正文行高
+   (1.75 × 16 = 28px)的视觉密度。 */
 .message-content > * + * {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .context-panel {
@@ -987,6 +1029,25 @@ button {
   flex-direction: row-reverse;
 }
 
+/* 消息操作(引用/复制)。每条消息都常驻一颗按钮时,长会话整列都是按钮,
+   正文反而被压下去了 —— 只在指针进入这条消息或键盘聚焦时出现。
+   菜单展开期间用 data-state 兜住:那时焦点已经移进浮层,依赖不到行内状态。
+   触屏没有悬停,直接常驻。 */
+.message-actions {
+  opacity: 0;
+  transition: opacity var(--component-feedback-duration) var(--component-layout-easing);
+}
+
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions,
+.message-actions[data-state='open'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .message-actions { opacity: 1; }
+}
+
 .message-row .message-card {
   flex: 0 1 auto;
 }
@@ -1004,6 +1065,24 @@ button {
   width: 100%;
   flex-direction: column;
   gap: 4px;
+}
+
+/* 投递回执:它是消息块的兄弟节点而不是气泡的子节点,列布局默认 stretch 会把它
+   拉到整行左端。跟随气泡那一侧,并让开头像列,才和上面那条消息对得齐。
+   回执在 [data-message-id] 内部,不吃 .chat-message 的 gap,上间距要自己给。 */
+.message-receipt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block-start: 6px;
+  padding-inline-start: var(--message-avatar-column);
+  font-size: var(--component-control-font-size);
+  color: var(--muted-foreground);
+}
+
+.message-receipt--end {
+  justify-content: flex-end;
+  padding-inline: 0 var(--message-avatar-column);
 }
 
 /* 同发送者连续消息的后续条:占位与头像等宽,正文保持缩进对齐。 */
@@ -1214,10 +1293,11 @@ button {
 }
 
 /* 会话里的顶层折叠面板(FeedPanel:系统通知、执行轨迹)。
-   纵向节奏归这里,两个消费者不再各写一遍 —— 药丸自带 8px 内距,不加外边距时
-   它的背景会直接贴住上面的气泡。 */
+   它紧贴上一颗气泡,是那条消息的一部分,所以上方只留很小的贴合间距;
+   下边不再加自己的外边距 —— 与下一条消息的距离由 .message-content 的组间距
+   统一负责,否则「药丸→下一条」会比普通消息间距还大。 */
 .feed-panel {
-  margin-block: 8px 6px;
+  margin-block: 8px 0;
 }
 
 /* 内容靠右(用户发言那一侧):横向让开头像列,与气泡同侧。
@@ -1643,7 +1723,11 @@ button {
 .message-content {
   width: 100%;
   min-width: 0;
-  padding: var(--density-stream-pad, 24px 16px);
+  padding-block: var(--density-stream-pad-block, 24px);
+  padding-inline: var(--density-stream-pad-inline, 16px);
+  /* 会话大纲浮在右缘:给它让出一条内边距,消息头右侧的操作按钮才不会被盖住。
+     没有大纲时 --outline-gutter 为 0,不留空白。 */
+  padding-inline-end: calc(var(--density-stream-pad-inline, 16px) + var(--outline-gutter, 0px));
 }
 
 .context-tabs {
@@ -1940,21 +2024,24 @@ html[data-material='paper'] .app-shell {
 /* ===== 界面密度:只调节共享间距与容器留白,不改正文大小与点击区域 =====
    密度以 CSS 变量下发,真实表面与设置页样例消费同一组变量。 */
 html[data-density='compact'] {
-  --density-stream-pad: 14px 12px;
+  --density-stream-pad-block: 14px;
+  --density-stream-pad-inline: 12px;
   --density-header-min: 52px;
   --density-header-pad: 8px 12px;
   --density-composer-pad: 8px 12px 10px;
   --density-context-pad: 12px;
 }
 html[data-density='standard'] {
-  --density-stream-pad: 24px 16px;
+  --density-stream-pad-block: 24px;
+  --density-stream-pad-inline: 16px;
   --density-header-min: 62px;
   --density-header-pad: 11px 16px;
   --density-composer-pad: 10px 14px 12px;
   --density-context-pad: 16px;
 }
 html[data-density='loose'] {
-  --density-stream-pad: 32px 20px;
+  --density-stream-pad-block: 32px;
+  --density-stream-pad-inline: 20px;
   --density-header-min: 70px;
   --density-header-pad: 14px 18px;
   --density-composer-pad: 14px 18px 16px;

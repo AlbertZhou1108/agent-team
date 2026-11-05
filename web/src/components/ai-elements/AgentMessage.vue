@@ -160,6 +160,7 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
               <Button
                 variant="ghost"
                 size="icon-xs"
+                class="message-actions"
                 :aria-label="`消息 #${message.seq} 的操作`"
                 ><Ellipsis
               /></Button>

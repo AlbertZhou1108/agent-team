@@ -19,6 +19,11 @@ const props = defineProps<{
   hosts: Record<string, string>;
   /** 轨迹跟随消息气泡的一侧:用户的提问在右,其他人的发言在左。 */
   align?: 'start' | 'end';
+  /**
+   * 折叠态标题。群发指令下同一颗气泡挂着多条轨迹,只写「执行轨迹」会变成
+   * 两颗一模一样的药丸,读者分不清哪条属于谁 —— 这种情况由调用方带上接收者。
+   */
+  label?: string;
 }>();
 
 const expanded = ref(false);
@@ -73,7 +78,7 @@ const duration = computed(() => {
 <template>
   <FeedPanel
     class="inline-trace"
-    label="执行轨迹"
+    :label="label ?? '执行轨迹'"
     :icon="Clock3"
     :align="align"
     @update:open="expanded = $event"

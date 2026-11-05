@@ -203,6 +203,7 @@ const messageIds = computed(() => {
             :message-id="message.id"
             :hosts="hosts ?? {}"
             :align="message.senderIsUser ? 'end' : 'start'"
+            :label="`执行轨迹 · ${message.recipientName}`"
           />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
@@ -210,7 +211,12 @@ const messageIds = computed(() => {
             :interaction="interaction"
             class="mt-2"
           />
-          <p v-if="receipts[message.id]" class="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <p
+            v-if="receipts[message.id]"
+            class="message-receipt"
+            :class="message.senderIsUser && 'message-receipt--end'"
+            aria-live="polite"
+          >
             <Badge variant="outline">{{ directiveStatus(receipts[message.id]!) }}</Badge>
             <span v-if="receipts[message.id]!.error">{{ receipts[message.id]!.error }}</span>
           </p>
@@ -241,7 +247,12 @@ const messageIds = computed(() => {
             :interaction="interaction"
             class="mt-2"
           />
-          <p v-if="receipts[message.id]" class="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <p
+            v-if="receipts[message.id]"
+            class="message-receipt"
+            :class="message.senderIsUser && 'message-receipt--end'"
+            aria-live="polite"
+          >
             <Badge variant="outline">{{ directiveStatus(receipts[message.id]!) }}</Badge>
             <span v-if="receipts[message.id]!.error">{{ receipts[message.id]!.error }}</span>
           </p>
