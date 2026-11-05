@@ -34,8 +34,10 @@ const props = defineProps<{
   groups: Group[];
   currentGroupId?: string;
   homeActive: boolean;
-  /** 工具模块的左导航条目(注册表 + 用户启停推导),跟在主页之后渲染。 */
+  /** 工具模块的左导航条目(left-nav 挂载),跟在主页之后渲染。 */
   toolEntries: Array<{ id: string; label: string; icon?: unknown; current: boolean }>;
+  /** 工具的内嵌组件(left-widget 挂载),渲染在团队列表与底部状态之间。 */
+  widgetMounts: Array<{ id: string; component: unknown }>;
   agentActive: boolean;
   agentUnreadCount: number;
   settingsActive: boolean;
@@ -515,6 +517,16 @@ function submitRenameFolder() {
         还没有团队。可从主页创建。
       </p>
     </nav>
+
+    <!-- 工具内嵌组件(left-widget 挂载):团队列表与底部状态之间,收起时不显示。 -->
+    <div v-if="widgetMounts.length && !navCollapsed" class="mt-4 flex flex-col gap-3 px-2">
+      <component
+        v-for="entry in widgetMounts"
+        :key="entry.id"
+        :is="entry.component"
+        :group-id="currentGroupId"
+      />
+    </div>
 
     <div v-if="!navCollapsed" class="mt-5 flex flex-col gap-3 pt-4">
       <div class="flex items-center gap-2 px-2 text-muted-foreground">

@@ -52,22 +52,37 @@ describe('preferences appearance', () => {
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
-      toolModules: { disabled: {}, surfaces: {} },
+      toolModules: { disabled: {}, hidden: {} },
     });
   });
 
-  it('loads tool module state, discarding unknown tool ids and surfaces', () => {
+  it('loads tool module state, discarding unknown tools and slots; drops the legacy surfaces field', () => {
     stubStorage(JSON.stringify({
       toolModules: {
-        disabled: { 'builtin.notes': true, 'builtin.ghost': true, ghost: 'yes' },
-        surfaces: { 'builtin.coordination': 'right-tab', 'builtin.notes': 'nav', bogus: 3 },
+        disabled: { 'builtin.notes': true, 'builtin.ghost': true },
+        hidden: { 'builtin.coordination:right-details': true, 'builtin.notes:bogus': true },
+        surfaces: { 'builtin.coordination': 'right-tab' },
       },
     }));
     const store = usePreferencesStore();
     expect(store.toolModules).toEqual({
       disabled: { 'builtin.notes': true },
-      surfaces: { 'builtin.coordination': 'right-tab', 'builtin.notes': 'nav' },
+      hidden: { 'builtin.coordination:right-details': true },
     });
+  });
+
+  it('toggles and persists mount visibility', () => {
+    const written: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => written.push(value),
+    });
+    const store = usePreferencesStore();
+    store.setMountHidden('builtin.coordination', 'right-tools', true);
+    expect(store.toolModules.hidden['builtin.coordination:right-tools']).toBe(true);
+    store.setMountHidden('builtin.coordination', 'right-tools', false);
+    expect(store.toolModules.hidden).toEqual({});
+    expect(JSON.parse(written.at(-1)!).toolModules.hidden).toEqual({});
   });
 
   it('toggles and persists tool enablement', () => {

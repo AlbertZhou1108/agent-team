@@ -17,7 +17,7 @@ import {
   type ReadingWidth,
 } from '@/theme/apply';
 import type { ThemeTokens } from '@/theme/tokens';
-import { TOOL_SURFACES, builtinTool, type ToolSurface } from '@/tools';
+import { TOOL_SLOTS, builtinTool, type ToolSlot } from '@/tools';
 
 export type ColorMode = 'dark' | 'light' | 'system';
 
@@ -27,10 +27,10 @@ export interface ThemePackSnapshot {
   dark: ThemeTokens;
 }
 
-/** 工具模块的用户级状态:禁用开关与挂载位置覆盖,键是工具 id。 */
+/** 工具模块的用户级状态:工具级禁用 + 挂载级隐藏。hidden 的键是 `${工具id}:${槽位}`。 */
 export interface ToolModulesState {
   disabled: Record<string, boolean>;
-  surfaces: Record<string, ToolSurface>;
+  hidden: Record<string, boolean>;
 }
 
 interface PreferencesState {
@@ -64,31 +64,35 @@ function isThemePackSnapshot(value: unknown): value is ThemePackSnapshot {
   );
 }
 
-/** 键值都过白名单:非法值直接丢弃,坏数据不进状态。 */
+/** 键值都过白名单:非法值直接丢弃,坏数据不进状态。v1 的 surfaces 字段不迁移直接丢弃。 */
 function loadToolModules(value: unknown): ToolModulesState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { disabled: {}, surfaces: {} };
+    return { disabled: {}, hidden: {} };
   }
   const record = value as Record<string, unknown>;
   const entries = (input: unknown) =>
     input && typeof input === 'object' && !Array.isArray(input)
       ? Object.entries(input as Record<string, unknown>)
       : [];
+  const knownId = (key: string) => {
+    const [toolId] = key.split(':');
+    return Boolean(builtinTool(toolId));
+  };
   const disabled = Object.fromEntries(
     entries(record.disabled).filter(
       (entry): entry is [string, boolean] =>
         typeof entry[1] === 'boolean' && Boolean(builtinTool(entry[0])),
     ),
   );
-  const surfaces = Object.fromEntries(
-    entries(record.surfaces).filter(
-      (entry): entry is [string, ToolSurface] =>
-        typeof entry[1] === 'string' &&
-        (TOOL_SURFACES as readonly string[]).includes(entry[1]) &&
-        Boolean(builtinTool(entry[0])),
+  const hidden = Object.fromEntries(
+    entries(record.hidden).filter(
+      (entry): entry is [string, boolean] =>
+        typeof entry[1] === 'boolean' &&
+        knownId(entry[0]) &&
+        (TOOL_SLOTS as readonly string[]).includes(entry[0].split(':')[1] ?? ''),
     ),
   );
-  return { disabled, surfaces };
+  return { disabled, hidden };
 }
 
 function load(): PreferencesState {
@@ -107,7 +111,7 @@ function load(): PreferencesState {
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
-    toolModules: { disabled: {}, surfaces: {} },
+    toolModules: { disabled: {}, hidden: {} },
   };
   try {
     const saved = JSON.parse(
@@ -220,8 +224,10 @@ export const usePreferencesStore = defineStore('preferences', {
       else this.toolModules.disabled[id] = true;
       this.persist();
     },
-    setToolSurface(id: string, surface: ToolSurface) {
-      this.toolModules.surfaces[id] = surface;
+    setMountHidden(toolId: string, slot: ToolSlot, hidden: boolean) {
+      const key = `${toolId}:${slot}`;
+      if (hidden) this.toolModules.hidden[key] = true;
+      else delete this.toolModules.hidden[key];
       this.persist();
     },
   },

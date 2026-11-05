@@ -20,8 +20,11 @@ import {
   Bot,
   MessagesSquare,
   PanelRightOpen,
+  Wrench,
 } from '@lucide/vue';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
+import PanelState from '@/components/panel/PanelState.vue';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
@@ -57,7 +60,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
 import { usePreferencesStore } from '@/stores/preferences';
-import { builtinTool, navToolEntries as navToolEntriesFor, toolsForSurface } from '@/tools';
+import { builtinTool, activeMounts, navToolEntries as navToolEntriesFor } from '@/tools';
 import {
   usePanelAgentStore,
 } from '@/stores/panel-agent';
@@ -270,21 +273,19 @@ type ContextPanel =
   | 'members'
   | 'sessions'
   | 'details'
-  | `tool:${string}`;
+  | 'tools';
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
   if (
     value === 'collaboration' ||
     value === 'members' ||
     value === 'sessions' ||
-    value === 'details'
+    value === 'details' ||
+    value === 'tools'
   )
     return value;
-  // 工具 tab 以 tool:<id> 形式出现在 query 里,只有当前启用且挂在 right-tab 的才算数。
-  if (value.startsWith('tool:')) {
-    const id = value.slice('tool:'.length);
-    if (rightTabToolIds.value.includes(id)) return value as ContextPanel;
-  }
+  // 兼容 v1 深链(?panel=tool:<id>):工具 tab 已合并为固定的「工具」页,统一归位。
+  if (value.startsWith('tool:')) return 'tools';
   return selectedSessionId.value ? 'details' : 'collaboration';
 });
 
@@ -302,35 +303,36 @@ const selectedEndpointIsManagerPair = computed(() => {
 const managerConversationActive = computed(
   () => selectedEndpointIsManagerPair.value && activeTab.value === 'usage',
 );
-// 固定四个 tab;挂在 right-tab 的工具追加在后面(contextTabs 由 computed 推导,
-// 设置里切换工具挂载点后 tab 列表自动跟随)。
-const rightTabTools = computed(() =>
-  groupId.value ? toolsForSurface('right-tab', preferences.toolModules) : [],
-);
-const rightTabToolIds = computed(() => rightTabTools.value.map(tool => tool.id));
-
-function isToolPanel(panel: ContextPanel): boolean {
-  return panel.startsWith('tool:');
-}
-
-function rightTabTool(panel: ContextPanel) {
-  return rightTabTools.value.find(tool => `tool:${tool.id}` === panel);
-}
-const contextTabs = computed<Array<{
+// tab 恒定五个:概览/成员/会话/详情/工具。「工具」页是固定容器,页内二级切换
+// 当前显示哪个挂载在 right-tools 的工具 —— tab 数量不再随工具增减。
+const contextTabs: Array<{
   value: ContextPanel;
   label: string;
   icon: typeof Bot;
-}>>(() => [
+}> = [
   { value: 'collaboration', label: '概览', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
   { value: 'sessions', label: '会话', icon: MessagesSquare },
   { value: 'details', label: '详情', icon: Activity },
-  ...rightTabTools.value.map(tool => ({
-    value: `tool:${tool.id}` as ContextPanel,
-    label: tool.name,
-    icon: (tool.icon ?? Bot) as typeof Bot,
-  })),
-]);
+  { value: 'tools', label: '工具', icon: Wrench },
+];
+
+// 「工具」页的二级切换:当前显示哪个挂载在 right-tools 的工具(组内切换,
+// 不进 URL —— 深链只需要落到工具页)。
+const toolsPanelMounts = computed(() =>
+  groupId.value ? activeMounts('right-tools', preferences.toolModules) : [],
+);
+const toolsPanelIndex = ref(0);
+const toolsPanelCurrent = computed(() => toolsPanelMounts.value[toolsPanelIndex.value]);
+watch(toolsPanelMounts, (mounts) => {
+  if (toolsPanelIndex.value >= mounts.length) toolsPanelIndex.value = 0;
+});
+
+// 详情卡片槽与右栏快捷按钮(右栏另外两种工具呈现形态)。
+const detailCardTools = computed(() =>
+  groupId.value ? activeMounts('right-details', preferences.toolModules) : [],
+);
+const popoverMounts = computed(() => activeMounts('right-popover', preferences.toolModules));
 
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
@@ -696,13 +698,24 @@ const notesTool = builtinTool('builtin.notes')!;
 const navToolEntries = computed(() =>
   navToolEntriesFor(preferences.toolModules, route.name as string | undefined),
 );
+// 左栏内嵌组件(left-widget 挂载):跟随当前选中团队,全局上下文时 groupId 为空。
+const sidebarWidgets = computed(() =>
+  activeMounts('left-widget', preferences.toolModules).map(({ tool, mount }) => ({
+    id: tool.id,
+    component: mount.component,
+  })),
+);
+const notesPageComponent = computed(
+  () => notesTool.mounts.find(mount => mount.slot === 'left-nav')!.component,
+);
 const notesEnabled = computed(() => !preferences.toolModules.disabled[notesTool.id]);
 
 function openTool(id: string) {
-  const tool = builtinTool(id);
-  if (!tool?.routeName || route.name === tool.routeName) return;
+  // 路由属于 left-nav 挂载:工具的其他形态(浮层/内嵌)没有自己的页面。
+  const routeName = builtinTool(id)?.mounts.find(mount => mount.slot === 'left-nav')?.routeName;
+  if (!routeName || route.name === routeName) return;
   ui.closeInspector();
-  router.push({ name: tool.routeName });
+  router.push({ name: routeName });
 }
 
 function openSettingsPage() {
@@ -782,7 +795,7 @@ function setTab(tab: InspectorTab) {
 }
 
 function selectContextTab(value: string | number) {
-  const tab = contextTabs.value.find((item) => item.value === value);
+  const tab = contextTabs.find((item) => item.value === value);
   if (tab) setContextPanel(tab.value);
 }
 
@@ -875,6 +888,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       :current-group-id="sidebarGroupId"
       :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
       :tool-entries="navToolEntries"
+      :widget-mounts="sidebarWidgets"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
@@ -918,7 +932,7 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
       <CreateTeam v-else-if="route.name === 'create-team'" />
       <!-- 工具页面:启用时渲染工具组件,禁用时保留路由但给出占位。 -->
       <template v-else-if="isNotesRoute">
-        <component :is="notesTool.component" v-if="notesEnabled" />
+        <component :is="notesPageComponent" v-if="notesEnabled" />
         <Card v-else class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">「{{ notesTool.name }}」已在设置中禁用。</CardContent></Card>
       </template>
       <TeamHome
@@ -1032,19 +1046,38 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
             class="min-h-0 flex-1"
             @update:model-value="selectContextTab"
           >
-            <TabsList
-              v-if="!ui.contextCollapsed"
-              class="mx-4 w-auto max-w-full shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              aria-label="团队详情"
-            >
-              <TabsTrigger
-                v-for="item in contextTabs"
-                :key="item.value"
-                :value="item.value"
-                class="shrink-0"
-                ><component :is="item.icon" />{{ item.label }}</TabsTrigger
+            <!-- tab 行:标签组 + 右栏快捷按钮(right-popover 挂载,点击弹出内容浮层)。 -->
+            <div v-if="!ui.contextCollapsed" class="mx-4 flex shrink-0 items-center gap-0.5">
+              <TabsList
+                class="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label="团队详情"
               >
-            </TabsList>
+                <TabsTrigger
+                  v-for="item in contextTabs"
+                  :key="item.value"
+                  :value="item.value"
+                  class="shrink-0 px-1.5 text-xs"
+                  ><component :is="item.icon" class="size-3.5" />{{ item.label }}</TabsTrigger
+                >
+              </TabsList>
+              <Popover v-for="entry in popoverMounts" :key="entry.tool.id">
+                <PopoverTrigger as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="size-7 shrink-0 text-muted-foreground"
+                    :aria-label="entry.mount.label ?? entry.tool.name"
+                    :title="entry.mount.label ?? entry.tool.name"
+                  >
+                    <component :is="entry.tool.icon ?? Wrench" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" class="w-72">
+                  <p class="mb-2 text-xs font-semibold">{{ entry.mount.label ?? entry.tool.name }}</p>
+                  <component :is="entry.mount.component" :group-id="groupId" />
+                </PopoverContent>
+              </Popover>
+            </div>
             <TabsContent
               v-if="contextVisible"
               :value="contextPanel"
@@ -1085,11 +1118,37 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
-              <component
-                v-else-if="isToolPanel(contextPanel)"
-                :is="rightTabTool(contextPanel)?.component"
-                :group-id="groupId"
-              />
+              <!-- 工具页:固定容器,页内二级切换当前显示的工具;没挂载给空态。 -->
+              <div v-else-if="contextPanel === 'tools'" class="flex min-w-0 flex-col gap-3">
+                <div
+                  v-if="toolsPanelMounts.length > 1"
+                  class="flex flex-wrap gap-1"
+                  role="tablist"
+                  aria-label="工具切换"
+                >
+                  <Button
+                    v-for="(entry, index) in toolsPanelMounts"
+                    :key="entry.tool.id"
+                    size="sm"
+                    :variant="index === toolsPanelIndex ? 'secondary' : 'ghost'"
+                    class="h-7 text-xs"
+                    @click="toolsPanelIndex = index"
+                  >
+                    {{ entry.mount.label ?? entry.tool.name }}
+                  </Button>
+                </div>
+                <PanelState
+                  v-if="!toolsPanelCurrent"
+                  :icon="Wrench"
+                  title="没有启用的工具"
+                  description="在设置 → 工具里启用并勾选「右栏工具页」。"
+                />
+                <component
+                  v-else
+                  :is="toolsPanelCurrent.mount.component"
+                  :group-id="groupId"
+                />
+              </div>
               <InspectorPanel
                 v-else
                 class="inspector-embedded"

@@ -1,51 +1,69 @@
 import type { Component } from 'vue';
 import { NotebookPen } from '@lucide/vue';
 import NotesWorkspace from '@/features/notes/NotesWorkspace.vue';
+import NotesQuickInput from '@/features/notes/NotesQuickInput.vue';
 import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinationView.vue';
 
 /**
- * 工具模块契约:面板里的一个功能就是一个工具,声明自己能挂在哪里,
- * 用户决定装不装(禁用)、挂在哪。本文件同时是契约、内置注册表与解析层 ——
- * 第一阶段只有内置工具,收在一个文件里;阶段 2 引入外部安装包时再拆。
+ * 工具模块契约 v2:面板里的一个功能就是一个工具,通过**挂载(mount)**声明
+ * 自己在两个侧栏里以什么形态出现,用户决定装不装(禁用)、每个挂载显不显示。
+ * 本文件同时是契约、内置注册表与解析层;阶段 2 引入外部安装包时再拆。
  *
- * 边界(有意收窄):只有「可选、自包含、往槽位里加内容」的功能才做成工具
+ * 位置只有两个(左侧栏/右侧栏),细分五种槽位:
+ * - left-nav     左导航入口(点击打开工具页面)
+ * - left-widget  左栏内嵌内容(如状态监看图)
+ * - right-tools  右栏固定的「工具」标签页内容(页内二级切换)
+ * - right-details 右栏「详情」标签页里的卡片
+ * - right-popover 右栏快捷按钮,点击弹出浮层内容
+ *
+ * 工具只提供内容组件,入口的按钮/标签/浮层外壳由宿主渲染 —— 形态与内容解耦。
+ *
+ * 边界(有意收窄):只有「可选、自包含、禁用后核心无损」的功能才做成工具
  * ——禁用它,面板的核心工作(通过会话协调 Agent)毫发无损。会话流、输入区、
  * 团队管理、设置、Panel Agent、全局搜索是面板骨架,永不模块化;外部工具
- * (阶段 2)也只进这三个槽位,不提供路由级扩展或消息流协议接入。
+ * (阶段 2)也只进这些槽位,不提供路由级扩展或消息流协议接入。
  *
  * 注意与 `src/tools.mjs`(Agent 可调用的 send/tasks_set 等工具)无关。
  */
 
-export const TOOL_SURFACES = ['nav', 'right-tab', 'details-card'] as const;
-export type ToolSurface = (typeof TOOL_SURFACES)[number];
+export const TOOL_SLOTS = [
+  'left-nav',
+  'left-widget',
+  'right-tools',
+  'right-details',
+  'right-popover',
+] as const;
+export type ToolSlot = (typeof TOOL_SLOTS)[number];
 export type ToolScope = 'global' | 'team';
 
-/** 设置页与提示里对挂载点的统一称呼。 */
-export const TOOL_SURFACE_LABELS: Record<ToolSurface, string> = {
-  nav: '左导航',
-  'right-tab': '右栏标签',
-  'details-card': '详情卡片',
+/** 设置页与提示里对槽位的统一称呼。 */
+export const TOOL_SLOT_LABELS: Record<ToolSlot, string> = {
+  'left-nav': '左导航入口',
+  'left-widget': '左栏组件',
+  'right-tools': '右栏工具页',
+  'right-details': '详情卡片',
+  'right-popover': '右栏快捷按钮',
 };
 
-export interface ToolManifest {
+export interface ToolMount {
+  slot: ToolSlot;
+  /** 该挂载点渲染的内容组件,统一 props { groupId?: string }。 */
+  component: Component;
+  /** 入口/浮层/二级切换上的文案;缺省用工具名。 */
+  label?: string;
+  /** 仅 left-nav:点击导航到的路由名。 */
+  routeName?: string;
+}
+
+export interface ToolDefinition {
   id: string;
   name: string;
   description?: string;
-  /** global=不依赖团队(左导航);team=需要 groupId,只在团队工作区渲染。 */
+  /** global=不依赖团队;left-nav 挂载必须是 global;team 挂载接收 groupId。 */
   scope: ToolScope;
-  /** 支持的挂载点,至少一个。 */
-  surfaces: ToolSurface[];
-  /** 默认挂载点,必须在 surfaces 里;也是"恢复默认"的锚。 */
-  defaultSurface: ToolSurface;
-}
-
-export interface ToolDefinition extends ToolManifest {
-  /** 统一接收 { groupId?: string },数据自取(vue-query 同 key 自动共享缓存)。 */
-  component: Component;
-  /** 工具自己的图标(导航条目/设置页用)。 */
+  /** 挂载声明,至少一个;同一槽位最多出现一次。 */
+  mounts: ToolMount[];
   icon?: Component;
-  /** nav 工具对应的路由名:激活态判定与跳转都用它。 */
-  routeName?: string;
 }
 
 const coordinationTool: ToolDefinition = {
@@ -53,9 +71,11 @@ const coordinationTool: ToolDefinition = {
   name: '协调遥测',
   description: '主 Agent 协调会话的执行方、来源与批次概览。',
   scope: 'team',
-  surfaces: ['details-card', 'right-tab'],
-  defaultSurface: 'details-card',
-  component: TelemetryCoordinationView,
+  mounts: [
+    // 详情卡片是默认形态;也可以在右栏工具页里打开 —— 两个位置独立开关。
+    { slot: 'right-details', component: TelemetryCoordinationView },
+    { slot: 'right-tools', component: TelemetryCoordinationView, label: '协调遥测' },
+  ],
 };
 
 const notesTool: ToolDefinition = {
@@ -63,11 +83,11 @@ const notesTool: ToolDefinition = {
   name: '随心记',
   description: '私人随手记,不进团队会话。',
   scope: 'global',
-  surfaces: ['nav'],
-  defaultSurface: 'nav',
-  component: NotesWorkspace,
+  mounts: [
+    { slot: 'left-nav', component: NotesWorkspace, routeName: 'notes' },
+    { slot: 'right-popover', component: NotesQuickInput, label: '快速记一笔' },
+  ],
   icon: NotebookPen,
-  routeName: 'notes',
 };
 
 /** 内置工具随应用发布、不可卸载,只有启用/禁用状态(照内置主题"不进库"先例)。 */
@@ -77,29 +97,52 @@ export function builtinTool(id: string): ToolDefinition | undefined {
   return BUILTIN_TOOLS.find(tool => tool.id === id);
 }
 
-/** 过滤掉被禁用的工具。禁用只影响渲染,数据与配置保留,可随时恢复。 */
-export function enabledTools(disabled: Record<string, boolean> = {}): ToolDefinition[] {
-  return BUILTIN_TOOLS.filter(tool => !disabled[tool.id]);
+/** 用户级工具状态:工具级禁用 + 挂载级隐藏,键见 enabledMounts。 */
+export interface ToolUserState {
+  disabled: Record<string, boolean>;
+  hidden: Record<string, boolean>;
 }
 
-/** 用户的位置覆盖只在工具声明过的挂载点里生效,否则回落默认。 */
-export function resolveSurface(tool: ToolDefinition, override?: string): ToolSurface {
-  if (override && tool.surfaces.includes(override as ToolSurface)) {
-    return override as ToolSurface;
-  }
-  return tool.defaultSurface;
+const mountKey = (toolId: string, slot: ToolSlot) => `${toolId}:${slot}`;
+
+/** 挂载是否显示:工具未禁用且该挂载未被单独隐藏。 */
+export function isMountVisible(
+  tool: ToolDefinition,
+  mount: ToolMount,
+  prefs: { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
+): boolean {
+  return !prefs.disabled?.[tool.id] && !prefs.hidden?.[mountKey(tool.id, mount.slot)];
 }
 
-/** 某个挂载点上该出现的工具:启用 + 生效位置匹配,消费点只有这一种问法。 */
-export function toolsForSurface(
-  surface: ToolSurface,
-  prefs: { disabled?: Record<string, boolean>; surfaces?: Record<string, string> },
+export interface MountedTool {
+  tool: ToolDefinition;
+  mount: ToolMount;
+}
+
+/** 未被禁用的工具(整体级):挂载级显隐由 isMountVisible/activeMounts 负责。 */
+export function enabledToolsOf(
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
 ): ToolDefinition[] {
-  return enabledTools(prefs.disabled)
-    .filter(tool => resolveSurface(tool, prefs.surfaces?.[tool.id]) === surface);
+  return BUILTIN_TOOLS.filter(tool => !prefs.disabled?.[tool.id]);
 }
 
-/** 左导航条目:global 工具生效位置为 nav 时出现,激活态由当前路由名判定。 */
+/** 某个槽位当前该显示的挂载,按注册顺序。 */
+export function activeMounts(
+  slot: ToolSlot,
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
+): MountedTool[] {
+  const result: MountedTool[] = [];
+  for (const tool of BUILTIN_TOOLS) {
+    for (const mount of tool.mounts) {
+      if (mount.slot === slot && isMountVisible(tool, mount, prefs)) {
+        result.push({ tool, mount });
+      }
+    }
+  }
+  return result;
+}
+
+/** 左导航条目:left-nav 挂载生成,激活态由当前路由名判定。 */
 export interface ToolNavEntry {
   id: string;
   routeName: string;
@@ -109,16 +152,16 @@ export interface ToolNavEntry {
 }
 
 export function navToolEntries(
-  prefs: { disabled?: Record<string, boolean>; surfaces?: Record<string, string> },
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
   currentRouteName?: string,
 ): ToolNavEntry[] {
-  return toolsForSurface('nav', prefs)
-    .filter(tool => tool.routeName)
-    .map(tool => ({
+  return activeMounts('left-nav', prefs)
+    .filter(({ mount }) => Boolean(mount.routeName))
+    .map(({ tool, mount }) => ({
       id: tool.id,
-      routeName: tool.routeName!,
+      routeName: mount.routeName!,
       label: tool.name,
       icon: tool.icon,
-      current: tool.routeName === currentRouteName,
+      current: mount.routeName === currentRouteName,
     }));
 }

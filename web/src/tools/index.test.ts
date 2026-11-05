@@ -1,98 +1,114 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_TOOLS,
-  TOOL_SURFACE_LABELS,
-  TOOL_SURFACES,
+  TOOL_SLOTS,
+  TOOL_SLOT_LABELS,
   builtinTool,
-  enabledTools,
+  enabledToolsOf,
+  activeMounts,
+  isMountVisible,
   navToolEntries,
-  resolveSurface,
-  toolsForSurface,
+  type ToolDefinition,
 } from './index';
 
 describe('内置工具注册表', () => {
-  it('每个工具的 manifest 都满足契约不变式', () => {
+  it('每个工具都满足挂载契约不变式', () => {
     for (const tool of BUILTIN_TOOLS) {
       expect(tool.id).toMatch(/^builtin\./);
       expect(tool.name.length).toBeGreaterThan(0);
-      expect(tool.surfaces.length).toBeGreaterThan(0);
-      for (const surface of tool.surfaces) {
-        expect(TOOL_SURFACES).toContain(surface);
+      expect(tool.mounts.length).toBeGreaterThan(0);
+      const slots = tool.mounts.map(mount => mount.slot);
+      // 同一槽位最多声明一次。
+      expect(new Set(slots).size).toBe(slots.length);
+      for (const slot of slots) expect(TOOL_SLOTS).toContain(slot);
+      // 左导航是全局位置:必须是 global 工具且带路由。
+      for (const mount of tool.mounts) {
+        if (mount.slot === 'left-nav') {
+          expect(tool.scope).toBe('global');
+          expect(mount.routeName).toBeTruthy();
+        }
       }
-      expect(tool.surfaces).toContain(tool.defaultSurface);
-      // 左导航是全局位置:团队级工具不允许挂上去。
-      if (tool.surfaces.includes('nav')) expect(tool.scope).toBe('global');
     }
   });
 
-  it('首批两个工具覆盖 nav 与 details-card 两个侧边栏', () => {
-    expect(builtinTool('builtin.notes')?.surfaces).toEqual(['nav']);
-    expect(builtinTool('builtin.coordination')?.surfaces).toContain('details-card');
+  it('首批工具覆盖两个侧栏的多种形态', () => {
+    const coordination = builtinTool('builtin.coordination')!;
+    expect(coordination.mounts.map(mount => mount.slot)).toEqual(['right-details', 'right-tools']);
+    const notes = builtinTool('builtin.notes')!;
+    expect(notes.mounts.map(mount => mount.slot)).toEqual(['left-nav', 'right-popover']);
   });
 
-  it('挂载点都有统一的中文称呼', () => {
-    for (const surface of TOOL_SURFACES) {
-      expect(TOOL_SURFACE_LABELS[surface].length).toBeGreaterThan(0);
+  it('每个槽位都有统一的中文称呼', () => {
+    for (const slot of TOOL_SLOTS) {
+      expect(TOOL_SLOT_LABELS[slot].length).toBeGreaterThan(0);
     }
   });
 });
 
-describe('enabledTools', () => {
-  it('默认全启用;禁用的工具被过滤,其余保留', () => {
-    expect(enabledTools({})).toHaveLength(BUILTIN_TOOLS.length);
-    const result = enabledTools({ 'builtin.notes': true });
-    expect(result.map(tool => tool.id)).not.toContain('builtin.notes');
-    expect(result.map(tool => tool.id)).toContain('builtin.coordination');
+describe('enabledToolsOf', () => {
+  const byId = (tools: ToolDefinition[]) => tools.map(tool => tool.id);
+
+  it('默认全启用;禁用的工具被整体过滤', () => {
+    expect(enabledToolsOf({})).toHaveLength(BUILTIN_TOOLS.length);
+    expect(byId(enabledToolsOf({ disabled: { 'builtin.notes': true } }))).not.toContain('builtin.notes');
   });
 
-  it('未知工具 id 的禁用记录不影响任何人', () => {
-    expect(enabledTools({ 'builtin.ghost': true })).toHaveLength(BUILTIN_TOOLS.length);
-  });
-});
-
-describe('resolveSurface', () => {
-  const tool = builtinTool('builtin.coordination')!;
-
-  it('没有覆盖时用默认挂载点', () => {
-    expect(resolveSurface(tool)).toBe('details-card');
-  });
-
-  it('覆盖值在工具声明过的挂载点内才生效', () => {
-    expect(resolveSurface(tool, 'right-tab')).toBe('right-tab');
-    expect(resolveSurface(tool, 'nav')).toBe('details-card');
-    expect(resolveSurface(tool, ' nonsense ')).toBe('details-card');
+  it('未知工具 id 的记录不影响任何人', () => {
+    expect(enabledToolsOf({ disabled: { 'builtin.ghost': true } })).toHaveLength(BUILTIN_TOOLS.length);
   });
 });
 
-describe('toolsForSurface', () => {
-  const prefs = { disabled: {}, surfaces: { 'builtin.coordination': 'right-tab' } };
+describe('isMountVisible', () => {
+  const notes = builtinTool('builtin.notes')!;
+  const popover = notes.mounts.find(mount => mount.slot === 'right-popover')!;
 
-  it('按生效挂载点分组:位置切换后工具跟着走', () => {
-    expect(toolsForSurface('details-card', prefs)).toHaveLength(0);
-    const rightTab = toolsForSurface('right-tab', prefs);
-    expect(rightTab.map(tool => tool.id)).toEqual(['builtin.coordination']);
+  it('工具禁用压过一切:挂载再未隐藏也不显示', () => {
+    expect(isMountVisible(notes, popover, { disabled: { 'builtin.notes': true } })).toBe(false);
   });
 
-  it('禁用的工具不出现在任何挂载点', () => {
-    const disabled = { ...prefs, disabled: { 'builtin.coordination': true } };
-    expect(toolsForSurface('right-tab', disabled)).toHaveLength(0);
+  it('挂载级隐藏只影响那一个位置', () => {
+    const prefs = { hidden: { 'builtin.notes:right-popover': true } };
+    expect(isMountVisible(notes, popover, prefs)).toBe(false);
+    const nav = notes.mounts.find(mount => mount.slot === 'left-nav')!;
+    expect(isMountVisible(notes, nav, prefs)).toBe(true);
+  });
+
+  it('未知键与空状态都按显示处理', () => {
+    expect(isMountVisible(notes, popover, {})).toBe(true);
+    expect(isMountVisible(notes, popover, { hidden: { 'builtin.ghost:left-nav': true } })).toBe(true);
+  });
+});
+
+describe('activeMounts', () => {
+  it('按槽位取挂载,内容与归属都在', () => {
+    const mounts = activeMounts('right-details', {});
+    expect(mounts).toHaveLength(1);
+    expect(mounts[0]!.tool.id).toBe('builtin.coordination');
+    expect(mounts[0]!.mount.component).toBeTruthy();
+  });
+
+  it('right-tools 与 right-details 是独立开关的两个槽位', () => {
+    const prefs = { hidden: { 'builtin.coordination:right-details': true } };
+    expect(activeMounts('right-details', prefs)).toHaveLength(0);
+    expect(activeMounts('right-tools', prefs)).toHaveLength(1);
+  });
+
+  it('left-widget 槽位当前没有内置消费者(通路为外部工具保留)', () => {
+    expect(activeMounts('left-widget', {})).toHaveLength(0);
   });
 });
 
 describe('navToolEntries', () => {
-  it('global 工具生成导航条目,激活态由路由名判定', () => {
+  it('left-nav 挂载生成导航条目,激活态由路由名判定', () => {
     const entries = navToolEntries({}, 'notes');
     expect(entries).toEqual([
       { id: 'builtin.notes', routeName: 'notes', label: '随心记', icon: expect.anything(), current: true },
     ]);
   });
 
-  it('禁用后导航条目消失', () => {
-    expect(navToolEntries({ disabled: { 'builtin.notes': true }, surfaces: {} })).toEqual([]);
-  });
-
-  it('团队级工具不会出现在左导航', () => {
-    const entries = navToolEntries({}, undefined);
-    expect(entries.map(entry => entry.id)).not.toContain('builtin.coordination');
+  it('禁用后导航条目消失;团队级工具不进左导航', () => {
+    expect(navToolEntries({ disabled: { 'builtin.notes': true } })).toEqual([]);
+    const ids = navToolEntries({}).map(entry => entry.id);
+    expect(ids).not.toContain('builtin.coordination');
   });
 });
