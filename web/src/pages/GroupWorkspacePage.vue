@@ -24,7 +24,6 @@ import {
 } from '@lucide/vue';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import PanelState from '@/components/panel/PanelState.vue';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
@@ -317,22 +316,15 @@ const contextTabs: Array<{
   { value: 'tools', label: '工具', icon: Wrench },
 ];
 
-// 「工具」页的二级切换:当前显示哪个挂载在 right-tools 的工具(组内切换,
-// 不进 URL —— 深链只需要落到工具页)。
+// 「工具」页:每个挂载一个可折叠区块,堆叠展示。
 const toolsPanelMounts = computed(() =>
   groupId.value ? activeMounts('right-tools', preferences.toolModules) : [],
 );
-const toolsPanelIndex = ref(0);
-const toolsPanelCurrent = computed(() => toolsPanelMounts.value[toolsPanelIndex.value]);
-watch(toolsPanelMounts, (mounts) => {
-  if (toolsPanelIndex.value >= mounts.length) toolsPanelIndex.value = 0;
-});
 
-// 详情卡片槽与右栏快捷按钮(右栏另外两种工具呈现形态)。
+// 详情卡片槽(右栏的另一种呈现)。
 const detailCardTools = computed(() =>
   groupId.value ? activeMounts('right-details', preferences.toolModules) : [],
 );
-const popoverMounts = computed(() => activeMounts('right-popover', preferences.toolModules));
 
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
@@ -1060,23 +1052,6 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   ><component :is="item.icon" class="size-3.5" />{{ item.label }}</TabsTrigger
                 >
               </TabsList>
-              <Popover v-for="entry in popoverMounts" :key="entry.tool.id">
-                <PopoverTrigger as-child>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="size-7 shrink-0 text-muted-foreground"
-                    :aria-label="entry.mount.label ?? entry.tool.name"
-                    :title="entry.mount.label ?? entry.tool.name"
-                  >
-                    <component :is="entry.tool.icon ?? Wrench" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" class="w-72">
-                  <p class="mb-2 text-xs font-semibold">{{ entry.mount.label ?? entry.tool.name }}</p>
-                  <component :is="entry.mount.component" :group-id="groupId" />
-                </PopoverContent>
-              </Popover>
             </div>
             <TabsContent
               v-if="contextVisible"
@@ -1118,36 +1093,26 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
-              <!-- 工具页:固定容器,页内二级切换当前显示的工具;没挂载给空态。 -->
-              <div v-else-if="contextPanel === 'tools'" class="flex min-w-0 flex-col gap-3">
-                <div
-                  v-if="toolsPanelMounts.length > 1"
-                  class="flex flex-wrap gap-1"
-                  role="tablist"
-                  aria-label="工具切换"
-                >
-                  <Button
-                    v-for="(entry, index) in toolsPanelMounts"
-                    :key="entry.tool.id"
-                    size="sm"
-                    :variant="index === toolsPanelIndex ? 'secondary' : 'ghost'"
-                    class="h-7 text-xs"
-                    @click="toolsPanelIndex = index"
-                  >
-                    {{ entry.mount.label ?? entry.tool.name }}
-                  </Button>
-                </div>
+              <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,内容是组件本身。 -->
+              <div v-else-if="contextPanel === 'tools'" class="flex min-w-0 flex-col gap-4">
                 <PanelState
-                  v-if="!toolsPanelCurrent"
+                  v-if="!toolsPanelMounts.length"
                   :icon="Wrench"
                   title="没有启用的工具"
                   description="在设置 → 工具里启用并勾选「右栏工具页」。"
                 />
-                <component
-                  v-else
-                  :is="toolsPanelCurrent.mount.component"
-                  :group-id="groupId"
-                />
+                <Disclosure
+                  v-for="entry in toolsPanelMounts"
+                  :key="entry.tool.id"
+                  :default-open="true"
+                >
+                  <template #summary>
+                    <h3 class="text-sm font-semibold">{{ entry.mount.label ?? entry.tool.name }}</h3>
+                  </template>
+                  <div class="mt-3">
+                    <component :is="entry.mount.component" :group-id="groupId" />
+                  </div>
+                </Disclosure>
               </div>
               <InspectorPanel
                 v-else

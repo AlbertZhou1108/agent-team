@@ -9,14 +9,13 @@ import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinatio
  * 自己在两个侧栏里以什么形态出现,用户决定装不装(禁用)、每个挂载显不显示。
  * 本文件同时是契约、内置注册表与解析层;阶段 2 引入外部安装包时再拆。
  *
- * 位置只有两个(左侧栏/右侧栏),细分五种槽位:
+ * 位置只有两个(左侧栏/右侧栏),细分四种槽位:
  * - left-nav     左导航入口(点击打开工具页面)
  * - left-widget  左栏内嵌内容(如状态监看图)
- * - right-tools  右栏固定的「工具」标签页内容(页内二级切换)
+ * - right-tools  右栏固定的「工具」标签页:每个工具一个可折叠区块,堆叠展示
  * - right-details 右栏「详情」标签页里的卡片
- * - right-popover 右栏快捷按钮,点击弹出浮层内容
  *
- * 工具只提供内容组件,入口的按钮/标签/浮层外壳由宿主渲染 —— 形态与内容解耦。
+ * 工具只提供内容组件,入口的按钮/标签/折叠区块外壳由宿主渲染 —— 形态与内容解耦。
  *
  * 边界(有意收窄):只有「可选、自包含、禁用后核心无损」的功能才做成工具
  * ——禁用它,面板的核心工作(通过会话协调 Agent)毫发无损。会话流、输入区、
@@ -26,13 +25,7 @@ import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinatio
  * 注意与 `src/tools.mjs`(Agent 可调用的 send/tasks_set 等工具)无关。
  */
 
-export const TOOL_SLOTS = [
-  'left-nav',
-  'left-widget',
-  'right-tools',
-  'right-details',
-  'right-popover',
-] as const;
+export const TOOL_SLOTS = ['left-nav', 'left-widget', 'right-tools', 'right-details'] as const;
 export type ToolSlot = (typeof TOOL_SLOTS)[number];
 export type ToolScope = 'global' | 'team';
 
@@ -42,7 +35,6 @@ export const TOOL_SLOT_LABELS: Record<ToolSlot, string> = {
   'left-widget': '左栏组件',
   'right-tools': '右栏工具页',
   'right-details': '详情卡片',
-  'right-popover': '右栏快捷按钮',
 };
 
 export interface ToolMount {
@@ -85,7 +77,7 @@ const notesTool: ToolDefinition = {
   scope: 'global',
   mounts: [
     { slot: 'left-nav', component: NotesWorkspace, routeName: 'notes' },
-    { slot: 'right-popover', component: NotesQuickInput, label: '快速记一笔' },
+    { slot: 'right-tools', component: NotesQuickInput, label: '快速记一笔' },
   ],
   icon: NotebookPen,
 };

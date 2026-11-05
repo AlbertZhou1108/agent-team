@@ -35,7 +35,7 @@ describe('内置工具注册表', () => {
     const coordination = builtinTool('builtin.coordination')!;
     expect(coordination.mounts.map(mount => mount.slot)).toEqual(['right-details', 'right-tools']);
     const notes = builtinTool('builtin.notes')!;
-    expect(notes.mounts.map(mount => mount.slot)).toEqual(['left-nav', 'right-popover']);
+    expect(notes.mounts.map(mount => mount.slot)).toEqual(['left-nav', 'right-tools']);
   });
 
   it('每个槽位都有统一的中文称呼', () => {
@@ -60,22 +60,22 @@ describe('enabledToolsOf', () => {
 
 describe('isMountVisible', () => {
   const notes = builtinTool('builtin.notes')!;
-  const popover = notes.mounts.find(mount => mount.slot === 'right-popover')!;
+  const quickInput = notes.mounts.find(mount => mount.slot === 'right-tools')!;
 
   it('工具禁用压过一切:挂载再未隐藏也不显示', () => {
-    expect(isMountVisible(notes, popover, { disabled: { 'builtin.notes': true } })).toBe(false);
+    expect(isMountVisible(notes, quickInput, { disabled: { 'builtin.notes': true } })).toBe(false);
   });
 
   it('挂载级隐藏只影响那一个位置', () => {
-    const prefs = { hidden: { 'builtin.notes:right-popover': true } };
-    expect(isMountVisible(notes, popover, prefs)).toBe(false);
+    const prefs = { hidden: { 'builtin.notes:right-tools': true } };
+    expect(isMountVisible(notes, quickInput, prefs)).toBe(false);
     const nav = notes.mounts.find(mount => mount.slot === 'left-nav')!;
     expect(isMountVisible(notes, nav, prefs)).toBe(true);
   });
 
   it('未知键与空状态都按显示处理', () => {
-    expect(isMountVisible(notes, popover, {})).toBe(true);
-    expect(isMountVisible(notes, popover, { hidden: { 'builtin.ghost:left-nav': true } })).toBe(true);
+    expect(isMountVisible(notes, quickInput, {})).toBe(true);
+    expect(isMountVisible(notes, quickInput, { hidden: { 'builtin.ghost:left-nav': true } })).toBe(true);
   });
 });
 
@@ -90,7 +90,11 @@ describe('activeMounts', () => {
   it('right-tools 与 right-details 是独立开关的两个槽位', () => {
     const prefs = { hidden: { 'builtin.coordination:right-details': true } };
     expect(activeMounts('right-details', prefs)).toHaveLength(0);
-    expect(activeMounts('right-tools', prefs)).toHaveLength(1);
+    // 随心记的快捷输入也挂在工具页:协调遥测隐藏详情卡片不影响它。
+    expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id)).toEqual([
+      'builtin.coordination',
+      'builtin.notes',
+    ]);
   });
 
   it('left-widget 槽位当前没有内置消费者(通路为外部工具保留)', () => {
