@@ -155,6 +155,8 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
             class="message-time text-xs text-muted-foreground tabular-nums"
             >{{ time }}</time
           >
+          <!-- 头部动作区:执行轨迹入口这类跟随消息的开关挂在这里,位于 ⋯ 菜单之前。 -->
+          <slot name="header-actions" :message="message" />
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <Button

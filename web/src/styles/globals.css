@@ -1044,6 +1044,12 @@ button {
   opacity: 1;
 }
 
+/* 轨迹开关:与 ⋯ 一致的悬停显隐;展开期间常驻并用前景色提示"这张消息的轨迹开着"。 */
+.message-trace-toggle[data-active='true'] {
+  opacity: 1;
+  color: var(--foreground);
+}
+
 @media (hover: none) {
   .message-actions { opacity: 1; }
 }
@@ -1292,25 +1298,12 @@ button {
   place-items: center;
 }
 
-/* 会话里的顶层折叠面板(FeedPanel:系统通知、执行轨迹)。
+/* 会话里的顶层折叠面板(FeedPanel:系统通知堆栈)。
    它紧贴上一颗气泡,是那条消息的一部分,所以上方只留很小的贴合间距;
    下边不再加自己的外边距 —— 与下一条消息的距离由 .message-content 的组间距
    统一负责,否则「药丸→下一条」会比普通消息间距还大。 */
 .feed-panel {
   margin-block: 8px 0;
-}
-
-/* 内容靠右(用户发言那一侧):横向让开头像列,与气泡同侧。
-   用 flex 而不是 text-align —— 触发条是块级 flex 容器(fit-content),
-   文字对齐影响不到它,只有 flex 的 justify 能把它推到右端。 */
-.feed-panel--end {
-  margin-inline-start: 0;
-  margin-inline-end: var(--message-avatar-column);
-}
-
-.feed-panel--end > [data-slot="disclosure-header"] {
-  display: flex;
-  justify-content: flex-end;
 }
 
 /* 收起成一颗药丸:标题只有几个字,可点区域与背景不需要横贯整栏。
@@ -1322,7 +1315,8 @@ button {
   margin-inline: -8px;
 }
 
-/* 轨迹跟着气泡走:左边让开头像列,右边贴齐。宽度取「这一类气泡能长到的最大宽」,
+/* 展开的行内轨迹:跟在气泡后面,是消息的一部分。
+   左边让开头像列与气泡对齐;宽度取「这一类气泡能长到的最大宽」,
    不是当前气泡的实宽:短消息的气泡很窄,但轨迹里是步骤列表,跟着缩成一条窄柱
    就没法读了。气泡自己的上限是 max-w-[80%](ghost 变体为 max-w-full),而轨迹的
    包含块与气泡所在的 .message-row 同宽 —— 照抄同一个百分比就得到同一个像素值,
@@ -1331,6 +1325,7 @@ button {
   inline-size: 100%;
   max-inline-size: 80%;
   min-inline-size: 0;
+  margin-block-start: 6px;
   margin-inline-start: var(--message-avatar-column);
 }
 
@@ -1339,14 +1334,13 @@ button {
   max-inline-size: calc(100% - var(--message-avatar-column));
 }
 
-
-
-.inline-trace-loading {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 5px;
+/* 用户侧的消息(对齐右):让开右端头像位,与气泡同侧。 */
+.inline-trace--end {
+  margin-inline-start: 0;
+  margin-inline-end: var(--message-avatar-column);
 }
+
+
 
 /* 行内轨迹现在是单张卡片:高度上限与滚动留在卡片本身,内距交给 Card 契约,
    这里只管"超长时在卡片内滚动"这一件事。不要在这里写 padding —— 它会覆盖

@@ -3,7 +3,7 @@ import FeedPanel from '@/components/ai-elements/FeedPanel.vue';
 import { computed, ref, watch } from 'vue';
 import type { MessageFeedProps } from './message-feed-types';
 import PanelState from '@/components/panel/PanelState.vue';
-import { LoaderCircle, MessagesSquare } from '@lucide/vue';
+import { LoaderCircle, MessagesSquare, Clock3 } from '@lucide/vue';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import ConversationOutline from './ConversationOutline.vue';
@@ -47,10 +47,24 @@ const emit = defineEmits<{
 
 // 多路并发时由运行卡决定展示哪一路正文;切换会话时清空选择。
 const selectedRunKey = ref<string | null>(null);
+// 执行轨迹的开关收进消息头:收起时零占位(药丸形态曾占会话两成高度),
+// 展开状态在这里统一持有 —— 普通消息按消息 id,群发组只有一颗开关、
+// 展开堆叠组内全部轨迹,键取组首消息 id。
+const expandedTraces = ref(new Set<string>());
 watch(
   () => props.resetKey ?? props.selectedPair,
-  () => { selectedRunKey.value = null; },
+  () => {
+    selectedRunKey.value = null;
+    expandedTraces.value = new Set();
+  },
 );
+const traceExpanded = (id: string) => expandedTraces.value.has(id);
+function toggleTrace(id: string) {
+  const next = new Set(expandedTraces.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedTraces.value = next;
+}
 
 const filtered = computed(() =>
   props.selectedPair
@@ -177,7 +191,8 @@ const messageIds = computed(() => {
       </FeedPanel>
       <template v-else-if="group.fanout">
         <!-- 轨迹以消息为单位:同一指令发往多个成员是多次独立的发送,各自一段轨迹。
-             正文只展示一次,但每条消息保留自己的锚点、轨迹与回执。 -->
+             正文只展示一次,但每条消息保留自己的锚点、轨迹与回执。
+             开关只有消息头上一颗,展开后组内全部轨迹按接收者标注堆叠。 -->
         <div
           v-for="(message, index) in group.messages"
           :key="message.id"
@@ -189,22 +204,42 @@ const messageIds = computed(() => {
             :fanout-recipients="group.messages.map(item => item.recipientName)"
             :markdown="markdown"
           >
+            <template #header-actions>
+              <Button
+                v-if="traceable && traceCandidates.has(message.id)"
+                variant="ghost"
+                size="icon-xs"
+                class="message-actions message-trace-toggle"
+                :data-active="traceExpanded(message.id)"
+                :aria-expanded="traceExpanded(message.id)"
+                :aria-label="`本次群发的执行轨迹`"
+                title="执行轨迹"
+                @click="toggleTrace(message.id)"
+              >
+                <Clock3 />
+              </Button>
+            </template>
             <template v-if="$slots.footer" #footer="{ message }">
               <slot name="footer" :message="message" />
             </template>
           </AgentMessage>
+          <template v-if="index === 0 && traceExpanded(message.id)">
+            <template v-for="traceMessage in group.messages" :key="traceMessage.id">
+              <MessageTrace
+                v-if="traceCandidates.has(traceMessage.id)"
+                :message-id="traceMessage.id"
+                :hosts="hosts ?? {}"
+                expanded
+                :align="traceMessage.senderIsUser ? 'end' : 'start'"
+                :label="traceMessage.recipientName"
+              />
+            </template>
+          </template>
           <p
-            v-else
+            v-if="index > 0"
             class="sr-only"
             aria-hidden="true"
           >{{ message.senderName }} → {{ message.recipientName }}：{{ message.text }}</p>
-          <MessageTrace
-            v-if="traceable && traceCandidates.has(message.id)"
-            :message-id="message.id"
-            :hosts="hosts ?? {}"
-            :align="message.senderIsUser ? 'end' : 'start'"
-            :label="`执行轨迹 · ${message.recipientName}`"
-          />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
             :key="interaction.id"
@@ -231,6 +266,21 @@ const messageIds = computed(() => {
           :data-message-id="message.id"
         >
           <AgentMessage :message="message" :compact="index > 0" :markdown="markdown">
+            <template #header-actions>
+              <Button
+                v-if="traceable && traceCandidates.has(message.id)"
+                variant="ghost"
+                size="icon-xs"
+                class="message-actions message-trace-toggle"
+                :data-active="traceExpanded(message.id)"
+                :aria-expanded="traceExpanded(message.id)"
+                :aria-label="`消息 #${message.seq} 的执行轨迹`"
+                title="执行轨迹"
+                @click="toggleTrace(message.id)"
+              >
+                <Clock3 />
+              </Button>
+            </template>
             <template v-if="$slots.footer" #footer="{ message }">
               <slot name="footer" :message="message" />
             </template>
@@ -239,6 +289,7 @@ const messageIds = computed(() => {
             v-if="traceable && traceCandidates.has(message.id)"
             :message-id="message.id"
             :hosts="hosts ?? {}"
+            :expanded="traceExpanded(message.id)"
             :align="message.senderIsUser ? 'end' : 'start'"
           />
           <InteractionCard
