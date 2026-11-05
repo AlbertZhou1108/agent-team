@@ -105,8 +105,22 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
       "
     >
       <BubbleContent>
-        <div v-if="quoted.items.length" class="flex flex-col gap-1 pb-2">
-          <Button v-for="item in quoted.items" :key="item.id" variant="outline" size="sm" class="h-auto min-w-0 justify-start" @click="reveal(item.id)"><span class="flex min-w-0 flex-col items-start gap-1"><span>{{item.sender}} · #{{item.seq}}</span><span class="line-clamp-2 break-all text-left">{{item.text}}</span></span></Button>
+        <!-- 引用块:按钮自带 whitespace-nowrap/shrink-0,这里必须放开换行并允许收缩,
+             否则长引用不换行,被气泡的 overflow-hidden 裁掉右边。 -->
+        <div v-if="quoted.items.length" class="flex min-w-0 flex-col gap-1 pb-2">
+          <Button
+            v-for="item in quoted.items"
+            :key="item.id"
+            variant="outline"
+            size="sm"
+            class="h-auto w-full min-w-0 shrink justify-start whitespace-normal"
+            @click="reveal(item.id)"
+          >
+            <span class="flex min-w-0 flex-col items-start gap-1">
+              <span>{{ item.sender }} · #{{ item.seq }}</span>
+              <span class="line-clamp-2 break-all text-left">{{ item.text }}</span>
+            </span>
+          </Button>
         </div>
         <div :class="cn('message-head', compact && 'message-head-compact')">
           <span v-if="message.kind !== 'send'" class="message-icon">
