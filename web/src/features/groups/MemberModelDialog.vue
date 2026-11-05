@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import { Brain } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,7 @@ const hosts = ref<AvailableHost[]>([]);
 const loading = ref(false);
 const busy = ref(false);
 
-const form = reactive<PanelAgentForm>({
+const form = ref<PanelAgentForm>({
   name: '',
   host: '',
   model_provider: '',
@@ -55,23 +55,23 @@ async function loadCatalog() {
       .map((host) => ({ host: host.host, catalog: host.catalog! }));
     if (!hosts.value.length) toast.error('宿主模型目录不可用', { description: props.member.host });
     const host = hosts.value[0];
-    const hadModel = Boolean(form.model);
+    const hadModel = Boolean(form.value.model);
     const model = host
-      ? (host.catalog.models.find((item) => item.id === form.model)
+      ? (host.catalog.models.find((item) => item.id === form.value.model)
         ?? host.catalog.models.find((item) => item.id === host.catalog.defaultModel)
         ?? host.catalog.models.find((item) => item.isDefault)
         ?? host.catalog.models[0])
       : undefined;
     if (host && model) {
       const efforts = model.reasoningEfforts.length ? model.reasoningEfforts : host.catalog.reasoningEfforts;
-      const effortSupported = form.reasoning_effort && efforts.some((item) => item.id === form.reasoning_effort);
-      Object.assign(form, {
+      const effortSupported = form.value.reasoning_effort && efforts.some((item) => item.id === form.value.reasoning_effort);
+      Object.assign(form.value, {
         host: host.host,
         model_provider: model.provider ?? '',
         model: model.id,
         // 已有配置且强度仍受支持时保留原值，否则回退模型默认
         reasoning_effort: hadModel && effortSupported
-          ? form.reasoning_effort
+          ? form.value.reasoning_effort
           : model.defaultReasoningEffort ?? efforts[0]?.id ?? '',
       });
     }
@@ -86,7 +86,7 @@ watch(
   () => [open.value, props.member?.id] as const,
   ([isOpen]) => {
     if (!isOpen || !props.member) return;
-    Object.assign(form, {
+    Object.assign(form.value, {
       name: props.member.name,
       host: props.member.host,
       model_provider: props.member.model_provider ?? '',
@@ -102,12 +102,12 @@ watch(
 async function submit(reset: boolean) {
   if (!props.member || busy.value) return;
   // 未选模型时按钮已禁用并带原因提示,这里只做兜底拦截,不再弹 toast。
-  if (!reset && !form.model) return;
+  if (!reset && !form.value.model) return;
   busy.value = true;
   try {
     const member = await api.updateMemberModel(props.member.group_id, props.member.id, reset
       ? {}
-      : { model_provider: form.model_provider || null, model: form.model, reasoning_effort: form.reasoning_effort || null });
+      : { model_provider: form.value.model_provider || null, model: form.value.model, reasoning_effort: form.value.reasoning_effort || null });
     toast.success(`已将 ${props.member.name} 的模型${reset ? '恢复为宿主默认' : '调整完成'}`);
     emit('saved', member);
     open.value = false;
