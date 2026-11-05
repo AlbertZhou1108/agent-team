@@ -18,6 +18,7 @@ import { useMediaQuery } from '@vueuse/core';
 import {
   Activity,
   Bot,
+  GripVertical,
   MessagesSquare,
   PanelRightOpen,
   Wrench,
@@ -59,7 +60,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
 import { usePreferencesStore } from '@/stores/preferences';
-import { builtinTool, activeMounts, navToolEntries as navToolEntriesFor } from '@/tools';
+import { builtinTool, activeMounts, navToolEntries as navToolEntriesFor, mountKey } from '@/tools';
+import { dropSide, type DropSide } from '@/shared/drag-order';
 import {
   usePanelAgentStore,
 } from '@/stores/panel-agent';
@@ -325,6 +327,47 @@ const toolsPanelMounts = computed(() =>
 const detailCardTools = computed(() =>
   groupId.value ? activeMounts('right-details', preferences.toolModules) : [],
 );
+
+// 工具页的拖拽排序:抓手拖动,落点用与左栏一致的 before/after 判定,
+// 新顺序整表写回偏好(只含当前槽位的键)。
+const toolDragging = ref<string>();
+const toolInsertion = ref<{ id: string; side: DropSide }>();
+function startToolDrag(id: string, event: DragEvent) {
+  toolDragging.value = id;
+  event.dataTransfer?.setData('text/plain', id);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+function clearToolDrag() {
+  toolDragging.value = undefined;
+  toolInsertion.value = undefined;
+}
+function showToolInsertion(id: string, event: DragEvent) {
+  if (toolDragging.value !== id) {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    toolInsertion.value = { id, side: dropSide(event, rect, 'y') };
+  }
+}
+function leaveToolInsertion(event: DragEvent) {
+  const element = event.currentTarget as HTMLElement;
+  if (!element.contains(event.relatedTarget as Node | null)) toolInsertion.value = undefined;
+}
+function toolInsertionSide(id: string) {
+  return toolInsertion.value?.id === id ? toolInsertion.value.side : undefined;
+}
+function reorderTools(targetId: string, event: DragEvent) {
+  const source = toolDragging.value;
+  clearToolDrag();
+  if (!source || source === targetId) return;
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const after = dropSide(event, rect, 'y') === 'after';
+  const order = toolsPanelMounts.value
+    .map(({ tool }) => mountKey(tool.id, 'right-tools'))
+    .filter(key => key !== source);
+  const index = order.indexOf(targetId);
+  if (index < 0) return;
+  order.splice(index + (after ? 1 : 0), 0, source);
+  preferences.setToolOrder('right-tools', order);
+}
 
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
@@ -1093,7 +1136,8 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
-              <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,内容是组件本身。 -->
+              <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,默认收起;
+                   拖拽标题左侧的抓手可排序,顺序按槽位记在工具偏好里。 -->
               <div v-else-if="contextPanel === 'tools'" class="flex min-w-0 flex-col gap-4">
                 <PanelState
                   v-if="!toolsPanelMounts.length"
@@ -1101,18 +1145,31 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   title="没有启用的工具"
                   description="在设置 → 工具里启用并勾选「右栏工具页」。"
                 />
-                <Disclosure
+                <div
                   v-for="entry in toolsPanelMounts"
                   :key="entry.tool.id"
-                  :default-open="true"
+                  data-drop-axis="y"
+                  :data-drop-side="toolInsertionSide(entry.tool.id)"
+                  @dragover.prevent="showToolInsertion(entry.tool.id, $event)"
+                  @dragleave="leaveToolInsertion($event)"
+                  @drop.prevent="reorderTools(mountKey(entry.tool.id, 'right-tools'), $event)"
                 >
-                  <template #summary>
-                    <h3 class="text-sm font-semibold">{{ entry.mount.label ?? entry.tool.name }}</h3>
-                  </template>
-                  <div class="mt-3">
-                    <component :is="entry.mount.component" :group-id="groupId" />
-                  </div>
-                </Disclosure>
+                  <Disclosure>
+                    <template #summary>
+                      <span
+                        class="-mx-1 inline-flex cursor-grab items-center rounded px-1 text-muted-foreground/60 active:cursor-grabbing"
+                        draggable="true"
+                        title="拖拽排序"
+                        @dragstart="startToolDrag(mountKey(entry.tool.id, 'right-tools'), $event)"
+                        @dragend="clearToolDrag"
+                      ><GripVertical class="size-3.5" /></span>
+                      <h3 class="text-sm font-semibold">{{ entry.tool.name }}</h3>
+                    </template>
+                    <div class="mt-3">
+                      <component :is="entry.mount.component" :group-id="groupId" />
+                    </div>
+                  </Disclosure>
+                </div>
               </div>
               <InspectorPanel
                 v-else

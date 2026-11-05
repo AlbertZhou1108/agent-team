@@ -41,8 +41,6 @@ export interface ToolMount {
   slot: ToolSlot;
   /** 该挂载点渲染的内容组件,统一 props { groupId?: string }。 */
   component: Component;
-  /** 入口/浮层/二级切换上的文案;缺省用工具名。 */
-  label?: string;
   /** 仅 left-nav:点击导航到的路由名。 */
   routeName?: string;
 }
@@ -66,7 +64,7 @@ const coordinationTool: ToolDefinition = {
   mounts: [
     // 详情卡片是默认形态;也可以在右栏工具页里打开 —— 两个位置独立开关。
     { slot: 'right-details', component: TelemetryCoordinationView },
-    { slot: 'right-tools', component: TelemetryCoordinationView, label: '协调遥测' },
+    { slot: 'right-tools', component: TelemetryCoordinationView },
   ],
 };
 
@@ -77,7 +75,7 @@ const notesTool: ToolDefinition = {
   scope: 'global',
   mounts: [
     { slot: 'left-nav', component: NotesWorkspace, routeName: 'notes' },
-    { slot: 'right-tools', component: NotesQuickInput, label: '快速记一笔' },
+    { slot: 'right-tools', component: NotesQuickInput },
   ],
   icon: NotebookPen,
 };
@@ -89,13 +87,15 @@ export function builtinTool(id: string): ToolDefinition | undefined {
   return BUILTIN_TOOLS.find(tool => tool.id === id);
 }
 
-/** 用户级工具状态:工具级禁用 + 挂载级隐藏,键见 enabledMounts。 */
+/** 用户级工具状态:工具级禁用 + 挂载级隐藏 + 槽位内排序,键见下。 */
 export interface ToolUserState {
   disabled: Record<string, boolean>;
   hidden: Record<string, boolean>;
+  /** 每个槽位的挂载显示顺序,值是 `${工具id}:${槽位}` 键的有序列表;缺省按注册顺序。 */
+  order: Record<string, string[]>;
 }
 
-const mountKey = (toolId: string, slot: ToolSlot) => `${toolId}:${slot}`;
+export const mountKey = (toolId: string, slot: ToolSlot) => `${toolId}:${slot}`;
 
 /** 挂载是否显示:工具未禁用且该挂载未被单独隐藏。 */
 export function isMountVisible(
@@ -118,20 +118,21 @@ export function enabledToolsOf(
   return BUILTIN_TOOLS.filter(tool => !prefs.disabled?.[tool.id]);
 }
 
-/** 某个槽位当前该显示的挂载,按注册顺序。 */
+/** 某个槽位当前该显示的挂载:先按用户排序(order 里的键),未记录的按注册顺序跟在后面。 */
 export function activeMounts(
   slot: ToolSlot,
-  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean>; order?: Record<string, string[]> },
 ): MountedTool[] {
-  const result: MountedTool[] = [];
-  for (const tool of BUILTIN_TOOLS) {
-    for (const mount of tool.mounts) {
-      if (mount.slot === slot && isMountVisible(tool, mount, prefs)) {
-        result.push({ tool, mount });
-      }
-    }
-  }
-  return result;
+  const order = prefs.order?.[slot];
+  const rank = (toolId: string) => {
+    const index = order?.indexOf(mountKey(toolId, slot)) ?? -1;
+    return index < 0 ? Number.POSITIVE_INFINITY : index;
+  };
+  return enabledToolsOf(prefs)
+    .flatMap(tool => tool.mounts
+      .filter(mount => mount.slot === slot && isMountVisible(tool, mount, prefs))
+      .map(mount => ({ tool, mount })))
+    .sort((a, b) => rank(a.tool.id) - rank(b.tool.id));
 }
 
 /** 左导航条目:left-nav 挂载生成,激活态由当前路由名判定。 */

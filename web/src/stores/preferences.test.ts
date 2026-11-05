@@ -52,7 +52,7 @@ describe('preferences appearance', () => {
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
-      toolModules: { disabled: {}, hidden: {} },
+      toolModules: { disabled: {}, hidden: {}, order: {} },
     });
   });
 
@@ -68,6 +68,21 @@ describe('preferences appearance', () => {
     expect(store.toolModules).toEqual({
       disabled: { 'builtin.notes': true },
       hidden: { 'builtin.coordination:right-details': true },
+      order: {},
+    });
+  });
+
+  it('keeps only known-tool order lists and drops non-string entries', () => {
+    stubStorage(JSON.stringify({
+      toolModules: {
+        order: {
+          'right-tools': ['builtin.notes:right-tools', 'builtin.coordination:right-tools', 42],
+          'right-bogus': ['x'],
+        },
+      },
+    }));
+    expect(usePreferencesStore().toolModules.order).toEqual({
+      'right-tools': ['builtin.notes:right-tools', 'builtin.coordination:right-tools'],
     });
   });
 

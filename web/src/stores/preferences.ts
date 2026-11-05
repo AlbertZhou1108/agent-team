@@ -27,10 +27,12 @@ export interface ThemePackSnapshot {
   dark: ThemeTokens;
 }
 
-/** 工具模块的用户级状态:工具级禁用 + 挂载级隐藏。hidden 的键是 `${工具id}:${槽位}`。 */
+/** 工具模块的用户级状态:工具级禁用 + 挂载级隐藏 + 槽位内排序。
+ *  hidden 的键是 `${工具id}:${槽位}`;order 的值是该槽位挂载键的有序列表。 */
 export interface ToolModulesState {
   disabled: Record<string, boolean>;
   hidden: Record<string, boolean>;
+  order: Record<string, string[]>;
 }
 
 interface PreferencesState {
@@ -67,7 +69,7 @@ function isThemePackSnapshot(value: unknown): value is ThemePackSnapshot {
 /** 键值都过白名单:非法值直接丢弃,坏数据不进状态。v1 的 surfaces 字段不迁移直接丢弃。 */
 function loadToolModules(value: unknown): ToolModulesState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { disabled: {}, hidden: {} };
+    return { disabled: {}, hidden: {}, order: {} };
   }
   const record = value as Record<string, unknown>;
   const entries = (input: unknown) =>
@@ -92,7 +94,21 @@ function loadToolModules(value: unknown): ToolModulesState {
         (TOOL_SLOTS as readonly string[]).includes(entry[0].split(':')[1] ?? ''),
     ),
   );
-  return { disabled, hidden };
+  // 顺序表的键是槽位名,值内的挂载键必须工具与槽位都已知。
+  const knownMountKey = (key: string) => {
+    const [toolId, slot] = key.split(':');
+    return Boolean(builtinTool(toolId)) && (TOOL_SLOTS as readonly string[]).includes(slot ?? '');
+  };
+  const order = Object.fromEntries(
+    entries(record.order)
+      .filter((entry): entry is [string, unknown[]] =>
+        (TOOL_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
+      .map(([slot, list]) => [
+        slot,
+        list.filter((item): item is string => typeof item === 'string' && knownMountKey(item)),
+      ]),
+  );
+  return { disabled, hidden, order };
 }
 
 function load(): PreferencesState {
@@ -111,7 +127,7 @@ function load(): PreferencesState {
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
-    toolModules: { disabled: {}, hidden: {} },
+    toolModules: { disabled: {}, hidden: {}, order: {} },
   };
   try {
     const saved = JSON.parse(
@@ -228,6 +244,10 @@ export const usePreferencesStore = defineStore('preferences', {
       const key = `${toolId}:${slot}`;
       if (hidden) this.toolModules.hidden[key] = true;
       else delete this.toolModules.hidden[key];
+      this.persist();
+    },
+    setToolOrder(slot: ToolSlot, keys: string[]) {
+      this.toolModules.order[slot] = keys;
       this.persist();
     },
   },
