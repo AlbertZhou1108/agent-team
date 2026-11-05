@@ -1085,12 +1085,13 @@ button {
   padding: 3px 5px;
 }
 
+/* 行内轨迹现在是单张卡片:高度上限与滚动留在卡片本身,内距交给 Card 契约,
+   这里只管"超长时在卡片内滚动"这一件事。不要在这里写 padding —— 它会覆盖
+   Card 的 --card-padding。 */
 .inline-trace-content {
   max-height: min(480px, 55vh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  margin-top: 7px;
-  padding: 10px;
 }
 
 .message-icon {

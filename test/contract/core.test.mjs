@@ -143,6 +143,16 @@ test('HTTP panel needs no key or cookie, rejects DNS rebinding and paginates rec
   for (let i = 0; i < 205; i++) server.bus.store.append(group.id, 'system', group.lead, 'system', `notice-${i}`);
   const first = await (await fetch(base + `/api/messages?group=${group.id}`, { headers })).json(); assert.equal(first.length, 200);
   const second = await (await fetch(base + `/api/messages?group=${group.id}&after=${first.at(-1).seq}`, { headers })).json(); assert.equal(second.length, 5);
+  // 消息带上产出它的回合:前端按回合去重行内轨迹,一个回合只渲染一份。
+  assert.equal(first[0].turn_id, null, '系统通知没有产出回合');
+  const produced = server.bus.store.get('SELECT id,seq FROM messages WHERE group_id=? ORDER BY seq LIMIT 1', group.id);
+  server.bus.store.run(
+    "INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES('trace-turn',(SELECT id FROM conversations WHERE group_id=? LIMIT 1),'member',?,?, 'completed',?)",
+    group.id, group.lead, group.id, new Date().toISOString(),
+  );
+  server.bus.store.run('INSERT INTO message_origins(message_id,turn_id,call_id) VALUES(?,?,?)', produced.id, 'trace-turn', 'call-1');
+  const withTurn = await (await fetch(base + `/api/messages?group=${group.id}&after=${produced.seq - 1}`, { headers })).json();
+  assert.equal(withTurn.find(row => row.id === produced.id)?.turn_id, 'trace-turn');
   assert.equal(resolvePanelFile('/groups/example', 'text/html').type, 'text/html');
   assert.equal(resolvePanelFile('/groups/example', 'application/json'), null);
   assert.equal(resolvePanelFile('/assets/missing.js', 'text/javascript').type, 'text/javascript');
@@ -315,6 +325,12 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   for (const id of [privateId, 'missing']) assert.equal((await fetch(`${base}/api/turn?turn=${id}`, { headers })).status, 404);
   const first = await (await fetch(`${base}/api/turn?turn=${publicId}`, { headers })).json();
   assert.equal(first.events.length, 200);
+  // 宿主随回合返回:前端据此选择事件 schema,不需要另查会话列表。
+  assert.equal(first.turn.host, 'fake');
+  // 事件按页返回,回合级事实必须单独给出,否则长回合的用时/状态无从判断。
+  assert.ok(first.eventCount > first.events.length, 'eventCount 应大于单页事件数');
+  assert.equal(first.turn.state, 'completed');
+  assert.ok(first.turn.ended);
   assert.deepEqual(first.modelObservations.map(event => event.model), ['test-model']);
   assert.equal(first.currentModel.model, 'test-model');
   assert.equal(first.currentReasoningEffort.reasoningEffort, 'low');

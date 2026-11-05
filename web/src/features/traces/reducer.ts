@@ -70,7 +70,7 @@ function parseRows(rows: HistoryRow[], hosts: Record<string, Host>): ParsedRow[]
     } catch {
       payload = null;
     }
-    return { ...row, payload, host: hosts[row.endpoint_id] ?? 'unknown' };
+    return { ...row, payload, host: hosts[row.conversation_id] ?? 'unknown' };
   });
 }
 
@@ -192,6 +192,10 @@ function mapUniversal(row: ParsedRow, p: Payload, steps: Map<string, TraceStep>)
     }));
     return true;
   }
+  // 其余 framework.* 是总线自己的管道事件(context/policy 快照、遥测投影、
+  // 流式增量、原生回合引用…):它们是执行轨迹的原料,不是轨迹里的步骤。
+  // 上面已产步骤的类型走不到这里,剩下的按噪音吸收,不再降级成"未识别事件"。
+  if (type?.startsWith('framework.')) return true;
   return false;
 }
 
@@ -379,9 +383,27 @@ function turnStatus(turnId: string, steps: TraceStep[], latestRunningTurn: strin
   return 'unknown';
 }
 
+/** 服务端记录的回合状态 → 视图状态。 */
+function serverStatus(state: string | undefined): TurnStatus {
+  if (state === 'completed') return 'completed';
+  if (state === 'failed') return 'error';
+  if (state === 'running') return 'running';
+  if (state === 'cancelled') return 'cancelled';
+  if (state === 'stopped') return 'stopped';
+  return 'unknown';
+}
+
 export function buildTurns(
   rows: HistoryRow[],
-  options: { hosts?: Record<string, Host>; running?: boolean } = {},
+  options: {
+    hosts?: Record<string, Host>;
+    running?: boolean;
+    /**
+     * 回合级事实。事件接口按页返回,超长回合的 turn_end 可能不在本页里:
+     * 只凭已加载事件推断状态,长回合会误报「状态未知」。有这些字段时以服务端为准。
+     */
+    turn?: { state?: string; eventCount?: number };
+  } = {},
 ): TurnView[] {
   const parsed = parseRows(rows, options.hosts ?? {});
   const steps = new Map<string, TraceStep>();
@@ -431,14 +453,25 @@ export function buildTurns(
     .sort((a, b) => Math.max(...b[1].map(step => step.sortSeq)) - Math.max(...a[1].map(step => step.sortSeq)))[0]?.[0] ?? null;
   const latestRunningTurn = options.running ? latestKnownTurn : null;
 
+  // 已加载的原始事件数(不是步骤数):截断判断要和接口返回的页大小对比。
+  const loadedEvents = rows.length;
+  const totalEvents = options.turn?.eventCount;
+  const truncated = typeof totalEvents === 'number' && loadedEvents < totalEvents;
+  // 服务端状态是权威值:事件段可能只覆盖消息产出那一截,不含回合结束事件,
+  // 此时再靠事件推断会误报「状态未知」。给了状态就以它为准。
+  const recordedState = options.turn?.state;
+
   return [...groups.entries()].map(([id, values]) => {
     const ordered = [...values].sort((a, b) => a.sortSeq - b.sortSeq);
     return {
       id,
-      status: turnStatus(id, ordered, latestRunningTurn),
+      status: recordedState
+        ? serverStatus(recordedState)
+        : turnStatus(id, ordered, latestRunningTurn),
       steps: ordered,
       firstSeq: ordered[0]?.sortSeq ?? 0,
       lastSeq: ordered.at(-1)?.sortSeq ?? 0,
+      ...(truncated ? { truncated, loadedEvents, totalEvents } : {}),
     };
   }).sort((a, b) => b.lastSeq - a.lastSeq);
 }

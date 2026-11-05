@@ -315,6 +315,8 @@ export interface MessageRow {
   text: string;
   reply_to: string | null;
   created: string;
+  /** 产出这条消息的回合;用户/系统消息为 null。一个回合可产出多条消息。 */
+  turn_id?: string | null;
 }
 
 export type InteractionKind =
@@ -373,7 +375,8 @@ export interface Interaction {
 
 export interface HistoryRow {
   seq: number;
-  endpoint_id: string;
+  /** 服务端字段名(v7 起 history 表按会话归属,列名 conversation_id)。 */
+  conversation_id: string;
   event: string;
   created: string;
   turn_id: string | null;
@@ -404,6 +407,22 @@ export interface MessageTrace {
     session: string | null;
     created: string;
   }>;
+  /** 产出这条消息的事件段;仅 segment=1 时返回。 */
+  segment?: {
+    startSeq: number;
+    endSeq: number;
+    events: HistoryRow[];
+  } | null;
+  /** 该消息所属回合的级事实;仅 segment=1 且有回合时返回。 */
+  turn?: {
+    id: string;
+    state: string;
+    created: string;
+    ended: string | null;
+    host: string | null;
+    group_id: string | null;
+    endpoint_id: string | null;
+  } | null;
 }
 
 export interface PanelStream {
@@ -462,11 +481,19 @@ export interface TurnTrace extends ModelState {
     endpoint_id: string;
     session: string | null;
     created: string;
+    /** 回合结束时间;仍在运行时为 null。 */
+    ended: string | null;
+    /** 回合状态真值,不依赖事件是否被截断。 */
+    state: string;
     group_id: string;
     member_id: string;
     context: string;
     peer: string | null;
+    /** 执行者宿主:决定按哪套 schema 解释事件。 */
+    host: string | null;
   };
+  /** 该回合的事件总数;events 只含本页,二者不等即表示被截断。 */
+  eventCount: number;
   nativeTurnRefs: string[];
   inputMessages: Array<{ id: string; kind: string; ordinal: number }>;
   outgoingMessages: Array<{

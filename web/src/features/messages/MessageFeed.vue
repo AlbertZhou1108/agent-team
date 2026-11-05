@@ -76,6 +76,18 @@ const renderGroups = computed(() =>
   })),
 );
 const receipts = computed(() => Object.fromEntries((props.directives ?? []).map(r => [r.messageId, r])));
+// 哪些消息可以展开执行轨迹:轨迹的单位是消息,每条消息对应它自己那次发送的
+// 事件段。系统通知、用户发言、以及后端查不到回合来源的消息都不提供入口——
+// 展开只会是「没有可用的执行轨迹」。
+const traceCandidates = computed(() => {
+  const ids = new Set<string>();
+  for (const message of filtered.value) {
+    if (message.kind === 'system' || message.senderIsUser) continue;
+    if (!message.turnId) continue;
+    ids.add(message.id);
+  }
+  return ids;
+});
 const messageInteractions = computed(() => {
   const map: Record<string, Interaction[]> = {};
   for (const item of props.interactions ?? []) {
@@ -168,12 +180,8 @@ const messageIds = computed(() => {
         </div>
       </Disclosure>
       <template v-else-if="group.fanout">
-        <MessageTrace
-          v-if="traceable"
-          :message-id="group.messages[0]!.id"
-          :hosts="hosts ?? {}"
-        />
-        <!-- 相同指令群发:正文展示一次,头部列出全部接收者;逐条保留锚点与回执 -->
+        <!-- 轨迹以消息为单位:同一指令发往多个成员是多次独立的发送,各自一段轨迹。
+             正文只展示一次,但每条消息保留自己的锚点、轨迹与回执。 -->
         <div
           v-for="(message, index) in group.messages"
           :key="message.id"
@@ -194,6 +202,11 @@ const messageIds = computed(() => {
             class="sr-only"
             aria-hidden="true"
           >{{ message.senderName }} → {{ message.recipientName }}：{{ message.text }}</p>
+          <MessageTrace
+            v-if="traceable && traceCandidates.has(message.id)"
+            :message-id="message.id"
+            :hosts="hosts ?? {}"
+          />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
             :key="interaction.id"
@@ -207,13 +220,8 @@ const messageIds = computed(() => {
         </div>
       </template>
       <template v-else>
-        <!-- 执行轨迹只在可能有关联回合时渲染:系统通知与 Panel 私聊消息永远没有轨迹,展开必是空态。 -->
-        <MessageTrace
-          v-if="traceable && group.messages[0]!.kind !== 'system' && !group.messages[0]!.senderIsUser"
-          :message-id="group.messages[0]!.id"
-          :hosts="hosts ?? {}"
-        />
-        <!-- 每条消息保留独立锚点;同发送者连续消息仅首条显示身份 -->
+        <!-- 每条消息保留独立锚点;同发送者连续消息仅首条显示身份。
+             轨迹跟随各自的消息,不同消息对应不同的产出事件段。 -->
         <div
           v-for="(message, index) in group.messages"
           :key="message.id"
@@ -224,6 +232,11 @@ const messageIds = computed(() => {
               <slot name="footer" :message="message" />
             </template>
           </AgentMessage>
+          <MessageTrace
+            v-if="traceable && traceCandidates.has(message.id)"
+            :message-id="message.id"
+            :hosts="hosts ?? {}"
+          />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
             :key="interaction.id"

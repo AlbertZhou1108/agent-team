@@ -304,8 +304,11 @@ export const api = {
   models(endpoint: string, after = 0, signal?: AbortSignal) {
     return request<ModelsPage>(query('/api/models', { endpoint, after }), signal);
   },
-  messageTrace(message: string, signal?: AbortSignal) {
-    return request<MessageTrace>(query('/api/message-trace', { message }), signal);
+  messageTrace(message: string, signal?: AbortSignal, options: { segment?: boolean } = {}) {
+    return request<MessageTrace>(
+      query('/api/message-trace', options.segment ? { message, segment: '1' } : { message }),
+      signal,
+    );
   },
   turn(turn: string, after = 0, signal?: AbortSignal) {
     return request<TurnTrace>(query('/api/turn', { turn, after }), signal);

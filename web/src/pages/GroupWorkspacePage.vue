@@ -307,7 +307,9 @@ const contextTabs: Array<{
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
 const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
-const sessionsQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'sessions'), signal => api.sessions(groupId.value, signal), () => Boolean(groupId.value) && contextVisible.value && contextPanel.value === 'sessions');
+// 会话列表不只服务右侧栏:endpoints → 宿主映射是执行轨迹解释事件的前提,
+// 只在"会话 tab 打开时"才取会让轨迹在默认视图下全部降级成未识别事件。
+const sessionsQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'sessions'), signal => api.sessions(groupId.value, signal), () => Boolean(groupId.value));
 const tasksQuery = useResourceQuery(() => queryKeys.resource(groupId.value, 'tasks'), signal => api.tasks(groupId.value, signal), () => Boolean(groupId.value) && contextVisible.value && contextPanel.value === 'collaboration');
 const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
 const interactionsQuery = useInteractionsQuery(() => groupId.value || undefined);

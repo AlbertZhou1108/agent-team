@@ -10,10 +10,20 @@ import {
   CircleDot,
   LoaderCircle,
 } from '@lucide/vue';
-import type { TurnView } from '@/shared/models/view-types';
+import type { TurnStatus, TurnView } from '@/shared/models/view-types';
 import TraceStepCard from './TraceStepCard.vue';
 
 defineProps<{ turns: TurnView[] }>();
+
+const statusLabels: Record<TurnStatus, string> = {
+  running: '运行中',
+  completed: '已完成',
+  error: '失败',
+  cancelled: '已取消',
+  stopped: '已停止',
+  unknown: '状态未知',
+};
+const statusLabel = (status: TurnStatus) => statusLabels[status];
 </script>
 
 <template>
@@ -41,15 +51,7 @@ defineProps<{ turns: TurnView[] }>();
             /><AlertTriangle v-else-if="turn.status === 'error'" /><CircleDot
               v-else
             />
-            {{
-              turn.status === 'running'
-                ? '运行中'
-                : turn.status === 'completed'
-                  ? '已完成'
-                  : turn.status === 'error'
-                    ? '失败'
-                    : '状态未知'
-            }}
+            {{ statusLabel(turn.status) }}
           </Badge>
         </template>
         <div class="flex flex-col">

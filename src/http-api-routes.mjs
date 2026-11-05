@@ -6,6 +6,10 @@ import { interactionView } from './bus.mjs';
 import { attachmentError, ATTACHMENT_IMAGE_TYPES } from './attachments.mjs';
 // Each declaration owns matching, allowed methods, archived access and dispatch.
 
+// 消息列表统一带上产出它的回合:一个回合可以产出多条消息,前端据此让行内
+// 执行轨迹只渲染一份。用户/系统消息没有回合,列为 null。
+const MESSAGE_WITH_TURN = `SELECT m.*,(SELECT o.turn_id FROM message_origins o WHERE o.message_id=m.id) AS turn_id FROM messages m`;
+
 // 附件路由的状态码映射:错误 JSON 统一为稳定 {code,error},前端只展示 error。
 const ATTACHMENT_STATUS = {
     payload_too_large: 413,
@@ -527,38 +531,40 @@ export function apiRoutes(context) {
                         ? { ...conversation, member_id: conversation.member_id ?? conversation.panel_agent_id, peer: conversation.peer ?? null }
                         : null;
                     const params = [group];
-                    let where = 'group_id=?';
+                    // turn_id 让前端知道消息由哪个回合产出:一个回合可能产出多条
+                    // 消息,行内执行轨迹据此只渲染一份,而不是每组各渲染一遍。
+                    let where = 'm.group_id=?';
                     if (endpointId && !endpoint)
                         return fail(404, '不存在的团队会话');
                     if (endpoint?.peer) {
-                        where += ' AND ((sender=? AND recipient=?) OR (sender=? AND recipient=?))';
+                        where += ' AND ((m.sender=? AND m.recipient=?) OR (m.sender=? AND m.recipient=?))';
                         params.push(endpoint.member_id, endpoint.peer, endpoint.peer, endpoint.member_id);
                     }
                     else if (endpoint) {
-                        where += ' AND (sender=? OR recipient=?)';
+                        where += ' AND (m.sender=? OR m.recipient=?)';
                         params.push(endpoint.member_id, endpoint.member_id);
                     }
                     const before = Number(url.searchParams.get('before'));
                     if (before > 0) {
-                        where += ' AND seq<?';
+                        where += ' AND m.seq<?';
                         params.push(before);
                     }
                     const after = Number(url.searchParams.get('after'));
                     if (after > 0) {
-                        where += ' AND seq>?';
+                        where += ' AND m.seq>?';
                         params.push(after);
-                        value = bus.store.all(`SELECT * FROM messages WHERE ${where} ORDER BY seq LIMIT 200`, ...params);
+                        value = bus.store.all(`${MESSAGE_WITH_TURN} WHERE ${where} ORDER BY m.seq LIMIT 200`, ...params);
                     }
                     else
-                        value = bus.store.all(`SELECT * FROM messages WHERE ${where} ORDER BY seq DESC LIMIT 50`, ...params).reverse();
+                        value = bus.store.all(`${MESSAGE_WITH_TURN} WHERE ${where} ORDER BY m.seq DESC LIMIT 50`, ...params).reverse();
                 }
                 else
-                    value = bus.store.all('SELECT * FROM messages WHERE group_id=? AND seq>? ORDER BY seq LIMIT 200', group, cursor(url));
+                    value = bus.store.all(`${MESSAGE_WITH_TURN} WHERE m.group_id=? AND m.seq>? ORDER BY m.seq LIMIT 200`, group, cursor(url));
                 return value;
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/message-trace'), handle: async () => {
                 let value;
-                value = bus.store.messageTrace(url.searchParams.get('message'));
+                value = bus.store.messageTrace(url.searchParams.get('message'), { segment: url.searchParams.get('segment') === '1' });
                 if (!value)
                     return fail(404, 'Not found');
                 return value;

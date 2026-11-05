@@ -811,7 +811,30 @@ export class Store {
   publicTurn(id) {
     return this.get('SELECT t.*,c.group_id,c.member_id,c.context,c.peer FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=? AND c.context!=\'private\'', id);
   }
-  messageTrace(id) {
+  /**
+   * 一条消息的产出事件段。
+   *
+   * 执行轨迹的单位是「消息」而不是「回合」:一个回合里每发出一次消息,都是一段
+   * 独立的 思考→模型→tool_call→tool_result 过程。段的右界是该次调用的
+   * tool_result(最终回复是回合末尾的 framework.output),左界是上一次产出消息
+   * 的调用结束处,因此同回合内多条消息的段互不重叠、也不会重复计入。
+   */
+  messageSegment(turnId, callId) {
+    if (!turnId || !callId) return null;
+    const isFinal = callId === 'framework.final_output';
+    const end = isFinal
+      ? this.get(`SELECT seq FROM history WHERE turn_id=? AND json_extract(event,'$.type')='framework.output' ORDER BY seq DESC LIMIT 1`, turnId)
+      : this.get(`SELECT seq FROM history WHERE turn_id=? AND json_extract(event,'$.type')='framework.tool_result'
+          AND json_extract(event,'$.callId')=? ORDER BY seq LIMIT 1`, turnId, callId);
+    if (!end) return null;
+    const previous = this.get(`SELECT seq FROM history WHERE turn_id=? AND seq<?
+        AND json_extract(event,'$.type') IN ('framework.tool_result','framework.output')
+      ORDER BY seq DESC LIMIT 1`, turnId, end.seq);
+    const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? AND seq<=? ORDER BY seq',
+      turnId, previous?.seq ?? 0, end.seq);
+    return { startSeq: events[0]?.seq ?? end.seq, endSeq: end.seq, events };
+  }
+  messageTrace(id, { segment = false } = {}) {
     const message = this.get('SELECT id,kind FROM messages WHERE id=?', id);
     if (!message) {
       // Panel 私聊消息存于 panel_messages,未记录回合来源(v6 无消息→turn 映射);
@@ -842,7 +865,31 @@ export class Store {
        JOIN conversations c ON c.id=t.conversation_id WHERE i.message_id=? AND c.context!='private' ORDER BY t.rowid`,
       id,
     );
-    return { messageId: id, source, inputAttempts };
+    const result = { messageId: id, source, inputAttempts };
+    if (!segment) return result;
+    // 段与回合状态一并给出:轨迹头部要显示这条消息从开始到发出的耗时,
+    // 以及宿主是否报告了失败——这些都不能从段内事件反推。
+    const bounds = source.turnId ? this.messageSegment(source.turnId, source.callId) : null;
+    const turn = source.turnId
+      ? this.get(`SELECT t.state,t.created,t.ended,c.id AS conversation_id,c.group_id,c.member_id,c.panel_agent_id,t.executor_kind,COALESCE(m.host,p.host) AS host
+          FROM turns t JOIN conversations c ON c.id=t.conversation_id
+          LEFT JOIN members m ON m.id=c.member_id LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
+          WHERE t.id=?`, source.turnId)
+      : null;
+    return {
+      ...result,
+      segment: bounds,
+      turn: turn ? {
+        id: source.turnId,
+        state: turn.state,
+        created: turn.created,
+        ended: turn.ended ?? null,
+        host: turn.host ?? null,
+        group_id: turn.group_id,
+        // 事件行按会话归属;用会话自身 id,panel 来源也要能对上宿主映射。
+        endpoint_id: turn.conversation_id,
+      } : null,
+    };
   }
   endpointModels(id, after = 0) {
     const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
@@ -863,22 +910,36 @@ export class Store {
     return value;
   }
   turnTrace(id, after = 0) {
-    const turn = this.get(`SELECT t.*,c.group_id,c.member_id,c.panel_agent_id,c.context,c.peer
-      FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=? AND c.context!='private'`, id);
+    // host 随回合返回:执行者的宿主决定前端按哪套 schema 解释事件,调用方不该
+    // 再从会话列表反推(那张列表按需加载,不加载时轨迹会全部降级成未识别)。
+    const turn = this.get(`SELECT t.*,c.group_id,c.member_id,c.panel_agent_id,c.context,c.peer,
+        COALESCE(m.host,p.host) AS host
+      FROM turns t JOIN conversations c ON c.id=t.conversation_id
+      LEFT JOIN members m ON m.id=c.member_id
+      LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
+      WHERE t.id=? AND c.context!='private'`, id);
     if (!turn) return null;
     const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
     const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE turn_id=? ORDER BY seq', id));
+    // 事件接口按页返回,回合本身可能有几万条。状态与结束时间是回合级事实,
+    // 不能从"这一页的事件"推导——超长回合的 turn_end 可能永远不在这 200 条里。
+    const eventCount = this.get('SELECT COUNT(*) AS count FROM history WHERE turn_id=?', id)?.count ?? 0;
     return {
       turn: {
         id: turn.id,
         endpoint_id: turn.conversation_id,
         session: turn.session,
         created: turn.created,
+        ended: turn.ended ?? null,
+        state: turn.state,
         group_id: turn.group_id,
         member_id: turn.executor_kind === 'panel_agent' ? turn.panel_agent_id : turn.member_id,
         context: turn.context,
         peer: turn.peer ?? null,
+        host: turn.host ?? null,
       },
+      /** 该回合的事件总数;events 只含本页,二者不等即表示被截断。 */
+      eventCount,
       nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),
       inputMessages: this.all('SELECT m.id,m.kind,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal', id),
       outgoingMessages: this.all('SELECT message_id,event_seq,call_id,native_call_id FROM message_origins WHERE turn_id=? ORDER BY rowid', id),

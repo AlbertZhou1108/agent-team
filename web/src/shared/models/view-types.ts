@@ -12,7 +12,7 @@ export type StepKind =
   | 'unknown';
 
 export type StepStatus = 'running' | 'success' | 'error' | 'unknown';
-export type TurnStatus = 'running' | 'completed' | 'error' | 'unknown';
+export type TurnStatus = 'running' | 'completed' | 'error' | 'cancelled' | 'stopped' | 'unknown';
 
 export interface TraceStep {
   id: string;
@@ -33,6 +33,11 @@ export interface TurnView {
   steps: TraceStep[];
   firstSeq: number;
   lastSeq: number;
+  /** 事件只取到一页:steps 只反映已加载部分,不能当成完整轨迹。 */
+  truncated?: boolean;
+  /** 已加载事件数 / 回合事件总数,仅 truncated 时有意义。 */
+  loadedEvents?: number;
+  totalEvents?: number;
 }
 
 export interface MessageView {
@@ -46,6 +51,8 @@ export interface MessageView {
   kind: 'send' | 'note' | 'system';
   text: string;
   createdAt: string;
+  /** 产出这条消息的回合;无回合(用户输入/系统通知)时缺省。 */
+  turnId?: string | null;
   /** 结构化消息附件;只有携带附件的用户消息才有。 */
   attachments?: MessageAttachment[];
 }

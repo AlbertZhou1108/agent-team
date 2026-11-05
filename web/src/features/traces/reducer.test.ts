@@ -5,7 +5,7 @@ import type { HistoryRow } from '@/shared/api/raw-types';
 function row(seq: number, turn: string, event: unknown, endpoint = 'endpoint'): HistoryRow {
   return {
     seq,
-    endpoint_id: endpoint,
+    conversation_id: endpoint,
     event: JSON.stringify(event),
     created: new Date(seq * 1000).toISOString(),
     turn_id: turn,
@@ -91,12 +91,58 @@ describe('buildTurns', () => {
     expect(turns[0].steps.find(step => step.kind === 'tool')?.detail).toBe('not found');
   });
 
+  it('absorbs framework plumbing instead of reporting it as unknown steps', () => {
+    // 真实回合里 framework.* 的 context/policy 快照、遥测投影、增量与原生回合
+    // 引用占多数事件;它们不是步骤,不能把轨迹刷成一片"未识别事件"。
+    const turns = buildTurns([
+      row(1, 't1', { type: 'framework.context', activeTeamId: 'g' }),
+      row(2, 't1', { type: 'framework.policy', host: 'dsh' }),
+      row(3, 't1', { type: 'framework.telemetry.event', event: 'turn/start' }),
+      row(4, 't1', { type: 'framework.telemetry.projection', key: 'contextPressure', value: {} }),
+      row(5, 't1', { type: 'framework.native_turn', ref: '11' }),
+      row(6, 't1', { type: 'framework.model.selection', model: 'm' }),
+      row(7, 't1', { type: 'framework.model_selection', model: 'm' }),
+      row(8, 't1', { type: 'framework.text.delta', text: 'live' }),
+      row(9, 't1', { type: 'framework.tool_call', name: 'send', callId: 'c1', args: {} }),
+      row(10, 't1', { type: 'framework.tool_result', callId: 'c1', result: {} }),
+      row(11, 't1', { type: 'framework.output', text: 'done' }),
+    ], { hosts: { endpoint: 'dsh' } });
+
+    expect(turns[0].steps.map(step => step.kind)).toEqual(['tool', 'output']);
+    expect(turns[0].steps.filter(step => step.kind === 'unknown')).toHaveLength(0);
+    expect(turns[0].status).toBe('completed');
+  });
+
+  it('trusts server turn state and marks truncation when events are paged', () => {
+    // 长回合的 turn_end 不在第一页里:只凭事件推断会误报「状态未知」,
+    // 步数也只是已加载部分的量,必须两个都暴露出来。
+    const turns = buildTurns([
+      row(1, 't1', { type: 'input', text: 'go' }),
+      row(2, 't1', { type: 'framework.model', model: 'm' }),
+    ], { hosts: { endpoint: 'dsh' }, turn: { state: 'failed', eventCount: 90528 } });
+
+    expect(turns[0].status).toBe('error');
+    expect(turns[0].truncated).toBe(true);
+    expect(turns[0].loadedEvents).toBe(2);
+    expect(turns[0].totalEvents).toBe(90528);
+  });
+
+  it('does not flag truncation when every event is loaded', () => {
+    const turns = buildTurns([
+      row(1, 't1', { type: 'input', text: 'go' }),
+      row(2, 't1', { type: 'framework.output', text: 'done' }),
+    ], { hosts: { endpoint: 'dsh' }, turn: { state: 'completed', eventCount: 2 } });
+
+    expect(turns[0].status).toBe('completed');
+    expect(turns[0].truncated).toBeUndefined();
+  });
+
   it('preserves unknown and malformed events', () => {
     const turns = buildTurns([
       row(1, 't1', { method: 'future/event', params: {} }),
       {
         seq: 2,
-        endpoint_id: 'endpoint',
+        conversation_id: 'endpoint',
         event: '{not-json',
         created: new Date().toISOString(),
         turn_id: 't1',

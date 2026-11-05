@@ -48,6 +48,7 @@ export function toMessageViews(
     kind: row.kind,
     text: row.text,
     createdAt: row.created,
+    turnId: row.turn_id ?? null,
   }));
 }
 
@@ -124,7 +125,9 @@ function sameView(left: MessageView, right: MessageView) {
     && left.senderIsUser === right.senderIsUser
     && left.kind === right.kind
     && left.text === right.text
-    && left.createdAt === right.createdAt;
+    && left.createdAt === right.createdAt
+    // 回合来源决定这条消息是否提供执行轨迹入口,参与复用判断。
+    && left.turnId === right.turnId;
 }
 
 /**
