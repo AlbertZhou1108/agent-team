@@ -134,13 +134,15 @@ async function restoreTeam() {
         <p class="text-xs text-muted-foreground">
           以下宿主运行状态未知，请在 CLI 中核实宿主进程是否已停止。
         </p>
-        <div
-          v-for="runtime in summary.unknown"
-          :key="runtime.turn_id"
-          class="flex flex-col gap-1 border p-3"
-        >
-          <p class="break-all font-mono text-xs">{{ runtime.turn_id }}</p>
-          <p class="text-xs text-muted-foreground">{{ runtime.detail }}</p>
+        <div class="divide-y divide-border">
+          <div
+            v-for="runtime in summary.unknown"
+            :key="runtime.turn_id"
+            class="flex flex-col gap-1 py-2 first:pt-0 last:pb-0"
+          >
+            <p class="break-all font-mono text-xs">{{ runtime.turn_id }}</p>
+            <p class="text-xs text-muted-foreground">{{ runtime.detail }}</p>
+          </div>
         </div>
       </section>
 

@@ -18,7 +18,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 import {
   DropdownMenu,
@@ -260,40 +259,48 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
 <template #summary><span ref="notificationsHeading" tabindex="-1" class="flex items-center gap-2"><Bell />团队来源通知</span><Badge variant="secondary">{{ notifications.length }}</Badge></template>
 
           <p v-if="!notifications.length" class="text-sm text-muted-foreground">暂无团队来源通知。</p>
-          <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-            <Card v-for="notification in notifications" :key="notification.id" size="compact"><CardContent class="flex min-w-0 flex-col gap-3 text-sm">
-              <p class="whitespace-pre-wrap wrap-anywhere">{{ notification.text }}</p>
-              <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
-            </CardContent></Card>
-          </div>
+          <ScrollArea v-else class="w-full min-h-0 flex-1">
+            <div class="divide-y divide-border">
+              <div
+                v-for="notification in notifications"
+                :key="notification.id"
+                class="flex min-w-0 flex-col items-start gap-2 py-3 text-sm first:pt-0 last:pb-0"
+              >
+                <p class="whitespace-pre-wrap wrap-anywhere">{{ notification.text }}</p>
+                <Button variant="outline" size="sm" @click="selectTeam(notification.group_id)">查看来源团队</Button>
+              </div>
+            </div>
+          </ScrollArea>
 
 </Disclosure>
 
-    <Card v-if="unknown.length" class="shrink-0">
-      <CardHeader><CardTitle>待核实运行</CardTitle></CardHeader>
-      <CardContent>
-        <p class="mt-2 text-xs leading-5 text-muted-foreground">
-          相关团队写入已暂停。确认宿主进程停止后才能恢复。
-        </p>
-        <ItemGroup class="mt-3">
-          <PanelConfirmationItem
-            v-for="turn in unknown"
-            :key="turn.turn_id"
-            :icon="CircleAlert"
-            title="宿主运行状态未知"
-            :description="turn.turn_id"
+    <section
+      v-if="unknown.length"
+      class="flex shrink-0 flex-col gap-2 border-t pt-3"
+    >
+      <h4 class="text-sm font-semibold">待核实运行</h4>
+      <p class="text-xs leading-5 text-muted-foreground">
+        相关团队写入已暂停。确认宿主进程停止后才能恢复。
+      </p>
+      <div class="divide-y divide-border">
+        <PanelConfirmationItem
+          v-for="turn in unknown"
+          :key="turn.turn_id"
+          variant="plain"
+          :icon="CircleAlert"
+          title="宿主运行状态未知"
+          :description="turn.turn_id"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            @click="emit('resolveRuntime', turn.turn_id)"
           >
-            <Button
-              variant="outline"
-              size="sm"
-              @click="emit('resolveRuntime', turn.turn_id)"
-            >
-              已核实停止
-            </Button>
-          </PanelConfirmationItem>
-        </ItemGroup>
-      </CardContent>
-    </Card>
+            已核实停止
+          </Button>
+        </PanelConfirmationItem>
+      </div>
+    </section>
     </div>
   </CollapsibleRightSidebar>
   </aside>

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import HomeWorkbench from '@/features/productivity/HomeWorkbench.vue';
-import { Surface } from '@/components/surface';
-import { Card } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
 import TelemetryOverview from '@/features/telemetry/TelemetryOverview.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -191,7 +189,8 @@ function clearHomeDrag() {
 </script>
 
 <template>
-  <Surface role="context-panel" :as="Card" class="team-home min-w-0">
+  <!-- 页面本身不是卡片:卡片留给页面里的独立区块,避免"卡片套卡片"。 -->
+  <div class="team-home min-w-0">
     <div class="team-home-inner">
       <header class="flex flex-wrap items-start justify-between gap-4">
         <h1 class="text-2xl font-semibold tracking-tight">团队</h1>
@@ -340,5 +339,5 @@ function clearHomeDrag() {
 </Disclosure>
       </section>
     </div>
-  </Surface>
+  </div>
 </template>

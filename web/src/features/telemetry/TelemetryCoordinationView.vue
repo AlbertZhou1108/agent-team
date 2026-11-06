@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { MessagesSquare } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { useCoordinationTelemetryQuery } from '@/features/queries';
-import TelemetryExecutorCard from './TelemetryExecutorCard.vue';
+import TelemetryExecutorSection from './TelemetryExecutorSection.vue';
 import TelemetryBatchList from './TelemetryBatchList.vue';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import { formatTimestamp } from './format';
@@ -45,7 +45,7 @@ async function loadMore() {
       >
     </Alert>
     <template v-else-if="data && coordination && summary">
-      <TelemetryExecutorCard
+      <TelemetryExecutorSection
         :executor="coordination.executor"
         :totals="summary.executorTotals"
         :context-reference="summary.contextReference"
@@ -55,11 +55,15 @@ async function loadMore() {
         title="协调执行方"
       />
 
+      <Separator />
+
       <TelemetrySourceSubtotals
         :subtotals="summary.sourceSubtotals"
         :merged-batch-ids="summary.mergedBatchIds"
         :shared-source-batch-ids="summary.sharedSourceBatchIds"
       />
+
+      <Separator />
 
       <TelemetryBatchList
         :batches="query.batches.value"

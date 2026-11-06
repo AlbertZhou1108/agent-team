@@ -964,10 +964,11 @@ watch(
             <p class="text-xs text-muted-foreground">
               工具是面板里的功能模块：总开关一键禁用，也可以单独控制在各个位置的显示。内置工具随应用发布，未来可安装外部工具。
             </p>
+            <div class="mt-1 divide-y divide-border">
             <div
               v-for="tool in BUILTIN_TOOLS"
               :key="tool.id"
-              class="rounded-lg border p-3"
+              class="flex flex-col gap-3 py-3 first:pt-0"
               :class="{ 'opacity-60': preferences.toolModules.disabled[tool.id] }"
             >
               <div class="flex items-center justify-between gap-3">
@@ -989,7 +990,7 @@ watch(
                 />
               </div>
               <!-- 挂载级开关:每个位置独立显示/隐藏。 -->
-              <div class="mt-3 flex flex-col gap-1.5 border-t pt-2.5">
+              <div class="flex flex-col gap-1.5">
                 <div
                   v-for="mount in tool.mounts"
                   :key="mount.slot"
@@ -1004,6 +1005,7 @@ watch(
                   />
                 </div>
               </div>
+            </div>
             </div>
           </section>
           </TabsContent>

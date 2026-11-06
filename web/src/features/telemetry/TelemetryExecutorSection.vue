@@ -1,12 +1,5 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollRegion } from '@/components/ui/scroll-region';
@@ -34,22 +27,23 @@ defineProps<{
 </script>
 
 <template>
-  <Card size="compact" class="min-w-0 " :data-executor-id="executor.memberId">
-    <CardHeader>
-      <CardTitle class="flex flex-wrap items-center gap-2 text-sm">
+  <!-- 遥测视图都活在带边框的上下文面板里,这里只做分区,不再自带卡片外壳。 -->
+  <section class="flex min-w-0 flex-col gap-4" :data-executor-id="executor.memberId">
+    <header class="flex min-w-0 flex-col gap-1">
+      <h4 class="flex flex-wrap items-center gap-2 text-sm font-semibold">
         <span class="min-w-0 truncate" :title="title ?? executor.name">{{ title ?? executor.name }}</span>
         <Badge variant="outline">{{ executor.host }}</Badge>
         <Badge v-if="!coverage.complete" variant="outline">部分采集</Badge>
         <Badge v-if="executor.kind === 'panel_agent'" variant="secondary"
           >Panel Agent</Badge
         >
-      </CardTitle>
-      <CardDescription class="text-xs">
+      </h4>
+      <p class="text-xs text-muted-foreground">
         {{ batchCount }} 个批次 ·
         {{ physicalSessions.length }} 个物理 session · 按执行归属汇总
-      </CardDescription>
-    </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4">
+      </p>
+    </header>
+    <div class="flex min-w-0 flex-col gap-4">
       <p v-if="batchCount === 0 && totals.totalTokens.value == null" class="text-xs text-muted-foreground">暂无执行观测</p>
       <TelemetryMetricGrid v-else :metrics="totals" />
       <Separator />
@@ -111,6 +105,6 @@ defineProps<{
           <slot name="footer" />
         </ScrollRegion>
       </Disclosure>
-    </CardContent>
-  </Card>
+    </div>
+  </section>
 </template>

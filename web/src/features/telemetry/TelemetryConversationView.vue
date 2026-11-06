@@ -10,11 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 import { ArrowLeftRight, Bot } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { useConversationTelemetryQuery } from '@/features/queries';
 import type { Member, SessionEndpoint } from '@/shared/api/raw-types';
-import TelemetryExecutorCard from './TelemetryExecutorCard.vue';
+import TelemetryExecutorSection from './TelemetryExecutorSection.vue';
 import TelemetryBatchList from './TelemetryBatchList.vue';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import { formatTimestamp } from './format';
@@ -181,7 +182,7 @@ async function loadMore() {
         </div>
       </section>
 
-      <TelemetryExecutorCard
+      <TelemetryExecutorSection
         v-for="entry in data.executors"
         :key="entry.executor.memberId"
         :executor="entry.executor"
@@ -192,12 +193,16 @@ async function loadMore() {
         :coverage="entry.coverage"
       />
 
+      <Separator />
+
       <TelemetrySourceSubtotals
         v-if="summary"
         :subtotals="summary.sourceSubtotals"
         :merged-batch-ids="summary.mergedBatchIds"
         :shared-source-batch-ids="summary.sharedSourceBatchIds"
       />
+
+      <Separator />
 
       <TelemetryBatchList
         v-if="summary"

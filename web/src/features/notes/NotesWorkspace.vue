@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
-import { Surface } from '@/components/surface';
 import { Card, CardContent } from '@/components/ui/card';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { api, ApiError } from '@/shared/api/client';
@@ -267,7 +266,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
 <template>
-  <Surface role="context-panel" :as="Card" class="notes-page min-w-0">
+  <!-- 页面本身不是卡片:页面里的内容卡片才是唯一一层边框。 -->
+  <div class="notes-page min-w-0">
     <div class="notes-page-inner">
       <header class="flex flex-wrap items-end justify-between gap-2">
         <div class="flex flex-col gap-1">
@@ -346,5 +346,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       @cancel="pendingPrompt = null"
       @confirm="pendingPrompt && applyPrompt(pendingPrompt)"
     />
-  </Surface>
+  </div>
 </template>

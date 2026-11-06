@@ -8,9 +8,9 @@ import { ScrollRegion } from '@/components/ui/scroll-region';
 import PanelState from '@/components/panel/PanelState.vue';
 
 /**
- * 批次区的统一外壳:卡片即折叠区,展开后是自带滚动的列表 —— 默认收起,
- * 批次列表不撑长整块面板。批次的每一行由使用方放进默认插槽,行间分割线
- * 由这里提供,行本身不再带卡片边框。
+ * 批次区的统一外壳:折叠区展开后是自带滚动的列表 —— 默认收起,批次列表
+ * 不撑长整块面板。批次行由使用方放进默认插槽,行间分割线由这里提供,
+ * 行本身不带卡片边框;外壳也不自带卡片(外层上下文面板已是唯一一层)。
  */
 withDefaults(
   defineProps<{
@@ -30,7 +30,7 @@ const emit = defineEmits<{ loadMore: [] }>();
 </script>
 
 <template>
-  <Disclosure variant="card" class="min-w-0" :heading-level="4">
+  <Disclosure class="min-w-0" :heading-level="4">
     <template #summary>
       <span class="text-sm font-semibold">批次</span>
       <Badge variant="outline">{{ count }} 个</Badge>

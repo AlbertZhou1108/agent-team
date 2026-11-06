@@ -3,6 +3,7 @@ import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { Users } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import {
@@ -10,7 +11,7 @@ import {
   useTelemetryCapabilitiesQuery,
 } from '@/features/queries';
 import TelemetryMemberComparison from './TelemetryMemberComparison.vue';
-import TelemetryExecutorCard from './TelemetryExecutorCard.vue';
+import TelemetryExecutorSection from './TelemetryExecutorSection.vue';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import { numeric } from './visuals';
 import { formatTimestamp } from './format';
@@ -67,7 +68,7 @@ const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
       <TelemetryMemberComparison :members="data.members" :selected-id="selectedMember?.executor.memberId" @select="selectMember" />
       <Disclosure v-if="selectedMember" v-model:open="detailsOpen">
         <template #summary>{{ selectedMember.executor.name }} · 执行详情</template>
-      <TelemetryExecutorCard
+      <TelemetryExecutorSection
         v-if="selectedMember"
         :key="selectedMember.executor.memberId"
         :executor="selectedMember.executor"
@@ -77,8 +78,10 @@ const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
         :batch-count="selectedMember.batchCount"
         :coverage="selectedMember.coverage"
       >
-      </TelemetryExecutorCard>
+      </TelemetryExecutorSection>
       </Disclosure>
+
+      <Separator />
 
       <TelemetrySourceSubtotals
         :subtotals="data.sourceAnalysis.actors"
