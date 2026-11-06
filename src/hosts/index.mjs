@@ -4,7 +4,8 @@
 // telemetry-capabilities.mjs 的 capabilityBuilders 加一个 builder。
 // 调用方(server.mjs)只依赖这里的注册表,不再各自维护工厂 Map。
 import { createCodexHost } from './codex.mjs';
-import { createClaudeHost, createDshHost } from './cli-hosts.mjs';
+import { createClaudeHost } from './claude.mjs';
+import { createDshHost } from './dsh.mjs';
 
 /**
  * 宿主适配器契约。
