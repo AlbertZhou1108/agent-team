@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Search as SearchIcon, NotebookPen } from '@lucide/vue';
+import { Pin as PinIcon, Search as SearchIcon, NotebookPen } from '@lucide/vue';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,15 +12,15 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import type { Note, NoteCounts, NoteState } from '@/shared/api/raw-types';
+import type { Note, NoteCounts, NoteState, NoteTag } from '@/shared/api/raw-types';
 import { useSentinelLoad } from '@/shared/use-sentinel-load';
 import { NOTE_DRAG_TYPE, useNoteHandoffStore } from '@/stores/note-handoff';
 import { motionDurationMs, MOTION_EASING, prefersReducedMotion } from '@/shared/motion';
 import { cn } from '@/lib/utils';
 import {
   NOTE_STATES,
+  TAG_FILTER_ALL,
   TEAM_FILTER_ALL,
-  TEAM_FILTER_NONE,
   formatNoteTime,
   groupNotesByDay,
   noteExcerpt,
@@ -32,6 +32,12 @@ import {
 
 const props = defineProps<{
   notes: Note[];
+  /** 置顶笔记:服务端单独返回(同筛选范围),面板固定在日期分组之上。 */
+  pinned: Note[];
+  /** 全量标签注册表:行内徽章用它解析名称(筛选范围外的标签也要显示)。 */
+  tags: NoteTag[];
+  /** 标签筛选下拉的候选:只含当前范围内真有笔记的标签(服务端分面)。 */
+  filterTags: NoteTag[];
   filter: NoteState;
   counts: NoteCounts;
   search: string;
@@ -40,14 +46,21 @@ const props = defineProps<{
   error: string;
   hasMore: boolean;
   loadingMore: boolean;
-  /** 团队筛选：TEAM_FILTER_ALL（不筛选）/ TEAM_FILTER_NONE（无来源）/ 团队 id。 */
+  /** 团队筛选：TEAM_FILTER_ALL（不筛选）/ 团队 id。无来源的记录归在「全部」里。 */
   team: string;
+  /** 只含当前筛选范围内真有笔记的团队(服务端分面)。 */
   teams: Array<{ id: string; name: string }>;
+  /** 标签筛选：TAG_FILTER_ALL（不筛选）/ 标签 id。与团队筛选互斥。 */
+  tag: string;
+  /** 级联维度：团队/标签(显式 URL 状态 ?dim=tag)。 */
+  dimension: 'team' | 'tag';
 }>();
 
 const emit = defineEmits<{
   'update:filter': [state: NoteState];
   'update:team': [team: string];
+  'update:tag': [tag: string];
+  'update:dimension': [dimension: 'team' | 'tag'];
   'update:search': [value: string];
   select: [id: string];
   'load-more': [];
@@ -59,15 +72,28 @@ const emit = defineEmits<{
 
 const groups = computed(() => groupNotesByDay(props.notes));
 const filters = NOTE_STATES;
+const tagLabel = computed(() => {
+  if (props.tag === TAG_FILTER_ALL) return '全部';
+  return props.tags.find(item => item.id === props.tag)?.name ?? '已删除的标签';
+});
+// 行上的标签徽章:最多 3 个(注册表里可能残留已删标签,跳过)。
+function noteTagChips(note: Note) {
+  return note.tags
+    .map(id => props.tags.find(tag => tag.id === id))
+    .filter((tag): tag is NoteTag => Boolean(tag))
+    .slice(0, 3);
+}
+function setDimension(next: 'team' | 'tag') {
+  if (next === props.dimension) return;
+  emit('update:dimension', next);
+}
 // 当前筛选指向一个已不存在的团队时补一个选项，别让下拉静默退回「全部」。
 const danglingTeam = computed(() =>
   props.team !== TEAM_FILTER_ALL
-  && props.team !== TEAM_FILTER_NONE
   && !props.teams.some(team => team.id === props.team),
 );
 const teamLabel = computed(() => {
-  if (props.team === TEAM_FILTER_ALL) return '全部团队';
-  if (props.team === TEAM_FILTER_NONE) return '无来源';
+  if (props.team === TEAM_FILTER_ALL) return '全部';
   return props.teams.find(item => item.id === props.team)?.name ?? '团队已删除';
 });
 
@@ -77,7 +103,8 @@ const teamLabel = computed(() => {
 
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
-const visibleIds = computed(() => props.notes.map(note => note.id));
+// shift 区间跨面板:可见序 = 置顶面板在前 + 日期分组的其余行。
+const visibleIds = computed(() => [...props.pinned, ...props.notes].map(note => note.id));
 
 // 拖拽幻影:拖动中的视觉交给原生拖拽影像(合成器渲染,1:1 跟手不节流),
 // DOM 幻影只在松手瞬间接力播放「飞向落点」的释放动画。
@@ -257,15 +284,46 @@ useSentinelLoad({
           <span class="text-xs text-muted-foreground tabular-nums">{{ counts[state] }}</span>
         </Button>
       </div>
-      <Select :model-value="team" @update:model-value="value => emit('update:team', String(value))">
+      <!-- 级联筛选:先选维度(团队/标签),值下拉跟随维度切换;维度切换互斥清空另一侧。 -->
+      <Select
+        :model-value="dimension"
+        @update:model-value="value => setDimension(value as 'team' | 'tag')"
+      >
+        <SelectTrigger class="w-24" aria-label="筛选维度">
+          <span data-slot="select-value" class="min-w-0 truncate">{{ dimension === 'tag' ? '按标签' : '按团队' }}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="team">按团队</SelectItem>
+          <SelectItem value="tag">按标签</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select
+        v-if="dimension === 'team'"
+        :model-value="team"
+        @update:model-value="value => emit('update:team', String(value))"
+      >
         <SelectTrigger class="w-40" aria-label="按来源团队筛选">
           <span data-slot="select-value" class="min-w-0 truncate">{{ teamLabel }}</span>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem :value="TEAM_FILTER_ALL">全部团队</SelectItem>
-          <SelectItem :value="TEAM_FILTER_NONE">无来源</SelectItem>
+          <!-- 「全部」= 不筛选(无来源的记录也在其中),所以不再单列「无来源」项。
+               候选团队只来自服务端分面:只列真有笔记的团队,不受已加载页数影响。 -->
+          <SelectItem :value="TEAM_FILTER_ALL">全部</SelectItem>
           <SelectItem v-for="item in teams" :key="item.id" :value="item.id">{{ item.name }}</SelectItem>
           <SelectItem v-if="danglingTeam" :value="team">团队已删除</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select
+        v-else
+        :model-value="tag"
+        @update:model-value="value => emit('update:tag', String(value))"
+      >
+        <SelectTrigger class="w-40" aria-label="按标签筛选">
+          <span data-slot="select-value" class="min-w-0 truncate">{{ tagLabel }}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem :value="TAG_FILTER_ALL">全部</SelectItem>
+          <SelectItem v-for="item in filterTags" :key="item.id" :value="item.id">{{ item.name }}</SelectItem>
         </SelectContent>
       </Select>
       <div class="relative ms-auto w-full sm:w-56">
@@ -281,12 +339,75 @@ useSentinelLoad({
     </div>
 
     <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
-    <p v-else-if="loading && !notes.length" class="text-sm text-muted-foreground">正在读取…</p>
-    <p v-else-if="!notes.length" class="py-10 text-center text-sm text-muted-foreground">
-      {{ search ? '没有匹配的记录' : team !== TEAM_FILTER_ALL ? '这个筛选下还没有记录' : filter === 'archived' ? '还没有归档的记录' : '还没有记录' }}
+    <p v-else-if="loading && !notes.length && !pinned.length" class="text-sm text-muted-foreground">正在读取…</p>
+    <p v-else-if="!notes.length && !pinned.length" class="py-10 text-center text-sm text-muted-foreground">
+      {{ search ? '没有匹配的记录' : team !== TEAM_FILTER_ALL || tag !== TAG_FILTER_ALL ? '这个筛选下还没有记录' : filter === 'archived' ? '还没有归档的记录' : '还没有记录' }}
     </p>
 
     <div v-else class="flex flex-col gap-2">
+      <!-- 置顶面板:固定在日期分组之上,取消置顶后回到日期分组的原有排序。 -->
+      <Disclosure
+        v-if="pinned.length"
+        :heading-level="2"
+        :open="!collapsedGroups.has('__pinned__')"
+        @update:open="value => toggleGroup('__pinned__', value)"
+      >
+        <template #summary>
+          <span class="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <PinIcon class="size-3" />
+            置顶
+          </span>
+          <Badge variant="outline">{{ pinned.length }} 条</Badge>
+        </template>
+        <ul class="flex flex-col pt-1">
+          <li v-for="note in pinned" :key="note.id">
+            <button
+              type="button"
+              :ref="el => bindRowDraggable(el, note)"
+              :data-note-id="note.id"
+              :data-selected="selected.includes(note.id) ? 'true' : undefined"
+              :class="cn(
+                'note-row flex w-full min-w-0 cursor-grab flex-col gap-1 rounded-(--component-control-radius) px-2 py-2 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing',
+                note.id === selectedId && 'bg-accent/70',
+              )"
+              :aria-current="note.id === selectedId ? 'true' : undefined"
+              :aria-pressed="selected.includes(note.id) ? 'true' : undefined"
+              @click="toggleSelect(note, $event)"
+            >
+              <span class="flex min-w-0 items-center gap-2">
+                <PinIcon class="size-3 shrink-0 text-muted-foreground" />
+                <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
+                <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
+                <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
+              </span>
+              <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
+                  {{ noteSourceLabel(note) }}
+                </Badge>
+                <span
+                  v-for="tag in noteTagChips(note)"
+                  :key="tag.id"
+                  class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
+                  :title="tag.name"
+                >
+                  <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
+                  {{ tag.name }}
+                </span>
+                <span
+                  v-if="note.tags.length > 3"
+                  class="shrink-0 text-muted-foreground"
+                  :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
+                >+{{ note.tags.length - 3 }}</span>
+                <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
+                <span v-if="note.todos.length" class="shrink-0 tabular-nums">
+                  {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                </span>
+                <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </Disclosure>
       <Disclosure
         v-for="group in groups"
         :key="group.key"
@@ -322,6 +443,20 @@ useSentinelLoad({
                 <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
                   {{ noteSourceLabel(note) }}
                 </Badge>
+                <span
+                  v-for="tag in noteTagChips(note)"
+                  :key="tag.id"
+                  class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
+                  :title="tag.name"
+                >
+                  <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
+                  {{ tag.name }}
+                </span>
+                <span
+                  v-if="note.tags.length > 3"
+                  class="shrink-0 text-muted-foreground"
+                  :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
+                >+{{ note.tags.length - 3 }}</span>
                 <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
                 <span v-if="note.todos.length" class="shrink-0 tabular-nums">
                   {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}

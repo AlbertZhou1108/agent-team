@@ -3,8 +3,10 @@ import { computed, ref, watch } from 'vue';
 import {
   CalendarDays,
   Check,
+  Pin,
   Plus,
   Send,
+  Tags,
   Trash2,
   Users,
   X,
@@ -14,13 +16,21 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Select,
   SelectTrigger,
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
-import type { Note, NoteState } from '@/shared/api/raw-types';
+import { TEAM_COLORS } from '@/shared/team-colors';
+import type { Note, NoteState, NoteTag } from '@/shared/api/raw-types';
 import { TEAM_FILTER_NONE, draftFrom, isDirty, noteStateLabel, toggleTodo } from './notes-state';
 
 const props = defineProps<{
@@ -30,11 +40,15 @@ const props = defineProps<{
   error: string;
   conflict: boolean;
   teams: Array<{ id: string; name: string }>;
+  /** 全局标签注册表:详情页展示全部标签,点击切换当前笔记是否引用。 */
+  tags: NoteTag[];
 }>();
 
 const emit = defineEmits<{
-  save: [draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null; sourceTeamId: string | null }];
+  save: [draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; tags: string[]; due: string | null; sourceTeamId: string | null }];
   state: [state: NoteState | 'restore'];
+  pin: [pinned: boolean];
+  'create-tag': [payload: { name: string; color: string | null }];
   remove: [];
   handoff: [instruction: string];
   reload: [];
@@ -47,6 +61,9 @@ const newTodo = ref('');
 const instruction = ref('');
 const showHandoff = ref(false);
 const confirmDelete = ref(false);
+const tagDialogOpen = ref(false);
+const newTagName = ref('');
+const newTagColor = ref<string | null>(null);
 
 const archived = computed(() => props.note.state === 'archived');
 const dirty = computed(() => isDirty(props.note, draft.value));
@@ -75,6 +92,7 @@ function payload() {
     title: draft.value.title,
     body: draft.value.body,
     todos: draft.value.todos,
+    tags: draft.value.tags,
     due: draft.value.due,
     sourceTeamId: draft.value.sourceTeamId,
   };
@@ -117,6 +135,28 @@ function removeTodo(index: number) {
   if (archived.value) return;
   draft.value.todos = draft.value.todos.filter((_, current) => current !== index);
   emit('save', payload());
+}
+
+// 标签切换与待办同款:点击立即落库,不走保存按钮。
+function toggleTag(tagId: string) {
+  if (archived.value || props.saving) return;
+  draft.value.tags = draft.value.tags.includes(tagId)
+    ? draft.value.tags.filter(id => id !== tagId)
+    : [...draft.value.tags, tagId];
+  emit('save', payload());
+}
+
+function openTagDialog() {
+  newTagName.value = '';
+  newTagColor.value = null;
+  tagDialogOpen.value = true;
+}
+
+function confirmCreateTag() {
+  const name = newTagName.value.trim();
+  if (!name) return;
+  emit('create-tag', { name, color: newTagColor.value });
+  tagDialogOpen.value = false;
 }
 
 function handoff() {
@@ -242,6 +282,45 @@ function handoff() {
       <p v-else class="text-sm text-muted-foreground">{{ sourceLabel }}</p>
     </section>
 
+    <section class="flex flex-col gap-2">
+      <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Tags class="size-3.5" />
+        标签
+      </div>
+      <!-- 点击标签即引用/取消引用,立即落库(与待办同款);「+ 新增」扩展注册表。 -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button
+          v-for="tag in tags"
+          :key="tag.id"
+          type="button"
+          class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors"
+          :class="draft.tags.includes(tag.id) ? 'border-primary bg-primary/10 text-foreground' : 'border-input text-muted-foreground hover:bg-accent/60'"
+          :aria-pressed="draft.tags.includes(tag.id)"
+          :disabled="archived"
+          @click="toggleTag(tag.id)"
+        >
+          <span
+            v-if="tag.color"
+            class="size-2 shrink-0 rounded-full"
+            :style="{ backgroundColor: tag.color }"
+            aria-hidden="true"
+          />
+          {{ tag.name }}
+        </button>
+        <button
+          v-if="!archived"
+          type="button"
+          class="flex items-center gap-1 rounded-full border border-dashed border-input px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/60"
+          aria-label="新增标签"
+          @click="openTagDialog"
+        >
+          <Plus class="size-3" />
+          新增
+        </button>
+      </div>
+      <p v-if="!tags.length && archived" class="text-xs text-muted-foreground">暂无标签。</p>
+    </section>
+
     <p v-if="error" class="flex flex-col gap-1 text-xs text-destructive">
       {{ error }}
       <Button v-if="conflict" variant="link" size="sm" class="h-auto self-start p-0" @click="emit('reload')">
@@ -270,6 +349,16 @@ function handoff() {
         @click="emit('state', 'active')"
       >
         取消完成
+      </Button>
+      <Button
+        v-if="!archived || note.pinnedAt"
+        size="sm"
+        variant="outline"
+        :disabled="saving || dirty"
+        @click="emit('pin', !note.pinnedAt)"
+      >
+        <Pin />
+        {{ note.pinnedAt ? '取消置顶' : '置顶' }}
       </Button>
       <Button
         v-if="!archived"
@@ -334,5 +423,39 @@ function handoff() {
       @cancel="confirmDelete = false"
       @confirm="confirmDelete = false; emit('remove')"
     />
+
+    <Dialog v-model:open="tagDialogOpen">
+      <DialogContent class="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>新增标签</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-3">
+          <Input
+            v-model="newTagName"
+            placeholder="标签名称"
+            aria-label="标签名称"
+            @keydown.enter.prevent="confirmCreateTag"
+          />
+          <div class="flex items-center gap-1.5">
+            <button
+              v-for="preset in TEAM_COLORS"
+              :key="preset.value"
+              type="button"
+              class="size-5 rounded-full border-2 transition-transform"
+              :class="newTagColor === preset.value ? 'scale-110' : 'scale-100'"
+              :style="{ backgroundColor: preset.value, borderColor: newTagColor === preset.value ? 'var(--foreground)' : 'color-mix(in srgb, ' + preset.value + ', black 45%)' }"
+              :aria-label="'颜色：' + preset.label"
+              :aria-pressed="newTagColor === preset.value"
+              @click="newTagColor = newTagColor === preset.value ? null : preset.value"
+            />
+            <span v-if="!newTagColor" class="text-xs text-muted-foreground">无色</span>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="tagDialogOpen = false">取消</Button>
+          <Button :disabled="!newTagName.trim()" @click="confirmCreateTag">创建</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

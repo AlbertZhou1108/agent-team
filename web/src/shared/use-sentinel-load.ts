@@ -35,7 +35,13 @@ export function useSentinelLoad(options: {
   }
 
   onMounted(() => {
-    watch([options.sentinel, options.root ?? null], () => observe(), { immediate: true });
+    // 数组 watch 的每一项都必须是合法源:root 缺省时不能塞 null 进去,
+    // 用 getter 包一层才能表达「可选」。
+    watch(
+      [options.sentinel, () => options.root?.value ?? null],
+      () => observe(),
+      { immediate: true },
+    );
   });
 
   // 取完一页重判:等布局落定(新内容已进 DOM)再重新观察,否则看到的还是旧位置。

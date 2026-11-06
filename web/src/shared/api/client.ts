@@ -20,6 +20,7 @@ import type {
   ModelsPage,
   Note,
   NotePage,
+  NoteTag,
   Overview,
   PanelAccess,
   PanelAgentState,
@@ -389,8 +390,17 @@ export const api = {
       signal,
     );
   },
-  notes(params: { state?: string; q?: string; cursor?: string; limit?: number; team?: string } = {}, signal?: AbortSignal) {
+  notes(params: { state?: string; q?: string; cursor?: string; limit?: number; team?: string; tag?: string } = {}, signal?: AbortSignal) {
     return request<NotePage>(query('/api/notes', params), signal);
+  },
+  noteTags(signal?: AbortSignal) {
+    return request<NoteTag[]>(query('/api/note-tags', {}), signal);
+  },
+  createNoteTag(body: { name: string; color?: string | null }) {
+    return mutate<{ tag: NoteTag; created: boolean }>('/api/note-tags', body);
+  },
+  setNotePin(id: string, body: { pinned: boolean; revision: number }) {
+    return mutate<Note>(`/api/notes/${encodeURIComponent(id)}/pin`, body);
   },
   note(id: string, signal?: AbortSignal) {
     return request<Note>(`/api/notes/${encodeURIComponent(id)}`, signal);
@@ -398,7 +408,7 @@ export const api = {
   createNote(body: { id?: string; body: string; title?: string; todos?: Array<{ text: string; done?: boolean }>; due?: string | null; sourceTeamId?: string | null }) {
     return mutate<Note>('/api/notes', body);
   },
-  updateNote(id: string, body: { revision: number; body?: string; title?: string; todos?: Array<{ text: string; done: boolean }>; due?: string | null; sourceTeamId?: string | null }) {
+  updateNote(id: string, body: { revision: number; body?: string; title?: string; todos?: Array<{ text: string; done: boolean }>; tags?: string[]; due?: string | null; sourceTeamId?: string | null }) {
     return mutateWith<Note>(`/api/notes/${encodeURIComponent(id)}`, 'PATCH', body);
   },
   setNoteState(id: string, body: { state: 'active' | 'done' | 'archived' | 'restore'; revision: number }) {

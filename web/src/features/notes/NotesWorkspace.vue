@@ -11,12 +11,12 @@ import { useResourceQuery } from '@/features/queries';
 import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
-import type { Note, NoteState } from '@/shared/api/raw-types';
+import type { Note, NoteState, NoteTag } from '@/shared/api/raw-types';
 import NoteComposer from './NoteComposer.vue';
 import NoteList from './NoteList.vue';
 import NoteDetail from './NoteDetail.vue';
 import NoteBatchCard from './NoteBatchCard.vue';
-import { TEAM_FILTER_ALL, TEAM_FILTER_NONE, type NoteBatchAction } from './notes-state';
+import { TEAM_FILTER_ALL, TEAM_FILTER_NONE, TAG_FILTER_ALL, type NoteBatchAction } from './notes-state';
 
 // 随心记只做「记」：这里没有交接、没有回合、没有任务状态。
 // 「交给 Panel Agent」只是生成一段提示词并跳转，执行与结果都在私人会话里。
@@ -38,18 +38,34 @@ const pendingLeave = ref<string | null>(null);
 const pendingRoute = ref<string | null>(null);
 const pendingFilter = ref<NoteState | null>(null);
 const pendingTeam = ref<string | null>(null);
+const pendingTag = ref<string | null>(null);
 let bypassLeaveGuard = false;
 
+// 级联筛选:维度是显式 URL 状态(?dim=tag),否则「选了维度但没选值」无法表达,
+// 维度下拉会点不动。值参数互斥:选团队清标签,选标签清团队。
+const filterDimension = computed<'team' | 'tag'>(() => (route.query.dim === 'tag' ? 'tag' : 'team'));
 // 团队筛选落 URL（?team=），这样从团队右栏的「查看全部」可以直接深链过来。
 const teamFilter = computed(() => {
+  if (filterDimension.value !== 'team') return TEAM_FILTER_ALL;
   const value = route.query.team;
-  return typeof value === 'string' && value ? value : TEAM_FILTER_ALL;
+  const raw = typeof value === 'string' ? value : '';
+  // 'none' 是旧链接里的「只看无来源」,该入口已并入「全部」,这里归一避免下拉显示空值。
+  if (!raw || raw === 'none') return TEAM_FILTER_ALL;
+  return raw;
+});
+// 标签筛选落 URL（?tag=），'all' 表示维度在标签但未选具体标签。
+const tagFilter = computed(() => {
+  if (filterDimension.value !== 'tag') return TAG_FILTER_ALL;
+  const value = route.query.tag;
+  return typeof value === 'string' && value ? value : TAG_FILTER_ALL;
 });
 const teamsQuery = useResourceQuery(queryKeys.groups, api.groups, true, QUERY_POLLING.rare);
 const teams = computed(() => (teamsQuery.data.value ?? []).map(team => ({ id: team.id, name: team.name })));
+const noteTagsQuery = useResourceQuery(['note-tags'], api.noteTags, true, QUERY_POLLING.rare);
+const noteTags = computed(() => noteTagsQuery.data.value ?? []);
 
 const notesQuery = useInfiniteQuery({
-  queryKey: computed(() => ['notes', filter.value, search.value, teamFilter.value] as const),
+  queryKey: computed(() => ['notes', filter.value, search.value, teamFilter.value, tagFilter.value] as const),
   // 服务端按 updated 倒序游标分页;前端按需追加,不做页码跳转。
   initialPageParam: null as string | null,
   queryFn: ({ pageParam, signal }) =>
@@ -58,6 +74,7 @@ const notesQuery = useInfiniteQuery({
       q: search.value,
       cursor: pageParam ?? undefined,
       team: teamFilter.value === TEAM_FILTER_ALL ? undefined : teamFilter.value,
+      tag: tagFilter.value === TAG_FILTER_ALL ? undefined : tagFilter.value,
     }, signal),
   getNextPageParam: last => last.nextCursor,
   // 笔记列表不做后台轮询:新增/修改走本地失效,切页时按需刷新。
@@ -67,9 +84,26 @@ const notesQuery = useInfiniteQuery({
 const directoryQuery = useResourceQuery(['directory'], api.directory, true, QUERY_POLLING.rare);
 const panelReady = computed(() => Boolean(directoryQuery.data.value?.panelAgent));
 const notes = computed(() => notesQuery.data.value?.pages.flatMap(page => page.notes) ?? []);
-// 计数随当前筛选（状态、团队、搜索）变化，只认第一页。
-const counts = computed(() => notesQuery.data.value?.pages[0]?.counts ?? { active: 0, done: 0, archived: 0 });
-const hasMore = computed(() => Boolean(notesQuery.hasNextPage.value));
+// 置顶笔记由服务端单独全量返回(不占游标分页),只认第一页。
+const pinnedNotes = computed(() => notesQuery.data.value?.pages[0]?.pinned ?? []);
+// 团队维度候选只取服务端分面结果:只列真有笔记的团队,不受已加载页数影响。
+const teamFacets = computed(() => notesQuery.data.value?.pages[0]?.teamFacets ?? []);
+// 值下拉的候选团队 = 分面里出现过的团队(按分面顺序),无笔记的团队不进下拉。
+const filterableTeams = computed(() =>
+  teamFacets.value
+    .filter(facet => facet.teamId)
+    .map(facet => teams.value.find(team => team.id === facet.teamId))
+    .filter((team): team is { id: string; name: string } => Boolean(team)),
+);
+// 标签维度候选同理:只列真有笔记的标签(分面已排除标签维度本身,选中后仍能切走)。
+// 行内徽章仍用全量 noteTags,保证筛选范围外的标签名也能显示。
+const filterableTags = computed(() =>
+  (notesQuery.data.value?.pages[0]?.tagFacets ?? [])
+    .map(facet => noteTags.value.find(tag => tag.id === facet.tagId))
+    .filter((tag): tag is NoteTag => Boolean(tag)),
+);
+// 计数随当前筛选（状态、团队、标签、搜索）变化，只认第一页。
+const counts = computed(() => notesQuery.data.value?.pages[0]?.counts ?? { active: 0, done: 0, archived: 0 });const hasMore = computed(() => Boolean(notesQuery.hasNextPage.value));
 const loadingMore = computed(() => notesQuery.isFetchingNextPage.value);
 
 function loadMore() {
@@ -86,7 +120,9 @@ const detailQuery = useResourceQuery(
 const selectedNote = computed<Note | null>(() => {
   if (!selectedId.value) return null;
   if (detailQuery.data.value?.id === selectedId.value) return detailQuery.data.value;
-  return notes.value.find(note => note.id === selectedId.value) ?? null;
+  return notes.value.find(note => note.id === selectedId.value)
+    ?? pinnedNotes.value.find(note => note.id === selectedId.value)
+    ?? null;
 });
 const listError = computed(() => (notesQuery.error.value as Error | null)?.message ?? '');
 
@@ -171,18 +207,55 @@ function changeTeam(next: string) {
   applyTeam(next);
 }
 
-function applyTeam(next: string) {
+/**
+ * 筛选状态的唯一写入口。维度/值/团队/标签都是互斥字段，整组重写而不是
+ * 「复制旧 query 再改一个键」——那样每加一个字段就要在多处维护排除名单，
+ * 已经因此出过两次 bug（维度切不动、标签回不到全部）。
+ */
+function applyFilters(next: { dimension: 'team' | 'tag'; team?: string; tag?: string }) {
   const query: Record<string, string> = {};
   for (const [key, value] of Object.entries(route.query)) {
-    if (key !== 'note' && typeof value === 'string') query[key] = value;
+    if (key === 'note' || key === 'team' || key === 'tag' || key === 'dim') continue;
+    if (typeof value === 'string') query[key] = value;
   }
-  if (next === TEAM_FILTER_ALL) delete query.team;
-  else query.team = next;
+  if (next.dimension === 'tag') {
+    query.dim = 'tag';
+    if (next.tag && next.tag !== TAG_FILTER_ALL) query.tag = next.tag;
+  } else if (next.team && next.team !== TEAM_FILTER_ALL) {
+    query.team = next.team;
+  }
   void router.replace({ query });
   if (!selectedId.value) return;
   void nextTick(() => {
     document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus({ preventScroll: true });
   });
+}
+
+function applyTeam(next: string) {
+  applyFilters({ dimension: 'team', team: next });
+}
+
+// 标签筛选与团队筛选互斥:选中一个维度就清掉另一个,级联下拉的值落 URL(?tag=)。
+function changeTag(next: string) {
+  if (next === tagFilter.value && filterDimension.value === 'tag') return;
+  batchCardVisible.value = false;
+  if (detailDirty.value) {
+    pendingTag.value = next;
+    pendingLeave.value = '__tag__';
+    return;
+  }
+  applyTag(next);
+}
+
+function applyTag(next: string) {
+  applyFilters({ dimension: 'tag', tag: next });
+}
+
+// 维度切换:只换维度并清掉两侧的值,值选择器随维度更换。
+function changeDimension(next: 'team' | 'tag') {
+  if (next === filterDimension.value) return;
+  batchCardVisible.value = false;
+  applyFilters({ dimension: next });
 }
 
 function onSearch(value: string) {
@@ -205,6 +278,10 @@ function confirmLeave() {
     const next = pendingTeam.value;
     pendingTeam.value = null;
     if (next) applyTeam(next);
+  } else if (target === '__tag__') {
+    const next = pendingTag.value;
+    pendingTag.value = null;
+    if (next) applyTag(next);
   } else if (target === '__route__') {
     const path = pendingRoute.value;
     pendingRoute.value = null;
@@ -236,7 +313,7 @@ async function create(body: string) {
   toast.success('已记下来');
 }
 
-async function save(draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null; sourceTeamId: string | null }) {
+async function save(draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; tags: string[]; due: string | null; sourceTeamId: string | null }) {
   const note = selectedNote.value;
   if (!note) return;
   saving.value = true;
@@ -372,6 +449,32 @@ function onNoteDragEnded() {
   batchCardVisible.value = false;
 }
 
+// 置顶:展示层动作,不动状态机。幂等由服务端保证(重复置顶不 bump revision)。
+async function pinNote(pinned: boolean) {
+  const note = selectedNote.value;
+  if (!note) return;
+  try {
+    await api.setNotePin(note.id, { pinned, revision: note.revision });
+    await refresh();
+  } catch (cause) {
+    detailError.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+// 新增标签:先进注册表(同名幂等),再自动引用到当前打开的笔记(与点标签同款落库)。
+async function onCreateTag(payload: { name: string; color: string | null }) {
+  try {
+    const { tag } = await api.createNoteTag(payload);
+    await client.invalidateQueries({ queryKey: ['note-tags'] });
+    const note = selectedNote.value;
+    if (!note || note.state === 'archived' || note.tags.includes(tag.id)) return;
+    await api.updateNote(note.id, { revision: note.revision, tags: [...note.tags, tag.id] });
+    await refresh();
+  } catch (cause) {
+    toast.error('新增标签失败', { description: cause instanceof Error ? cause.message : String(cause) });
+  }
+}
+
 async function confirmBatchRemove() {
   const ids = pendingBatchRemove.value;
   pendingBatchRemove.value = null;
@@ -446,6 +549,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
         <div class="notes-page-column">
           <NoteList
             :notes="notes"
+            :pinned="pinnedNotes"
+            :tags="noteTags"
+            :filter-tags="filterableTags"
             :filter="filter"
             :counts="counts"
             :search="search"
@@ -455,9 +561,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             :has-more="hasMore"
             :loading-more="loadingMore"
             :team="teamFilter"
-            :teams="teams"
+            :teams="filterableTeams"
+            :tag="tagFilter"
+            :dimension="filterDimension"
             @update:filter="changeFilter"
             @update:team="changeTeam"
+            @update:tag="changeTag"
+            @update:dimension="changeDimension"
             @update:search="onSearch"
             @select="openNote"
             @load-more="loadMore"
@@ -484,11 +594,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                   :note="selectedNote"
                   :panel-ready="panelReady"
                   :teams="teams"
+                  :tags="noteTags"
                   :saving="saving"
                   :error="detailError"
                   :conflict="conflict"
                   @save="save"
                   @state="changeState"
+                  @pin="pinNote"
+                  @create-tag="onCreateTag"
                   @remove="remove"
                   @handoff="handoff"
                   @reload="reloadDetail"

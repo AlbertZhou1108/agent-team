@@ -21,6 +21,8 @@ function note(overrides: Partial<Note> = {}): Note {
     titleManual: false,
     body: '把同步方案写清楚\n现在最后写入者赢，产品不希望丢数据。',
     todos: [{ text: '确认冲突合并策略', done: false }],
+    tags: [],
+    pinnedAt: null,
     due: null,
     state: 'active',
     sourceTeamId: null,

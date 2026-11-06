@@ -19,6 +19,8 @@ export function noteStateDescription(state: NoteState): string {
 /** 团队筛选的两个特殊值：全部（不筛选）与无来源。其余值都是团队 id。 */
 export const TEAM_FILTER_ALL = 'all';
 export const TEAM_FILTER_NONE = 'none';
+/** 标签筛选的「不筛选」哨兵值(级联维度选「标签」但未选具体标签)。 */
+export const TAG_FILTER_ALL = 'all';
 
 /**
  * 来源徽标文案：有来源但取不到团队名，说明团队已经被删了。
@@ -77,6 +79,7 @@ export interface NoteDraft {
   title: string;
   body: string;
   todos: NoteTodo[];
+  tags: string[];
   due: string | null;
   sourceTeamId: string | null;
   revision: number;
@@ -87,6 +90,7 @@ export function draftFrom(note: Note): NoteDraft {
     title: note.title,
     body: note.body,
     todos: note.todos.map(todo => ({ ...todo })),
+    tags: [...note.tags],
     due: note.due,
     sourceTeamId: note.sourceTeamId,
     revision: note.revision,
@@ -99,6 +103,7 @@ export function isDirty(note: Note | null, draft: NoteDraft | null): boolean {
     || draft.body !== note.body
     || draft.due !== note.due
     || draft.sourceTeamId !== note.sourceTeamId
+    || JSON.stringify(draft.tags) !== JSON.stringify(note.tags)
     || JSON.stringify(draft.todos) !== JSON.stringify(note.todos);
 }
 
