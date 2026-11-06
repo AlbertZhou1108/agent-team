@@ -3,6 +3,7 @@ import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useInfiniteQuery } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
+import { queryKeys } from '@/features/query-keys';
 import { Bot, Settings2 } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -70,12 +71,12 @@ const activeTeam = computed(() =>
   props.teams.find((team) => team.id === activeTeamId.value),
 );
 const records = useInfiniteQuery({
-  queryKey: computed(() => ['panel-agent', 'records', props.bootId, showHistory.value]),
+  queryKey: computed(() => queryKeys.panelRecords(props.bootId, showHistory.value)),
   initialPageParam: undefined as number | undefined,
   queryFn: ({ pageParam, signal }) => api.panelRecords(showHistory.value, pageParam, signal),
   getNextPageParam: page => page.nextBefore ?? undefined,
   enabled: computed(() => Boolean(props.bootId)),
-  refetchInterval: computed(() => showHistory.value ? false : 2000),
+  // 新消息由 panel SSE 流推送;历史页不再轮询重取全部已加载页。
   refetchOnWindowFocus: false,
 });
 const visibleMessages = computed(() => [...new Map([

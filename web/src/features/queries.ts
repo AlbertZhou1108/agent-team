@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
+import { queryKeys } from './query-keys';
 import type {
   HistoryRow,
   MessageRow,
@@ -19,7 +20,7 @@ const refreshInterval = 2000;
 
 export function useCollaborationQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: computed(() => ['collaboration', toValue(groupId)] as const),
+    queryKey: computed(() => queryKeys.collaboration(toValue(groupId))),
     queryFn: ({ signal }) => api.collaboration(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
@@ -29,7 +30,7 @@ export function useCollaborationQuery(groupId: MaybeRefOrGetter<string | undefin
 
 export function useCharterQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: computed(() => ['charter', toValue(groupId)] as const),
+    queryKey: computed(() => queryKeys.charter(toValue(groupId))),
     queryFn: ({ signal }) => api.charter(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchOnWindowFocus: false,
@@ -38,7 +39,7 @@ export function useCharterQuery(groupId: MaybeRefOrGetter<string | undefined>) {
 
 export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
-    queryKey: ['panel-agent', 'state'],
+    queryKey: queryKeys.panelState,
     enabled: computed(() => toValue(full)),
     queryFn: ({ signal }) => api.panelAgent(signal),
     refetchInterval: refreshInterval,
@@ -49,7 +50,7 @@ export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
 
 export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, endpoint: MaybeRefOrGetter<string | undefined> = undefined) {
   const client = useQueryClient();
-  const key = computed(() => ['messages', toValue(groupId), toValue(endpoint) ?? null] as const);
+  const key = computed(() => queryKeys.messages(toValue(groupId), toValue(endpoint) ?? null));
   // Head and history caches are written independently and restored separately
   // by the tab cache, so a mounted view verifies their seam against a fresh
   // server page once before either is trusted for incremental polling.
@@ -59,7 +60,7 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
     queryFn: async ({ signal, queryKey }) => {
       const identity = JSON.stringify(queryKey);
       const previous = client.getQueryData<MessageRow[]>(queryKey) ?? [];
-      const older = client.getQueryData<{ pages: MessageRow[][] }>(['message-history', queryKey[1], queryKey[2]])?.pages.flat() ?? [];
+      const older = client.getQueryData<{ pages: MessageRow[][] }>(queryKeys.messageHistory(queryKey[1] as string, queryKey[2] as string | null))?.pages.flat() ?? [];
       const rows = [...new Map([...previous, ...older].map(row => [row.seq, row])).values()].sort((a, b) => a.seq - b.seq);
       if (rows.length && !verifiedSeams.has(identity)) {
         const fresh = await api.messages(queryKey[1]!, undefined, signal, queryKey[2] ?? undefined);
@@ -95,7 +96,7 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
     refetchOnWindowFocus: false,
   });
   const history = useInfiniteQuery({
-    queryKey: computed(() => ['message-history', toValue(groupId), toValue(endpoint) ?? null] as const),
+    queryKey: computed(() => queryKeys.messageHistory(toValue(groupId), toValue(endpoint) ?? null)),
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam, signal, queryKey }) => api.messages(queryKey[1]!, pageParam ?? head.data.value?.[0]?.seq, signal, queryKey[2] ?? undefined),
     getNextPageParam: (last: MessageRow[]) => last.length === 50 ? last[0]?.seq : undefined,
@@ -112,15 +113,15 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
 export function useHistoryQuery(
   endpointId: MaybeRefOrGetter<string | undefined>,
 ) {
+  // 历史页不再轮询:视图打开时按需拉取,已加载页保持冻结,避免每 2 秒重取全部页。
   const query = useInfiniteQuery({
-    queryKey: computed(() => ['history', toValue(endpointId)] as const),
+    queryKey: computed(() => queryKeys.history(toValue(endpointId))),
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) => api.history(toValue(endpointId)!, pageParam, signal),
     getNextPageParam: (lastPage: HistoryRow[]) => (
       lastPage.length === 200 ? lastPage.at(-1)?.seq : undefined
     ),
     enabled: computed(() => Boolean(toValue(endpointId))),
-    refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });
 
@@ -136,21 +137,23 @@ export function useHistoryQuery(
 export function useModelsQuery(
   endpointId: MaybeRefOrGetter<string | undefined>,
 ) {
+  // 同 history:模型观察列表只在打开模型页时按需拉取,不再全量轮询。
   const query = useInfiniteQuery({
-    queryKey: computed(() => ['models', toValue(endpointId)] as const),
+    queryKey: computed(() => queryKeys.models(toValue(endpointId))),
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) => api.models(toValue(endpointId)!, pageParam, signal),
     getNextPageParam: lastPage => (
       lastPage.observations.length === 200 ? lastPage.nextAfter : undefined
     ),
     enabled: computed(() => Boolean(toValue(endpointId))),
-    refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,
   });
 
   const observations = computed(() => {
     const pages = query.data.value?.pages ?? [];
-    return [...new Map(pages.flatMap(page => page.observations).map(item => [item.seq, item])).values()]
+    return [...new Map(
+      pages.flatMap(page => page.observations).map(item => [item.seq, item]),
+    ).values()]
       .sort((a, b) => a.seq - b.seq);
   });
 
@@ -159,21 +162,57 @@ export function useModelsQuery(
   return { ...query, observations, state };
 }
 
+/** infinite query 的历史页保持冻结,只轮询最新一页(head)。 */
+function useTelemetryHead<T>(
+  key: MaybeRefOrGetter<readonly unknown[]>,
+  load: (signal: AbortSignal) => Promise<T>,
+  enabled: MaybeRefOrGetter<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => [...toValue(key), 'head']),
+    queryFn: ({ signal }) => load(signal),
+    enabled: computed(() => toValue(enabled)),
+    refetchInterval: refreshInterval,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 按 batchId 合并 head 与历史页,避免首屏与历史页重复项。 */
+function mergeBatches<T extends { batchId: string }>(...groups: Array<T[] | undefined>): T[] {
+  return [
+    ...new Map(
+      groups.flatMap(group => group ?? []).map(batch => [batch.batchId, batch]),
+    ).values(),
+  ];
+}
+
 export function useConversationTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
   memberId: MaybeRefOrGetter<string | undefined>,
   peerId: MaybeRefOrGetter<string | undefined>,
 ) {
-  const query = useInfiniteQuery({
-    queryKey: computed(
-      () =>
-        [
-          'telemetry-conversation',
-          toValue(groupId),
-          toValue(memberId),
-          toValue(peerId),
-        ] as const,
+  const enabled = computed(
+    () =>
+      Boolean(toValue(groupId)) &&
+      Boolean(toValue(memberId)) &&
+      Boolean(toValue(peerId)),
+  );
+  const key = computed(() =>
+    queryKeys.telemetryConversation(toValue(groupId), toValue(memberId), toValue(peerId)),
+  );
+  const head = useTelemetryHead(
+    key,
+    signal => api.telemetryConversation(
+      toValue(groupId)!,
+      toValue(memberId)!,
+      toValue(peerId)!,
+      {},
+      signal,
     ),
+    enabled,
+  );
+  const query = useInfiniteQuery({
+    queryKey: key,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       api.telemetryConversation(
@@ -184,37 +223,31 @@ export function useConversationTelemetryQuery(
         signal,
       ),
     getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled: computed(
-      () =>
-        Boolean(toValue(groupId)) &&
-        Boolean(toValue(memberId)) &&
-        Boolean(toValue(peerId)),
-    ),
-    refetchInterval: refreshInterval,
+    enabled,
     refetchOnWindowFocus: false,
   });
   const firstPage = computed<TelemetryConversationResponse | undefined>(
-    () => query.data.value?.pages[0],
+    () => head.data.value ?? query.data.value?.pages[0],
   );
-  const batches = computed<TelemetryBatch[]>(() =>
-    [
-      ...new Map(
-        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
-          batch => [batch.batchId, batch],
-        ),
-      ).values(),
-    ],
-  );
-  return { ...query, firstPage, batches };
+  const batches = computed<TelemetryBatch[]>(() => mergeBatches(
+    head.data.value?.batches,
+    query.data.value?.pages.flatMap(page => page.batches),
+  ));
+  return { ...query, firstPage, batches, head };
 }
 
 export function useCoordinationTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
 ) {
+  const enabled = computed(() => Boolean(toValue(groupId)));
+  const key = computed(() => queryKeys.telemetryCoordination(toValue(groupId)));
+  const head = useTelemetryHead(
+    key,
+    signal => api.telemetryCoordination(toValue(groupId)!, {}, signal),
+    enabled,
+  );
   const query = useInfiniteQuery({
-    queryKey: computed(
-      () => ['telemetry-coordination', toValue(groupId)] as const,
-    ),
+    queryKey: key,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       api.telemetryCoordination(
@@ -223,23 +256,17 @@ export function useCoordinationTelemetryQuery(
         signal,
       ),
     getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    enabled,
     refetchOnWindowFocus: false,
   });
   const firstPage = computed<TelemetryCoordinationResponse | undefined>(
-    () => query.data.value?.pages[0],
+    () => head.data.value ?? query.data.value?.pages[0],
   );
-  const batches = computed<TelemetryBatch[]>(() =>
-    [
-      ...new Map(
-        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
-          batch => [batch.batchId, batch],
-        ),
-      ).values(),
-    ],
-  );
-  return { ...query, firstPage, batches };
+  const batches = computed<TelemetryBatch[]>(() => mergeBatches(
+    head.data.value?.batches,
+    query.data.value?.pages.flatMap(page => page.batches),
+  ));
+  return { ...query, firstPage, batches, head };
 }
 
 export function useManagerConversationTelemetryQuery(
@@ -251,18 +278,34 @@ export function useManagerConversationTelemetryQuery(
     limit?: MaybeRefOrGetter<number | undefined>;
   } = {},
 ) {
-  const query = useInfiniteQuery({
-    queryKey: computed(
-      () =>
-        [
-          'telemetry-manager-conversation',
-          toValue(groupId),
-          toValue(memberId),
-          toValue(options.from),
-          toValue(options.to),
-          toValue(options.limit),
-        ] as const,
+  const enabled = computed(
+    () => Boolean(toValue(groupId)) && Boolean(toValue(memberId)),
+  );
+  const key = computed(() =>
+    queryKeys.telemetryManagerConversation(
+      toValue(groupId),
+      toValue(memberId),
+      toValue(options.from),
+      toValue(options.to),
+      toValue(options.limit),
     ),
+  );
+  const head = useTelemetryHead(
+    key,
+    signal => api.telemetryManagerConversation(
+      toValue(groupId)!,
+      toValue(memberId)!,
+      {
+        from: toValue(options.from),
+        to: toValue(options.to),
+        limit: toValue(options.limit),
+      },
+      signal,
+    ),
+    enabled,
+  );
+  const query = useInfiniteQuery({
+    queryKey: key,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       api.telemetryManagerConversation(
@@ -277,34 +320,24 @@ export function useManagerConversationTelemetryQuery(
         signal,
       ),
     getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled: computed(
-      () => Boolean(toValue(groupId)) && Boolean(toValue(memberId)),
-    ),
-    refetchInterval: refreshInterval,
+    enabled,
     refetchOnWindowFocus: false,
   });
   const firstPage = computed<TelemetryManagerConversationResponse | undefined>(
-    () => query.data.value?.pages[0],
+    () => head.data.value ?? query.data.value?.pages[0],
   );
-  const batches = computed<TelemetryManagerBatch[]>(() =>
-    [
-      ...new Map(
-        (query.data.value?.pages.flatMap(page => page.batches) ?? []).map(
-          batch => [batch.batchId, batch],
-        ),
-      ).values(),
-    ],
-  );
-  return { ...query, firstPage, batches };
+  const batches = computed<TelemetryManagerBatch[]>(() => mergeBatches(
+    head.data.value?.batches,
+    query.data.value?.pages.flatMap(page => page.batches),
+  ));
+  return { ...query, firstPage, batches, head };
 }
 
 export function useMembersTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
 ) {
   return useQuery({
-    queryKey: computed(
-      () => ['telemetry-members', toValue(groupId)] as const,
-    ),
+    queryKey: computed(() => queryKeys.telemetryMembers(toValue(groupId))),
     queryFn: ({ signal }) => api.telemetryMembers(toValue(groupId)!, {}, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
@@ -316,9 +349,7 @@ export function useTelemetryCapabilitiesQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
 ) {
   return useQuery({
-    queryKey: computed(
-      () => ['telemetry-capabilities', toValue(groupId)] as const,
-    ),
+    queryKey: computed(() => queryKeys.telemetryCapabilities(toValue(groupId))),
     queryFn: ({ signal }) =>
       api.telemetryCapabilities(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
@@ -329,7 +360,7 @@ export function useTelemetryCapabilitiesQuery(
 
 export function useTeamDirectivesQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: computed(() => ['team-directives', toValue(groupId)]),
+    queryKey: computed(() => queryKeys.teamDirectives(toValue(groupId))),
     queryFn: ({ signal }) => api.teamDirectives(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
@@ -339,7 +370,7 @@ export function useTeamDirectivesQuery(groupId: MaybeRefOrGetter<string | undefi
 
 export function useInteractionsQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: computed(() => ['interactions', toValue(groupId)]),
+    queryKey: computed(() => queryKeys.interactions(toValue(groupId))),
     queryFn: ({ signal }) => api.interactions(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
     refetchInterval: refreshInterval,
@@ -349,7 +380,7 @@ export function useInteractionsQuery(groupId: MaybeRefOrGetter<string | undefine
 
 export function usePanelInteractionsQuery() {
   return useQuery({
-    queryKey: ['interactions', 'panel'] as const,
+    queryKey: queryKeys.panelInteractions,
     queryFn: ({ signal }) => api.panelInteractions(signal),
     refetchInterval: refreshInterval,
     refetchOnWindowFocus: false,

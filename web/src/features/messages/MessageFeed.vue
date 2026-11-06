@@ -51,11 +51,16 @@ const selectedRunKey = ref<string | null>(null);
 // 展开状态在这里统一持有 —— 普通消息按消息 id,群发组只有一颗开关、
 // 展开堆叠组内全部轨迹,键取组首消息 id。
 const expandedTraces = ref(new Set<string>());
+// 已加载消息超过上限时只渲染最近一段,避免超长会话累积数千 DOM 节点;
+// 更早的消息已在内存里,点按钮即时展开,不需要重新请求。
+const RENDER_STEP = 600;
+const renderedLimit = ref(RENDER_STEP);
 watch(
   () => props.resetKey ?? props.selectedPair,
   () => {
     selectedRunKey.value = null;
     expandedTraces.value = new Set();
+    renderedLimit.value = RENDER_STEP;
   },
 );
 const traceExpanded = (id: string) => expandedTraces.value.has(id);
@@ -92,8 +97,14 @@ const isCardAnchor = (message: { id: string }) => cardAnchorIds.value.has(messag
 const anchorOf = (message: { id: string; senderName: string; createdAt: string }) =>
   isCardAnchor(message) ? { senderName: message.senderName, createdAt: message.createdAt } : undefined;
 
+const renderedMessages = computed(() =>
+  filtered.value.length > renderedLimit.value
+    ? filtered.value.slice(filtered.value.length - renderedLimit.value)
+    : filtered.value,
+);
+const hiddenMessageCount = computed(() => filtered.value.length - renderedMessages.value.length);
 const messageGroups = computed(() =>
-  buildMessageGroups(filtered.value, {
+  buildMessageGroups(renderedMessages.value, {
     groupSystemMessages: props.groupSystemMessages,
     isBlocked: isCardAnchor,
   }),
@@ -189,6 +200,11 @@ const messageIds = computed(() => {
       <Button variant="outline" size="sm" :disabled="fetchingNextPage" @click="emit('loadMore')">
         <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
         {{ fetchingNextPage ? '正在加载' : '加载更早消息' }}
+      </Button>
+    </div>
+    <div v-if="hiddenMessageCount > 0" class="flex justify-center py-2">
+      <Button variant="outline" size="sm" @click="renderedLimit += RENDER_STEP">
+        显示更早的 {{ hiddenMessageCount }} 条（已加载）
       </Button>
     </div>
     <div v-for="group in renderGroups" :key="group.id" class="chat-message">
