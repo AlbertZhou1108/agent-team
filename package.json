@@ -36,7 +36,8 @@
     "desktop:quick": "node electron/launch.mjs",
     "desktop:dev": "node electron/dev.mjs",
     "check:version": "node scripts/check-version-consistency.mjs",
-    "desktop:smoke": "npm run build && node scripts/electron-smoke.mjs"
+    "desktop:smoke": "npm run build && node scripts/electron-smoke.mjs",
+    "perf:baseline": "node scripts/perf-baseline.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.60.0",
