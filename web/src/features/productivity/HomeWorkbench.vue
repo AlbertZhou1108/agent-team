@@ -2,12 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { RouterLink } from 'vue-router';
-import { frameBatch } from '@/features/messages/frame-batch';
-import {
-  reduceSummaryStream,
-  type SummaryStreamState,
-  type SummaryStreamEvent,
-} from './summary-stream';
+import { usePanelStream } from '@/features/panel-agent/panel-stream-store';
+import type { PanelStreamEvent } from '@/features/streams/panel-reducer';
 import { api } from '@/shared/api/client';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -193,56 +189,38 @@ async function cleanRecentActivity() {
 const activityTab = ref('running');
 const generating = ref(false);
 const error = ref('');
-const live = ref<SummaryStreamState>({ stream: null, active: false });
-let events: EventSource | null = null;
-const streamEvents = frameBatch<SummaryStreamEvent>(
-  (event) => {
-    const previous = live.value;
-    live.value = reduceSummaryStream(previous, event);
-    if (
-      live.value !== previous &&
-      event.type === 'start' &&
-      event.stream?.homeSummary
-    )
-      error.value = '';
-    if (
-      live.value !== previous &&
-      event.stream?.homeSummary &&
-      ['complete', 'error', 'cancelled'].includes(event.type)
-    ) {
-      if (event.type === 'error' || event.type === 'cancelled')
-        error.value =
-          event.type === 'cancelled'
-            ? '摘要生成已中断，保留上次结果。'
-            : '摘要生成失败，保留上次结果。';
-      void query.refetch();
-    }
-  },
-  requestAnimationFrame,
-  cancelAnimationFrame,
-);
-function acceptStream(event: Event) {
-  try {
-    const payload = JSON.parse(
-      (event as MessageEvent<string>).data,
-    ) as SummaryStreamEvent;
-    streamEvents.push(payload);
-    if (payload.type !== 'delta' && payload.type !== 'reasoning-delta')
-      streamEvents.flush();
-  } catch {
-    /* reconnect snapshots restore valid state */
-  }
-}
+// 摘要流不再是本组件自己的连接：PanelAgentPanel 与工作台共用 panel-stream-store
+// 的单例 EventSource，live 只读统一 reducer 结算后的摘要状态。
+const panelStream = usePanelStream();
+const live = computed(() => panelStream.state.value.summary);
+let releasePanelStream: () => void = () => {};
+let stopPanelEvents: () => void = () => {};
+let stopPanelOpen: () => void = () => {};
+const onPanelEvent = (event: PanelStreamEvent) => {
+  if (event.type === 'start' && event.stream?.homeSummary) error.value = '';
+  if (
+    !event.stream?.homeSummary ||
+    !['complete', 'error', 'cancelled'].includes(event.type)
+  )
+    return;
+  if (event.type === 'error' || event.type === 'cancelled')
+    error.value =
+      event.type === 'cancelled'
+        ? '摘要生成已中断，保留上次结果。'
+        : '摘要生成失败，保留上次结果。';
+  void query.refetch();
+};
 onMounted(() => {
-  events = new EventSource('/api/panel-agent/events');
-  events.addEventListener('panel-stream', acceptStream);
-  events.onopen = () => {
+  releasePanelStream = panelStream.retain();
+  stopPanelOpen = panelStream.subscribeOpen(() => {
     void query.refetch();
-  };
+  });
+  stopPanelEvents = panelStream.subscribe(onPanelEvent);
 });
 onBeforeUnmount(() => {
-  events?.close();
-  streamEvents.dispose();
+  stopPanelEvents();
+  stopPanelOpen();
+  releasePanelStream();
 });
 watch(
   [() => data.value?.summary, () => live.value.active],
@@ -253,7 +231,7 @@ watch(
       !live.value.active &&
       summary.created >= live.value.stream.created
     )
-      live.value = { stream: null, active: false };
+      panelStream.resetSummary();
   },
 );
 const summarizing = computed(() => generating.value || live.value.active);
@@ -303,7 +281,7 @@ const statusLabels: Record<string, string> = {
 };
 async function summarize() {
   if (summarizing.value || privateBusy.value) return;
-  live.value = { stream: null, active: false };
+  panelStream.resetSummary();
   generating.value = true;
   error.value = '';
   try {

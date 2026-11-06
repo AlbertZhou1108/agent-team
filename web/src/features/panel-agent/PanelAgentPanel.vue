@@ -11,14 +11,13 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import type {
   ModelCatalogResponse,
   PanelAgent,
-  PanelStream,
   PanelTeamView,
 } from '@/shared/api/raw-types';
 import { api } from '@/shared/api/client';
 import { useQuery } from '@tanstack/vue-query';
 import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
-import { frameBatch } from '@/features/messages/frame-batch';
+import { usePanelStream } from './panel-stream-store';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
@@ -43,8 +42,8 @@ const saving = ref(false);
 const modelSaving = ref(false);
 const stopping = ref(false);
 const actionError = ref('');
-const streamedReply = ref<PanelStream | null>(null);
-let streamSource: EventSource | null = null;
+const panelStream = usePanelStream();
+const streamedReply = computed(() => panelStream.state.value.private);
 
 type ConfirmRequest = {
   title: string;
@@ -89,96 +88,29 @@ const privateRunningContext = computed(
 );
 const privateStreaming = computed(
   () =>
-    (streamedReply.value?.context === 'private'
-      ? streamedReply.value
-      : null) ??
+    streamedReply.value ??
     panel.value?.streaming?.find((stream) => stream.context === 'private') ??
     null,
 );
 
-type PanelStreamEvent = {
-  type: 'snapshot' | 'start' | 'delta' | 'reasoning-delta' | 'phase' | 'complete' | 'cancelled' | 'error';
-  stream?: PanelStream;
-  streams?: PanelStream[];
-  delta?: string;
-};
-
-function acceptPanelStream(payload: PanelStreamEvent) {
-  if (payload.type === 'snapshot') {
-    streamedReply.value =
-      payload.streams?.find((stream) => stream.context === 'private') ?? null;
-    return;
-  }
-  if (payload.stream?.context !== 'private') return;
-  const sameTurn = streamedReply.value?.turnId === payload.stream.turnId;
-  if (payload.type === 'delta' && typeof payload.delta === 'string') {
-    streamedReply.value = {
-      ...payload.stream,
-      text: (sameTurn ? streamedReply.value?.text ?? '' : '') + payload.delta,
-      reasoning: sameTurn ? streamedReply.value?.reasoning ?? '' : '',
-      runPhase: 'writing',
-    };
-    return;
-  }
-  if (payload.type === 'reasoning-delta' && typeof payload.delta === 'string') {
-    streamedReply.value = {
-      ...payload.stream,
-      text: sameTurn ? streamedReply.value?.text ?? '' : '',
-      reasoning:
-        (sameTurn ? streamedReply.value?.reasoning ?? '' : '') + payload.delta,
-      runPhase: 'thinking',
-    };
-    return;
-  }
-  // 阶段事件只更新阶段与工具,不改动已累积的正文和思考。
-  if (payload.type === 'phase') {
-    streamedReply.value = sameTurn
-      ? { ...payload.stream, text: streamedReply.value?.text ?? '', reasoning: streamedReply.value?.reasoning ?? '' }
-      : payload.stream;
-    return;
-  }
-  if (payload.type === 'complete') {
-    streamedReply.value = payload.stream;
-    void panelQuery.refetch().finally(() => {
-      streamedReply.value = null;
-    });
-  } else if (payload.type === 'cancelled' || payload.type === 'error') {
-    streamedReply.value = null;
-    void panelQuery.refetch();
-  } else {
-    streamedReply.value = payload.stream;
-  }
-}
-
-// 宿主以 token 级频率推送增量（实测思考 ~108/s、正文 ~230/s），逐个增量落状态
-// 会让组件树每 token 重渲染一次并压死主线程。按帧合并后每个渲染帧最多更新一次，
-// 与团队页共用同一套 frameBatch。
-const streamEvents = frameBatch<PanelStreamEvent>(
-  (payload) => acceptPanelStream(payload),
-  requestAnimationFrame,
-  cancelAnimationFrame,
-);
-
-function onPanelStreamEvent(event: Event) {
-  try {
-    const payload = JSON.parse((event as MessageEvent<string>).data) as PanelStreamEvent;
-    streamEvents.push(payload);
-    // 增量之外的事件携带状态转换，立即生效以免顺序与终态被延迟。
-    if (payload.type !== 'delta' && payload.type !== 'reasoning-delta') streamEvents.flush();
-  } catch {
-    // A malformed event is ignored; the next delta or state poll is authoritative.
-  }
-}
-
+// 面板流由 panel-stream-store 单例连接持有：PanelAgentPanel 与 HomeWorkbench
+// 共用同一条 EventSource，本组件只订阅统一 reducer 后的事件做刷新/清理副作用。
+let releasePanelStream: () => void = () => {};
+let stopPanelStream: () => void = () => {};
 onMounted(() => {
-  streamSource = new EventSource('/api/panel-agent/events');
-  streamSource.addEventListener('panel-stream', onPanelStreamEvent);
+  releasePanelStream = panelStream.retain();
+  stopPanelStream = panelStream.subscribe((event) => {
+    if (event.stream?.context !== 'private') return;
+    if (event.type === 'complete') {
+      void panelQuery.refetch().finally(() => panelStream.clearPrivate());
+    } else if (event.type === 'cancelled' || event.type === 'error') {
+      void panelQuery.refetch();
+    }
+  });
 });
-
 onBeforeUnmount(() => {
-  streamEvents.dispose();
-  streamSource?.close();
-  streamSource = null;
+  stopPanelStream();
+  releasePanelStream();
 });
 const sending = computed(
   () =>
