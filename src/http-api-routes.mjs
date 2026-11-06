@@ -570,6 +570,18 @@ export function apiRoutes(context) {
                     return fail(404, 'Not found');
                 return value;
             } },
+        { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/turns'), handle: async () => {
+                let value;
+                const limitParam = Number(url.searchParams.get('limit'));
+                const limit = Number.isInteger(limitParam) && limitParam >= 1 && limitParam <= 50 ? limitParam : 5;
+                value = bus.store.turnSummaries(url.searchParams.get('endpoint'), {
+                    after: url.searchParams.get('after') || undefined,
+                    limit,
+                });
+                if (!value)
+                    return fail(404, '不存在可观测的群会话');
+                return value;
+            } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/turn'), handle: async () => {
                 let value;
                 value = bus.store.turnTrace(url.searchParams.get('turn'), cursor(url));

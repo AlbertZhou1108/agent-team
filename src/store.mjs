@@ -967,6 +967,31 @@ export class Store {
     this.modelSummaryCache.set(id, { ...revision, value });
     return value;
   }
+  /** 回合摘要(最旧在前):轨迹页从第一回合起正向翻页,事件懒加载走 turnTrace。 */
+  turnSummaries(id, { after, limit = 5 } = {}) {
+    const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
+    if (!conversation) return null;
+    // 多取一条探测后续页,有更多才给游标,前端不出现"点了却没内容"的空翻页。
+    // ordinal 是全会话稳定序号(最旧=1);游标用回合 id,同 created 由 rowid 决胜不漏不重。
+    const rows = this.all(`SELECT t.id,t.state,t.created,t.ended,
+        (SELECT COUNT(*) FROM turns older WHERE older.conversation_id=t.conversation_id
+           AND (older.created<t.created OR (older.created=t.created AND older.rowid<=t.rowid))) AS ordinal,
+        COUNT(h.seq) AS eventCount,COALESCE(MIN(h.seq),0) AS firstSeq,COALESCE(MAX(h.seq),0) AS lastSeq
+      FROM turns t LEFT JOIN history h ON h.turn_id=t.id
+      WHERE t.conversation_id=?
+        AND (? IS NULL OR t.created>(SELECT created FROM turns WHERE id=?)
+             OR (t.created=(SELECT created FROM turns WHERE id=?) AND t.rowid>(SELECT rowid FROM turns WHERE id=?)))
+      GROUP BY t.id ORDER BY t.created ASC, t.rowid ASC LIMIT ?`,
+      conversation.id, after ?? null, after ?? null, after ?? null, after ?? null, limit + 1);
+    // 游离事件:无回合归属的宿主输出(目前只有会话轮换),量小,随摘要一并返回。
+    const unaffiliated = this.all('SELECT * FROM history WHERE conversation_id=? AND turn_id IS NULL ORDER BY seq LIMIT 200', conversation.id);
+    const hasMore = rows.length > limit;
+    return {
+      turns: rows.slice(0, limit),
+      unaffiliated,
+      nextAfter: hasMore ? rows[limit - 1].id : null,
+    };
+  }
   turnTrace(id, after = 0) {
     // host 随回合返回:执行者的宿主决定前端按哪套 schema 解释事件,调用方不该
     // 再从会话列表反推(那张列表按需加载,不加载时轨迹会全部降级成未识别)。

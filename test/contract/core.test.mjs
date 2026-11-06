@@ -357,6 +357,57 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   assert.equal(server.bus.store.all('SELECT * FROM history').length, 0);
 });
 
+test('turn summaries API paginates whole turns oldest-first with stable ordinals', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-turns-api-'));
+  const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]) });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  const group = createTestGroup(server.bus, { name: 'turns', workspace: directory, lead: { name: 'lead', host: 'fake' } });
+  await until(() => server.bus.running.size === 0);
+  await server.bus.privateTurn(group.id, 'secret');
+  const privateEndpoint = server.bus.store.get("SELECT conversation_id AS id FROM turns t JOIN conversations e ON e.id=t.conversation_id WHERE e.context='private'").id;
+  const endpoint = server.bus.store.get("SELECT id FROM conversations WHERE group_id=? AND context='profile'", group.id).id;
+  const store = server.bus.store;
+  // 7 个回合,每回合两条事件,外加一条无回合归属的游离事件。
+  for (let i = 0; i < 7; i++) {
+    const created = new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString();
+    store.run("INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES(?,?, 'member',?,?, 'completed',?)", `turn-${i}`, endpoint, group.lead, group.id, created);
+    store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', endpoint, JSON.stringify({ type: 'framework.output', i }), created, `turn-${i}`);
+    store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', endpoint, JSON.stringify({ type: 'framework.output', i: i + 100 }), created, `turn-${i}`);
+  }
+  store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,NULL)', endpoint, JSON.stringify({ type: 'framework.session_rotated' }), new Date(Date.UTC(2026, 0, 1, 2)).toISOString());
+  const headers = {}, base = new URL(server.url).origin;
+  for (const id of [privateEndpoint, 'missing']) assert.equal((await fetch(`${base}/api/turns?endpoint=${id}`, { headers })).status, 404);
+  const first = await (await fetch(`${base}/api/turns?endpoint=${endpoint}`, { headers })).json();
+  assert.equal(first.turns.length, 5);
+  // 从第一回合起正序展示:首页是最旧的 5 个;序号从全会话最旧数起,不随分页漂移。
+  assert.equal(first.turns[0].id, 'turn-0');
+  assert.equal(first.turns[0].ordinal, 1);
+  assert.equal(first.turns[0].eventCount, 2);
+  assert.ok(first.turns[0].firstSeq > 0);
+  assert.ok(first.turns[0].firstSeq < first.turns[0].lastSeq);
+  // 摘要不携带事件体:事件懒加载走 /api/turn。
+  assert.equal(first.turns[0].events, undefined);
+  assert.ok(first.unaffiliated.some(row => JSON.parse(row.event).type === 'framework.session_rotated'), '游离事件应随摘要返回');
+  // 还有更多才给游标,游标指向本页最后一回合(加载靠后的回合,不是倒着查)。
+  assert.equal(first.nextAfter, 'turn-4');
+  const second = await (await fetch(`${base}/api/turns?endpoint=${endpoint}&after=${encodeURIComponent(first.nextAfter)}`, { headers })).json();
+  // 8 个回合(7 手插 + 1 建群自述):第二页是剩下的 3 个最新回合。
+  assert.equal(second.turns.length, 3);
+  assert.equal(second.nextAfter, null);
+  assert.equal(second.turns[0].id, 'turn-5');
+  assert.equal(second.turns[0].ordinal, 6);
+  assert.notEqual(second.turns.at(-1).id, 'turn-6');
+  // limit 钳制 1–50,越界回落默认 5。
+  assert.equal((await (await fetch(`${base}/api/turns?endpoint=${endpoint}&limit=2`, { headers })).json()).turns.length, 2);
+  assert.equal((await (await fetch(`${base}/api/turns?endpoint=${endpoint}&limit=999`, { headers })).json()).turns.length, 5);
+  // 恰好取完整页时不给幻影游标:8 个回合按 limit=8 取,不应再提示"加载更多"。
+  const exact = await (await fetch(`${base}/api/turns?endpoint=${endpoint}&limit=8`, { headers })).json();
+  assert.equal(exact.turns.length, 8);
+  assert.equal(exact.nextAfter, null);
+  await server.bus.deleteGroup(group.id);
+  assert.equal((await fetch(`${base}/api/turns?endpoint=${endpoint}`, { headers })).status, 404);
+});
+
 test('Claude adapter records requested, session, live model changes and verified effort', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-claude-model-'));
   const configDirectory = join(directory, 'claude-config');
