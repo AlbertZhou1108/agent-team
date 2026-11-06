@@ -129,11 +129,8 @@ export class EventLog {
     const rows = this.buffer;
     this.buffer = [];
     this.byKey = new Map();
-    // 已处于事务中时不能嵌套 BEGIN:直接在当前事务里按序写入,保持 seq 顺序。
-    if (this.store.db.isTransaction) {
-      this.#write(rows);
-      return;
-    }
+    // store.transaction() 支持嵌套:已处于事务中时自动降级为 SAVEPOINT,
+    // 因此这里统一走事务,不需要再判断 db.isTransaction。
     this.store.transaction(() => this.#write(rows));
   }
 

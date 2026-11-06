@@ -35,6 +35,7 @@ export class Store {
   constructor(directory) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.directory = resolve(directory);
+    this.savepointDepth = 0;
     this.db = new DatabaseSync(resolve(directory, 'groups.sqlite'));
     chmodSync(resolve(directory, 'groups.sqlite'), 0o600);
     // 版本必须在建表前读取:新库与 v0 旧库都返回 0，用 groups 表是否存在区分。
@@ -537,7 +538,25 @@ export class Store {
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
+  // 事务可嵌套:顶层开 BEGIN IMMEDIATE,已在事务中时退化为 SAVEPOINT。
+  // 调用方不需要知道当前是否处于事务中,也不再需要 isTransaction / transaction:false 之类的绕行。
   transaction(fn) {
+    if (this.db.isTransaction) {
+      const name = `at_sp_${this.savepointDepth + 1}`;
+      this.savepointDepth += 1;
+      this.db.exec(`SAVEPOINT ${name}`);
+      try {
+        const result = fn();
+        this.db.exec(`RELEASE ${name}`);
+        return result;
+      } catch (error) {
+        this.db.exec(`ROLLBACK TO ${name}`);
+        this.db.exec(`RELEASE ${name}`);
+        throw error;
+      } finally {
+        this.savepointDepth -= 1;
+      }
+    }
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }

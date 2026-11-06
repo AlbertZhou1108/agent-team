@@ -38,7 +38,7 @@ export class TeamRequests {
     return s.transaction(() => {
       const id = randomUUID();
       const controller = this.bus.teamController(groupId);
-      const directive = this.bus.teamDirectives.submit(groupId, { text, controllerId: controller.id, operationId: id }, { transaction: false });
+      const directive = this.bus.teamDirectives.submit(groupId, { text, controllerId: controller.id, operationId: id });
       s.run('INSERT INTO team_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, agent.id, user.id, turn.id, origin.callId ?? null, groupId, controller.id, operationId, directive.messageId, user.text, text, new Date().toISOString());
       return this.view(s.get('SELECT * FROM team_requests WHERE id=?', id));
     });

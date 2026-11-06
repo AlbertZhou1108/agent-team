@@ -37,7 +37,7 @@ export class TeamDirectives {
       WHERE d.scope='team-directive' AND t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`);
     for (const row of rows) this.publishOutput(row.turn_id, JSON.parse(row.event).text);
   }
-  submit(groupId, body, { transaction = true } = {}) {
+  submit(groupId, body) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).some(k => !['text', 'operationId', 'controllerId'].includes(k))) throw new Error('指令参数无效');
     const { operationId, controllerId } = body;
@@ -58,7 +58,7 @@ export class TeamDirectives {
       this.bus.store.run("INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('team-directive',?,?,NULL,?,?)", groupId, operationId, messageId, new Date().toISOString());
       return this.receipt(groupId, messageId, operationId);
     };
-    return transaction ? this.bus.store.transaction(write) : write();
+    return this.bus.store.transaction(write);
   }
   receipt(groupId, messageId, operationId) {
     const s = this.bus.store;
