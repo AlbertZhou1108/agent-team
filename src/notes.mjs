@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { notePrompt } from './notes-prompt.mjs';
+import { notePrompt, notesPrompt } from './notes-prompt.mjs';
 
 // 随心记：用户的私人想法。它只负责「记」，不理解需求、不跟踪执行。
 // 与 Panel Agent 的全部连接就是 notePrompt() 生成的一段文字，因此这里不读会话、不落回合。
@@ -302,6 +302,16 @@ export class Notes {
     const note = this.get(id);
     if (typeof instruction !== 'string' || instruction.length > 2000) throw noteError(400, '补充要求过长');
     return { text: notePrompt(note, { instruction }) };
+  }
+  // 批量汇总提示词:多选「发给 Panel Agent」的数据源。列表页按状态过滤,
+  // 正常页才有这个动作;这里仍兜底拒绝已归档记录,不让半失效内容混进提示词。
+  promptMany(ids, { instruction = '' } = {}) {
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 50) throw noteError(400, '需要 1–50 条记录');
+    if (ids.some(id => typeof id !== 'string' || !id.trim())) throw noteError(400, '记录 ID 无效');
+    if (typeof instruction !== 'string' || instruction.length > 2000) throw noteError(400, '补充要求过长');
+    const notes = ids.map(id => this.get(id));
+    if (notes.some(note => note.state === 'archived')) throw noteError(409, '包含已归档记录，无法交给 Panel Agent');
+    return { text: notesPrompt(notes, { instruction }) };
   }
   // 来源只存 id：新建与修改时校验团队存在（防幽灵 id）。已存在的笔记不因团队后来被删而失效，
   // 因此读路径从不校验，只在写入时确认。

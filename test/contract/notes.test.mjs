@@ -183,6 +183,34 @@ test('prompt warns about nested fences when the note already contains code', asy
   assert.match(text, /四个反引号/);
 });
 
+test('batch prompt aggregates selected notes with one shared protocol', async t => {
+  const { call, json } = await setup(t);
+  const first = await create(call, json, { body: '第一条：同步方案', todos: [{ text: '确认冲突合并' }] });
+  const second = await create(call, json, { body: '第二条：周末去哪\n```js\nrun()\n```' });
+  const prompt = await call('/api/notes/prompt', json('POST', { ids: [first.id, second.id], instruction: '一起判断' }));
+  assert.equal(prompt.status, 200);
+  const { text } = prompt.body;
+  assert.match(text, /【随心记】先读懂这几条记录/);
+  assert.match(text, /共 2 条记录。/);
+  assert.match(text, /── 第 1 条 ──/);
+  assert.match(text, /── 第 2 条 ──/);
+  assert.match(text, /标题：第一条：同步方案/);
+  assert.match(text, /- \[ \] 确认冲突合并/);
+  assert.match(text, /标题：第二条：周末去哪/);
+  assert.match(text, /补充要求：一起判断/);
+  assert.match(text, /四个反引号/, '任一正文含代码块即提示嵌套风险');
+  assert.equal((text.match(/在我明确同意之前，不要开始执行/g) ?? []).length, 1, '协议只出现一次');
+  assert.doesNotMatch(text, new RegExp(first.id));
+  assert.doesNotMatch(text, new RegExp(second.id));
+
+  // 已归档记录不进提示词;未知 id 404;ids 数量钳制 1–50。
+  await call(`/api/notes/${first.id}/state`, json('POST', { state: 'archived', revision: 1 }));
+  assert.equal((await call('/api/notes/prompt', json('POST', { ids: [first.id] }))).status, 409);
+  assert.equal((await call('/api/notes/prompt', json('POST', { ids: ['unknown'] }))).status, 404);
+  assert.equal((await call('/api/notes/prompt', json('POST', { ids: [] }))).status, 400);
+  assert.equal((await call('/api/notes/prompt', json('POST', { ids: Array.from({ length: 51 }, (_, index) => `id-${index}`) }))).status, 400);
+});
+
 test('a note remembers the team it was written in and lists by team or by no source', async t => {
   const { call, json, group } = await setup(t, { members: [] });
   const inTeam = await create(call, json, { body: '在团队里想到的', sourceTeamId: group.id });

@@ -153,6 +153,14 @@ export function apiRoutes(context) {
             try { return bus.notes.create(body).note; }
             catch (error) { return failJson(error?.status ?? 400, error); }
         } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/notes/prompt', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400, '提示词参数无效');
+            if (Object.keys(body).some(key => !['ids', 'instruction'].includes(key))) return fail(400, '未知提示词参数');
+            try { return bus.notes.promptMany(body.ids, { instruction: body.instruction }); }
+            catch (error) { return failJson(error?.status ?? 400, error); }
+        } },
         { methods: ['GET'], archived: false, matches: url => /^\/api\/notes\/[^/]+\/prompt$/.test(url.pathname), handle: async () => {
             try {
                 return bus.notes.prompt(decodeURIComponent(url.pathname.split('/')[3]), {

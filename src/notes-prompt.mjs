@@ -4,6 +4,7 @@
 // 模板的核心是「先判断、后建议」——默认假设用户已经想清楚，只在真的做不对时才提，
 // 并且强制 A/B/C 三支互斥，避免模型输出「先夸一遍再挑几条」的长回复。
 const HEADER = '【随心记】先读懂这条记录，再判断它现在能不能做';
+const HEADER_PLURAL = '【随心记】先读懂这几条记录，再判断它们现在能不能做';
 
 function todoLine(item) {
   return `${item.done ? '- [x]' : '- [ ]'} ${item.text}`;
@@ -13,18 +14,22 @@ function hasFence(body) {
   return body.includes('```');
 }
 
-export function notePrompt(note, { instruction = '' } = {}) {
-  const lines = [HEADER, '', `标题：${note.title}`, '', '正文：', note.body];
+/** 单条记录的字段分节(标题/正文/待办/截止),单条与批量共用。 */
+function noteSection(note) {
+  const lines = [`标题：${note.title}`, '', '正文：', note.body];
   const todos = Array.isArray(note.todos) ? note.todos : [];
   if (todos.length) lines.push('', '待办：', ...todos.map(todoLine));
   if (note.due) lines.push('', `截止：${note.due}`);
-  const extra = typeof instruction === 'string' ? instruction.trim() : '';
-  if (extra) lines.push('', `补充要求：${extra}`);
-  lines.push(
-    '',
+  return lines;
+}
+
+/** 处理协议:单条与批量只在「条数措辞」上不同,判断规则与互斥分支完全一致。 */
+function protocolLines({ plural = false } = {}) {
+  const subject = plural ? '这些记录' : '这条记录';
+  return [
     '请按这个顺序处理：',
     '',
-    '1. 读：这条记录想解决什么问题，做成什么样算完成，有哪些前提。',
+    `1. 读：${subject}想解决什么问题，做成什么样算完成，有哪些前提。`,
     '2. 看：结合当前工作区的实际情况判断可行性。涉及具体项目或代码的，先读文件确认现状，不要凭印象假设；确认不了就说明这是你的假设。',
     '3. 判断，并且只做一个判断：',
     '   A. 已经清楚、可以直接做 —— 不要为了挑毛病而挑毛病。用两三句话说清你打算怎么做（做法、影响范围、风险），然后问我是否开始实施。',
@@ -34,7 +39,32 @@ export function notePrompt(note, { instruction = '' } = {}) {
     '',
     '需要我做决定时用互动卡问我（选 A 时问：开始实施 / 先补充 / 暂时不做）。',
     '在我明确同意之前，不要开始执行，也不要改文件。',
-  );
+  ];
+}
+
+function appendInstruction(lines, instruction) {
+  const extra = typeof instruction === 'string' ? instruction.trim() : '';
+  if (extra) lines.push('', `补充要求：${extra}`);
+}
+
+export function notePrompt(note, { instruction = '' } = {}) {
+  const lines = [HEADER, '', ...noteSection(note)];
+  appendInstruction(lines, instruction);
+  lines.push('', ...protocolLines());
   if (hasFence(note.body)) lines.push('', '正文里已经有代码块，你输出的代码块请用四个反引号包裹，避免嵌套冲突。');
+  return lines.join('\n');
+}
+
+/** 批量汇总:每条一节,协议只出现一次;发给 Panel Agent 的多选动作走这里。 */
+export function notesPrompt(notes, { instruction = '' } = {}) {
+  const lines = [HEADER_PLURAL, '', `共 ${notes.length} 条记录。`];
+  notes.forEach((note, index) => {
+    lines.push('', `── 第 ${index + 1} 条 ──`, ...noteSection(note));
+  });
+  appendInstruction(lines, instruction);
+  lines.push('', ...protocolLines({ plural: true }));
+  if (notes.some(note => hasFence(note.body))) {
+    lines.push('', '记录正文里已经有代码块，你输出的代码块请用四个反引号包裹，避免嵌套冲突。');
+  }
   return lines.join('\n');
 }
