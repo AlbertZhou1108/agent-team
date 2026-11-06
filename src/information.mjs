@@ -2,6 +2,8 @@
 // results. Authority stays in Store; this module only derives views, stable
 // references and size measurements.
 import { createHash, randomUUID } from 'node:crypto';
+import * as messagesAgg from './aggregates/messages.mjs';
+import * as conversationsAgg from './aggregates/conversations.mjs';
 
 export const CONTEXT_SCHEMA_VERSION = 2;
 export const LEGACY_SCHEMA_VERSION = 0;
@@ -174,32 +176,18 @@ export class Information {
   // --- context schema compatibility -------------------------------------
 
   memberSchemaForSession(endpoint, sessionKey, existingSession) {
-    const row = this.store.get(
-      'SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key=?',
-      endpoint.id,
-      sessionKey,
-    );
+    const row = conversationsAgg.contextFormat(this.store, endpoint.id, sessionKey);
     if (row?.schema_version != null) return row.schema_version;
     const schema = existingSession ? LEGACY_SCHEMA_VERSION : CONTEXT_SCHEMA_VERSION;
-    const timestamp = now();
-    this.store.run(
-      `INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) VALUES(?,?,?,?,?,?)
-       ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated`,
-      endpoint.id,
-      sessionKey,
-      schema,
-      existingSession ? 'legacy-detected' : 'new-session',
-      timestamp,
-      timestamp,
-    );
+    conversationsAgg.saveContextFormat(this.store, endpoint.id, sessionKey, {
+      schemaVersion: schema,
+      source: existingSession ? 'legacy-detected' : 'new-session',
+    });
     return schema;
   }
 
   memberSchemaForEndpoint(endpointId) {
-    return this.store.get(
-      'SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND schema_version IS NOT NULL ORDER BY format_updated DESC LIMIT 1',
-      endpointId,
-    )?.schema_version ?? LEGACY_SCHEMA_VERSION;
+    return conversationsAgg.latestSchemaForConversation(this.store, endpointId) ?? LEGACY_SCHEMA_VERSION;
   }
 
   memberSchemaForTurn(turnId) {
@@ -227,31 +215,18 @@ export class Information {
   }
 
   panelSchemaForStart(session) {
-    const row = this.store.get(
-      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
-      session.id,
-    );
+    const row = conversationsAgg.contextFormat(this.store, session.id, 'default');
     if (row?.schema_version != null) return row.schema_version;
     return session.session ? LEGACY_SCHEMA_VERSION : CONTEXT_SCHEMA_VERSION;
   }
 
   rememberPanelSchema(session, schema) {
-    const existing = this.store.get(
-      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
-      session.id,
-    );
+    const existing = conversationsAgg.contextFormat(this.store, session.id, 'default');
     if (existing?.schema_version == null) {
-      const timestamp = now();
-      this.store.run(
-        `INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) VALUES(?,?,?,?,?,?)
-         ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated`,
-        session.id,
-        'default',
-        schema,
-        schema === CONTEXT_SCHEMA_VERSION ? 'new-session' : 'legacy-detected',
-        timestamp,
-        timestamp,
-      );
+      conversationsAgg.saveContextFormat(this.store, session.id, 'default', {
+        schemaVersion: schema,
+        source: schema === CONTEXT_SCHEMA_VERSION ? 'new-session' : 'legacy-detected',
+      });
     }
     session.context_schema = existing?.schema_version ?? schema;
     return session.context_schema;
@@ -266,16 +241,12 @@ export class Information {
   }
 
   panelSchemaForSession(session) {
-    return this.store.get(
-      "SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND session_key='default'",
-      session.id,
-    )?.schema_version ?? LEGACY_SCHEMA_VERSION;
+    return conversationsAgg.contextFormat(this.store, session.id, 'default')?.schema_version ?? LEGACY_SCHEMA_VERSION;
   }
 
   forgetSessionFormats(endpointId, sessionKey = null) {
     // v7 起格式与会话绑定同表;调用方(resetSession)本就同步删除三者,整行删除语义一致。
-    if (sessionKey) this.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', endpointId, sessionKey);
-    else this.store.run('DELETE FROM conversation_session_meta WHERE conversation_id=?', endpointId);
+    conversationsAgg.forgetContextFormats(this.store, endpointId, sessionKey);
   }
 
   pruneOrphanTurnSchemas() {
@@ -309,7 +280,7 @@ export class Information {
 
   readBody({ groupId, messageId, hash, offset = 0, bodyLimit = 1024, schema = CONTEXT_SCHEMA_VERSION }) {
     if (typeof messageId !== 'string' || !messageId.trim()) throw new Error('缺少正文消息ID');
-    const row = this.store.get('SELECT * FROM messages WHERE id=? AND group_id=?', messageId, groupId);
+    const row = messagesAgg.byIdInGroup(this.store, messageId, groupId);
     if (!row) throw new Error('消息不存在、已被删除或不属于当前团队');
     return expandMessageText(row, { hash, offset, bodyLimit, schema });
   }

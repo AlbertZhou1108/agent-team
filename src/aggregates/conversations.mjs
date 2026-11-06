@@ -108,3 +108,39 @@ export function clearSessionsForPanelAgent(store, panelAgentId, { privateOnly = 
     ? store.run("UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=? AND context='private'", now, panelAgentId)
     : store.run('UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=?', now, panelAgentId);
 }
+
+// --- 上下文格式(schema_version / format_*;information 的存储边界) ----------
+// 「上下文格式」的版本选择与兼容策略仍由 information 决定,但事实行在
+// conversation_session_meta;这里只提供纯存取,避免 information 直写绑定表。
+
+/** 读取某会话在指定 session_key 上的格式行;无行时 null。 */
+export function contextFormat(store, conversationId, sessionKey = 'default') {
+  return store.get(
+    'SELECT schema_version,format_source,format_created,format_updated FROM conversation_session_meta WHERE conversation_id=? AND session_key=?',
+    conversationId, sessionKey,
+  ) ?? null;
+}
+
+/** 该会话最近一次已记录的 schema_version(无记录时 null)。 */
+export function latestSchemaForConversation(store, conversationId) {
+  return store.get(
+    'SELECT schema_version FROM conversation_session_meta WHERE conversation_id=? AND schema_version IS NOT NULL ORDER BY format_updated DESC LIMIT 1',
+    conversationId,
+  )?.schema_version ?? null;
+}
+
+/** 记录上下文格式:只写 schema_version/format_*,不触碰 session/policy 列。 */
+export function saveContextFormat(store, conversationId, sessionKey, { schemaVersion, source }) {
+  const timestamp = new Date().toISOString();
+  return store.run(
+    `INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) VALUES(?,?,?,?,?,?)
+     ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated`,
+    conversationId, sessionKey, schemaVersion, source, timestamp, timestamp,
+  );
+}
+
+/** 清空上下文格式记录(与会话绑定共用一行,删除整行;不重放历史)。 */
+export function forgetContextFormats(store, conversationId, sessionKey = null) {
+  if (sessionKey) return store.run('DELETE FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', conversationId, sessionKey);
+  return store.run('DELETE FROM conversation_session_meta WHERE conversation_id=?', conversationId);
+}

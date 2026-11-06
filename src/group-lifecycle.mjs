@@ -4,6 +4,7 @@ import { statSync, rmSync } from 'node:fs';
 import { roleNameKey } from './collaboration.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
+import * as teamsAgg from './aggregates/teams.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -14,7 +15,7 @@ export class GroupLifecycle {
   }
   controllerState(groupId) {
     this.bus.store.group(groupId);
-    const assignment = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    const assignment = teamsAgg.controllerAssignment(this.bus.store, groupId);
     return {
       groupId,
       controller: this.bus.teamController(groupId),
@@ -42,7 +43,7 @@ export class GroupLifecycle {
     const group = this.bus.store.group(groupId);
     const relation = this.bus.panelTeamRelation(groupId);
     if (relation === 'main') throw new Error('Panel Agent 已经是该团队的主 Agent');
-    const current = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    const current = teamsAgg.controllerAssignment(this.bus.store, groupId);
     const currentRevision = current?.revision ?? 0;
     if (expectedRevision !== undefined && expectedRevision !== currentRevision) throw new Error('控制者版本已变化，请重新读取');
     this.bus.assertControllerSwitchSafe(groupId);
@@ -52,15 +53,12 @@ export class GroupLifecycle {
     if (!originalLeadId) throw new Error('团队没有可暂停的原主 Agent');
     const now = new Date().toISOString();
     this.bus.store.transaction(() => {
-      this.bus.store.run(
-        `INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated)
-         VALUES(?,'panel_agent',?,'active',?,1,?)
-         ON CONFLICT(group_id) DO UPDATE SET controller_kind='panel_agent',controller_id=excluded.controller_id,state='active',original_lead_id=excluded.original_lead_id,revision=revision+1,updated=excluded.updated`,
-        group.id,
-        panelAgent.id,
+      teamsAgg.promoteToPanelController(this.bus.store, {
+        groupId: group.id,
+        panelAgentId: panelAgent.id,
         originalLeadId,
         now,
-      );
+      });
       this.bus.store.run(
         "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?) ON CONFLICT(panel_agent_id,group_id) DO UPDATE SET relation='main',updated=excluded.updated",
         panelAgent.id,
@@ -81,19 +79,14 @@ export class GroupLifecycle {
     const panelAgent = this.bus.panelAgent();
     if (!panelAgent) throw new Error('Panel Agent 尚未创建');
     this.bus.requirePanelMain(panelAgent.id, groupId);
-    const current = this.bus.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    const current = teamsAgg.controllerAssignment(this.bus.store, groupId);
     if (expectedRevision !== undefined && expectedRevision !== current.revision) throw new Error('控制者版本已变化，请重新读取');
     this.bus.assertControllerSwitchSafe(groupId);
-    const original = current.original_lead_id ? this.bus.store.get('SELECT * FROM members WHERE id=? AND removed IS NULL', current.original_lead_id) : null;
+    const original = current.original_lead_id ? teamsAgg.activeMemberById(this.bus.store, current.original_lead_id) : null;
     if (!original) throw new Error('原主 Agent 不存在或已移除，无法交还');
     const now = new Date().toISOString();
     this.bus.store.transaction(() => {
-      this.bus.store.run(
-        "UPDATE team_lead_controllers SET controller_kind='member',controller_id=?,state='active',original_lead_id=NULL,revision=revision+1,updated=? WHERE group_id=?",
-        original.id,
-        now,
-        groupId,
-      );
+      teamsAgg.handbackToMember(this.bus.store, { groupId, memberId: original.id, now });
       this.bus.store.run(
         "UPDATE panel_team_bindings SET relation='observer',updated=? WHERE panel_agent_id=? AND group_id=?",
         now,
@@ -122,22 +115,12 @@ export class GroupLifecycle {
     this.bus.store.group(groupId);
     const normalized = this.bus.normalizeAgentTasks(tasks);
     const updated = new Date().toISOString();
-    if (normalized.length) {
-      this.bus.store.run(
-        'INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) VALUES(?,?,?,?) ON CONFLICT(owner_id,group_id) DO UPDATE SET tasks=excluded.tasks,updated=excluded.updated',
-        ownerId,
-        groupId,
-        JSON.stringify(normalized),
-        updated,
-      );
-    } else {
-      this.bus.store.run('DELETE FROM agent_tasks WHERE owner_id=? AND group_id=?', ownerId, groupId);
-    }
+    teamsAgg.setAgentTasks(this.bus.store, { ownerId, groupId, tasks: normalized, updated });
     return { owner: ownerId, updated };
   }
   agentTasksView(groupId) {
     const panelAgent = this.bus.panelAgent();
-    return this.bus.store.all('SELECT owner_id,group_id,tasks,updated FROM agent_tasks WHERE group_id=? ORDER BY updated DESC', groupId)
+    return teamsAgg.agentTasksForGroup(this.bus.store, groupId)
       .map(row => ({
         owner_id: row.owner_id,
         group_id: row.group_id,
@@ -153,7 +136,7 @@ export class GroupLifecycle {
     if (operationId !== undefined && (typeof operationId !== 'string' || !/^[\w-]{1,128}$/.test(operationId))) throw new Error('请求编号无效');
     const creationPayload = JSON.stringify({ name, workspace, lead, members, panelAgentId, charter, policy, allowShell });
     if (operationId) {
-      const previous = this.bus.store.get("SELECT * FROM operation_records WHERE scope='group-create' AND client_key=?", operationId);
+      const previous = teamsAgg.groupCreateOperation(this.bus.store, operationId);
       if (previous) {
         if (previous.payload !== creationPayload) throw new Error('请求编号已用于不同建群内容');
         if (!previous.ref) throw new Error('该请求创建的团队已删除');
@@ -182,42 +165,32 @@ export class GroupLifecycle {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.bus.store.transaction(() => {
-      this.bus.store.run(
-        'INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES(?,?,?,?,?,?,?,?)',
+      teamsAgg.insertGroup(this.bus.store, {
         id,
         name,
         workspace,
-        null,
-        now,
-        typeof charter === 'string' && charter.trim() ? charter.trim() : null,
-        policy ?? 'workspace-write',
-        allowShell === undefined ? 1 : allowShell ? 1 : 0,
-      );
+        created: now,
+        charter: typeof charter === 'string' && charter.trim() ? charter.trim() : null,
+        policy: policy ?? 'workspace-write',
+        allowShell: allowShell === undefined ? 1 : allowShell ? 1 : 0,
+      });
       for (const person of people) {
         const memberId = randomUUID();
         const selection = this.bus.defaultModelSelection(person.host);
-        this.bus.store.run(
-          'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
-          memberId,
-          id,
-          person.name,
-          person.host,
-          person.role,
-          selection?.model_provider ?? null,
-          selection?.model ?? null,
-          selection?.reasoning_effort ?? null,
-        );
+        teamsAgg.insertMember(this.bus.store, {
+          id: memberId,
+          groupId: id,
+          name: person.name,
+          host: person.host,
+          role: person.role,
+          selection,
+        });
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
-        if (person.role === 'lead') this.bus.store.run('UPDATE groups SET lead=? WHERE id=?', memberId, id);
+        if (person.role === 'lead') teamsAgg.setGroupLead(this.bus.store, id, memberId);
       }
-      if (operationId) this.bus.store.run("INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('group-create','',?,?,?,?)", operationId, creationPayload, id, new Date().toISOString());
+      if (operationId) teamsAgg.recordGroupCreate(this.bus.store, { operationId, payload: creationPayload, groupId: id, created: new Date().toISOString() });
       if (panelAgent) {
-        this.bus.store.run(
-          "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated) VALUES(?,'panel_agent',?,'active',NULL,1,?)",
-          id,
-          panelAgent.id,
-          now,
-        );
+        teamsAgg.insertPanelController(this.bus.store, { groupId: id, panelAgentId: panelAgent.id, now });
         this.bus.store.run(
           "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?)",
           panelAgent.id,
@@ -247,15 +220,14 @@ export class GroupLifecycle {
       if (state === 'archived') {
         if (group.state !== 'archived') this.bus.archiveSnapshots.capture(group);
       } else this.bus.archiveSnapshots.discard(groupId);
-      this.bus.store.run('UPDATE groups SET state=? WHERE id=?', state, groupId);
+      teamsAgg.updateGroupState(this.bus.store, groupId, state);
     });
     return this.bus.store.group(groupId);
   }
-  members(groupId) { this.bus.store.group(groupId); return this.bus.store.all('SELECT * FROM members WHERE group_id=? AND removed IS NULL ORDER BY rowid', groupId); }
+  members(groupId) { this.bus.store.group(groupId); return teamsAgg.activeMembers(this.bus.store, groupId); }
   resolveMember(groupId, value) {
-    const member = this.bus.store.get('SELECT * FROM members WHERE group_id=? AND id=? AND removed IS NULL', groupId, value)
-      ?? this.bus.store.get(`SELECT m.* FROM members m JOIN role_names r ON r.member_id=m.id
-        WHERE m.group_id=? AND m.removed IS NULL AND r.name_key=?`, groupId, roleNameKey(value));
+    const member = teamsAgg.findMember(this.bus.store, groupId, value)
+      ?? teamsAgg.findMemberByRoleName(this.bus.store, groupId, roleNameKey(value));
     if (!member) throw new Error(`群内找不到成员: ${value}`);
     return member;
   }
@@ -269,25 +241,18 @@ export class GroupLifecycle {
   async addMember(groupId, { name, host }) {
     this.bus.collaboration.requireCommunication(groupId); this.bus.requireHost(host);
     if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
-    if (this.bus.store.get(
-      'SELECT 1 FROM role_names WHERE group_id=? AND name_key=?',
-      groupId,
-      roleNameKey(name),
-    )) throw new Error('名称已被本团队历史使用');
+    if (teamsAgg.roleNameTaken(this.bus.store, groupId, roleNameKey(name))) throw new Error('名称已被本团队历史使用');
     const selection = this.bus.defaultModelSelection(host);
     const id = randomUUID();
     this.bus.store.transaction(() => {
-      this.bus.store.run(
-        'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
+      teamsAgg.insertMember(this.bus.store, {
         id,
         groupId,
-        name.trim(),
+        name: name.trim(),
         host,
-        'member',
-        selection?.model_provider ?? null,
-        selection?.model ?? null,
-        selection?.reasoning_effort ?? null,
-      );
+        role: 'member',
+        selection,
+      });
       this.bus.collaboration.reserveMemberName(groupId, id, name);
     });
     this.bus.introduce(this.bus.store.member(id));
@@ -296,7 +261,7 @@ export class GroupLifecycle {
   async removeMember(groupId, memberId) {
     const member = this.bus.resolveMember(groupId, memberId);
     if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
-    this.bus.store.run('UPDATE members SET removed=? WHERE id=?', new Date().toISOString(), member.id);
+    teamsAgg.markMemberRemoved(this.bus.store, member.id);
     messagesAgg.clearAwaitingForRecipient(this.bus.store, member.id);
     for (const row of this.bus.store.pendingMemberInteractions(groupId, member.id)) this.bus.store.setInteractionState(row.id, 'cancelled');
     await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);

@@ -30,6 +30,9 @@ import { PanelSessions } from './panel-sessions.mjs';
 import { TurnExecutor } from './turn-executor.mjs';
 import { ArchiveSnapshots } from './archive-snapshots.mjs';
 import { Notes } from './notes.mjs';
+import * as teamsAgg from './aggregates/teams.mjs';
+import * as panelAgg from './aggregates/panel.mjs';
+import * as settingsAgg from './aggregates/settings.mjs';
 
 export { interactionView } from './interactions.mjs';
 
@@ -37,7 +40,7 @@ export class Bus extends EventEmitter {
   constructor({ directory, hosts }) {
     super();
     this.store = new Store(directory);
-    this.panelBootSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM panel_messages').seq;
+    this.panelBootSeq = panelAgg.bootSeq(this.store);
     this.panelBootId = randomUUID();
 
     // token 级增量占历史表 76%–97%,逐条 autocommit 会拖垮事件循环;走写合并层。
@@ -49,7 +52,7 @@ export class Bus extends EventEmitter {
     this.information = new Information(this.store);
     this.teamDirectives = new TeamDirectives(this);
     this.teamRequests = new TeamRequests(this);
-    this.panelBootReceiptSeq = this.store.get('SELECT COALESCE(MAX(seq),0) AS seq FROM team_request_receipts').seq;
+    this.panelBootReceiptSeq = teamsAgg.latestReceiptSeq(this.store);
     this.hosts = hosts;
     this.running = new Map();
     this.deletingGroups = new Set();
@@ -143,9 +146,9 @@ export class Bus extends EventEmitter {
   }
   teamController(groupId) {
     const group = this.store.group(groupId);
-    const assignment = this.store.get('SELECT * FROM team_lead_controllers WHERE group_id=?', groupId);
+    const assignment = teamsAgg.controllerAssignment(this.store, groupId);
     if (assignment?.controller_kind === 'panel_agent' && assignment.state === 'active') {
-      const agent = this.store.get('SELECT * FROM panel_agents WHERE id=?', assignment.controller_id);
+      const agent = panelAgg.controllerAgent(this.store, assignment.controller_id);
       if (!agent) throw new Error('团队 active controller 指向不存在的 Panel Agent');
       return { kind: 'panel_agent', id: agent.id, name: agent.name, agent, assignment };
     }
@@ -208,7 +211,7 @@ export class Bus extends EventEmitter {
   directive(...args) { return this.lifecycle.directive(...args); }
 
   modelPolicy() {
-    return this.store.get('SELECT mode,rules,preset_id,created,updated FROM global_model_policy WHERE singleton=1');
+    return settingsAgg.modelPolicy(this.store);
   }
   updateModelPolicy(value) {
     const policy = normalizeModelPolicy(value);
@@ -218,22 +221,21 @@ export class Bus extends EventEmitter {
     if (value?.presetId === BUILTIN_PRESET_ID) {
       presetId = BUILTIN_PRESET_ID;
     } else if (typeof value?.presetId === 'string' && value.presetId) {
-      const preset = this.store.get('SELECT id FROM model_policy_presets WHERE id=?', value.presetId);
+      const preset = settingsAgg.presetById(this.store, value.presetId);
       if (!preset) throw new Error('配置不存在');
       presetId = preset.id;
     }
-    this.store.run(
-      'UPDATE global_model_policy SET mode=?,rules=?,preset_id=?,updated=? WHERE singleton=1',
-      policy.mode,
-      policy.rules,
+    settingsAgg.updateModelPolicy(this.store, {
+      mode: policy.mode,
+      rules: policy.rules,
       presetId,
-      new Date().toISOString(),
-    );
+      updated: new Date().toISOString(),
+    });
     return this.modelPolicy();
   }
   // 自定义策略配置:编辑辅助层,不参与运行时;激活策略仍是 global_model_policy 单行。
   modelPolicyPresets() {
-    return this.store.all('SELECT id,name,mode,rules,created,updated FROM model_policy_presets ORDER BY updated DESC');
+    return settingsAgg.listPresets(this.store);
   }
   normalizePresetName(name) {
     const value = typeof name === 'string' ? name.trim() : '';
@@ -243,49 +245,48 @@ export class Bus extends EventEmitter {
   // 自定义配置只属于「用户配置」模式:智能策略的两个模板是代码内置的,不可自建。
   createModelPolicyPreset({ name, rules }) {
     const normalized = this.normalizePresetName(name);
-    if (this.store.get('SELECT 1 FROM model_policy_presets WHERE name=?', normalized)) throw new Error('配置名称已存在');
+    if (settingsAgg.presetNameTaken(this.store, normalized)) throw new Error('配置名称已存在');
     const policy = normalizeModelPolicy({ mode: 'user', rules });
     const now = new Date().toISOString();
-    this.store.run(
-      'INSERT INTO model_policy_presets(id,name,mode,rules,created,updated) VALUES(?,?,?,?,?,?)',
-      randomUUID(),
-      normalized,
-      'user',
-      policy.rules,
-      now,
-      now,
-    );
+    settingsAgg.insertPreset(this.store, {
+      id: randomUUID(),
+      name: normalized,
+      mode: 'user',
+      rules: policy.rules,
+      created: now,
+      updated: now,
+    });
     return this.modelPolicyPresets().find(row => row.name === normalized);
   }
   renameModelPolicyPreset(id, name) {
     const normalized = this.normalizePresetName(name);
-    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    const existing = settingsAgg.presetById(this.store, id);
     if (!existing) throw new Error('配置不存在');
-    const conflict = this.store.get('SELECT 1 FROM model_policy_presets WHERE name=? AND id<>?', normalized, id);
+    const conflict = settingsAgg.presetNameConflict(this.store, normalized, id);
     if (conflict) throw new Error('配置名称已存在');
-    this.store.run('UPDATE model_policy_presets SET name=?,updated=? WHERE id=?', normalized, new Date().toISOString(), id);
+    settingsAgg.renamePreset(this.store, id, normalized, new Date().toISOString());
     return this.modelPolicyPresets().find(row => row.id === id);
   }
   saveModelPolicyPreset(id, { mode, rules }) {
-    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    const existing = settingsAgg.presetById(this.store, id);
     if (!existing) throw new Error('配置不存在');
     const policy = normalizeModelPolicy({ mode, rules });
-    this.store.run('UPDATE model_policy_presets SET mode=?,rules=?,updated=? WHERE id=?', policy.mode, policy.rules, new Date().toISOString(), id);
+    settingsAgg.updatePreset(this.store, id, { mode: policy.mode, rules: policy.rules, updated: new Date().toISOString() });
     return this.modelPolicyPresets().find(row => row.id === id);
   }
   deleteModelPolicyPreset(id) {
-    const existing = this.store.get('SELECT * FROM model_policy_presets WHERE id=?', id);
+    const existing = settingsAgg.presetById(this.store, id);
     if (!existing) throw new Error('配置不存在');
     // 正在使用的配置不允许删除:先切到其他策略再删,避免生效策略失去来源或被静默改写。
-    const active = this.store.get('SELECT preset_id FROM global_model_policy WHERE singleton=1');
-    if (active?.preset_id === id) throw new Error('该配置正在使用中，请先切换到其他配置再删除');
-    this.store.run('DELETE FROM model_policy_presets WHERE id=?', id);
+    const activePresetId = settingsAgg.activePresetId(this.store);
+    if (activePresetId === id) throw new Error('该配置正在使用中，请先切换到其他配置再删除');
+    settingsAgg.deletePreset(this.store, id);
     return { deleted: id };
   }
   // 主题包:内置主题随应用发布、不进库(前端代码持有),这里只存用户上传的包。
   // 服务端只做结构级校验(可解析、长度、键数),颜色语义校验在前端导入时完成。
   themePacks() {
-    return this.store.all('SELECT id,name,light,dark,created,updated FROM theme_packs ORDER BY updated DESC');
+    return settingsAgg.listThemePacks(this.store);
   }
   normalizeThemePackName(name) {
     const value = typeof name === 'string' ? name.trim() : '';
@@ -310,35 +311,27 @@ export class Bus extends EventEmitter {
   }
   createThemePack({ name, light, dark }) {
     const normalized = this.normalizeThemePackName(name);
-    if (this.store.get('SELECT 1 FROM theme_packs WHERE name=?', normalized)) throw new Error('主题名称已存在');
+    if (settingsAgg.themeNameTaken(this.store, normalized)) throw new Error('主题名称已存在');
     this.validateThemePackTokens(light, '浅色');
     this.validateThemePackTokens(dark, '深色');
     const now = new Date().toISOString();
     const id = randomUUID();
-    this.store.run(
-      'INSERT INTO theme_packs(id,name,light,dark,created,updated) VALUES(?,?,?,?,?,?)',
-      id,
-      normalized,
-      light,
-      dark,
-      now,
-      now,
-    );
-    return this.store.get('SELECT id,name,light,dark,created,updated FROM theme_packs WHERE id=?', id);
+    settingsAgg.insertThemePack(this.store, { id, name: normalized, light, dark, created: now, updated: now });
+    return settingsAgg.themePackById(this.store, id);
   }
   deleteThemePack(id) {
-    const existing = this.store.get('SELECT id FROM theme_packs WHERE id=?', id);
+    const existing = settingsAgg.themePackById(this.store, id);
     if (!existing) throw new Error('主题不存在');
     // 使用中由各端偏好自行禁删(选中状态存在浏览器端,服务端无全局"当前主题");
     // 跨设备删除后,其他端解析不到该 id 时自动回落内置主题。
-    this.store.run('DELETE FROM theme_packs WHERE id=?', id);
+    settingsAgg.deleteThemePack(this.store, id);
     return { deleted: id };
   }
   attachmentSettings() {
-    return this.store.attachmentSettings();
+    return settingsAgg.attachmentSettings(this.store);
   }
   updateAttachmentSettings(value) {
-    return this.store.updateAttachmentSettings(value);
+    return settingsAgg.updateAttachmentSettings(this.store, value);
   }
   // 附件模块薄转发;bindTx 只允许在 Store transaction 内经 bus.attachments 调用。
   attachmentUpload(...args) { return this.attachments.upload(...args); }
@@ -408,13 +401,7 @@ export class Bus extends EventEmitter {
   // 若目录此后变化,由成员下一回合的宿主错误暴露,可再次调整。
   applyMemberModel(groupId, memberId, selection) {
     const member = this.resolveMember(groupId, memberId);
-    this.store.run(
-      'UPDATE members SET model_provider=?,model=?,reasoning_effort=? WHERE id=?',
-      selection?.model_provider ?? null,
-      selection?.model ?? null,
-      selection?.reasoning_effort ?? null,
-      member.id,
-    );
+    teamsAgg.updateMemberModel(this.store, member.id, selection);
     this.notify(groupId, member.id, `你的模型配置已调整为 ${memberModelSummary(selection)}`);
     return this.store.member(member.id);
   }
@@ -496,7 +483,7 @@ export class Bus extends EventEmitter {
         resolveSenderId: sender => (sender ? this.resolveMember(groupId, sender).id : null),
       });
     }
-    if (name === 'profile_set') { this.store.run('UPDATE members SET profile=? WHERE id=?', args.text, member.id); return { member: member.id, profile: args.text }; }
+    if (name === 'profile_set') { teamsAgg.updateMemberProfile(this.store, member.id, args.text); return { member: member.id, profile: args.text }; }
     if (name === 'send' || name === 'note') {
       this.collaboration.requireCommunication(groupId);
       const target = this.resolveRecipient(groupId, args.to);
@@ -562,7 +549,7 @@ export class Bus extends EventEmitter {
     if (name === 'tasks_set') {
       return this.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
     }
-    if (name === 'groups') return this.store.all('SELECT * FROM groups ORDER BY created');
+    if (name === 'groups') return teamsAgg.groupsAll(this.store);
     if (name === 'group_create') {
       const people = (args.members ?? '').split(',').filter(Boolean).map(item => {
         const [name, host, ...extra] = item.trim().split('=');
@@ -612,7 +599,7 @@ export class Bus extends EventEmitter {
     return this.telemetry.conversation(groupId, memberId, peerId, options);
   }
   telemetryManagerConversation(groupId, memberId, options = {}) {
-    if (!this.store.get('SELECT 1 FROM groups WHERE id=?', groupId)) {
+    if (!teamsAgg.groupExists(this.store, groupId)) {
       throw Object.assign(new Error('群不存在'), { status: 404 });
     }
     return this.telemetry.managerConversation(groupId, this.teamController(groupId), memberId, options);
