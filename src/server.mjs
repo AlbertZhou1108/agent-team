@@ -10,8 +10,7 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
-import { createCodexHost } from './hosts/codex.mjs';
-import { createClaudeHost, createDshHost } from './hosts/cli-hosts.mjs';
+import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -23,15 +22,14 @@ export function socketFor(directory) {
 }
 export async function loadHosts({ directory, socketPath, configFile }) {
   socketPath ??= socketFor(directory);
-  const factories = new Map([['codex', createCodexHost], ['claude', createClaudeHost], ['dsh', createDshHost]]);
-  const specs = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : { codex: { adapter: 'codex' }, claude: { adapter: 'claude' }, dsh: { adapter: 'dsh' } };
+  const specs = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : DEFAULT_HOST_SPECS;
   if (!specs || typeof specs !== 'object' || Array.isArray(specs)) throw new Error('宿主配置需要 hosts 对象');
   const hosts = new Map();
   for (const [name, spec] of Object.entries(specs)) {
-    const factory = spec.module ? (await import(pathToFileURL(resolve(spec.module)).href)).createHost : factories.get(spec.adapter);
+    const factory = spec.module ? (await import(pathToFileURL(resolve(spec.module)).href)).createHost : HOST_FACTORIES.get(spec.adapter);
     if (typeof factory !== 'function') throw new Error(`未配置宿主适配器: ${name}`);
     const host = await factory({ directory, socketPath, ...spec });
-    if (typeof host?.run !== 'function') throw new Error(`宿主缺少 run 接口: ${name}`);
+    assertHostContract(name, host);
     hosts.set(name, host);
   }
   return hosts;

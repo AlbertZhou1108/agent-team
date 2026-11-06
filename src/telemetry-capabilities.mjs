@@ -1,4 +1,3 @@
-
 export const METRIC_KEYS = [
   'inputTokensTotal',
   'uncachedInputTokens',
@@ -27,24 +26,24 @@ function capabilities(host, entries) {
 const tokenConditions = ['宿主报告完整的输入与缓存桶时参与归一化', '重复快照按宿主原生回合身份去重', '缺失桶保持 null，不按 0 计算'];
 const executionConditions = ['从适配器 run 调用到 settle 的单调时钟测量', '不含调用前队列等待'];
 
-export function telemetryCapabilitiesFor(host) {
-  if (host === 'codex') {
-    return capabilities('codex', {
-      inputTokensTotal: capability('direct', 'codex.thread_token_usage', ['thread/tokenUsage/updated.total.inputTokens'], tokenConditions),
-      uncachedInputTokens: capability('derived', 'codex.thread_token_usage', ['total.inputTokens', 'total.cachedInputTokens', 'total.cacheWriteInputTokens'], tokenConditions),
-      cacheReadTokens: capability('direct', 'codex.thread_token_usage', ['total.cachedInputTokens'], tokenConditions),
-      cacheWriteTokens: capability('direct', 'codex.thread_token_usage', ['total.cacheWriteInputTokens'], tokenConditions),
-      outputTokens: capability('direct', 'codex.thread_token_usage', ['total.outputTokens'], tokenConditions),
-      totalTokens: capability('direct', 'codex.thread_token_usage', ['total.totalTokens'], tokenConditions),
-      cacheReadRatio: capability('derived', 'query.aggregate', ['cacheReadTokens', 'inputTokensTotal'], ['同一完整样本集合', '输入为 0 时不生成比例']),
-      executionWallMs: capability('derived', 'framework.measured', ['run start/settle'], executionConditions),
-      hostTurnWallMs: capability('direct', 'codex.turn_completed', ['turn/completed.durationMs'], ['宿主成功报告回合结束耗时']),
-      lastRequestInputTokens: capability('direct', 'codex.token_usage_last', ['tokenUsage.last.inputTokens'], ['按原生回合身份关联', '恢复会话的旧回合通知不得覆盖当前回合']),
-      contextWindowTokens: capability('direct', 'codex.token_usage', ['tokenUsage.modelContextWindow'], ['与最近请求采样来自同一模型路由']),
-      lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
-    });
-  }
-  if (host === 'claude') {
+// 宿主能力表:key 与 hosts/index.mjs 的注册名一致。新增宿主在这里加一个 builder,
+// 主流程只查表,不再维护 if 链。
+const capabilityBuilders = {
+  codex: () => capabilities('codex', {
+    inputTokensTotal: capability('direct', 'codex.thread_token_usage', ['thread/tokenUsage/updated.total.inputTokens'], tokenConditions),
+    uncachedInputTokens: capability('derived', 'codex.thread_token_usage', ['total.inputTokens', 'total.cachedInputTokens', 'total.cacheWriteInputTokens'], tokenConditions),
+    cacheReadTokens: capability('direct', 'codex.thread_token_usage', ['total.cachedInputTokens'], tokenConditions),
+    cacheWriteTokens: capability('direct', 'codex.thread_token_usage', ['total.cacheWriteInputTokens'], tokenConditions),
+    outputTokens: capability('direct', 'codex.thread_token_usage', ['total.outputTokens'], tokenConditions),
+    totalTokens: capability('direct', 'codex.thread_token_usage', ['total.totalTokens'], tokenConditions),
+    cacheReadRatio: capability('derived', 'query.aggregate', ['cacheReadTokens', 'inputTokensTotal'], ['同一完整样本集合', '输入为 0 时不生成比例']),
+    executionWallMs: capability('derived', 'framework.measured', ['run start/settle'], executionConditions),
+    hostTurnWallMs: capability('direct', 'codex.turn_completed', ['turn/completed.durationMs'], ['宿主成功报告回合结束耗时']),
+    lastRequestInputTokens: capability('direct', 'codex.token_usage_last', ['tokenUsage.last.inputTokens'], ['按原生回合身份关联', '恢复会话的旧回合通知不得覆盖当前回合']),
+    contextWindowTokens: capability('direct', 'codex.token_usage', ['tokenUsage.modelContextWindow'], ['与最近请求采样来自同一模型路由']),
+    lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
+  }),
+  claude: () => {
     const claudeInputs = ['result.usage.input_tokens', 'result.usage.cache_read_input_tokens', 'result.usage.cache_creation_input_tokens'];
     return capabilities('claude', {
       inputTokensTotal: capability('derived', 'claude.result_usage', claudeInputs, [...tokenConditions, 'inputTokensTotal = input_tokens + cache_read_input_tokens + cache_creation_input_tokens', 'assistant 重复事件不逐条累加']),
@@ -60,8 +59,8 @@ export function telemetryCapabilitiesFor(host) {
       contextWindowTokens: capability('direct', 'claude.model_usage', ['result.modelUsage[model].contextWindow'], ['模型键与最近请求模型匹配']),
       lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
     });
-  }
-  if (host === 'dsh') {
+  },
+  dsh: () => {
     const dshTokens = ['assistant/message.usage.inputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'outputTokens'];
     return capabilities('dsh', {
       inputTokensTotal: capability('derived', 'dsh.assistant_message_usage', dshTokens, [...tokenConditions, 'inputTokensTotal = usage.inputTokens + cacheReadTokens + cacheWriteTokens', '不与 session tokenUsage 投影相加']),
@@ -77,6 +76,10 @@ export function telemetryCapabilitiesFor(host) {
       contextWindowTokens: capability('direct', 'dsh.context_pressure', ['contextPressure.contextWindow'], ['与压力采样同一模型路由']),
       lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
     });
-  }
-  return capabilities(host, {});
+  },
+};
+
+export function telemetryCapabilitiesFor(host) {
+  const build = Object.hasOwn(capabilityBuilders, host) ? capabilityBuilders[host] : null;
+  return build ? build() : capabilities(host, {});
 }
