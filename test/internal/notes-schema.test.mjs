@@ -46,3 +46,30 @@ test('notes reject unknown states and tolerate an empty table', t => {
   ), /CHECK/);
   store.close();
 });
+
+test('a v7 database gains the optional source team without touching existing notes', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO notes(id,title,body,state,created,updated) VALUES('a','t','b','active',?,?)", NOW, NOW);
+  store.run('DROP INDEX IF EXISTS notes_source_team');
+  store.run('ALTER TABLE notes DROP COLUMN source_team_id');
+  store.setSchemaVersion(7);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.all('PRAGMA table_info(notes)').some(column => column.name === 'source_team_id'));
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='index' AND name='notes_source_team'"));
+  assert.equal(store.get("SELECT source_team_id FROM notes WHERE id='a'").source_team_id, null, '历史笔记一律无来源');
+  store.close();
+});
+
+test('notes keep no foreign key to groups so deleting a team cannot cascade into private notes', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  const column = store.all('PRAGMA table_info(notes)').find(item => item.name === 'source_team_id');
+  assert.ok(column, 'source_team_id 必须存在');
+  assert.equal(column.notnull, 0, '无来源是合法状态');
+  assert.deepEqual(store.all('PRAGMA foreign_key_list(notes)'), [], '来源是裸 id，刻意不加外键');
+  store.close();
+});

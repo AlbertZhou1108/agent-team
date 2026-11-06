@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { serverScenario } from '../support/fixture.mjs';
 
-async function setup(t) {
-  const { server, url, bus } = await serverScenario(t);
+async function setup(t, options = {}) {
+  const { server, url, bus, group } = await serverScenario(t, options);
   const call = async (path, init) => {
     const response = await fetch(new URL(path, url), init);
     const text = await response.text();
@@ -14,7 +14,7 @@ async function setup(t) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return { server, bus, call, json };
+  return { server, bus, call, json, group };
 }
 
 async function create(call, json, body) {
@@ -181,4 +181,84 @@ test('prompt warns about nested fences when the note already contains code', asy
   const note = await create(call, json, { body: '示例：\n```js\nrun()\n```' });
   const { text } = (await call(`/api/notes/${note.id}/prompt`)).body;
   assert.match(text, /四个反引号/);
+});
+
+test('a note remembers the team it was written in and lists by team or by no source', async t => {
+  const { call, json, group } = await setup(t, { members: [] });
+  const inTeam = await create(call, json, { body: '在团队里想到的', sourceTeamId: group.id });
+  const loose = await create(call, json, { body: '随手写的' });
+
+  assert.equal(inTeam.sourceTeamId, group.id);
+  assert.equal(inTeam.sourceTeamName, group.name, '团队名现取，不落快照');
+  assert.equal(loose.sourceTeamId, null);
+  assert.equal(loose.sourceTeamName, null);
+
+  const byTeam = await call(`/api/notes?state=all&team=${encodeURIComponent(group.id)}`);
+  assert.deepEqual(byTeam.body.notes.map(row => row.id), [inTeam.id]);
+  assert.deepEqual(byTeam.body.counts, { active: 1, done: 0, archived: 0 });
+
+  const unfiled = await call('/api/notes?state=all&team=none');
+  assert.deepEqual(unfiled.body.notes.map(row => row.id), [loose.id]);
+
+  const everything = await call('/api/notes?state=all');
+  assert.equal(everything.body.notes.length, 2, '不传 team 表示不筛选');
+});
+
+test('state counts follow the team filter so the header matches the list', async t => {
+  const { call, json, group } = await setup(t, { members: [] });
+  const first = await create(call, json, { body: '团队里的第一条', sourceTeamId: group.id });
+  await create(call, json, { body: '团队里的第二条', sourceTeamId: group.id });
+  await create(call, json, { body: '团队外的' });
+  await call(`/api/notes/${first.id}/state`, json('POST', { state: 'done', revision: 1 }));
+
+  const filtered = await call(`/api/notes?state=all&team=${encodeURIComponent(group.id)}`);
+  assert.deepEqual(filtered.body.counts, { active: 1, done: 1, archived: 0 });
+  const unfiled = await call('/api/notes?state=all&team=none');
+  assert.deepEqual(unfiled.body.counts, { active: 1, done: 0, archived: 0 });
+  const all = await call('/api/notes?state=all');
+  assert.deepEqual(all.body.counts, { active: 2, done: 1, archived: 0 });
+});
+
+test('a deleted team leaves the note readable, still filterable and without a name', async t => {
+  const { call, json, bus, group } = await setup(t, { members: [] });
+  const note = await create(call, json, { body: '团队没了笔记还在', sourceTeamId: group.id });
+  bus.store.run('DELETE FROM groups WHERE id=?', group.id);
+
+  const after = await call(`/api/notes/${note.id}`);
+  assert.equal(after.status, 200, '来源是历史事实，不随团队级联删除');
+  assert.equal(after.body.sourceTeamId, group.id);
+  assert.equal(after.body.sourceTeamName, null, '名字取不到就交给前端显示「团队已删除」');
+
+  const byTeam = await call(`/api/notes?state=all&team=${encodeURIComponent(group.id)}`);
+  assert.deepEqual(byTeam.body.notes.map(row => row.id), [note.id]);
+});
+
+test('only an existing team can become a source, and an existing note can change or clear it', async t => {
+  const { call, json, group } = await setup(t, { members: [] });
+  const ghost = await call('/api/notes', json('POST', { body: '来源写错了', sourceTeamId: 'no-such-team' }));
+  assert.equal(ghost.status, 400);
+  assert.equal(ghost.body.error, '来源团队不存在');
+
+  const loose = await create(call, json, { body: '先随手记下' });
+  const attached = await call(`/api/notes/${loose.id}`, json('PATCH', { revision: loose.revision, sourceTeamId: group.id }));
+  assert.equal(attached.body.sourceTeamId, group.id);
+  assert.equal(attached.body.sourceTeamName, group.name);
+
+  const detached = await call(`/api/notes/${loose.id}`, json('PATCH', { revision: attached.body.revision, sourceTeamId: null }));
+  assert.equal(detached.body.sourceTeamId, null);
+
+  const bad = await call(`/api/notes/${loose.id}`, json('PATCH', { revision: detached.body.revision, sourceTeamId: 'no-such-team' }));
+  assert.equal(bad.status, 400);
+});
+
+test('the same client id with a different source is treated as a different payload', async t => {
+  const { call, json, group } = await setup(t, { members: [] });
+  const payload = { id: 'note-source-fixed', body: '同一条想法', sourceTeamId: group.id };
+  const first = await create(call, json, payload);
+  const replay = await create(call, json, payload);
+  assert.equal(replay.id, first.id);
+  assert.equal(replay.revision, 1);
+
+  const conflict = await call('/api/notes', json('POST', { id: 'note-source-fixed', body: '同一条想法' }));
+  assert.equal(conflict.status, 409, '来源不同也算内容不同，不静默改写');
 });

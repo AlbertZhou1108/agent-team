@@ -4,6 +4,13 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   computed,
   provide,
   onBeforeUnmount,
@@ -17,11 +24,15 @@ import { toast } from 'vue-sonner';
 import { useMediaQuery } from '@vueuse/core';
 import {
   Activity,
+  ArrowUpToLine,
   Bot,
   GripVertical,
   MessagesSquare,
+  MoreHorizontal,
   PanelRightOpen,
+  PinOff,
   Wrench,
+  X,
 } from '@lucide/vue';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import PanelState from '@/components/panel/PanelState.vue';
@@ -60,7 +71,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useConnectionStore } from '@/stores/connection';
 import { usePreferencesStore } from '@/stores/preferences';
-import { builtinTool, activeMounts, navToolEntries as navToolEntriesFor, mountKey } from '@/tools';
+import { activeMounts, builtinTool, navToolEntries as navToolEntriesFor, mountKey } from '@/tools';
 import { dropSide, type DropSide } from '@/shared/drag-order';
 import {
   usePanelAgentStore,
@@ -350,6 +361,23 @@ function leaveToolInsertion(event: DragEvent) {
 function toolInsertionSide(id: string) {
   return toolInsertion.value?.id === id ? toolInsertion.value.side : undefined;
 }
+function isPinnedTool(toolId: string) {
+  return (preferences.toolModules.pinned['right-tools'] ?? []).includes(mountKey(toolId, 'right-tools'));
+}
+
+/** 置顶与取消置顶只改置顶层,拖拽出来的顺序原样保留。 */
+function togglePinTool(toolId: string) {
+  preferences.setToolPinned('right-tools', mountKey(toolId, 'right-tools'), !isPinnedTool(toolId));
+}
+
+/**
+ * 关闭工具:只隐藏这一处挂载(不是禁用整个工具),随时可以在设置 → 工具里重新勾选。
+ */
+function closeTool(toolId: string, toolName: string) {
+  preferences.setMountHidden(toolId, 'right-tools', true);
+  toast.success(`已关闭「${toolName}」，可在 设置 → 工具 重新打开`);
+}
+
 function reorderTools(targetId: string, event: DragEvent) {
   const source = toolDragging.value;
   clearToolDrag();
@@ -1124,8 +1152,10 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                 :running-endpoints="runningEndpoints"
                 @select="selectSession"
               />
-              <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,默认收起;
-                   拖拽标题左侧的抓手可排序,顺序按槽位记在工具偏好里。 -->
+              <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,默认收起。
+                   头部动作作用于这一节本身(与展开状态无关):置顶把挂载提到最前,
+                   关闭只隐藏右栏这一处挂载(设置里可恢复),抓手拖拽排序。
+                   顺序与显隐都记在工具偏好里。 -->
               <div v-else-if="contextPanel === 'tools'" class="flex min-w-0 flex-col gap-4">
                 <PanelState
                   v-if="!toolsPanelMounts.length"
@@ -1143,16 +1173,46 @@ function keyboardResize(event: KeyboardEvent, side: 'left' | 'right') {
                   @dragleave="leaveToolInsertion($event)"
                   @drop.prevent="reorderTools(mountKey(entry.tool.id, 'right-tools'), $event)"
                 >
-                  <Disclosure>
+                  <Disclosure persist-actions>
                     <template #summary>
                       <h3 class="min-w-0 flex-1 truncate text-sm font-semibold">{{ entry.tool.name }}</h3>
+                    </template>
+                    <template #actions>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            :aria-label="`${entry.tool.name} 的工具操作`"
+                            title="工具操作"
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem @select="togglePinTool(entry.tool.id)">
+                              <component
+                                :is="isPinnedTool(entry.tool.id) ? PinOff : ArrowUpToLine"
+                              />
+                              {{ isPinnedTool(entry.tool.id) ? '取消置顶' : '置顶' }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              @select="closeTool(entry.tool.id, entry.tool.name)"
+                            >
+                              <X />
+                              关闭
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <span
-                        class="-mx-1 inline-flex cursor-grab items-center rounded px-1 text-muted-foreground/60 active:cursor-grabbing"
+                        class="inline-flex size-(--component-control-height) cursor-grab items-center justify-center rounded-(--component-control-radius) text-muted-foreground/60 active:cursor-grabbing"
                         draggable="true"
                         title="拖拽排序"
                         @dragstart="startToolDrag(mountKey(entry.tool.id, 'right-tools'), $event)"
                         @dragend="clearToolDrag"
-                      ><GripVertical class="size-3.5" /></span>
+                      ><GripVertical class="size-4" /></span>
                     </template>
                     <div class="mt-3">
                       <component :is="entry.mount.component" :group-id="groupId" />

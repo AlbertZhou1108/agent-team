@@ -34,6 +34,14 @@ describe('shared disclosure contract', () => {
     expect(html).not.toContain('data-slot="disclosure-actions"');
     expect(html).not.toContain('Create');
   });
+  it('keeps section-level actions visible while collapsed when asked to', async () => {
+    const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { open: false, persistActions: true }, {
+      summary: () => '协调遥测', actions: () => h('button', { type: 'button' }, '关闭'), default: () => 'Content',
+    }) }));
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('data-slot="disclosure-actions"');
+    expect(html).toContain('关闭');
+  });
   it('keeps nested state independent and connects each trigger to its own content', async () => {
     const html = await renderToString(createSSRApp({ render: () => h(Disclosure, { defaultOpen: true }, {
       summary: () => 'Parent',

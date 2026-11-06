@@ -33,6 +33,8 @@ export interface ToolModulesState {
   disabled: Record<string, boolean>;
   hidden: Record<string, boolean>;
   order: Record<string, string[]>;
+  /** 置顶的挂载键,按槽位分组;排序时排在 order 之前。 */
+  pinned: Record<string, string[]>;
 }
 
 interface PreferencesState {
@@ -69,7 +71,7 @@ function isThemePackSnapshot(value: unknown): value is ThemePackSnapshot {
 /** 键值都过白名单:非法值直接丢弃,坏数据不进状态。v1 的 surfaces 字段不迁移直接丢弃。 */
 function loadToolModules(value: unknown): ToolModulesState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { disabled: {}, hidden: {}, order: {} };
+    return { disabled: {}, hidden: {}, order: {}, pinned: {} };
   }
   const record = value as Record<string, unknown>;
   const entries = (input: unknown) =>
@@ -108,7 +110,16 @@ function loadToolModules(value: unknown): ToolModulesState {
         list.filter((item): item is string => typeof item === 'string' && knownMountKey(item)),
       ]),
   );
-  return { disabled, hidden, order };
+  const pinned = Object.fromEntries(
+    entries(record.pinned)
+      .filter((entry): entry is [string, unknown[]] =>
+        (TOOL_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
+      .map(([slot, list]) => [
+        slot,
+        list.filter((item): item is string => typeof item === 'string' && knownMountKey(item)),
+      ]),
+  );
+  return { disabled, hidden, order, pinned };
 }
 
 function load(): PreferencesState {
@@ -127,7 +138,7 @@ function load(): PreferencesState {
     showReasoning: true,
     showRawPayloads: false,
     refreshInterval: 2000,
-    toolModules: { disabled: {}, hidden: {}, order: {} },
+    toolModules: { disabled: {}, hidden: {}, order: {}, pinned: {} },
   };
   try {
     const saved = JSON.parse(
@@ -248,6 +259,14 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     setToolOrder(slot: ToolSlot, keys: string[]) {
       this.toolModules.order[slot] = keys;
+      this.persist();
+    },
+    /** 置顶/取消置顶只动这一层,不碰用户拖出来的顺序。 */
+    setToolPinned(slot: ToolSlot, key: string, pinned: boolean) {
+      const current = this.toolModules.pinned[slot] ?? [];
+      const next = current.filter(item => item !== key);
+      if (pinned) next.push(key);
+      this.toolModules.pinned[slot] = next;
       this.persist();
     },
   },

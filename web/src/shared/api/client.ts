@@ -10,6 +10,7 @@ import type {
   HistoryRow,
   Interaction,
   InteractionAnswer,
+  InteractionFlowSubmission,
   Member,
   MessageTrace,
   ModelCatalogResponse,
@@ -128,7 +129,7 @@ export const api = {
   homeSummary(signal?: AbortSignal) { return request<RuntimeEndpoint[]>('/api/home-summary', signal); },
   tasks(group: string, signal?: AbortSignal) { return request<AgentTaskEntry[]>(query('/api/agent-tasks', { group }), signal); },
   unread(signal?: AbortSignal) { return request<UnreadProjection>('/api/panel-agent/unread', signal); },
-  dismissWorkbench(items: Array<{ category: 'interaction' | 'waiting:user' | 'waiting:agent' | 'activity:recent'; id: string }>) {
+  dismissWorkbench(items: Array<{ category: 'interaction' | 'waiting:user' | 'waiting:agent' | 'activity:recent' | 'panel:update'; id: string }>) {
     return mutate<{ dismissed: number }>('/api/workbench/dismiss', { items });
   },
   modelPolicy(signal?: AbortSignal) { return request<Overview['modelPolicy']>('/api/model-policy', signal); },
@@ -292,7 +293,7 @@ export const api = {
   panelInteractions(signal?: AbortSignal) {
     return request<Interaction[]>(query('/api/interactions', { panel: 1 }), signal);
   },
-  answerInteraction(id: string, answer: InteractionAnswer) {
+  answerInteraction(id: string, answer: InteractionAnswer | InteractionFlowSubmission) {
     return mutate<Interaction>('/api/interactions/' + encodeURIComponent(id) + '/answer', { answer });
   },
   messages(group: string, before: number | undefined, signal?: AbortSignal, endpoint?: string, after?: number) {
@@ -387,16 +388,16 @@ export const api = {
       signal,
     );
   },
-  notes(params: { state?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
+  notes(params: { state?: string; q?: string; cursor?: string; limit?: number; team?: string } = {}, signal?: AbortSignal) {
     return request<NotePage>(query('/api/notes', params), signal);
   },
   note(id: string, signal?: AbortSignal) {
     return request<Note>(`/api/notes/${encodeURIComponent(id)}`, signal);
   },
-  createNote(body: { id?: string; body: string; title?: string; todos?: Array<{ text: string; done?: boolean }>; due?: string | null }) {
+  createNote(body: { id?: string; body: string; title?: string; todos?: Array<{ text: string; done?: boolean }>; due?: string | null; sourceTeamId?: string | null }) {
     return mutate<Note>('/api/notes', body);
   },
-  updateNote(id: string, body: { revision: number; body?: string; title?: string; todos?: Array<{ text: string; done: boolean }>; due?: string | null }) {
+  updateNote(id: string, body: { revision: number; body?: string; title?: string; todos?: Array<{ text: string; done: boolean }>; due?: string | null; sourceTeamId?: string | null }) {
     return mutateWith<Note>(`/api/notes/${encodeURIComponent(id)}`, 'PATCH', body);
   },
   setNoteState(id: string, body: { state: 'active' | 'done' | 'archived' | 'restore'; revision: number }) {

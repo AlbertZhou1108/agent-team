@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
@@ -11,6 +11,7 @@ import {
   Bell,
   CheckCheck,
   CircleAlert,
+  ListX,
   MoreHorizontal,
   ShieldCheck,
   Users,
@@ -47,6 +48,8 @@ const props = defineProps<{
   messages: PanelMessage[];
   requests: TeamRequest[];
   notifications: NonNullable<PanelAgentState['notifications']>;
+  /** 清理请求进行中:按钮置灰,避免重复提交。 */
+  clearingNotifications?: boolean;
   pendingInteractions: Record<string, number>;
   unknown: PanelUnknownTurn[];
 }>();
@@ -55,7 +58,7 @@ const panelState = usePanelAgentStore();
 const ui = useUiStore();
 const unread = (teamId: string) => panelState.unreadForContext(props.messages, teamId);
 const hasUnread = computed(() => unread('') > 0 || panelState.unreadReceipts(props.requests) > 0);
-const teamsOpen = ref(props.teams.length > 0);
+const teamsOpen = ref(false);
 const notificationsOpen = ref(false);
 const teamsHeading = ref<HTMLElement | null>(null);
 const notificationsHeading = ref<HTMLElement | null>(null);
@@ -94,19 +97,19 @@ async function openSidebarSection(section: string) {
   heading?.scrollIntoView({ block: 'nearest' });
   heading?.focus({ preventScroll: true });
 }
-watch(
-  () => props.teams.length,
-  (count) => {
-    teamsOpen.value = count > 0;
-  },
-);
 const activeTeamId = defineModel<string>({ required: true });
 const emit = defineEmits<{
   openTeam: [teamId: string];
   takeover: [team: PanelTeam];
   handback: [team: PanelTeam];
   resolveRuntime: [turnId: string];
+  clearNotifications: [];
 }>();
+
+function clearNotifications() {
+  if (!props.notifications.length || props.clearingNotifications) return;
+  emit('clearNotifications');
+}
 
 function selectTeam(teamId: string) {
   void router.push({ name: 'group', params: { groupId: teamId } });
@@ -257,6 +260,19 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
       ><span class="h-px w-full bg-border" /></div>
       <Disclosure :heading-level="2" v-model:open="notificationsOpen" class="split-section" :style="{ flex: notificationsOpen ? `${teamsOpen ? 100 - teamsShare : 1} 1 0%` : '0 0 auto' }">
 <template #summary><span ref="notificationsHeading" tabindex="-1" class="flex items-center gap-2"><Bell />团队来源通知</span><Badge variant="secondary">{{ notifications.length }}</Badge></template>
+<template #actions><Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :disabled="!notifications.length || clearingNotifications"
+                aria-label="清理团队来源通知"
+                title="清理团队来源通知"
+                @click="clearNotifications"
+              ><ListX /></Button>
+            </TooltipTrigger>
+            <TooltipContent>只从侧栏隐藏，团队消息与投递记录都不删除</TooltipContent>
+          </Tooltip></template>
 
           <p v-if="!notifications.length" class="text-sm text-muted-foreground">暂无团队来源通知。</p>
           <ScrollArea v-else class="w-full min-h-0 flex-1">

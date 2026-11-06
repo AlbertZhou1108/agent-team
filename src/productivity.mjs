@@ -218,7 +218,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   };
 }
 
-const DISMISS_CATEGORIES = new Set(['interaction', 'waiting:user', 'waiting:agent', 'activity:recent']);
+const DISMISS_CATEGORIES = new Set(['interaction', 'waiting:user', 'waiting:agent', 'activity:recent', 'panel:update']);
 
 /**
  * 只把条目从工作台隐藏:消息、互动卡和 reply_to 关系都不删除。
@@ -238,6 +238,8 @@ export function dismissWorkbench(bus, items) {
       WHERE m.sender!='user' AND m.kind='send' AND m.expects_reply=1
         AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)`).map(row => row.id))],
+    // 团队来源通知:只把 panel_updates 从侧栏列表里藏起来,投递台账不动。
+    ['panel:update', new Set(store.all('SELECT id FROM panel_updates').map(row => row.id))],
   ]);
   const seen = new Set();
   for (const item of items) {

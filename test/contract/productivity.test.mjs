@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../../src/server.mjs';
 import { Bus } from '../../src/bus.mjs';
-import { createTestGroup } from '../support/fixture.mjs';
-import { homeWorkbench, searchWorkspace } from '../../src/productivity.mjs';
+import { createTestGroup, seedPanelAgent } from '../support/fixture.mjs';
+import { dismissWorkbench, homeWorkbench, searchWorkspace } from '../../src/productivity.mjs';
 
 test('search treats wildcard characters literally, filters groups and dates and links exact records', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'productivity-'));
@@ -334,4 +334,22 @@ test('workbench HTTP stays readable throughout Panel Agent summary generation', 
   const settled = await fetch(`${server.url}api/workbench`);
   assert.equal(settled.status, 200);
   assert.equal((await settled.json()).summary.text, '摘要完成');
+});
+
+test('dismissing a team notification hides it from the panel list without touching the update log', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'productivity-notify-'));
+  const bus = new Bus({ directory, hosts: new Map([['fake', { async run() { return 'ok'; } }]]) });
+  t.after(async () => { await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  const group = createTestGroup(bus, { name: 'notify', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [] });
+  const agentId = seedPanelAgent(bus);
+  bus.store.run(
+    `INSERT INTO panel_updates(id,panel_agent_id,group_id,text,created) VALUES(?,?,?,?,?)`,
+    'update-1', agentId, group.id, '成员已完成本轮任务', new Date().toISOString(),
+  );
+  assert.ok(bus.panelAgentState().notifications.some(row => row.id === 'update-1'));
+
+  assert.equal(dismissWorkbench(bus, [{ category: 'panel:update', id: 'update-1' }]).dismissed, 1);
+  assert.equal(bus.panelAgentState().notifications.some(row => row.id === 'update-1'), false);
+  assert.ok(bus.store.get('SELECT id FROM panel_updates WHERE id=?', 'update-1'), '投递台账本身保留');
+  assert.throws(() => dismissWorkbench(bus, [{ category: 'panel:update', id: 'gone' }]), /已失效/);
 });

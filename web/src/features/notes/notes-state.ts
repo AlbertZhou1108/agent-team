@@ -16,6 +16,19 @@ export function noteStateDescription(state: NoteState): string {
   }[state];
 }
 
+/** 团队筛选的两个特殊值：全部（不筛选）与无来源。其余值都是团队 id。 */
+export const TEAM_FILTER_ALL = 'all';
+export const TEAM_FILTER_NONE = 'none';
+
+/**
+ * 来源徽标文案：有来源但取不到团队名，说明团队已经被删了。
+ * 这不等于「没有来源」——这笔确实是在某个团队里记的，只是名字不在了。
+ */
+export function noteSourceLabel(note: Pick<Note, 'sourceTeamId' | 'sourceTeamName'>): string | null {
+  if (!note.sourceTeamId) return null;
+  return note.sourceTeamName ?? '团队已删除';
+}
+
 /** 列表摘要：跳过作为标题的首行，压缩空行后截断。 */
 export function noteExcerpt(note: Note, limit = 80): string {
   const lines = note.body.split('\n').map(line => line.trim()).filter(Boolean);
@@ -65,6 +78,7 @@ export interface NoteDraft {
   body: string;
   todos: NoteTodo[];
   due: string | null;
+  sourceTeamId: string | null;
   revision: number;
 }
 
@@ -74,6 +88,7 @@ export function draftFrom(note: Note): NoteDraft {
     body: note.body,
     todos: note.todos.map(todo => ({ ...todo })),
     due: note.due,
+    sourceTeamId: note.sourceTeamId,
     revision: note.revision,
   };
 }
@@ -83,6 +98,7 @@ export function isDirty(note: Note | null, draft: NoteDraft | null): boolean {
   return draft.title !== note.title
     || draft.body !== note.body
     || draft.due !== note.due
+    || draft.sourceTeamId !== note.sourceTeamId
     || JSON.stringify(draft.todos) !== JSON.stringify(note.todos);
 }
 

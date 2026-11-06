@@ -52,7 +52,7 @@ describe('preferences appearance', () => {
       showReasoning: false,
       showRawPayloads: true,
       refreshInterval: 5000,
-      toolModules: { disabled: {}, hidden: {}, order: {} },
+      toolModules: { disabled: {}, hidden: {}, order: {}, pinned: {} },
     });
   });
 
@@ -69,6 +69,7 @@ describe('preferences appearance', () => {
       disabled: { 'builtin.notes': true },
       hidden: { 'builtin.coordination:right-tools': true },
       order: {},
+      pinned: {},
     });
   });
 
@@ -84,6 +85,38 @@ describe('preferences appearance', () => {
     expect(usePreferencesStore().toolModules.order).toEqual({
       'right-tools': ['builtin.notes:right-tools', 'builtin.coordination:right-tools'],
     });
+  });
+
+  it('keeps only known pinned mounts and ignores unknown slots', () => {
+    stubStorage(JSON.stringify({
+      toolModules: {
+        pinned: {
+          'right-tools': ['builtin.notes:right-tools', 'builtin.ghost:right-tools', 7],
+          'right-bogus': ['builtin.notes:right-tools'],
+        },
+      },
+    }));
+    expect(usePreferencesStore().toolModules.pinned).toEqual({
+      'right-tools': ['builtin.notes:right-tools'],
+    });
+  });
+
+  it('pins and unpins a mount without touching the drag order', () => {
+    const written: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => written.push(value),
+    });
+    const store = usePreferencesStore();
+    store.setToolOrder('right-tools', ['builtin.notes:right-tools', 'builtin.coordination:right-tools']);
+    store.setToolPinned('right-tools', 'builtin.coordination:right-tools', true);
+    expect(store.toolModules.pinned['right-tools']).toEqual(['builtin.coordination:right-tools']);
+    expect(store.toolModules.order['right-tools']).toEqual([
+      'builtin.notes:right-tools', 'builtin.coordination:right-tools',
+    ]);
+    store.setToolPinned('right-tools', 'builtin.coordination:right-tools', false);
+    expect(store.toolModules.pinned['right-tools']).toEqual([]);
+    expect(JSON.parse(written.at(-1)!).toolModules.pinned['right-tools']).toEqual([]);
   });
 
   it('toggles and persists mount visibility', () => {

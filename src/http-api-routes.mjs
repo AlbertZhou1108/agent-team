@@ -141,6 +141,7 @@ export function apiRoutes(context) {
                     q: url.searchParams.get('q') ?? '',
                     cursor: url.searchParams.get('cursor'),
                     limit: url.searchParams.get('limit'),
+                    team: url.searchParams.get('team'),
                 });
             } catch (error) { return failJson(error?.status ?? 400, error); }
         } },
@@ -148,7 +149,7 @@ export function apiRoutes(context) {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400, '记录参数无效');
-            if (Object.keys(body).some(key => !['id', 'body', 'title', 'todos', 'due'].includes(key))) return fail(400, '未知记录参数');
+            if (Object.keys(body).some(key => !['id', 'body', 'title', 'todos', 'due', 'sourceTeamId'].includes(key))) return fail(400, '未知记录参数');
             try { return bus.notes.create(body).note; }
             catch (error) { return failJson(error?.status ?? 400, error); }
         } },
@@ -167,7 +168,7 @@ export function apiRoutes(context) {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400, '记录参数无效');
-            if (Object.keys(body).some(key => !['revision', 'body', 'title', 'todos', 'due'].includes(key))) return fail(400, '未知记录参数');
+            if (Object.keys(body).some(key => !['revision', 'body', 'title', 'todos', 'due', 'sourceTeamId'].includes(key))) return fail(400, '未知记录参数');
             try { return bus.notes.update(decodeURIComponent(url.pathname.split('/')[3]), body); }
             catch (error) { return failJson(error?.status ?? 400, error); }
         } },

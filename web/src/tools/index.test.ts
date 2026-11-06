@@ -91,6 +91,27 @@ describe('activeMounts', () => {
     const prefs = { hidden: { 'builtin.coordination:right-tools': true } };
     expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id)).toEqual(['builtin.notes']);
   });
+
+  it('置顶排在顺序之前,且不改写拖拽出来的顺序', () => {
+    const prefs = {
+      order: { 'right-tools': ['builtin.notes:right-tools', 'builtin.coordination:right-tools'] },
+      pinned: { 'right-tools': ['builtin.coordination:right-tools'] },
+    };
+    expect(activeMounts('right-tools', prefs).map(entry => entry.tool.id))
+      .toEqual(['builtin.coordination', 'builtin.notes']);
+    // 取消置顶后回到 order 里的位置:随心记本来就排在前面。
+    const unpinned = { ...prefs, pinned: { 'right-tools': [] } };
+    expect(activeMounts('right-tools', unpinned).map(entry => entry.tool.id))
+      .toEqual(['builtin.notes', 'builtin.coordination']);
+  });
+
+  it('多个置顶按置顶先后排列,其余仍按 order', () => {
+    const prefs = {
+      order: { 'right-tools': ['builtin.notes:right-tools', 'builtin.coordination:right-tools'] },
+      pinned: { 'right-tools': ['builtin.coordination:right-tools'] },
+    };
+    expect(activeMounts('right-tools', prefs)[0]!.tool.id).toBe('builtin.coordination');
+  });
 });
 
 describe('navToolEntries', () => {

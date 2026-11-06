@@ -6,6 +6,7 @@ import {
   isDirty,
   noteDayLabel,
   noteExcerpt,
+  noteSourceLabel,
   noteStateLabel,
   toggleTodo,
 } from './notes-state';
@@ -19,6 +20,8 @@ function note(overrides: Partial<Note> = {}): Note {
     todos: [{ text: '确认冲突合并策略', done: false }],
     due: null,
     state: 'active',
+    sourceTeamId: null,
+    sourceTeamName: null,
     revision: 1,
     created: '2026-11-04T08:00:00.000Z',
     updated: '2026-11-04T08:00:00.000Z',
@@ -56,6 +59,13 @@ describe('随心记列表展示', () => {
     expect(label).not.toMatch(/今天|昨天|更早/);
     expect(label).toMatch(/\d/);
   });
+
+  it('来源徽标区分「无来源」与「团队已删除」', () => {
+    expect(noteSourceLabel(note())).toBeNull();
+    expect(noteSourceLabel(note({ sourceTeamId: 'g1', sourceTeamName: '同步方案' }))).toBe('同步方案');
+    // 有来源 id 但取不到名字：团队被删了，不等于没有来源。
+    expect(noteSourceLabel(note({ sourceTeamId: 'g1', sourceTeamName: null }))).toBe('团队已删除');
+  });
 });
 
 describe('详情草稿', () => {
@@ -68,6 +78,14 @@ describe('详情草稿', () => {
     const todoDraft = draftFrom(current);
     todoDraft.todos[0]!.done = true;
     expect(isDirty(current, todoDraft)).toBe(true);
+  });
+
+  it('改来源团队也算未保存', () => {
+    const current = note({ sourceTeamId: 'g1', sourceTeamName: '同步方案' });
+    const draft = draftFrom(current);
+    expect(isDirty(current, draft)).toBe(false);
+    draft.sourceTeamId = 'g2';
+    expect(isDirty(current, draft)).toBe(true);
   });
 
   it('勾选待办只翻转目标项', () => {

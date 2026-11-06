@@ -322,6 +322,7 @@ export interface MessageRow {
 export type InteractionKind =
   | 'choice'
   | 'input'
+  | 'flow'
   | 'takeover'
   | 'handback'
   | 'group_create'
@@ -329,27 +330,61 @@ export type InteractionKind =
   | 'group_delete'
   | 'member_model';
 
-export interface InteractionChoicePayload {
+/** 卡片即唯一展示面:锚点消息只为答复线程与群记录存在,不再渲染正文。 */
+interface InteractionCardFlag {
+  cardOnly?: boolean;
+}
+
+export interface InteractionChoicePayload extends InteractionCardFlag {
   kind: 'choice';
   text: string;
   options: string[];
 }
 
-export interface InteractionInputPayload {
+export interface InteractionInputPayload extends InteractionCardFlag {
   kind: 'input';
   text: string;
 }
 
-export interface InteractionActionPayload {
-  kind: 'takeover' | 'handback' | 'group_create' | 'group_add' | 'group_delete';
+/** 多步提问:步骤自上而下推进,已答步骤带 answer。 */
+export interface InteractionFlowStep {
+  kind: 'choice' | 'input';
+  text: string;
+  options?: string[];
+  answer?: { selected?: string; value?: string } | null;
+}
+
+export interface InteractionFlowPayload extends InteractionCardFlag {
+  kind: 'flow';
+  text: string;
+  steps: InteractionFlowStep[];
+}
+
+export interface InteractionActionPayload extends InteractionCardFlag {
+  kind: 'takeover' | 'handback' | 'group_create' | 'group_add' | 'group_delete' | 'member_model';
   text: string;
   groupId?: string;
   baseRevision?: number;
+  /** 动作参数原样回传给执行器(member_model / group_add / group_create 用)。 */
+  args?: Record<string, unknown>;
 }
 
-export type InteractionPayload = InteractionChoicePayload | InteractionInputPayload | InteractionActionPayload;
+export type InteractionPayload =
+  | InteractionChoicePayload
+  | InteractionInputPayload
+  | InteractionFlowPayload
+  | InteractionActionPayload;
 
-export type InteractionAnswer = { selected: string } | { value: string } | { approved: boolean };
+export type InteractionAnswer =
+  | { selected: string }
+  | { value: string }
+  | { approved: boolean }
+  | { answers: Array<{ selected?: string; value?: string }> };
+
+/** 多步卡片的整卡提交:answers 与 steps 一一对应,缺一或越界都由后端整体拒绝。 */
+export interface InteractionFlowSubmission {
+  answers: Array<{ selected: string } | { value: string }>;
+}
 
 export interface Interaction {
   id: string;
@@ -942,6 +977,10 @@ export interface Note {
   todos: NoteTodo[];
   due: string | null;
   state: NoteState;
+  /** 来源团队：记下这条笔记时所在的团队；null 表示无来源。不是归属，团队删了笔记还在。 */
+  sourceTeamId: string | null;
+  /** 团队当前名字；团队已删除时为 null，由界面显示「团队已删除」。 */
+  sourceTeamName: string | null;
   revision: number;
   created: string;
   updated: string;

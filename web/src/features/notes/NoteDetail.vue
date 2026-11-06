@@ -6,15 +6,22 @@ import {
   Plus,
   Send,
   Trash2,
+  Users,
   X,
 } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import type { Note, NoteState } from '@/shared/api/raw-types';
-import { draftFrom, isDirty, noteStateLabel, toggleTodo } from './notes-state';
+import { TEAM_FILTER_NONE, draftFrom, isDirty, noteStateLabel, toggleTodo } from './notes-state';
 
 const props = defineProps<{
   note: Note;
@@ -22,10 +29,11 @@ const props = defineProps<{
   saving: boolean;
   error: string;
   conflict: boolean;
+  teams: Array<{ id: string; name: string }>;
 }>();
 
 const emit = defineEmits<{
-  save: [draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null }];
+  save: [draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null; sourceTeamId: string | null }];
   state: [state: NoteState | 'restore'];
   remove: [];
   handoff: [instruction: string];
@@ -45,6 +53,33 @@ const dirty = computed(() => isDirty(props.note, draft.value));
 const openTodos = computed(() => draft.value.todos.filter(todo => !todo.done).length);
 const canHandoff = computed(() => !archived.value && props.panelReady && !dirty.value && !props.saving);
 
+// 来源团队是可选字段：'none' 是界面上的「无来源」，落库为 null。
+const sourceValue = computed({
+  get: () => draft.value.sourceTeamId ?? TEAM_FILTER_NONE,
+  set: (value: string) => { draft.value.sourceTeamId = value === TEAM_FILTER_NONE ? null : value; },
+});
+// 团队已被删除时补一个选项，避免下拉把当前值悄悄显示成「无来源」。
+const danglingTeam = computed(() => {
+  const id = draft.value.sourceTeamId;
+  return id && !props.teams.some(team => team.id === id) ? id : null;
+});
+const sourceLabel = computed(() => {
+  const id = draft.value.sourceTeamId;
+  if (!id) return '无来源';
+  return props.teams.find(team => team.id === id)?.name ?? props.note.sourceTeamName ?? '团队已删除';
+});
+
+function payload() {
+  return {
+    revision: draft.value.revision,
+    title: draft.value.title,
+    body: draft.value.body,
+    todos: draft.value.todos,
+    due: draft.value.due,
+    sourceTeamId: draft.value.sourceTeamId,
+  };
+}
+
 function reset() {
   draft.value = draftFrom(props.note);
   newTodo.value = '';
@@ -60,26 +95,14 @@ watch(dirty, value => emit('dirty', value), { immediate: true });
 
 async function save() {
   if (!dirty.value || props.saving) return;
-  emit('save', {
-    revision: draft.value.revision,
-    title: draft.value.title,
-    body: draft.value.body,
-    todos: draft.value.todos,
-    due: draft.value.due,
-  });
+  emit('save', payload());
 }
 
 function toggle(index: number) {
   if (archived.value || props.saving) return;
   draft.value.todos = toggleTodo(draft.value.todos, index);
   // 勾选立即落库：它是最轻的操作，不应该还要再点一次保存。
-  emit('save', {
-    revision: draft.value.revision,
-    title: draft.value.title,
-    body: draft.value.body,
-    todos: draft.value.todos,
-    due: draft.value.due,
-  });
+  emit('save', payload());
 }
 
 function addTodo() {
@@ -87,25 +110,13 @@ function addTodo() {
   if (!text || archived.value) return;
   draft.value.todos = [...draft.value.todos, { text, done: false }];
   newTodo.value = '';
-  emit('save', {
-    revision: draft.value.revision,
-    title: draft.value.title,
-    body: draft.value.body,
-    todos: draft.value.todos,
-    due: draft.value.due,
-  });
+  emit('save', payload());
 }
 
 function removeTodo(index: number) {
   if (archived.value) return;
   draft.value.todos = draft.value.todos.filter((_, current) => current !== index);
-  emit('save', {
-    revision: draft.value.revision,
-    title: draft.value.title,
-    body: draft.value.body,
-    todos: draft.value.todos,
-    due: draft.value.due,
-  });
+  emit('save', payload());
 }
 
 function handoff() {
@@ -210,6 +221,25 @@ function handoff() {
         />
         <Button v-if="draft.due && !archived" variant="ghost" size="sm" @click="draft.due = null">清除</Button>
       </div>
+    </section>
+
+    <section class="flex flex-col gap-2">
+      <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Users class="size-3.5" />
+        来源团队
+      </div>
+      <!-- 来源只回答「这笔是在哪个团队里记的」，不是归属：团队删了这条记录也还在。 -->
+      <Select v-if="!archived" v-model="sourceValue">
+        <SelectTrigger class="h-8 w-full" aria-label="来源团队">
+          <span data-slot="select-value" class="min-w-0 truncate">{{ sourceLabel }}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem :value="TEAM_FILTER_NONE">无来源</SelectItem>
+          <SelectItem v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }}</SelectItem>
+          <SelectItem v-if="danglingTeam" :value="danglingTeam">团队已删除</SelectItem>
+        </SelectContent>
+      </Select>
+      <p v-else class="text-sm text-muted-foreground">{{ sourceLabel }}</p>
     </section>
 
     <p v-if="error" class="flex flex-col gap-1 text-xs text-destructive">

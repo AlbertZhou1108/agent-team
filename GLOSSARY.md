@@ -56,5 +56,7 @@ Each agent publishes its own task projection using doing/done/dropped. It commun
 
 **Note / 随心记**:
 A private idea record, owned by the user rather than any team. Three states only: `active` / `done` / `archived`. It does not track execution and has no relationship to turns; handing a note to the Panel Agent just produces a prompt the user sends in their private conversation.
-_Avoid_: 待办卡片、想法任务、笔记状态（不要给它加执行状态）
+
+A note may carry a **source team** (`source_team_id`): the team context it was written in. Source is a historical fact used for display and filtering — not ownership. It never cascades (deleting a team leaves the note), never grants access, and never enters the prompt. A source whose team no longer exists shows as 团队已删除.
+_Avoid_: 待办卡片、想法任务、笔记状态（不要给它加执行状态）、归属团队（来源不是归属）
 

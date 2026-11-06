@@ -64,7 +64,7 @@ const coordinationTool: ToolDefinition = {
 const notesTool: ToolDefinition = {
   id: 'builtin.notes',
   name: '随心记',
-  description: '私人随手记,不进团队会话。',
+  description: '私人随手记，可标注来源团队。',
   scope: 'global',
   mounts: [
     { slot: 'left-nav', component: NotesWorkspace, routeName: 'notes' },
@@ -86,6 +86,8 @@ export interface ToolUserState {
   hidden: Record<string, boolean>;
   /** 每个槽位的挂载显示顺序,值是 `${工具id}:${槽位}` 键的有序列表;缺省按注册顺序。 */
   order: Record<string, string[]>;
+  /** 每个槽位被置顶的挂载键(按置顶先后排列),始终排在 order 之前;置顶不改写 order。 */
+  pinned?: Record<string, string[]>;
 }
 
 export const mountKey = (toolId: string, slot: ToolSlot) => `${toolId}:${slot}`;
@@ -114,9 +116,12 @@ export function enabledToolsOf(
 /** 某个槽位当前该显示的挂载:先按用户排序(order 里的键),未记录的按注册顺序跟在后面。 */
 export function activeMounts(
   slot: ToolSlot,
-  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean>; order?: Record<string, string[]> },
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean>; order?: Record<string, string[]>; pinned?: Record<string, string[]> },
 ): MountedTool[] {
   const order = prefs.order?.[slot];
+  const pinned = prefs.pinned?.[slot] ?? [];
+  // 置顶是顺序之上的一层:先按置顶先后,其余按用户拖出来的 order,再落回注册顺序。
+  const pinIndex = (toolId: string) => pinned.indexOf(mountKey(toolId, slot));
   const rank = (toolId: string) => {
     const index = order?.indexOf(mountKey(toolId, slot)) ?? -1;
     return index < 0 ? Number.POSITIVE_INFINITY : index;
@@ -125,7 +130,16 @@ export function activeMounts(
     .flatMap(tool => tool.mounts
       .filter(mount => mount.slot === slot && isMountVisible(tool, mount, prefs))
       .map(mount => ({ tool, mount })))
-    .sort((a, b) => rank(a.tool.id) - rank(b.tool.id));
+    .sort((a, b) => {
+      const left = pinIndex(a.tool.id);
+      const right = pinIndex(b.tool.id);
+      if (left !== right) {
+        if (left < 0) return 1;
+        if (right < 0) return -1;
+        return left - right;
+      }
+      return rank(a.tool.id) - rank(b.tool.id);
+    });
 }
 
 /** 左导航条目:left-nav 挂载生成,激活态由当前路由名判定。 */

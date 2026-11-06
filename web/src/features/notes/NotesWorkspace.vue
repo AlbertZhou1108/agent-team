@@ -7,11 +7,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { api, ApiError } from '@/shared/api/client';
 import { useResourceQuery } from '@/features/queries';
+import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import type { Note, NoteState } from '@/shared/api/raw-types';
 import NoteComposer from './NoteComposer.vue';
 import NoteList from './NoteList.vue';
 import NoteDetail from './NoteDetail.vue';
+import { TEAM_FILTER_ALL, TEAM_FILTER_NONE } from './notes-state';
 
 // 随心记只做「记」：这里没有交接、没有回合、没有任务状态。
 // 「交给 Panel Agent」只是生成一段提示词并跳转，执行与结果都在私人会话里。
@@ -32,14 +34,28 @@ const detailDirty = ref(false);
 const pendingLeave = ref<string | null>(null);
 const pendingRoute = ref<string | null>(null);
 const pendingFilter = ref<NoteState | null>(null);
+const pendingTeam = ref<string | null>(null);
 let bypassLeaveGuard = false;
 
+// 团队筛选落 URL（?team=），这样从团队右栏的「查看全部」可以直接深链过来。
+const teamFilter = computed(() => {
+  const value = route.query.team;
+  return typeof value === 'string' && value ? value : TEAM_FILTER_ALL;
+});
+const teamsQuery = useResourceQuery(queryKeys.groups, api.groups, true, 30000);
+const teams = computed(() => (teamsQuery.data.value ?? []).map(team => ({ id: team.id, name: team.name })));
+
 const notesQuery = useInfiniteQuery({
-  queryKey: computed(() => ['notes', filter.value, search.value] as const),
+  queryKey: computed(() => ['notes', filter.value, search.value, teamFilter.value] as const),
   // 服务端按 updated 倒序游标分页;前端按需追加,不做页码跳转。
   initialPageParam: null as string | null,
   queryFn: ({ pageParam, signal }) =>
-    api.notes({ state: filter.value, q: search.value, cursor: pageParam ?? undefined }, signal),
+    api.notes({
+      state: filter.value,
+      q: search.value,
+      cursor: pageParam ?? undefined,
+      team: teamFilter.value === TEAM_FILTER_ALL ? undefined : teamFilter.value,
+    }, signal),
   getNextPageParam: last => last.nextCursor,
   refetchInterval: 10000,
   refetchOnWindowFocus: false,
@@ -48,7 +64,7 @@ const notesQuery = useInfiniteQuery({
 const directoryQuery = useResourceQuery(['directory'], api.directory, true, 30000);
 const panelReady = computed(() => Boolean(directoryQuery.data.value?.panelAgent));
 const notes = computed(() => notesQuery.data.value?.pages.flatMap(page => page.notes) ?? []);
-// 计数是全局事实,不随已加载页变化,只认第一页。
+// 计数随当前筛选（状态、团队、搜索）变化，只认第一页。
 const counts = computed(() => notesQuery.data.value?.pages[0]?.counts ?? { active: 0, done: 0, archived: 0 });
 const hasMore = computed(() => Boolean(notesQuery.hasNextPage.value));
 const loadingMore = computed(() => notesQuery.isFetchingNextPage.value);
@@ -135,6 +151,32 @@ function changeFilter(next: NoteState) {
   if (selectedId.value) applyClose();
 }
 
+// 切换团队筛选同样会收起详情：团队 + 记录一次导航写清，
+// 否则「切团队」和「收详情」两次 replace 会互相覆盖。
+function changeTeam(next: string) {
+  if (next === teamFilter.value) return;
+  if (detailDirty.value) {
+    pendingTeam.value = next;
+    pendingLeave.value = '__team__';
+    return;
+  }
+  applyTeam(next);
+}
+
+function applyTeam(next: string) {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(route.query)) {
+    if (key !== 'note' && typeof value === 'string') query[key] = value;
+  }
+  if (next === TEAM_FILTER_ALL) delete query.team;
+  else query.team = next;
+  void router.replace({ query });
+  if (!selectedId.value) return;
+  void nextTick(() => {
+    document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus({ preventScroll: true });
+  });
+}
+
 function confirmLeave() {
   const target = pendingLeave.value;
   pendingLeave.value = null;
@@ -145,6 +187,10 @@ function confirmLeave() {
     pendingFilter.value = null;
     if (next) filter.value = next;
     if (selectedId.value) applyClose();
+  } else if (target === '__team__') {
+    const next = pendingTeam.value;
+    pendingTeam.value = null;
+    if (next) applyTeam(next);
   } else if (target === '__route__') {
     const path = pendingRoute.value;
     pendingRoute.value = null;
@@ -165,14 +211,18 @@ onBeforeRouteLeave(to => {
 });
 
 async function create(body: string) {
-  const note = await api.createNote({ id: crypto.randomUUID(), body });
+  // 正在看某个团队的记录时，新记的那笔默认也标上这个来源；看「全部」或「无来源」则不标。
+  const source = teamFilter.value === TEAM_FILTER_ALL || teamFilter.value === TEAM_FILTER_NONE
+    ? undefined
+    : teamFilter.value;
+  const note = await api.createNote({ id: crypto.randomUUID(), body, ...(source ? { sourceTeamId: source } : {}) });
   filter.value = 'active';
   await refresh();
   openNote(note.id);
   toast.success('已记下来');
 }
 
-async function save(draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null }) {
+async function save(draft: { revision: number; title: string; body: string; todos: Array<{ text: string; done: boolean }>; due: string | null; sourceTeamId: string | null }) {
   const note = selectedNote.value;
   if (!note) return;
   saving.value = true;
@@ -292,7 +342,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             :error="listError"
             :has-more="hasMore"
             :loading-more="loadingMore"
+            :team="teamFilter"
+            :teams="teams"
             @update:filter="changeFilter"
+            @update:team="changeTeam"
             @update:search="value => { search = value; }"
             @select="openNote"
             @load-more="loadMore"
@@ -310,6 +363,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                   class="content-appear"
                   :note="selectedNote"
                   :panel-ready="panelReady"
+                  :teams="teams"
                   :saving="saving"
                   :error="detailError"
                   :conflict="conflict"
@@ -334,7 +388,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       description="切换后这些修改会丢失。可以先取消，回到记录里保存。"
       confirm-text="放弃修改"
       destructive
-      @cancel="pendingLeave = null; pendingRoute = null; pendingFilter = null"
+      @cancel="pendingLeave = null; pendingRoute = null; pendingFilter = null; pendingTeam = null"
       @confirm="confirmLeave"
     />
 

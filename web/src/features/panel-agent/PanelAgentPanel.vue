@@ -447,6 +447,26 @@ function handback(team: PanelTeamView) {
   });
 }
 
+const clearingNotifications = ref(false);
+/**
+ * 清理团队来源通知:服务端只记录隐藏状态(panel:update),团队消息与投递台账
+ * 都不删除,侧栏列表下一次读取就不再包含这些条目。
+ */
+async function clearNotifications() {
+  const ids = (panel.value?.notifications ?? []).map(row => row.id);
+  if (!ids.length || clearingNotifications.value) return;
+  clearingNotifications.value = true;
+  try {
+    await api.dismissWorkbench(ids.map(id => ({ category: 'panel:update' as const, id })));
+    await panelQuery.refetch();
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : String(error);
+    toast.error('清理通知失败');
+  } finally {
+    clearingNotifications.value = false;
+  }
+}
+
 function resolveRuntime(turnId: string) {
   askConfirm({
     title: '确认宿主进程已经实际停止？',
@@ -603,12 +623,14 @@ watch(
           :messages="panel.conversation"
           :requests="panel.requests ?? []"
           :notifications="panel.notifications ?? []"
+          :clearing-notifications="clearingNotifications"
           :pending-interactions="panel.teamPendingInteractions ?? {}"
           :unknown="panel.unknown"
           @open-team="openTeam"
           @takeover="takeover"
           @handback="handback"
           @resolve-runtime="resolveRuntime"
+          @clear-notifications="clearNotifications"
         />
       </div>
 
