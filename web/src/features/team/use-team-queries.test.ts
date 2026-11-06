@@ -17,8 +17,7 @@ const q = vi.hoisted(() => ({
   panelAgentQuery: {} as Record<string, unknown>,
   directivesQuery: {} as Record<string, unknown>,
   interactionsQuery: {} as Record<string, unknown>,
-  historyQuery: {} as Record<string, unknown>,
-  modelsQuery: {} as Record<string, unknown>,
+  turnsQuery: {} as Record<string, unknown>,
 }));
 
 vi.mock('vue-router', () => ({ useRoute: () => routeState.route }));
@@ -54,8 +53,7 @@ vi.mock('@/features/queries', async () => {
     useTeamDirectivesQuery: () => q.directivesQuery,
     useInteractionsQuery: () => q.interactionsQuery,
     useMessagesQuery: () => q.messagesQuery,
-    useHistoryQuery: () => q.historyQuery,
-    useModelsQuery: () => q.modelsQuery,
+    useTurnsQuery: () => q.turnsQuery,
   };
 });
 
@@ -130,8 +128,7 @@ beforeEach(() => {
   q.panelAgentQuery = queryState(undefined);
   q.directivesQuery = queryState(undefined);
   q.interactionsQuery = queryState(undefined);
-  q.historyQuery = { ...queryState(undefined), rows: ref([]), hasNextPage: ref(false), isFetchingNextPage: ref(false), fetchNextPage: vi.fn() };
-  q.modelsQuery = { ...queryState(undefined), state: ref(null), hasNextPage: ref(false), isFetchingNextPage: ref(false), fetchNextPage: vi.fn() };
+  q.turnsQuery = { ...queryState(undefined), turns: ref([]), unaffiliated: ref([]), hasNextPage: ref(false), isFetchingNextPage: ref(false), fetchNextPage: vi.fn() };
 });
 
 describe('team query orchestration', () => {

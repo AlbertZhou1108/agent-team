@@ -6,7 +6,6 @@ import {
   ItemMedia,
   ItemContent,
   ItemTitle,
-  ItemDescription,
 } from '@/components/ui/item';
 import { computed } from 'vue';
 import { Bot, Radio } from '@lucide/vue';
@@ -25,9 +24,6 @@ const props = defineProps<{
     id: string;
     name: string;
     host?: string;
-    model_provider?: string | null;
-    model?: string | null;
-    reasoning_effort?: string | null;
   }>;
   selectedId?: string;
   runningEndpoints: string[];
@@ -67,13 +63,6 @@ function memberName(id: string) {
     props.actors?.find((actor) => actor.id === id)?.name ??
     id
   );
-}
-function configuredModel(id: string) {
-  const member = props.members.find((item) => item.id === id);
-  const actor = props.actors?.find((item) => item.id === id);
-  const configured = member?.model ? member : actor;
-  if (!configured?.model) return null;
-  return `${configured.model_provider ? `${configured.model_provider}/` : ''}${configured.model} · ${configured.reasoning_effort ?? '默认强度'}`;
 }
 function domains(endpointId: string) {
   return props.sessionBindings
@@ -127,19 +116,6 @@ function contextLabel(endpoint: SessionEndpoint) {
             >· {{ contextLabel(endpoint) }}</span
           >
         </ItemTitle>
-        <ItemDescription>
-          <template v-if="endpoint.modelState?.currentModel?.model">
-            {{ endpoint.modelState?.currentModel.model }}
-            ·
-            {{
-              endpoint.modelState?.currentReasoningEffort?.reasoningEffort ??
-              '强度未知'
-            }}
-          </template>
-          <template v-else>
-            {{ configuredModel(endpoint.member_id) ?? '模型未知' }}
-          </template>
-        </ItemDescription>
         <span
           v-if="domains(endpoint.id).length"
           class="mt-1 flex flex-wrap gap-1"

@@ -36,13 +36,11 @@ import type {
   AgentTaskEntry,
   HistoryRow,
   Member,
-  ModelObservation,
-  ModelState,
   PanelAgent,
   SessionBinding,
   SessionEndpoint,
+  TurnSummary,
 } from '@/shared/api/raw-types';
-import type { TurnView } from '@/shared/models/view-types';
 
 /**
  * 团队工作区右栏（概览/成员/会话/详情/工具）。
@@ -73,10 +71,8 @@ const props = defineProps<{
     name: string;
     assignment?: { revision: number; state: 'active' | 'suspended'; original_lead_id: string | null } | null;
   } | null;
-  turns: TurnView[];
-  historyRows: HistoryRow[];
-  modelState: ModelState | null;
-  observations: ModelObservation[];
+  turnSummaries: TurnSummary[];
+  unaffiliatedEvents: HistoryRow[];
   activeTab: InspectorTab;
   loading: boolean;
   hasNextPage: boolean;
@@ -289,10 +285,8 @@ function onTab(value: string | number) {
           :members="members"
           :controller="currentController"
           :actors="actors"
-          :turns="turns"
-          :history-rows="historyRows"
-          :model-state="modelState"
-          :observations="observations"
+          :turn-summaries="turnSummaries"
+          :unaffiliated-events="unaffiliatedEvents"
           :tab="activeTab"
           :loading="loading"
           :has-next-page="hasNextPage"

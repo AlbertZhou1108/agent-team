@@ -2,7 +2,7 @@ import type { Component } from 'vue';
 import { NotebookPen } from '@lucide/vue';
 import NotesWorkspace from '@/features/notes/NotesWorkspace.vue';
 import NotesQuickInput from '@/features/notes/NotesQuickInput.vue';
-import TelemetryCoordinationView from '@/features/telemetry/TelemetryCoordinationView.vue';
+import TelemetryCoordinationTool from '@/features/telemetry/TelemetryCoordinationTool.vue';
 
 /**
  * 工具模块契约 v2:面板里的一个功能就是一个工具,通过**挂载(mount)**声明
@@ -55,10 +55,10 @@ export interface ToolDefinition {
 const coordinationTool: ToolDefinition = {
   id: 'builtin.coordination',
   name: '协调遥测',
-  description: '主 Agent 协调会话的执行方、来源与批次概览。',
+  description: '主 Agent 协调会话的用量总量与覆盖说明。',
   scope: 'team',
   // 按设计意图只在「工具」标签页呈现。
-  mounts: [{ slot: 'right-tools', component: TelemetryCoordinationView }],
+  mounts: [{ slot: 'right-tools', component: TelemetryCoordinationTool }],
 };
 
 const notesTool: ToolDefinition = {

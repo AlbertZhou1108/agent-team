@@ -17,7 +17,7 @@ defineProps<{
   <section class="flex min-w-0 flex-col gap-3">
     <h4 class="text-sm font-semibold">来源分析</h4>
       <p v-if="!subtotals.length" class="text-xs text-muted-foreground">
-        暂无可归入来源小计的单一来源批次。
+        暂无可归入来源小计的单一来源回合。
       </p>
       <div v-else class="divide-y divide-border">
         <Disclosure
@@ -28,7 +28,7 @@ defineProps<{
           <template #summary>
             <span class="font-medium">{{ subtotal.sourceActorName }}</span>
             <Badge variant="outline"
-              >{{ subtotal.includedBatchIds.length }} 批次</Badge
+              >{{ subtotal.includedBatchIds.length }} 个回合</Badge
             >
             <span class="text-muted-foreground tabular-nums"
               >输入

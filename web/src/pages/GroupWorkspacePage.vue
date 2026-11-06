@@ -51,8 +51,8 @@ watch(() => route.query.interaction, (value) => {
 }, { immediate: true });
 const selectedSessionId = computed(() => teamConversationSession(route.query));
 const activeTab = computed<InspectorTab>(() => {
-  const value = routeString(route.query.tab);
-  return value === 'events' || value === 'models' || value === 'usage' ? value : 'trace';
+  // 旧深链的 events/models 标签已并入轨迹页(原始事件折叠区/成员页),统一归位。
+  return routeString(route.query.tab) === 'usage' ? 'usage' : 'trace';
 });
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
@@ -74,19 +74,15 @@ const {
   modelPolicyDefaults, homeRunningByGroup, runningEndpoints, currentControllerId,
   currentController, pausedMemberIds, currentMembers, currentEndpoints,
   currentSessionBindings, selectedEndpoint, selectedPair,
-  selectedEndpointIsManagerPair, conversationTitle, endpointHosts,
+  conversationTitle, endpointHosts,
   runningMemberIds, agentUnreadCount,
   panelMessages, receiptRequests, messagesQuery, directivesQuery,
-  interactionsQuery, messageViews, historyQuery, modelsQuery, turns,
-  selectedModelState, inspectorHasNextPage, inspectorFetchingNextPage,
+  interactionsQuery, messageViews, turnSummaries, unaffiliatedEvents,
+  turnsQuery, inspectorHasNextPage, inspectorFetchingNextPage,
   inspectorError, contextError, retryContext, loadInspectorMore, notesTool,
   navToolEntries, notesPageComponent, notesEnabled, modelPolicySaved,
   restoreArchivedTeam,
 } = resources;
-
-const managerConversationActive = computed(
-  () => selectedEndpointIsManagerPair.value && activeTab.value === 'usage',
-);
 
 // 团队流与页面同生命周期切换；消息落库后的清理在组合式函数内部完成。
 const { activeStreams: activeTeamStreaming } = useTeamStream({
@@ -290,15 +286,14 @@ function onMemberModelSaved() {
         @retry="refreshResources()"
       />
       <PanelAgentPanel v-else-if="!group" />
-      <div
-        v-else
-        class="workspace-shell"
-        :class="{
-          'context-is-collapsed': ui.contextCollapsed,
-          'manager-view-open': managerConversationActive,
-          'is-resizing': resizing,
-        }"
-      >
+        <div
+          v-else
+          class="workspace-shell"
+          :class="{
+            'context-is-collapsed': ui.contextCollapsed,
+            'is-resizing': resizing,
+          }"
+        >
         <ConversationWorkspace
           :heading="group.name"
           :description="group.workspace"
@@ -381,12 +376,10 @@ function onMemberModelSaved() {
           :running-endpoints="runningEndpoints"
           :selected-endpoint="selectedEndpoint"
           :current-controller="currentController"
-          :turns="turns"
-          :history-rows="historyQuery.rows.value"
-          :model-state="selectedModelState"
-          :observations="modelsQuery.observations.value"
+          :turn-summaries="turnSummaries"
+          :unaffiliated-events="unaffiliatedEvents"
           :active-tab="activeTab"
-          :loading="Boolean(selectedSessionId && (activeTab === 'models' ? modelsQuery.isPending.value : historyQuery.isPending.value))"
+          :loading="Boolean(selectedSessionId && turnsQuery.isPending.value)"
           :has-next-page="inspectorHasNextPage"
           :fetching-next-page="inspectorFetchingNextPage"
           @update:panel="setContextPanel"

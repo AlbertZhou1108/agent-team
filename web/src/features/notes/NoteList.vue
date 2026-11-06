@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { Search as SearchIcon } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import type { Note, NoteCounts, NoteState } from '@/shared/api/raw-types';
+import { useSentinelLoad } from '@/shared/use-sentinel-load';
 import { cn } from '@/lib/utils';
 import {
   NOTE_STATES,
@@ -63,49 +64,11 @@ const teamLabel = computed(() => {
 // 触底自动加载:哨兵进入视口即追加下一页,不设按钮。
 // 列表是倒序时间线,追加不会改变已读位置,所以不需要用户点头。
 const sentinel = ref<HTMLElement | null>(null);
-let observer: IntersectionObserver | null = null;
-
-function maybeLoad() {
-  if (!props.hasMore || props.loadingMore) return;
-  emit('load-more');
-}
-
-onMounted(() => {
-  // 哨兵可能晚于组件出现(首屏在读取中),所以观察跟随哨兵本身,而不是只在挂载时绑一次。
-  watch(
-    sentinel,
-    element => {
-      observer?.disconnect();
-      observer = null;
-      if (!element) return;
-      observer = new IntersectionObserver(
-        entries => {
-          if (entries.some(entry => entry.isIntersecting)) maybeLoad();
-        },
-        // 提前一点开始取,滚动到尽头时内容已经就位。
-        { rootMargin: '120px' },
-      );
-      observer.observe(element);
-    },
-    { immediate: true },
-  );
-});
-
-onBeforeUnmount(() => {
-  observer?.disconnect();
-  observer = null;
-});
-
-// 首屏没填满滚动容器时哨兵一直可见,不会再有「进入视口」事件:
-// 每次取完重新观察一次,让观察器按当前布局重判,而不是猜它还在不在。
-watch([() => props.hasMore, () => props.loadingMore], async () => {
-  if (!props.hasMore || props.loadingMore || !observer) return;
-  await nextTick();
-  // 等布局落定(新一条已进 DOM)再重判,否则看到的还是旧位置。
-  const element = sentinel.value;
-  if (!observer || !element) return;
-  observer.unobserve(element);
-  observer.observe(element);
+useSentinelLoad({
+  sentinel,
+  hasMore: () => props.hasMore,
+  loading: () => props.loadingMore,
+  load: () => emit('load-more'),
 });
 </script>
 

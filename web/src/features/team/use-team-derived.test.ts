@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import type { Group, Member, MessageRow, SessionEndpoint } from '@/shared/api/raw-types';
+import type { Group, HistoryRow, Member, MessageRow, SessionEndpoint, TurnSummary } from '@/shared/api/raw-types';
 import type { TeamQueries, TeamQueriesOptions } from './use-team-queries';
 import { useTeamDerived } from './use-team-derived';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
@@ -86,16 +86,9 @@ function makeQueries() {
       hasNextPage: ref(false),
       fetchNextPage: vi.fn(),
     },
-    historyQuery: {
-      rows: ref<MessageRow[]>([]),
-      hasNextPage: ref(false),
-      isFetchingNextPage: ref(false),
-      isPending: ref(false),
-      error: ref<unknown>(null),
-      fetchNextPage: vi.fn(),
-    },
-    modelsQuery: {
-      state: ref<unknown>(null),
+    turnsQuery: {
+      turns: ref<TurnSummary[]>([]),
+      unaffiliated: ref<HistoryRow[]>([]),
       hasNextPage: ref(false),
       isFetchingNextPage: ref(false),
       isPending: ref(false),
@@ -200,21 +193,25 @@ describe('team derived projections', () => {
     expect(derived.messageViews.value).toHaveLength(2);
   });
 
-  it('switches inspector pagination/error and context retry by active tab and panel', () => {
+  it('switches inspector pagination/error and context retry by active tab and panel', async () => {
     const queries = makeQueries();
     const options = makeOptions();
-    queries.modelsQuery.hasNextPage.value = true;
-    queries.modelsQuery.isFetchingNextPage.value = true;
-    const modelsError = new Error('models failed');
-    queries.modelsQuery.error.value = modelsError;
-    options.activeTab.value = 'models';
+    queries.turnsQuery.hasNextPage.value = true;
+    queries.turnsQuery.isFetchingNextPage.value = true;
+    const turnsError = new Error('turns failed');
+    queries.turnsQuery.error.value = turnsError;
     const derived = derivedOf(options, queries);
+    // 用量页自带数据源,不消费回合分页。
+    options.activeTab.value = 'usage';
+    expect(derived.inspectorHasNextPage.value).toBe(false);
+    expect(derived.inspectorFetchingNextPage.value).toBe(false);
+    expect(derived.inspectorError.value).toBeUndefined();
+    options.activeTab.value = 'trace';
     expect(derived.inspectorHasNextPage.value).toBe(true);
     expect(derived.inspectorFetchingNextPage.value).toBe(true);
-    expect(derived.inspectorError.value).toBe(modelsError);
-    options.activeTab.value = 'trace';
-    expect(derived.inspectorHasNextPage.value).toBe(false);
-    expect(derived.inspectorError.value).toBeNull();
+    expect(derived.inspectorError.value).toBe(turnsError);
+    await derived.loadInspectorMore();
+    expect(queries.turnsQuery.fetchNextPage).toHaveBeenCalledTimes(1);
 
     const sessionsError = new Error('sessions failed');
     queries.sessionsQuery.error.value = sessionsError;
@@ -231,15 +228,21 @@ describe('team derived projections', () => {
     expect(queries.tasksQuery.refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores turns until the details panel is visible and the trace tab is active', () => {
+  it('exposes turn summaries and unaffiliated events only while the trace tab is visible', () => {
     const options = makeOptions();
     const queries = makeQueries();
-    queries.historyQuery.rows.value = [];
+    const summary = { id: 't1', state: 'completed', created: '2026-01-01T00:00:00Z', ended: null, ordinal: 1, eventCount: 2, firstSeq: 1, lastSeq: 2 };
+    queries.turnsQuery.turns.value = [summary];
+    queries.turnsQuery.unaffiliated.value = [{ seq: 9, conversation_id: 'e1', event: '{}', created: '', turn_id: null }];
     const derived = derivedOf(options, queries);
-    expect(derived.turns.value).toEqual([]);
+    expect(derived.turnSummaries.value).toEqual([]);
+    expect(derived.unaffiliatedEvents.value).toEqual([]);
     options.detailsVisible.value = true;
     options.activeTab.value = 'trace';
-    expect(derived.turns.value).toEqual([]);
-    expect(derived.runningMemberIds.value.size).toBe(0);
+    expect(derived.turnSummaries.value).toEqual([summary]);
+    expect(derived.unaffiliatedEvents.value).toHaveLength(1);
+    options.activeTab.value = 'usage';
+    expect(derived.turnSummaries.value).toEqual([]);
+    expect(derived.unaffiliatedEvents.value).toEqual([]);
   });
 });

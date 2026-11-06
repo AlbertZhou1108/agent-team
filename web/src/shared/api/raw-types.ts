@@ -510,6 +510,28 @@ export interface TeamStream {
   updatedAt: string;
 }
 
+/** /api/turns 的回合摘要:轨迹页按回合分页的数据源,事件体走 /api/turn 懒加载。 */
+export interface TurnSummary {
+  id: string;
+  state: string;
+  created: string;
+  ended: string | null;
+  /** 全会话稳定序号(最旧=1):向前翻页时编号不漂移。 */
+  ordinal: number;
+  eventCount: number;
+  firstSeq: number;
+  lastSeq: number;
+}
+
+export interface TurnSummariesResponse {
+  /** 最旧在前的一页回合摘要;轨迹页从第一回合正向翻页。 */
+  turns: TurnSummary[];
+  /** 无回合归属的宿主输出(目前只有会话轮换),量小,随摘要一并返回。 */
+  unaffiliated: HistoryRow[];
+  /** 还有靠后的回合时,下一页的 after 游标(本页最后一回合的 id)。 */
+  nextAfter: string | null;
+}
+
 export interface TurnTrace extends ModelState {
   turn: {
     id: string;

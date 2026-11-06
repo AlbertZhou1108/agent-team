@@ -8,7 +8,6 @@ import { Users } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import {
   useMembersTelemetryQuery,
-  useTelemetryCapabilitiesQuery,
 } from '@/features/queries';
 import TelemetryMemberComparison from './TelemetryMemberComparison.vue';
 import TelemetryExecutorSection from './TelemetryExecutorSection.vue';
@@ -19,22 +18,18 @@ import { formatTimestamp } from './format';
 const props = defineProps<{ groupId: string }>();
 
 const query = useMembersTelemetryQuery(() => props.groupId || undefined);
-const capabilitiesQuery = useTelemetryCapabilitiesQuery(
-  () => props.groupId || undefined,
-);
 
 const data = computed(() => query.data.value);
 const selectedId = ref('');
-const detailsOpen = ref(false);
-watch(() => props.groupId, () => { selectedId.value = ''; detailsOpen.value = false; });
+// 默认选中榜首成员且执行详情默认展开;切团队时回到同一初态。
+const detailsOpen = ref(true);
+watch(() => props.groupId, () => { selectedId.value = ''; detailsOpen.value = true; });
 function selectMember(id: string) {
   selectedId.value = id;
   detailsOpen.value = true;
 }
 const selectedMember = computed(() => data.value?.members.find(m => m.executor.memberId === selectedId.value)
   ?? [...(data.value?.members ?? [])].sort((a, b) => (numeric(b.totals.totalTokens) ?? -1) - (numeric(a.totals.totalTokens) ?? -1))[0]);
-const hosts = computed(() => capabilitiesQuery.data.value?.hosts ?? []);
-
 
 </script>
 

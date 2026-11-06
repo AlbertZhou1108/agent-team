@@ -8,7 +8,6 @@ import {
   reuseMessageViews,
   toMessageViews,
 } from '@/features/messages/adapters';
-import { buildTurns } from '@/features/traces/reducer';
 import { builtinTool, navToolEntries as navToolEntriesFor } from '@/tools';
 import type { TeamQueriesOptions } from './use-team-queries';
 import type { TeamQueries } from './use-team-queries';
@@ -199,14 +198,15 @@ export function useTeamDerived(
       ) as Record<string, 'codex' | 'claude' | 'dsh' | 'unknown'>,
   );
 
-  const turns = computed(() =>
+  // 回合摘要正序(旧→新,服务端即升序):从第一回合起展示,「加载更多回合」取靠后的回合。
+  const turnSummaries = computed(() =>
     options.detailsVisible.value && activeTab.value === 'trace'
-      ? buildTurns(queries.historyQuery.rows.value, {
-          hosts: endpointHosts.value,
-          running: selectedSessionId.value
-            ? queries.runningEndpoints.value.includes(selectedSessionId.value)
-            : false,
-        })
+      ? queries.turnsQuery.turns.value
+      : [],
+  );
+  const unaffiliatedEvents = computed(() =>
+    options.detailsVisible.value && activeTab.value === 'trace'
+      ? queries.turnsQuery.unaffiliated.value
       : [],
   );
 
@@ -218,21 +218,14 @@ export function useTeamDerived(
         ),
       ),
   );
-  const selectedModelState = computed(() => queries.modelsQuery.state.value ?? null);
 
   const inspectorHasNextPage = computed(() =>
-    activeTab.value === 'usage'
-      ? false
-      : activeTab.value === 'models'
-        ? queries.modelsQuery.hasNextPage.value
-        : queries.historyQuery.hasNextPage.value,
+    activeTab.value === 'usage' ? false : queries.turnsQuery.hasNextPage.value,
   );
   const inspectorFetchingNextPage = computed(() =>
     activeTab.value === 'usage'
       ? false
-      : activeTab.value === 'models'
-        ? queries.modelsQuery.isFetchingNextPage.value
-        : queries.historyQuery.isFetchingNextPage.value,
+      : queries.turnsQuery.isFetchingNextPage.value,
   );
 
   const contextError = computed(() =>
@@ -251,11 +244,7 @@ export function useTeamDerived(
   }
 
   const inspectorError = computed(() =>
-    activeTab.value === 'usage'
-      ? undefined
-      : activeTab.value === 'models'
-        ? queries.modelsQuery.error.value
-        : queries.historyQuery.error.value,
+    activeTab.value === 'usage' ? undefined : queries.turnsQuery.error.value,
   );
 
   // 工具模块：左导航条目与启用状态全部由注册表 + 用户偏好推导。
@@ -270,12 +259,12 @@ export function useTeamDerived(
     () => !preferences.toolModules.disabled[notesTool.id],
   );
 
+  /** 「加载更早回合」:按完整回合向前翻,失败只弹 toast。 */
   async function loadInspectorMore() {
     try {
-      if (activeTab.value === 'models') await queries.modelsQuery.fetchNextPage();
-      else await queries.historyQuery.fetchNextPage();
+      await queries.turnsQuery.fetchNextPage();
     } catch (error) {
-      toast.error('加载更多事件失败', { description: String(error) });
+      toast.error('加载更早回合失败', { description: String(error) });
     }
   }
 
@@ -303,9 +292,9 @@ export function useTeamDerived(
     selectedEndpointIsManagerPair,
     messageViews,
     endpointHosts,
-    turns,
+    turnSummaries,
+    unaffiliatedEvents,
     runningMemberIds,
-    selectedModelState,
     inspectorHasNextPage,
     inspectorFetchingNextPage,
     contextError,

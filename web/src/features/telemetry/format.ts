@@ -26,6 +26,73 @@ export const METRIC_KEYS = Object.keys(METRIC_LABELS) as Array<
   keyof TelemetryMetrics
 >;
 
+/** 总用量跨执行方/侧求和:数值相加并标记 derived;占比键不能相加,按求和后的分子分母重算。 */
+export function sumMetrics(parts: Array<TelemetryMetrics | null | undefined>): TelemetryMetrics | null {
+  const present = parts.filter((part): part is TelemetryMetrics => Boolean(part));
+  if (!present.length) return null;
+  const summed = (key: keyof TelemetryMetrics): TelemetryMetric | null => {
+    const metrics = present
+      .map(part => part[key])
+      .filter((metric): metric is TelemetryMetric => numericValue(metric) != null);
+    if (!metrics.length) return null;
+    return {
+      ...metrics[0],
+      value: metrics.reduce((total, metric) => total + (numericValue(metric) ?? 0), 0),
+      quality: 'derived',
+      observedAt: metrics
+        .map(metric => metric.observedAt)
+        .reduce<string | null>((latest, at) => (!at ? latest : !latest || at > latest ? at : latest), null),
+    };
+  };
+  // 某键所有执行方都缺时,借用任一执行方的缺测指标(带真实 missingReason),保证九键齐全。
+  const entries = METRIC_KEYS
+    .map(key => [key, summed(key) ?? present[0][key]] as const)
+    .filter((entry): entry is [keyof TelemetryMetrics, TelemetryMetric] => entry[1] != null);
+  if (!entries.length) return null;
+  const totals = Object.fromEntries(entries) as Record<keyof TelemetryMetrics, TelemetryMetric>;
+  const result: TelemetryMetrics = {
+    inputTokensTotal: totals.inputTokensTotal,
+    uncachedInputTokens: totals.uncachedInputTokens,
+    cacheReadTokens: totals.cacheReadTokens,
+    cacheWriteTokens: totals.cacheWriteTokens,
+    outputTokens: totals.outputTokens,
+    totalTokens: totals.totalTokens,
+    cacheReadRatio: totals.cacheReadRatio,
+    executionWallMs: totals.executionWallMs,
+    hostTurnWallMs: totals.hostTurnWallMs,
+  };
+  const cacheRead = numericValue(result.cacheReadTokens);
+  const input = numericValue(result.inputTokensTotal);
+  if (result.cacheReadRatio) {
+    result.cacheReadRatio = cacheRead != null && input != null && input > 0
+      ? { ...result.cacheReadRatio, value: cacheRead / input, formula: 'sum(cacheReadTokens) / sum(inputTokensTotal)' }
+      : { ...result.cacheReadRatio, value: null, missingReason: 'not_captured' };
+  }
+  return result;
+}
+
+function numericValue(metric: TelemetryMetric | undefined | null): number | null {
+  const value = metric?.value;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** 覆盖说明跨执行方/侧合并:回合数相加,采集不完整或原因取并集。 */
+export function sumCoverage(parts: Array<TelemetryCoverage | null | undefined>): TelemetryCoverage | null {
+  const present = parts.filter((part): part is TelemetryCoverage => Boolean(part));
+  if (!present.length) return null;
+  return {
+    captureStartedAt: present
+      .map(part => part.captureStartedAt)
+      .reduce<string | null>((earliest, at) => (!at ? earliest : !earliest || at < earliest ? at : earliest), null),
+    complete: present.every(part => part.complete),
+    reasons: [...new Set(present.flatMap(part => part.reasons))],
+    batchCount: present.reduce((total, part) => total + part.batchCount, 0),
+    completeBatchCount: present.reduce((total, part) => total + part.completeBatchCount, 0),
+    partialBatchCount: present.reduce((total, part) => total + part.partialBatchCount, 0),
+    unknownBatchCount: present.reduce((total, part) => total + part.unknownBatchCount, 0),
+  };
+}
+
 export const CONTEXT_METRIC_LABELS = {
   lastRequestInputTokens: '最近请求输入',
   contextWindowTokens: '上下文容量',

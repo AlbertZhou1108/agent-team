@@ -25,13 +25,13 @@ import type {
   PanelAgentState,
   Snapshot,
   TeamDirectiveReceipt,
-  TelemetryCapabilityResponse,
   TelemetryConversationResponse,
   TelemetryCoordinationResponse,
   TelemetryMembersResponse,
   TelemetryManagerConversationResponse,
   ThemePackRecord,
   TurnTrace,
+  TurnSummariesResponse,
 } from './raw-types';
 import type { UserThemePack } from '@/theme/tokens';
 
@@ -317,6 +317,10 @@ export const api = {
   turn(turn: string, after = 0, signal?: AbortSignal) {
     return request<TurnTrace>(query('/api/turn', { turn, after }), signal);
   },
+  /** 回合摘要(最旧在前):轨迹页从第一回合正向翻页;事件体经 api.turn 懒加载。 */
+  turns(endpoint: string, after?: string, signal?: AbortSignal, limit = 5) {
+    return request<TurnSummariesResponse>(query('/api/turns', { endpoint, after, limit }), signal);
+  },
   telemetryConversation(
     group: string,
     member: string,
@@ -382,12 +386,6 @@ export const api = {
         from: options.from,
         to: options.to,
       }),
-      signal,
-    );
-  },
-  telemetryCapabilities(group: string, signal?: AbortSignal) {
-    return request<TelemetryCapabilityResponse>(
-      query('/api/telemetry/capabilities', { group }),
       signal,
     );
   },

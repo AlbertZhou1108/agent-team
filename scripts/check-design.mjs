@@ -113,7 +113,10 @@ const problems = [];
  * 区域内应该用分区标题、分割线与间距,而不是再造一层边框。
  * 分层组件的自身实现(components/ui)不在检查范围内。
  */
-const CARD_SCOPES = ['features', 'pages', 'app'];
+// 卡片嵌套检查覆盖 components/(含跨组件场景:共享面板组件在卡片里再画卡)。
+// ui/ 原语(Card/Disclosure)是卡片面本身,按需组合是它们的职责,不在此列。
+const CARD_SCOPES = ['components', 'features', 'pages', 'app'];
+const CARD_EXEMPTS = [/^components\/ui\//, ...EXEMPT_PATHS];
 const CARD_OPEN = /<(\/)?(Card|Disclosure)\b([^>]*)>/g;
 
 // 样式块里的动效时长同样必须消费契约变量:transition/animation 的裸 ms/s 不允许。
@@ -170,7 +173,7 @@ for (const scope of CARD_SCOPES) {
   walk(join(srcDir, scope), (path) => {
     if (!path.endsWith('.vue')) return;
     const rel = relative(srcDir, path).replaceAll('\\', '/');
-    if (EXEMPT_PATHS.some((re) => re.test(rel))) return;
+    if (CARD_EXEMPTS.some((re) => re.test(rel))) return;
     checkCardNesting(path, rel);
     checkStyleDurations(path, rel, problems);
   });

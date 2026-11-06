@@ -1,5 +1,6 @@
 import type { HistoryRow } from '@/shared/api/raw-types';
 import type {
+  Host,
   StepKind,
   StepStatus,
   TraceStep,
@@ -8,7 +9,6 @@ import type {
 } from '@/shared/models/view-types';
 
 type Payload = Record<string, unknown>;
-type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
 
 interface ParsedRow extends HistoryRow {
   payload: Payload | null;
@@ -384,7 +384,7 @@ function turnStatus(turnId: string, steps: TraceStep[], latestRunningTurn: strin
 }
 
 /** 服务端记录的回合状态 → 视图状态。 */
-function serverStatus(state: string | undefined): TurnStatus {
+export function serverStatus(state: string | undefined): TurnStatus {
   if (state === 'completed') return 'completed';
   if (state === 'failed') return 'error';
   if (state === 'running') return 'running';

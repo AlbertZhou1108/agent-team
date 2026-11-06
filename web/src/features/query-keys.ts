@@ -18,19 +18,15 @@ export const queryKeys = {
   messages: (id: string | undefined, endpoint: string | null = null) => ['messages', id, endpoint] as const,
   messageHistory: (id: string | undefined, endpoint: string | null = null) => ['message-history', id, endpoint] as const,
   history: (endpoint: string | undefined) => ['history', endpoint] as const,
+  turns: (endpoint: string | undefined) => ['turns', endpoint] as const,
+  turn: (id: string) => ['turn', id] as const,
   models: (endpoint: string | undefined) => ['models', endpoint] as const,
   telemetryConversation: (group: string | undefined, member: string | undefined, peer: string | undefined) =>
     ['telemetry-conversation', group, member, peer] as const,
   telemetryCoordination: (group: string | undefined) => ['telemetry-coordination', group] as const,
-  telemetryManagerConversation: (
-    group: string | undefined,
-    member: string | undefined,
-    from: string | undefined,
-    to: string | undefined,
-    limit: number | undefined,
-  ) => ['telemetry-manager-conversation', group, member, from, to, limit] as const,
+  telemetryManagerConversation: (group: string | undefined, member: string | undefined) =>
+    ['telemetry-manager-conversation', group, member] as const,
   telemetryMembers: (group: string | undefined) => ['telemetry-members', group] as const,
-  telemetryCapabilities: (group: string | undefined) => ['telemetry-capabilities', group] as const,
   teamDirectives: (group: string | undefined) => ['team-directives', group] as const,
   interactions: (group: string | undefined) => ['interactions', group] as const,
   panelRecords: (bootId: string | undefined, history: boolean) => ['panel-agent', 'records', bootId, history] as const,

@@ -5,13 +5,12 @@ import { api } from '@/shared/api/client';
 import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import {
   QUERY_POLLING,
-  useHistoryQuery,
   useInteractionsQuery,
   useMessagesQuery,
-  useModelsQuery,
   usePanelAgentQuery,
   useResourceQuery,
   useTeamDirectivesQuery,
+  useTurnsQuery,
 } from '@/features/queries';
 import type { InspectorTab } from '@/features/sessions/types';
 import type { ContextPanel } from './types';
@@ -209,15 +208,12 @@ export function useTeamQueries(options: TeamQueriesOptions) {
     () => groupId.value || undefined,
     () => selectedSessionId.value || undefined,
   );
-  const historyQuery = useHistoryQuery(() =>
-    detailsVisible.value && ['trace', 'events'].includes(activeTab.value)
-      ? selectedSessionId.value || undefined
-      : undefined,
-  );
-  const modelsQuery = useModelsQuery(() =>
-    detailsVisible.value && activeTab.value === 'models'
-      ? selectedSessionId.value || undefined
-      : undefined,
+  // 回合摘要只在详情-轨迹可见时取:head 5s 轮询跟新回合与运行中计数,更早页按需翻。
+  const turnsQuery = useTurnsQuery(
+    () =>
+      detailsVisible.value && activeTab.value === 'trace'
+        ? selectedSessionId.value || undefined
+        : undefined,
   );
   const directivesQuery = useTeamDirectivesQuery(() => groupId.value || undefined);
   const interactionsQuery = useInteractionsQuery(() => groupId.value || undefined);
@@ -246,8 +242,7 @@ export function useTeamQueries(options: TeamQueriesOptions) {
     panelAgentQuery,
     unreadQuery,
     messagesQuery,
-    historyQuery,
-    modelsQuery,
+    turnsQuery,
     directivesQuery,
     interactionsQuery,
   };

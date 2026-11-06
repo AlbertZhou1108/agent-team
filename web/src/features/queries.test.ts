@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { createRenderer, defineComponent, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { api } from '@/shared/api/client';
-import { useHistoryQuery, useMessagesQuery, useModelsQuery } from './queries';
-vi.mock('@/shared/api/client', () => ({ api: { messages: vi.fn(), history: vi.fn(), models: vi.fn() } }));
+import { useMessagesQuery, useTurnsQuery } from './queries';
+vi.mock('@/shared/api/client', () => ({ api: { messages: vi.fn(), turns: vi.fn() } }));
 const renderer = createRenderer<any, any>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {},
@@ -16,18 +16,44 @@ function mount(setup: () => void, client = new QueryClient({ defaultOptions: { q
   return () => { app.unmount(); client.clear(); };
 }
 describe('panel loading boundaries', () => {
-  it('requests history and model data only for the selected detail tab', async () => {
-    vi.mocked(api.history).mockResolvedValue([]);
-    vi.mocked(api.models).mockResolvedValue({ observations: [] } as any);
-    vi.mocked(api.history).mockClear(); vi.mocked(api.models).mockClear();
-    const historyEndpoint = ref<string>(); const modelEndpoint = ref<string>();
-    const dispose = mount(() => { useHistoryQuery(historyEndpoint); useModelsQuery(modelEndpoint); });
+  function turn(id: string, ordinal: number, eventCount = 1) {
+    return { id, state: 'completed', created: '2026-01-01T00:00:00Z', ended: null, ordinal, eventCount, firstSeq: 1, lastSeq: 2 };
+  }
+  it('requests turn summaries only once an endpoint is selected', async () => {
+    vi.mocked(api.turns).mockResolvedValue({ turns: [], unaffiliated: [], nextAfter: null } as any);
+    const endpoint = ref<string>();
+    const dispose = mount(() => { useTurnsQuery(endpoint); });
     try {
-      await settle(); expect(api.history).not.toHaveBeenCalled(); expect(api.models).not.toHaveBeenCalled();
-      historyEndpoint.value = 'session'; await settle();
-      expect(api.history).toHaveBeenCalledTimes(1); expect(api.models).not.toHaveBeenCalled();
-      historyEndpoint.value = undefined; modelEndpoint.value = 'session'; await settle();
-      expect(api.models).toHaveBeenCalledTimes(1); expect(api.history).toHaveBeenCalledTimes(1);
+      await settle(); expect(api.turns).not.toHaveBeenCalled();
+      endpoint.value = 'session'; await settle();
+      // 单条 infinite 查询:首屏取第一页(最旧在前),无后台轮询。
+      expect(api.turns).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(api.turns).mock.calls[0][0]).toBe('session');
+    } finally { dispose(); }
+  });
+  it('pages turns forward from the first turn and keeps loaded pages frozen', async () => {
+    // ordinal 是全会话全局编号:第二页接续第一页,不重新从 1 数。
+    const page = (ids: string[], ordinalBase: number, nextAfter: string | null) => ({
+      turns: ids.map((id, index) => turn(id, ordinalBase + index, (index + 1) * 10)),
+      unaffiliated: ids[0] === 't1'
+        ? [{ seq: 1, conversation_id: 'session', event: '{}', created: '2026-01-01', turn_id: null }]
+        : [],
+      nextAfter,
+    });
+    vi.mocked(api.turns).mockImplementation(async (_endpoint, after) => (
+      !after ? page(['t1', 't2'], 1, 't2') : page(['t3', 't4'], 3, null)
+    ) as any);
+    let query!: ReturnType<typeof useTurnsQuery>;
+    const dispose = mount(() => { query = useTurnsQuery('session'); });
+    try {
+      await settle();
+      // 正序输出,序号即展示序;游离事件取自首页。
+      expect(query.turns.value.map(item => item.id)).toEqual(['t1', 't2']);
+      expect(query.unaffiliated.value).toHaveLength(1);
+      await query.fetchNextPage(); await settle();
+      expect(query.turns.value.map(item => item.id)).toEqual(['t1', 't2', 't3', 't4']);
+      // 尾页无游标:加载更多按钮消失。
+      expect(query.hasNextPage.value).toBe(false);
     } finally { dispose(); }
   });
   it('polls only new messages and loads older pages explicitly', async () => {

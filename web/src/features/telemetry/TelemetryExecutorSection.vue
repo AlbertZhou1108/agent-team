@@ -39,7 +39,7 @@ defineProps<{
         >
       </h4>
       <p class="text-xs text-muted-foreground">
-        {{ batchCount }} 个批次 ·
+        {{ batchCount }} 个回合 ·
         {{ physicalSessions.length }} 个物理 session · 按执行归属汇总
       </p>
     </header>
@@ -81,24 +81,13 @@ defineProps<{
                   }}</Badge>
                   <span class="font-mono break-all">{{ session.instanceId }}</span>
                 </template>
-                <div class="flex flex-col gap-3">
-                  <p class="text-muted-foreground">
-                    sessionKey {{ session.sessionKey }} · endpoint
-                    {{ session.endpointId }} · hostSessionId
-                    {{ session.hostSessionId ?? '未提供' }} · 首次观测
-                    {{ formatTimestamp(session.firstObservedAt) }} · 重置
-                    {{ formatTimestamp(session.resetAt) }}
-                  </p>
-                  <TelemetryMetricGrid
-                    :metrics="session.consumption"
-                    :show-detail="false"
-                    :columns="2"
-                  />
-                  <TelemetryContextSection
-                    :context-reference="session.contextReference"
-                    title="该物理 session 的上下文参考"
-                  />
-                </div>
+                <p class="text-xs text-muted-foreground">
+                  sessionKey {{ session.sessionKey }} · endpoint
+                  {{ session.endpointId }} · hostSessionId
+                  {{ session.hostSessionId ?? '未提供' }} · 首次观测
+                  {{ formatTimestamp(session.firstObservedAt) }} · 重置
+                  {{ formatTimestamp(session.resetAt) }}
+                </p>
               </Disclosure>
             </div>
           </section>

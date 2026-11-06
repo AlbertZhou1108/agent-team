@@ -57,10 +57,9 @@ export function useTeamResources(options: TeamResourcesOptions) {
     interactionsQuery: queries.interactionsQuery,
     messageViews: derived.messageViews,
     // 检查器
-    historyQuery: queries.historyQuery,
-    modelsQuery: queries.modelsQuery,
-    turns: derived.turns,
-    selectedModelState: derived.selectedModelState,
+    turnsQuery: queries.turnsQuery,
+    turnSummaries: derived.turnSummaries,
+    unaffiliatedEvents: derived.unaffiliatedEvents,
     inspectorHasNextPage: derived.inspectorHasNextPage,
     inspectorFetchingNextPage: derived.inspectorFetchingNextPage,
     inspectorError: derived.inspectorError,

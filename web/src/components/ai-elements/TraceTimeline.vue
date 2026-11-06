@@ -1,76 +1,79 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { LoaderCircle } from '@lucide/vue';
 import { Disclosure } from '@/components/ui/disclosure';
-import PanelState from '@/components/panel/PanelState.vue';
-import RecordPanel from '@/components/panel/RecordPanel.vue';
-import { ItemGroup } from '@/components/ui/item';
 import { Badge } from '@/components/ui/badge';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  CircleDot,
-  LoaderCircle,
-} from '@lucide/vue';
-import type { TurnStatus, TurnView } from '@/shared/models/view-types';
+import { Button } from '@/components/ui/button';
+import PanelState from '@/components/panel/PanelState.vue';
+import { buildTurns } from '@/features/traces/reducer';
+import type { HistoryRow, TurnSummary } from '@/shared/api/raw-types';
+import type { Host } from '@/shared/models/view-types';
+import TurnTraceSection from './TurnTraceSection.vue';
 import TraceStepCard from './TraceStepCard.vue';
 
-defineProps<{ turns: TurnView[] }>();
+/**
+ * 执行轨迹:按回合分页,正序(旧→新)展示,全部默认收起。
+ * 首屏从第一回合开始;「加载更多回合」取靠后的回合,按钮在列表末尾。
+ */
+const props = defineProps<{
+  turns: TurnSummary[];
+  unaffiliated: HistoryRow[];
+  endpointId?: string;
+  /** 游离事件解释宿主 schema 用;回合自身的事件由回合区块按 /api/turn 的 host 解释。 */
+  host?: string;
+  loading?: boolean;
+  hasNextPage?: boolean;
+  fetchingNextPage?: boolean;
+}>();
 
-const statusLabels: Record<TurnStatus, string> = {
-  running: '运行中',
-  completed: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-  stopped: '已停止',
-  unknown: '状态未知',
-};
-const statusLabel = (status: TurnStatus) => statusLabels[status];
+const emit = defineEmits<{ loadMore: [] }>();
+
+const unaffiliatedSteps = computed(() => {
+  if (!props.unaffiliated.length || !props.endpointId) return [];
+  const [view] = buildTurns(props.unaffiliated, {
+    hosts: { [props.endpointId]: (props.host ?? 'unknown') as Host },
+  });
+  return view?.steps ?? [];
+});
 </script>
 
 <template>
-  <ItemGroup class="gap-4">
-    <RecordPanel v-for="(turn, index) in turns" :key="turn.id"
-      :title="turn.id === 'unknown' ? '未关联回合' : `回合 ${index + 1}`"
-      :count="turn.steps.length"
-      count-label="步"
-      :description="`源事件 #${turn.firstSeq}–#${turn.lastSeq}`">
-        <template #status>
-          <Badge
-            :variant="
-              turn.status === 'error'
-                ? 'destructive'
-                : turn.status === 'running'
-                  ? 'secondary'
-                  : 'outline'
-            "
-          >
-            <LoaderCircle
-              v-if="turn.status === 'running'"
-              class="animate-spin"
-            /><CheckCircle2
-              v-else-if="turn.status === 'completed'"
-            /><AlertTriangle v-else-if="turn.status === 'error'" /><CircleDot
-              v-else
-            />
-            {{ statusLabel(turn.status) }}
-          </Badge>
-        </template>
-        <div class="flex flex-col">
-          <TraceStepCard
-            v-for="step in turn.steps"
-            :key="step.id"
-            :step="step"
-            data-record-row
-          />
-        </div>
-        <template v-if="turn.id !== 'unknown'" #footer>
-        <Disclosure
-
-        >
-          <template #summary>回合标识</template>
-          <p class="mt-2 break-all font-mono">{{ turn.id }}</p>
-        </Disclosure>
-        </template>
-    </RecordPanel>
-    <PanelState v-if="!turns.length" :icon="CircleDot" title="暂无执行轨迹" description="会话开始执行后，步骤和结果会显示在这里。" />
-  </ItemGroup>
+  <div class="flex min-w-0 flex-col gap-3">
+    <PanelState
+      v-if="!turns.length && !loading"
+      title="暂无执行轨迹"
+      description="会话开始执行后，回合会显示在这里。"
+    />
+    <TurnTraceSection
+      v-for="turn in turns"
+      :key="turn.id"
+      :turn="turn"
+      :endpoint-id="endpointId ?? ''"
+    />
+    <Button
+      v-if="hasNextPage"
+      variant="outline"
+      size="sm"
+      :disabled="fetchingNextPage"
+      @click="emit('loadMore')"
+    >
+      <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
+      {{ fetchingNextPage ? '正在加载' : '加载更多回合' }}
+    </Button>
+    <Disclosure v-if="unaffiliatedSteps.length">
+      <template #summary>
+        <span class="min-w-0 flex-1 truncate">未关联回合</span>
+        <Badge variant="outline">{{ unaffiliated.length }} 条</Badge>
+      </template>
+      <p class="text-xs text-muted-foreground">以下事件不属于任何回合（如宿主会话轮换）。</p>
+      <div class="flex min-w-0 flex-col">
+        <TraceStepCard
+          v-for="step in unaffiliatedSteps"
+          :key="step.id"
+          :step="step"
+          data-record-row
+        />
+      </div>
+    </Disclosure>
+  </div>
 </template>

@@ -7,13 +7,9 @@ import {
 import { api } from '@/shared/api/client';
 import { queryKeys } from './query-keys';
 import type {
-  HistoryRow,
   MessageRow,
-  TelemetryBatch,
-  TelemetryConversationResponse,
-  TelemetryCoordinationResponse,
-  TelemetryManagerBatch,
-  TelemetryManagerConversationResponse,
+  TurnSummariesResponse,
+  TurnTrace,
 } from '@/shared/api/raw-types';
 
 // 页面级轮询预算:团队页默认布局只允许 3 个 2 秒查询(消息头/互动卡/运行状态),
@@ -118,56 +114,63 @@ export function useMessagesQuery(groupId: MaybeRefOrGetter<string | undefined>, 
   return { ...head, rows, hasNextPage, fetchNextPage: history.fetchNextPage, isFetchingNextPage: history.isFetchingNextPage };
 }
 
-export function useHistoryQuery(
+export function useTurnsQuery(
   endpointId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean> = true,
 ) {
-  // 历史页不再轮询:视图打开时按需拉取,已加载页保持冻结,避免每 2 秒重取全部页。
+  // 回合摘要:从第一回合起正向翻页,已加载页保持冻结、不轮询——
+  // 收起回合的状态以摘要为准,展开中的回合由自身事件查询刷新。
   const query = useInfiniteQuery({
-    queryKey: computed(() => queryKeys.history(toValue(endpointId))),
-    initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => api.history(toValue(endpointId)!, pageParam, signal),
-    getNextPageParam: (lastPage: HistoryRow[]) => (
-      lastPage.length === 200 ? lastPage.at(-1)?.seq : undefined
-    ),
-    enabled: computed(() => Boolean(toValue(endpointId))),
+    queryKey: computed(() => queryKeys.turns(toValue(endpointId))),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) => api.turns(toValue(endpointId)!, pageParam, signal),
+    getNextPageParam: (lastPage: TurnSummariesResponse) => lastPage.nextAfter ?? undefined,
+    enabled: computed(() => Boolean(toValue(endpointId)) && toValue(enabled)),
     refetchOnWindowFocus: false,
   });
-
-  const rows = computed(() => {
-    const pages = query.data.value?.pages.flat() ?? [];
-    return [...new Map(pages.map(row => [row.seq, row])).values()]
-      .sort((a, b) => a.seq - b.seq);
-  });
-
-  return { ...query, rows };
+  // 服务端最旧在前、页间连续;按稳定序号排序兜底,输出即正序展示序。
+  const turns = computed(() =>
+    [...new Map(
+      (query.data.value?.pages ?? []).flatMap(page => page.turns).map(turn => [turn.id, turn]),
+    ).values()].sort((a, b) => a.ordinal - b.ordinal),
+  );
+  const unaffiliated = computed(() => query.data.value?.pages[0]?.unaffiliated ?? []);
+  return { ...query, turns, unaffiliated };
 }
 
-export function useModelsQuery(
-  endpointId: MaybeRefOrGetter<string | undefined>,
+/** 单回合事件(懒加载):游标增量累积——展开/加载更多/运行中轮询都只拉上次之后的增量,页冻结不再整取。 */
+export function useTurnTraceQuery(
+  turnId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean>,
+  running: MaybeRefOrGetter<boolean> = false,
 ) {
-  // 同 history:模型观察列表只在打开模型页时按需拉取,不再全量轮询。
-  const query = useInfiniteQuery({
-    queryKey: computed(() => queryKeys.models(toValue(endpointId))),
-    initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => api.models(toValue(endpointId)!, pageParam, signal),
-    getNextPageParam: lastPage => (
-      lastPage.observations.length === 200 ? lastPage.nextAfter : undefined
-    ),
-    enabled: computed(() => Boolean(toValue(endpointId))),
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: computed(() => queryKeys.turn(toValue(turnId) ?? '')),
+    queryFn: async ({ signal, queryKey }): Promise<TurnTrace> => {
+      const previous = client.getQueryData<TurnTrace>(queryKey);
+      const after = previous?.events.at(-1)?.seq ?? 0;
+      const page = await api.turn(toValue(turnId)!, after, signal);
+      if (!previous || !previous.events.length) return page;
+      return {
+        ...page,
+        events: [...new Map([...previous.events, ...page.events].map(row => [row.seq, row])).values()]
+          .sort((a, b) => a.seq - b.seq),
+      };
+    },
+    enabled: computed(() => Boolean(toValue(turnId)) && toValue(enabled)),
+    // 回合运行中且被展开时快轮询:增量只取新事件,重取成本与增量成正比。
+    refetchInterval: computed(() => (toValue(running) ? QUERY_POLLING.fast : false)),
     refetchOnWindowFocus: false,
   });
-
-  const observations = computed(() => {
-    const pages = query.data.value?.pages ?? [];
-    return [...new Map(
-      pages.flatMap(page => page.observations).map(item => [item.seq, item]),
-    ).values()]
-      .sort((a, b) => a.seq - b.seq);
-  });
-
-  const state = computed(() => query.data.value?.pages.at(-1) ?? null);
-
-  return { ...query, observations, state };
+  const events = computed(() => query.data.value?.events ?? []);
+  // 回合级事实(state/eventCount)以最新一页为准。
+  const trace = computed(() => query.data.value ?? null);
+  // 超长回合(>200 事件)续页:每次 refetch 都从已累积的最高 seq 继续拉。
+  const hasMore = computed(() =>
+    Boolean(query.data.value && query.data.value.eventCount > query.data.value.events.length),
+  );
+  return { ...query, events, trace, hasMore, loadMore: query.refetch };
 }
 
 /** infinite query 的历史页保持冻结,只轮询最新一页(head)。 */
@@ -185,31 +188,15 @@ function useTelemetryHead<T>(
   });
 }
 
-/** 按 batchId 合并 head 与历史页,避免首屏与历史页重复项。 */
-function mergeBatches<T extends { batchId: string }>(...groups: Array<T[] | undefined>): T[] {
-  return [
-    ...new Map(
-      groups.flatMap(group => group ?? []).map(batch => [batch.batchId, batch]),
-    ).values(),
-  ];
-}
-
+/** 用量视图只剩总览:head 一页(含 summary)就够,不再按批次翻页。 */
 export function useConversationTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
   memberId: MaybeRefOrGetter<string | undefined>,
   peerId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean> = true,
 ) {
-  const enabled = computed(
-    () =>
-      Boolean(toValue(groupId)) &&
-      Boolean(toValue(memberId)) &&
-      Boolean(toValue(peerId)),
-  );
-  const key = computed(() =>
-    queryKeys.telemetryConversation(toValue(groupId), toValue(memberId), toValue(peerId)),
-  );
-  const head = useTelemetryHead(
-    key,
+  return useTelemetryHead(
+    computed(() => queryKeys.telemetryConversation(toValue(groupId), toValue(memberId), toValue(peerId))),
     signal => api.telemetryConversation(
       toValue(groupId)!,
       toValue(memberId)!,
@@ -217,151 +204,47 @@ export function useConversationTelemetryQuery(
       {},
       signal,
     ),
-    enabled,
+    computed(() => Boolean(toValue(groupId)) && Boolean(toValue(memberId)) && Boolean(toValue(peerId)) && toValue(enabled)),
   );
-  const query = useInfiniteQuery({
-    queryKey: key,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      api.telemetryConversation(
-        toValue(groupId)!,
-        toValue(memberId)!,
-        toValue(peerId)!,
-        { cursor: pageParam },
-        signal,
-      ),
-    getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled,
-    refetchOnWindowFocus: false,
-  });
-  const firstPage = computed<TelemetryConversationResponse | undefined>(
-    () => head.data.value ?? query.data.value?.pages[0],
-  );
-  const batches = computed<TelemetryBatch[]>(() => mergeBatches(
-    head.data.value?.batches,
-    query.data.value?.pages.flatMap(page => page.batches),
-  ));
-  return { ...query, firstPage, batches, head };
 }
 
 export function useCoordinationTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean> = true,
 ) {
-  const enabled = computed(() => Boolean(toValue(groupId)));
-  const key = computed(() => queryKeys.telemetryCoordination(toValue(groupId)));
-  const head = useTelemetryHead(
-    key,
+  return useTelemetryHead(
+    computed(() => queryKeys.telemetryCoordination(toValue(groupId))),
     signal => api.telemetryCoordination(toValue(groupId)!, {}, signal),
-    enabled,
+    computed(() => Boolean(toValue(groupId)) && toValue(enabled)),
   );
-  const query = useInfiniteQuery({
-    queryKey: key,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      api.telemetryCoordination(
-        toValue(groupId)!,
-        { cursor: pageParam },
-        signal,
-      ),
-    getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled,
-    refetchOnWindowFocus: false,
-  });
-  const firstPage = computed<TelemetryCoordinationResponse | undefined>(
-    () => head.data.value ?? query.data.value?.pages[0],
-  );
-  const batches = computed<TelemetryBatch[]>(() => mergeBatches(
-    head.data.value?.batches,
-    query.data.value?.pages.flatMap(page => page.batches),
-  ));
-  return { ...query, firstPage, batches, head };
 }
 
 export function useManagerConversationTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
   memberId: MaybeRefOrGetter<string | undefined>,
-  options: {
-    from?: MaybeRefOrGetter<string | undefined>;
-    to?: MaybeRefOrGetter<string | undefined>;
-    limit?: MaybeRefOrGetter<number | undefined>;
-  } = {},
+  enabled: MaybeRefOrGetter<boolean> = true,
 ) {
-  const enabled = computed(
-    () => Boolean(toValue(groupId)) && Boolean(toValue(memberId)),
-  );
-  const key = computed(() =>
-    queryKeys.telemetryManagerConversation(
-      toValue(groupId),
-      toValue(memberId),
-      toValue(options.from),
-      toValue(options.to),
-      toValue(options.limit),
-    ),
-  );
-  const head = useTelemetryHead(
-    key,
+  return useTelemetryHead(
+    computed(() => queryKeys.telemetryManagerConversation(toValue(groupId), toValue(memberId))),
     signal => api.telemetryManagerConversation(
       toValue(groupId)!,
       toValue(memberId)!,
-      {
-        from: toValue(options.from),
-        to: toValue(options.to),
-        limit: toValue(options.limit),
-      },
+      {},
       signal,
     ),
-    enabled,
+    computed(() => Boolean(toValue(groupId)) && Boolean(toValue(memberId)) && toValue(enabled)),
   );
-  const query = useInfiniteQuery({
-    queryKey: key,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      api.telemetryManagerConversation(
-        toValue(groupId)!,
-        toValue(memberId)!,
-        {
-          cursor: pageParam,
-          from: toValue(options.from),
-          to: toValue(options.to),
-          limit: toValue(options.limit),
-        },
-        signal,
-      ),
-    getNextPageParam: last => last.nextCursor ?? undefined,
-    enabled,
-    refetchOnWindowFocus: false,
-  });
-  const firstPage = computed<TelemetryManagerConversationResponse | undefined>(
-    () => head.data.value ?? query.data.value?.pages[0],
-  );
-  const batches = computed<TelemetryManagerBatch[]>(() => mergeBatches(
-    head.data.value?.batches,
-    query.data.value?.pages.flatMap(page => page.batches),
-  ));
-  return { ...query, firstPage, batches, head };
 }
 
 export function useMembersTelemetryQuery(
   groupId: MaybeRefOrGetter<string | undefined>,
 ) {
+  // 成员视图打开时才挂载(标签页按需渲染);5s 桶让出 2s 预算给消息/互动/运行状态。
   return useQuery({
     queryKey: computed(() => queryKeys.telemetryMembers(toValue(groupId))),
     queryFn: ({ signal }) => api.telemetryMembers(toValue(groupId)!, {}, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: QUERY_POLLING.fast,
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useTelemetryCapabilitiesQuery(
-  groupId: MaybeRefOrGetter<string | undefined>,
-) {
-  return useQuery({
-    queryKey: computed(() => queryKeys.telemetryCapabilities(toValue(groupId))),
-    queryFn: ({ signal }) =>
-      api.telemetryCapabilities(toValue(groupId)!, signal),
-    enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: QUERY_POLLING.ambient,
+    refetchInterval: QUERY_POLLING.slow,
     refetchOnWindowFocus: false,
   });
 }
