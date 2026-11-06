@@ -11,6 +11,8 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEV = process.argv.includes('--dev');
+// 冒烟模式:由 scripts/electron-smoke.mjs 拉起,面板加载成功即退出,失败返回非零。
+const SMOKE = process.env.AGENT_TEAM_SMOKE === '1';
 // 受限容器 / 沙箱里 Chromium 无法初始化沙箱与 GPU，开发态可显式放宽。
 if (process.argv.includes('--no-sandbox')) {
   app.commandLine.appendSwitch('no-sandbox');
@@ -158,7 +160,16 @@ async function openPanel() {
     await window.loadURL(url);
     state.showingError = false;
     refreshMenu();
+    if (SMOKE) {
+      console.log(`AGENT_TEAM_SMOKE_READY ${url}`);
+      setTimeout(() => quit(), 150);
+    }
   } catch (error) {
+    if (SMOKE) {
+      console.error(`AGENT_TEAM_SMOKE_FAILED ${error.message}`);
+      app.exit(1);
+      return;
+    }
     showError(error.message);
   }
 }

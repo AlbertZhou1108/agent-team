@@ -6,11 +6,24 @@ import { createHash } from 'node:crypto';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const version = JSON.parse(readFileSync(join(repo, 'package.json'))).version;
-const output = resolve(process.argv[2] ?? join(repo, 'dist', `agent-team-${process.platform}-${process.arch}`));
+const args = process.argv.slice(2);
+// 打包预检：只校验输入与平台信息，不写任何文件，供 CI 使用。
+const dryRun = args.includes('--dry-run');
+const output = resolve(args.find(arg => !arg.startsWith('--')) ?? join(repo, 'dist', `agent-team-${process.platform}-${process.arch}`));
 const insideSource = relative(repo, output);
 if (!insideSource.startsWith('..') && !insideSource.startsWith(`dist${sep}`)) throw new Error('仓库内的发行产物只能放在 dist 子目录，避免递归打包源码');
-if (existsSync(output)) throw new Error('输出目录已存在，请选择新目录；不会覆盖正在使用的发行文件');
+if (!dryRun && existsSync(output)) throw new Error('输出目录已存在，请选择新目录；不会覆盖正在使用的发行文件');
 if (!existsSync(join(repo, 'web/dist/index.html'))) throw new Error('请先执行 npm run build');
+if (dryRun) {
+  const nodeLicense = [resolve(dirname(process.execPath), '../LICENSE'), join(dirname(process.execPath), 'LICENSE')].find(path => existsSync(path));
+  if (!nodeLicense) throw new Error('未找到当前 Node 的 LICENSE，请使用包含许可证的完整 Node 发行环境构建');
+  console.log(JSON.stringify({
+    mode: 'dry-run', version, platform: process.platform, arch: process.arch,
+    output, webDist: true, node: process.version, nodeLicense,
+  }, null, 2));
+  console.log('打包预检通过（未写入任何文件）。');
+  process.exit(0);
+}
 const application = process.platform === 'darwin' ? join(output, 'Agent Team.app', 'Contents', 'Resources', 'application') : output;
 mkdirSync(join(application, 'runtime'), { recursive: true });
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';

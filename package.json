@@ -26,12 +26,14 @@
     "test:web": "vitest run --config web/vite.config.ts",
     "typecheck:backend": "tsc -p tsconfig.backend.json",
     "lint:backend": "eslint src test scripts electron",
-    "check": "node scripts/check.mjs && node scripts/check-design.mjs && node scripts/check-layering.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend",
+    "check": "node scripts/check.mjs && node scripts/check-design.mjs && node scripts/check-layering.mjs && node scripts/check-version-consistency.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend",
     "launch": "node --disable-warning=ExperimentalWarning src/launcher.mjs",
     "package": "npm run build && node scripts/build-release.mjs",
     "desktop": "npm run build && node electron/launch.mjs",
     "desktop:quick": "node electron/launch.mjs",
-    "desktop:dev": "node electron/dev.mjs"
+    "desktop:dev": "node electron/dev.mjs",
+    "check:version": "node scripts/check-version-consistency.mjs",
+    "desktop:smoke": "npm run build && node scripts/electron-smoke.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.60.0",

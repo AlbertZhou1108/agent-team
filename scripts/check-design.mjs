@@ -27,9 +27,9 @@ const SURFACE_ROLES = new Set([
 
 const COMPONENT_VARIABLES = new Set([...readFileSync(join(srcDir, 'theme/component-contract.ts'), 'utf8').matchAll(/['"](--component-[a-z-]+)['"]:/g)].map(match => match[1]));
 
-// 豁免:测试文件、数据级色板(内容而非样式)。引擎组件(message-scroller)已接入动效契约,不再豁免。
+// 豁免:测试文件、数据级色板(内容而非样式)。
+// 引擎组件(message-scroller)已接入动效契约,不再整目录豁免。
 const EXEMPT_PATHS = [
-  /components\/ui\/message-scroller\//,
   /\.test\./,
   /shared\/team-colors\.ts/,
 ];
@@ -69,13 +69,22 @@ const CHECKS = [
   },
   {
     name: '十六进制色值字面量(应消费语义令牌)',
-    pattern: /#[0-9a-fA-F]{6}\b/,
+    // 覆盖 3/4/6/8 位写法:#fff、#ffff、#ffffff、#ffffff80 都算绕过。
+    pattern: /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/,
     scopes: ['components', 'features', 'pages', 'app'],
   },
   {
     name: 'data-surface 取值未注册',
     // (?<![:\w]) 只匹配字面量,放过 :data-surface="role" 这类绑定(Surface 组件内部)。
     pattern: /(?<![:\w])data-surface="([^"]+)"/,
+    scopes: ['components', 'features', 'pages', 'app'],
+    validate: (match) => SURFACE_ROLES.has(match[1]),
+    extract: (match) => match[1],
+  },
+  {
+    name: '绑定表达式里的字面量 data-surface 未注册',
+    // :data-surface="'nav-panel'" 这类把字面量塞进绑定的写法同样要过注册表。
+    pattern: /:data-surface=["']\s*'([^']+)'\s*["']/,
     scopes: ['components', 'features', 'pages', 'app'],
     validate: (match) => SURFACE_ROLES.has(match[1]),
     extract: (match) => match[1],
@@ -106,6 +115,22 @@ const problems = [];
  */
 const CARD_SCOPES = ['features', 'pages', 'app'];
 const CARD_OPEN = /<(\/)?(Card|Disclosure)\b([^>]*)>/g;
+
+// 样式块里的动效时长同样必须消费契约变量:transition/animation 的裸 ms/s 不允许。
+// 只看 <style> 块,避免误伤 JS 里的超时数字。
+const STYLE_DURATION = /(?:^|[^\w-])(\d+(?:\.\d+)?)(m?s)\b/g;
+function checkStyleDurations(path, rel, problems) {
+  const source = readFileSync(path, 'utf8');
+  for (const block of source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)) {
+    // 注释里提到毫秒不算违规;用等长空白替换注释,保持行号不漂移。
+    const body = block[1].replace(/\/\*[\s\S]*?\*\//g, comment => comment.replace(/[^\n]/g, ' '));
+    const open = block[0].indexOf('>') + 1;
+    const baseLine = source.slice(0, block.index + open).split('\n').length - 1;
+    for (const match of body.matchAll(STYLE_DURATION)) {
+      problems.push(`  ${rel}:${baseLine + body.slice(0, match.index).split('\n').length}  [<style> 内动效时长] ${match[1]}${match[2]}`);
+    }
+  }
+}
 
 function checkCardNesting(path, rel) {
   const source = readFileSync(path, 'utf8');
@@ -147,6 +172,7 @@ for (const scope of CARD_SCOPES) {
     const rel = relative(srcDir, path).replaceAll('\\', '/');
     if (EXEMPT_PATHS.some((re) => re.test(rel))) return;
     checkCardNesting(path, rel);
+    checkStyleDurations(path, rel, problems);
   });
 }
 

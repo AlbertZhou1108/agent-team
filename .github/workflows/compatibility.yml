@@ -19,4 +19,22 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      # 打包预检:只校验输入与平台信息,不写文件;关闭「发布脚本只有本地能跑」的盲区。
+      - run: node scripts/build-release.mjs --dry-run
       - run: npm test
+
+  # 桌面壳启动冒烟:真实拉起 Electron -> 服务 -> 窗口 loadURL,面板加载成功即退出。
+  # 依赖 GUI/沙箱环境,先在 macos 上观察;稳定后再从 continue-on-error 提升为硬门禁。
+  desktop-smoke:
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/electron-smoke.mjs
