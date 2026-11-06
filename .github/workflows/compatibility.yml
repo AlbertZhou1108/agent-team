@@ -27,10 +27,9 @@ jobs:
         run: npm run coverage
 
   # 桌面壳启动冒烟:真实拉起 Electron -> 服务 -> 窗口 loadURL,面板加载成功即退出。
-  # 依赖 GUI/沙箱环境,先在 macos 上观察;稳定后再从 continue-on-error 提升为硬门禁。
+  # 已在 main 上连续两次通过(2026-11-06),从观察模式转为硬门禁。
   desktop-smoke:
     runs-on: macos-latest
-    continue-on-error: true
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
