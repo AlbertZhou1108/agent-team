@@ -76,6 +76,35 @@ test('a v4 database gains archive snapshots without backfilling old archived tea
   store.close();
 });
 
+test('a v8 database rebuilds interactions so multi-step flow cards can be stored', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run(
+    "INSERT INTO interactions(id,group_id,context,turn_id,call_id,kind,payload,state,created) VALUES('i1','g1','coordination','t','c','choice','{\"kind\":\"choice\"}','pending',?)",
+    NOW,
+  );
+  // 回退成 v8:把当前表 SQL 去掉 flow 再建回来,行原样搬迁。
+  const v8Sql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql.replace(",'flow'", '');
+  store.run('ALTER TABLE interactions RENAME TO interactions_v9');
+  store.run(v8Sql);
+  store.run('INSERT INTO interactions SELECT * FROM interactions_v9');
+  store.run('DROP TABLE interactions_v9');
+  store.setSchemaVersion(8);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql.includes("'flow'"));
+  assert.equal(store.get('SELECT kind FROM interactions WHERE id=?', 'i1').kind, 'choice');
+  store.run(
+    "INSERT INTO interactions(id,group_id,context,turn_id,call_id,kind,payload,state,created) VALUES('i2','g1','coordination','t','c','flow','{}','pending',?)",
+    NOW,
+  );
+  assert.equal(store.interaction('i2').kind, 'flow');
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

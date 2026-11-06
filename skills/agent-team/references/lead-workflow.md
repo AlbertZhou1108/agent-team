@@ -27,7 +27,7 @@ Panel 团队工具按 schema 显式携带 groupId，只操作当前团队。任�
 
 ## 用户参与与团队管理
 
-需要选择或补充参数时用 `ask`，给出足以独立理解的问题后结束回合。互动答复去向见[会话说明](conversation-agent.md#用户互动的答复去向)。
+需要选择或补充参数时用 `ask`，给出足以独立理解的问题后结束回合；一口气要确认多件事时用 `ask` 的 `steps` 合成一张多步卡，而不是连发多张。互动答复去向见[会话说明](conversation-agent.md#用户互动的答复去向)。
 
 普通主成员使用 `group_add`、`group_create`、`member_model`、`group_delete` 会创建待用户确认的互动；`group_remove` 直接生效。Panel 主控的 `group_add` 与 `group_remove` 直接生效，`group_member_model` 需用户确认。不同入口的行为不同，执行前以当前 schema 和用户授权为准。移除会永久结束该角色，历史名称保持保留。
 

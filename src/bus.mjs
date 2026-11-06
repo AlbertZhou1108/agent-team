@@ -529,16 +529,19 @@ export class Bus extends EventEmitter {
       return { messageId: message.id };
     }
     if (name === 'ask') {
+      // 先校验入参形态,再判回合来源:参数错误与上下文错误各自给出明确原因。
+      assertAskCard(args);
       if (!origin) throw new Error('互动卡只能在执行回合内发出');
       this.collaboration.requireCommunication(groupId);
-      assertAskCard(args);
       if (member.role !== 'lead') this.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
+      // 卡片是唯一展示面:锚点消息只为答复 reply_to 与群记录存在,面板不渲染它的正文。
+      const payload = askCardPayload(args);
       const message = appendRoutedMessage(this.store, {
         groupId,
         senderId: member.id,
         targetId: 'user',
         kind: 'send',
-        text: args.text,
+        text: payload.text,
         origin,
       });
       this.emit('message', message);
@@ -551,8 +554,8 @@ export class Bus extends EventEmitter {
         turnId: origin.turnId,
         callId: origin.callId,
         messageId: message.id,
-        kind: args.kind,
-        payload: askCardPayload(args),
+        kind: payload.kind,
+        payload,
       });
       return { interaction: interaction.id, state: interaction.state };
     }

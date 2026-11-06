@@ -5,6 +5,45 @@ import { randomUUID } from 'node:crypto';
 
 const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
 
+/** 卡片问题预览:答复文本里的引用前缀,按 code point 截断避免切坏表情。
+ *  @param {unknown} text */
+function questionPreview(text) {
+  const points = Array.from(typeof text === 'string' ? text : '');
+  return points.length > 120 ? `${points.slice(0, 120).join('')}…` : points.join('');
+}
+
+/** 多步提问的当前步:第一个尚未答复的步骤;全部答完返回 -1。
+ *  @param {Array<Record<string, any>>} steps */
+function flowStepIndex(steps) {
+  return steps.findIndex(step => !step?.answer);
+}
+
+/** 校验单步答复并归一化;choice/input 的约束与单问卡一致。
+ *  @param {Record<string, any>} step @param {Record<string, any> | null | undefined} answer */
+function flowStepAnswer(step, answer) {
+  if (step.kind === 'choice') {
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer) || typeof answer.selected !== 'string' || !step.options?.includes(answer.selected)) {
+      throw new Error('答复必须是 options 中的一个选项');
+    }
+    return { selected: answer.selected };
+  }
+  if (!answer || typeof answer !== 'object' || Array.isArray(answer) || typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > 48000) {
+    throw new Error('答复必须包含 1-48000 字符的文本');
+  }
+  return { value: answer.value };
+}
+
+/** 多步答复合成一条用户消息,逐步列出问题与答复,让发起者一次读全。
+ *  @param {Record<string, any>} payload @param {Array<Record<string, any>>} steps */
+function flowAnswerText(payload, steps) {
+  const lines = steps.map((step, index) => {
+    const answer = step.answer ?? {};
+    const value = 'selected' in answer ? `用户选择:${answer.selected}` : `用户填写:\n${answer.value}`;
+    return `${index + 1}. ${step.text} ${value}`;
+  });
+  return `「${questionPreview(payload.text)}」用户多步答复:\n${lines.join('\n')}`;
+}
+
 /** 动作请求的「同一决策」判据:只有同主体的新请求才替换旧 pending 卡,不同主体是独立决策、互不挤占。
  *  member_model/group_add/group_create 的主体记录在 args 里;takeover/handback/group_delete 每群只有一个决策槽。
  *  @param {string} kind @param {Record<string, any> | null | undefined} args */
@@ -12,12 +51,6 @@ export function actionSubjectKey(kind, args = {}) {
   if (kind === 'member_model') return args?.member ?? '';
   if (kind === 'group_add' || kind === 'group_create') return args?.name ?? '';
   return '';
-}
-
-/** @param {unknown} text */
-function questionPreview(text) {
-  const points = Array.from(typeof text === 'string' ? text : '');
-  return points.length > 120 ? `${points.slice(0, 120).join('')}…` : points.join('');
 }
 
 /** @param {Record<string, any> | null | undefined} row
@@ -45,6 +78,7 @@ export class Interactions {
     if (row.state !== 'pending') throw new Error('互动已经结束');
     const payload = JSON.parse(row.payload);
     if (actionInteractionKinds.has(row.kind)) return this.bus.decideActionInteraction(row, payload, answer);
+    if (row.kind === 'flow') return this.decideFlowInteraction(row, payload, answer);
     let text;
     if (row.kind === 'choice') {
       if (!answer || typeof answer !== 'object' || Array.isArray(answer) || typeof answer.selected !== 'string' || !payload.options?.includes(answer.selected)) {
@@ -57,31 +91,49 @@ export class Interactions {
       }
       text = `「${questionPreview(payload.text)}」用户填写:\n${answer.value}`;
     } else throw new Error(`未知互动类型: ${row.kind}`);
+    return this.deliverAnswer(row, text, answer);
+  }
+  /** 多步提问:卡片在本地逐题收集,一次提交全部答复;校验通过才落库并投递(发起者只被唤醒一次)。
+   *  @param {Record<string, any>} row @param {Record<string, any>} payload @param {Record<string, any> | null | undefined} answer */
+  decideFlowInteraction(row, payload, answer) {
+    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    if (flowStepIndex(steps) < 0) throw new Error('互动已经结束');
+    const answers = Array.isArray(answer?.answers) ? answer.answers : null;
+    if (!answers) throw new Error(`多步提问需要一次提交 ${steps.length} 个答复`);
+    if (answers.length !== steps.length) throw new Error(`需要同时回答 ${steps.length} 个问题`);
+    // 先整体校验再落库:任一步不合法都保持 pending,不会出现半套答复。
+    const resolved = steps.map((step, index) => ({ ...step, answer: flowStepAnswer(step, answers[index]) }));
+    this.bus.store.updateInteractionPayload(row.id, { ...payload, steps: resolved });
+    return this.deliverAnswer(row, flowAnswerText(payload, resolved), { answers: resolved.map(step => step.answer) });
+  }
+  /** 答复落库 + 投递:协作上下文进群记录并经 pump 唤醒,私人上下文经 outbox 投递。
+   *  @param {Record<string, any>} row @param {string} text @param {Record<string, any>} answer */
+  deliverAnswer(row, text, answer) {
     if (row.panel_agent_id) {
       if (row.message_id) {
         // 协作上下文发起:答复进群记录,经 pump 唤醒 Panel 主控 coordination 会话。
         const message = this.bus.store.transaction(() => {
           const value = this.bus.store.append(row.group_id, 'user', row.panel_agent_id, 'send', text, row.message_id);
-          this.bus.store.setInteractionState(id, 'answered', answer, value.id);
+          this.bus.store.setInteractionState(row.id, 'answered', answer, value.id);
           return value;
         });
         this.bus.emit('message', message);
         queueMicrotask(() => this.bus.pump());
       } else {
         // 私人上下文发起:答复持久入队,经 outbox 投递唤醒 Panel 私人会话。
-        this.bus.store.setInteractionState(id, 'answered', answer);
+        this.bus.store.setInteractionState(row.id, 'answered', answer);
         this.bus.enqueuePanelPrivateAnswer(row.panel_agent_id, text);
       }
-      return interactionView(this.bus.store.interaction(id));
+      return interactionView(this.bus.store.interaction(row.id));
     }
     const message = this.bus.store.transaction(() => {
       const value = this.bus.store.append(row.group_id, 'user', row.member_id, 'send', text, row.message_id);
-      this.bus.store.setInteractionState(id, 'answered', answer, value.id);
+      this.bus.store.setInteractionState(row.id, 'answered', answer, value.id);
       return value;
     });
     this.bus.emit('message', message);
     queueMicrotask(() => this.bus.pump());
-    return interactionView(this.bus.store.interaction(id));
+    return interactionView(this.bus.store.interaction(row.id));
   }
   /** @param {Record<string, any>} row @param {Record<string, any>} payload @param {Record<string, any> | null | undefined} answer */
   decideActionInteraction(row, payload, answer) {
@@ -192,7 +244,7 @@ export class Interactions {
       messageId: anchorRow.messageId,
       panelMessageId: anchorRow.panelMessageId,
       kind,
-      payload: { kind, text, args },
+      payload: { kind, text, args, cardOnly: true },
     });
     return interactionView(row);
   }

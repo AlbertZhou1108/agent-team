@@ -96,5 +96,6 @@
  * @property {(id: string) => Record<string, any> | undefined} interaction
  * @property {(input: object) => Record<string, any>} createInteraction
  * @property {(id: string, state: string, answer?: Record<string, any> | null, messageId?: string | null, detail?: string | null) => void} setInteractionState
+ * @property {(id: string, payload: Record<string, any>) => Record<string, any> | undefined} updateInteractionPayload
  * @property {(groupId: string, sender: string, recipient: string, kind: string, text: string, replyTo?: string | null, expectsReply?: boolean) => Record<string, any>} append
  */

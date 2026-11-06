@@ -78,8 +78,25 @@ const streamingViews = computed(readStreamViews);
 // 数值真正变化时才通知依赖,本组件因此不会随每个 token 进入渲染。
 const streamingCount = computed(() => streamingViews.value.length);
 
+// 互动卡是唯一展示面:锚点消息只为答复线程与群记录存在,不再渲染正文。
+// 由卡片自身的 payload.cardOnly 声明;老数据没声明,仍按普通消息渲染,行为不变。
+const cardAnchorIds = computed(() => {
+  const ids = new Set<string>();
+  for (const item of props.interactions ?? []) {
+    if (item.message_id && item.payload?.cardOnly) ids.add(item.message_id);
+  }
+  return ids;
+});
+const isCardAnchor = (message: { id: string }) => cardAnchorIds.value.has(message.id);
+/** 卡片本体上位时用消息补回「谁 · 什么时候」;有气泡时由气泡承担。 */
+const anchorOf = (message: { id: string; senderName: string; createdAt: string }) =>
+  isCardAnchor(message) ? { senderName: message.senderName, createdAt: message.createdAt } : undefined;
+
 const messageGroups = computed(() =>
-  buildMessageGroups(filtered.value, { groupSystemMessages: props.groupSystemMessages }),
+  buildMessageGroups(filtered.value, {
+    groupSystemMessages: props.groupSystemMessages,
+    isBlocked: isCardAnchor,
+  }),
 );
 // 统一为「堆栈 | 群发 | 消息序列」形态,run/single 走同一渲染路径。
 const renderGroups = computed(() =>
@@ -265,7 +282,8 @@ const messageIds = computed(() => {
           :key="message.id"
           :data-message-id="message.id"
         >
-          <AgentMessage :message="message" :compact="index > 0" :markdown="markdown">
+          <!-- 卡片锚点:正文与卡片重复,只保留卡片本体。 -->
+          <AgentMessage v-if="!isCardAnchor(message)" :message="message" :compact="index > 0" :markdown="markdown">
             <template #header-actions>
               <Button
                 v-if="traceable && traceCandidates.has(message.id)"
@@ -286,7 +304,7 @@ const messageIds = computed(() => {
             </template>
           </AgentMessage>
           <MessageTrace
-            v-if="traceable && traceCandidates.has(message.id)"
+            v-if="!isCardAnchor(message) && traceable && traceCandidates.has(message.id)"
             :message-id="message.id"
             :hosts="hosts ?? {}"
             :expanded="traceExpanded(message.id)"
@@ -296,6 +314,7 @@ const messageIds = computed(() => {
             v-for="interaction in messageInteractions[message.id] ?? []"
             :key="interaction.id"
             :interaction="interaction"
+            :anchor="anchorOf(message)"
             class="mt-2"
           />
           <p

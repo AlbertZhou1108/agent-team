@@ -1,4 +1,5 @@
 import { validateToolValue } from './tool-schema.mjs';
+import { askInputProperties } from './tool-ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
@@ -94,11 +95,7 @@ const mainDefinitions = [
     model: string,
     reasoning_effort: string,
   }, ['groupId', 'member']],
-  ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。kind=choice 须提供 options（2-8 个选项，确认类事项用 同意/拒绝）；kind=input 请用户填写一段文本。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', {
-    kind: { type: 'string', enum: ['choice', 'input'] },
-    text: string,
-    options: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 200 }, minItems: 2, maxItems: 8 },
-  }, ['kind', 'text']],
+  ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。单问用 kind=choice（须提供 options，2-8 个选项，确认类事项用 同意/拒绝）或 kind=input（请用户填写一段文本）；需要用户连续确认多件事时改用 steps 一次发出 2-8 步，面板用一张卡片逐步作答，全部答完才把汇总答复送回。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', askInputProperties, []],
   ['model_catalog', '读取当前实时模型目录。', {}, []],
 ];
 

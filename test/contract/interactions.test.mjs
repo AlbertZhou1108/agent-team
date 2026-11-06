@@ -48,6 +48,117 @@ test('ask tool is available to every member context except private and profile',
   assert.doesNotThrow(() => validateTool('member', 'ask', { kind: 'choice', text: 'x' }, 'coordination'));
 });
 
+test('ask takes either a single question or 2-8 steps and rejects a mixture', async t => {
+  const f = await setup(t, async c => { c.onAccepted(); return 'done'; });
+  const endpoint = f.server.bus.store.conversation('member', f.lead, 'coordination');
+  const ask = args => f.server.bus.tool(endpoint.id, endpoint.key, 'ask', args);
+  const step = (kind, text, options) => ({ kind, text, ...(options ? { options } : {}) });
+
+  // schema 层:每步都要 kind+text,steps 2-8,单问与多步共用一个工具
+  assert.throws(
+    () => validateTool('member', 'ask', { steps: [step('input', '只有一个')] }, 'coordination'),
+    /至少需要2项/,
+  );
+  assert.throws(
+    () => validateTool('member', 'ask', { steps: [step('input', '一'), { kind: 'input' }] }, 'coordination'),
+    /text为必填项/,
+  );
+  assert.doesNotThrow(() => validateTool('member', 'ask', { steps: [step('choice', '一', ['A', 'B']), step('input', '二')] }, 'coordination'));
+
+  // Bus 层:两种形态互斥,每步的 kind/options 配对
+  await assert.rejects(
+    () => ask({ text: '混合', kind: 'choice', options: ['A', 'B'], steps: [step('input', '一'), step('input', '二')] }),
+    /不能与 kind\/options 同时使用/,
+  );
+  await assert.rejects(
+    () => ask({ steps: [step('choice', '一'), step('choice', '二')] }),
+    /第 1 步choice 必须提供 options/,
+  );
+  await assert.rejects(
+    () => ask({ steps: [step('input', '一'), step('input', '二', ['A', 'B'])] }),
+    /第 2 步input 不接受 options/,
+  );
+  // 形态合法但不在执行回合内:不建卡
+  await assert.rejects(
+    () => ask({ steps: [step('input', '一'), step('input', '二')] }),
+    /只能在执行回合内发出/,
+  );
+  assert.equal(f.server.bus.store.all('SELECT id FROM interactions WHERE group_id=?', f.group.id).length, 0);
+});
+
+test('multi-step ask keeps one pending card and delivers one combined answer', async t => {
+  let asked = false;
+  const f = await setup(t, async c => {
+    if (c.endpoint.context === 'coordination' && !asked) {
+      asked = true;
+      await c.onTool('ask', {
+        text: '上线前确认',
+        steps: [
+          { kind: 'choice', text: '是否切换流量？', options: ['切换', '暂不'] },
+          { kind: 'input', text: '灰度比例？' },
+        ],
+      });
+      c.onAccepted(); return 'asked';
+    }
+    c.onAccepted(); return 'done';
+  });
+  f.server.bus.directive(f.group.id, '准备上线');
+  await until(() => f.server.bus.store.get('SELECT * FROM interactions WHERE group_id=?', f.group.id));
+  const row = f.server.bus.store.get('SELECT * FROM interactions WHERE group_id=?', f.group.id);
+  assert.equal(row.kind, 'flow');
+  const payload = JSON.parse(row.payload);
+  assert.equal(payload.cardOnly, true, '卡片是唯一展示面');
+  assert.equal(payload.steps.length, 2);
+  assert.equal(payload.steps[0].answer, null);
+  // 锚点消息仍然存在:答复要用它做 reply_to,群记录也要能看到问过什么
+  const anchor = f.server.bus.store.get('SELECT * FROM messages WHERE id=?', row.message_id);
+  assert.equal(anchor.text, '上线前确认');
+  assert.equal(anchor.recipient, 'user');
+
+  // 缺答复、数量不符、选项越界、文本为空:整体拒绝,卡片保持 pending 且不投递
+  const userMessages = () => f.server.bus.store.get(
+    "SELECT COUNT(*) n FROM messages WHERE group_id=? AND sender='user' AND seq>?",
+    f.group.id,
+    anchor.seq,
+  ).n;
+  assert.throws(() => f.server.bus.decideInteraction(row.id, { selected: '切换' }), /一次提交 2 个答复/);
+  assert.throws(() => f.server.bus.decideInteraction(row.id, { answers: [{ selected: '切换' }] }), /同时回答 2 个问题/);
+  assert.throws(
+    () => f.server.bus.decideInteraction(row.id, { answers: [{ selected: '不支持' }, { value: '10%' }] }),
+    /选项/,
+  );
+  assert.throws(
+    () => f.server.bus.decideInteraction(row.id, { answers: [{ selected: '切换' }, { value: '   ' }] }),
+    /1-48000/,
+  );
+  assert.equal(f.server.bus.store.interaction(row.id).state, 'pending');
+  assert.equal(userMessages(), 0);
+  assert.equal(f.server.bus.running.size, 0);
+  assert.equal(JSON.parse(f.server.bus.store.interaction(row.id).payload).steps[0].answer, null, '拒绝时不留半套答复');
+
+  // 一次性提交全部答复:合成一条用户消息,只投递一次、只唤醒一次
+  const done = f.server.bus.decideInteraction(row.id, { answers: [{ selected: '切换' }, { value: '10%' }] });
+  assert.equal(done.state, 'answered');
+  assert.equal(done.answer.answers.length, 2);
+  assert.deepEqual(JSON.parse(f.server.bus.store.interaction(row.id).payload).steps.map(step => step.answer), [
+    { selected: '切换' },
+    { value: '10%' },
+  ]);
+  const answerMessage = f.server.bus.store.get('SELECT * FROM messages WHERE id=?', done.answer_message_id);
+  assert.equal(answerMessage.sender, 'user');
+  assert.equal(answerMessage.reply_to, row.message_id);
+  assert.match(answerMessage.text, /用户多步答复/);
+  assert.match(answerMessage.text, /1\. 是否切换流量？ 用户选择:切换/);
+  assert.match(answerMessage.text, /2\. 灰度比例？ 用户填写:\n10%/);
+  assert.equal(userMessages(), 1);
+  assert.throws(() => f.server.bus.decideInteraction(row.id, { answers: [{ selected: '切换' }, { value: '10%' }] }), /已经结束/);
+
+  await until(() => f.calls.some(c => String(c.prompt).includes('用户多步答复')));
+  const wake = f.calls.findLast(c => String(c.prompt).includes('用户多步答复'));
+  assert.ok(wake.prompt.includes('灰度比例'), '发起者一次拿到全部问答');
+  assert.ok(wake.prompt.includes('是否切换流量'), '已完成步骤也在同一条答复里');
+});
+
 test('lead ask records a pending interaction and the answer wakes coordination with the choice', async t => {
   let phase = 'ask';
   const f = await setup(t, async c => {
@@ -61,6 +172,7 @@ test('lead ask records a pending interaction and the answer wakes coordination w
   assert.equal(row.state, 'pending');
   const payload = JSON.parse(row.payload);
   assert.equal(payload.kind, 'choice');
+  assert.equal(payload.cardOnly, true, '卡片即展示面,锚点消息不渲染正文');
   assert.equal(payload.options.join(','), '同意,拒绝');
   const request = f.server.bus.store.get('SELECT * FROM messages WHERE id=?', row.message_id);
   assert.equal(request.sender, f.lead);
@@ -435,6 +547,7 @@ test('member_model becomes an interaction card and approval updates the member m
   const row = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'", f.group.id);
   const payload = JSON.parse(row.payload);
   assert.equal(payload.args.member, '助手');
+  assert.equal(payload.cardOnly, true, '动作卡的锚点消息同样只作记录');
   assert.equal(payload.args.model, 'test');
   assert.equal(payload.args.reasoning_effort, 'low');
   assert.equal(row.state, 'pending');

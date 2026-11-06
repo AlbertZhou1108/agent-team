@@ -15,9 +15,15 @@ function senderKey(message: MessageView) {
   return `${message.senderName}→${message.recipientName}`;
 }
 
+interface GroupOptions {
+  groupSystemMessages?: boolean;
+  /** 自成一组、不参与「同发送者连续消息」合并的消息(如卡片锚点)。 */
+  isBlocked?: (message: MessageView) => boolean;
+}
+
 export function buildMessageGroups(
   messages: MessageView[],
-  { groupSystemMessages = true } = {},
+  { groupSystemMessages = true, isBlocked = (_message: MessageView) => false }: GroupOptions = {},
 ): MessageGroup[] {
   const groups: MessageGroup[] = [];
   const pushRun = (message: MessageView) => {
@@ -58,6 +64,12 @@ export function buildMessageGroups(
     pushRun(message);
   };
   for (const message of messages) {
+    // 卡片锚点消息自成一组:正文由卡片承担,不参与「同发送者连续消息」的身份合并,
+    // 否则紧随其后的消息会被当作紧凑条而丢掉头像与身份行。
+    if (isBlocked(message)) {
+      groups.push({ id: message.id, kind: 'single', message });
+      continue;
+    }
     if (message.kind === 'system') {
       const previous = groups.at(-1);
       if (groupSystemMessages && previous?.kind === 'system') {

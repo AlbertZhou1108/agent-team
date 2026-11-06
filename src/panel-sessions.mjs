@@ -98,7 +98,14 @@ export class PanelSessions {
       agent,
       requests: this.bus.teamRequests.list(agent.id),
       teamPendingInteractions: Object.fromEntries(this.bus.store.all("SELECT group_id,COUNT(*) AS count FROM interactions WHERE state='pending' AND group_id IS NOT NULL GROUP BY group_id").map(row => [row.group_id, row.count])),
-      notifications: this.bus.store.all('SELECT * FROM panel_updates WHERE panel_agent_id=? ORDER BY created DESC LIMIT 100', agent.id).map(row => this.bus.panelUpdate(row)),
+      // 通知是投递台账的投影:用户「清理」只记录一条隐藏状态(workbench_dismissals),
+      // 台账行本身保留,投递判定与回溯都不受影响。
+      notifications: this.bus.store.all(
+        `SELECT * FROM panel_updates u WHERE u.panel_agent_id=?
+           AND NOT EXISTS(SELECT 1 FROM workbench_dismissals d WHERE d.category='panel:update' AND d.item_id=u.id)
+         ORDER BY u.created DESC LIMIT 100`,
+        agent.id,
+      ).map(row => this.bus.panelUpdate(row)),
       sessions: this.bus.store.all('SELECT id,context,group_id,session,updated FROM conversations WHERE panel_agent_id=? ORDER BY created', agent.id),
       teams: this.bus.panelTeamViews(),
       conversation: this.withPanelAttachments(
@@ -376,7 +383,8 @@ export class PanelSessions {
     }
     if (name === 'ask') {
       assertAskCard(args);
-      const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, args.text);
+      const payload = askCardPayload(args);
+      const anchor = this.bus.panelInteractionAnchor(session, panelAgent, origin, payload.text);
       const interaction = this.bus.store.createInteraction({
         id: randomUUID(),
         groupId: anchor.groupId,
@@ -387,8 +395,8 @@ export class PanelSessions {
         callId: origin.callId,
         messageId: anchor.messageId,
         panelMessageId: anchor.panelMessageId,
-        kind: args.kind,
-        payload: askCardPayload(args),
+        kind: payload.kind,
+        payload,
       });
       return { interaction: interaction.id, state: interaction.state };
     }
@@ -902,7 +910,7 @@ export class PanelSessions {
       messageId: anchor.messageId,
       panelMessageId: anchor.panelMessageId,
       kind: action,
-      payload: { kind: action, text, groupId, baseRevision: revision },
+      payload: { kind: action, text, groupId, baseRevision: revision, cardOnly: true },
     });
     return interactionView(row);
   }
