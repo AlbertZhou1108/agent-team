@@ -3,9 +3,11 @@ import { execFile } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve, delimiter } from 'node:path';
 import which from 'which';
+import { nodeRunner } from '../runtime.mjs';
 
 // Keep shell parsing, Windows npm shims and Unix process groups out of adapters.
 export function spawnHost(command, args, options = {}) {
+  let runnerEnv = {};
   if (process.platform === 'win32') {
     const env = options.env ?? process.env;
     const pathKey = Object.keys(env).find(key => key.toLowerCase() === 'path');
@@ -20,7 +22,9 @@ export function spawnHost(command, args, options = {}) {
           if (/\.exe$/i.test(target)) command = target;
           else {
             const localNode = resolve(dirname(file), 'node.exe');
-            command = existsSync(localNode) ? localNode : process.execPath;
+            const runner = existsSync(localNode) ? { command: localNode, env: {} } : nodeRunner();
+            command = runner.command;
+            runnerEnv = runner.env;
             args = [target, ...args];
           }
         }
@@ -29,6 +33,7 @@ export function spawnHost(command, args, options = {}) {
   }
   return crossSpawn(command, args, {
     ...options,
+    env: { ...(options.env ?? process.env), ...runnerEnv },
     detached: process.platform !== 'win32',
     windowsHide: true,
   });

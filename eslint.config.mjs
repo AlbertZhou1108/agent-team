@@ -7,7 +7,7 @@ export default [
   },
   {
     // 后端与工具脚本:高价值错误规则,不做风格约束;前端不在本计划范围。
-    files: ['src/**/*.mjs', 'test/**/*.mjs', 'scripts/*.mjs'],
+    files: ['src/**/*.mjs', 'test/**/*.mjs', 'scripts/*.mjs', 'electron/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
@@ -19,6 +19,19 @@ export default [
       'no-async-promise-executor': 'error',
       'require-atomic-updates': 'error',
       'no-use-before-define': ['error', { functions: false }],
+    },
+  },
+  {
+    // preload 运行在沙箱化的渲染进程里，只能用 CJS 与有限的 Electron API。
+    files: ['electron/**/*.cjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
   {

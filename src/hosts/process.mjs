@@ -4,13 +4,26 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sandboxMode } from './policies.mjs';
+import { nodeRunner } from '../runtime.mjs';
 
 export const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+
+/**
+ * MCP server 的启动命令会被写进宿主配置，由宿主自己的进程 spawn。
+ * runner 可注入，便于在契约测试里覆盖 Electron 分支。
+ */
+export function mcpConfig({ socketPath, endpoint, turnId, runner = nodeRunner(), cli = cliPath }) {
+  return {
+    command: runner.command,
+    args: ['--disable-warning=ExperimentalWarning', cli, 'mcp', '--socket', socketPath, '--endpoint', endpoint.id],
+    env: { ...runner.env, AGENT_TEAM_KEY: endpoint.key, AGENT_TEAM_TURN: turnId },
+  };
+}
 
 export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution) {
   const dir = resolve(directory, 'endpoints', endpoint.id);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const config = { command: process.execPath, args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--endpoint', endpoint.id], env: { AGENT_TEAM_KEY: endpoint.key, AGENT_TEAM_TURN: turnId } };
+  const config = mcpConfig({ socketPath, endpoint, turnId });
   const claude = resolve(dir, 'claude.json');
   const dsh = resolve(dir, 'dsh.patch.json');
   writeFileSync(claude, JSON.stringify({ mcpServers: { agent_team: config } }), { mode: 0o600 });

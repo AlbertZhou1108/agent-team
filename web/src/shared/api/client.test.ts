@@ -26,3 +26,21 @@ describe('API request lifetime', () => {
     await vi.advanceTimersByTimeAsync(330000); await failed;
   });
 });
+
+describe('chooseDirectory progressive enhancement', () => {
+  it('prefers the native dialog when the desktop bridge is present', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const choose = vi.fn().mockResolvedValue({ path: '/tmp/picked' });
+    vi.stubGlobal('agentTeam', { chooseDirectory: choose });
+    expect(await api.chooseDirectory()).toEqual({ path: '/tmp/picked' });
+    expect(choose).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('falls back to the HTTP picker in the browser entry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ path: '/tmp/http' })));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await api.chooseDirectory()).toEqual({ path: '/tmp/http' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/local/directory-picker', expect.objectContaining({ method: 'POST' }));
+  });
+});

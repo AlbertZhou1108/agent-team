@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { socketFor } from './server.mjs';
 import { rpc } from './rpc.mjs';
+import { nodeRunner } from './runtime.mjs';
 
 export function applicationData({ platform = process.platform, home = homedir(), env = process.env } = {}) {
   if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Agent Team');
@@ -17,7 +18,9 @@ export function applicationData({ platform = process.platform, home = homedir(),
 export function launchEnvironment() {
   const env = { ...process.env };
   const key = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
-  const candidates = [join(homedir(), '.local', 'bin'), join(homedir(), '.hermes', 'node', 'bin'), join(homedir(), '.volta', 'bin'), join(homedir(), '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', dirname(process.execPath)];
+  const candidates = [join(homedir(), '.local', 'bin'), join(homedir(), '.hermes', 'node', 'bin'), join(homedir(), '.volta', 'bin'), join(homedir(), '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
+  // GUI 应用自带的可执行文件目录不是 Node 安装目录，加入 PATH 只会带来误命中的风险。
+  if (!process.versions.electron) candidates.push(dirname(process.execPath));
   env[key] = [...new Set([...(env[key] ?? '').split(delimiter), ...candidates].filter(Boolean))].join(delimiter);
   return env;
 }
@@ -76,7 +79,8 @@ export async function launch({ directory = applicationData(), configFile, port, 
   try {
     const args = ['--disable-warning=ExperimentalWarning', fileURLToPath(new URL('./cli.mjs', import.meta.url)), 'serve', '--data', directory, '--port', String(preferredPort)];
     if (configFile) args.push('--hosts', resolve(configFile));
-    child = spawn(process.execPath, args, { cwd: directory, env: launchEnvironment(), detached: true, stdio: ['ignore', log, log], windowsHide: true });
+    const runner = nodeRunner();
+    child = spawn(runner.command, args, { cwd: directory, env: { ...launchEnvironment(), ...runner.env }, detached: true, stdio: ['ignore', log, log], windowsHide: true });
   } finally { closeSync(log); }
   let failure;
   child.once('error', error => { failure = error; });

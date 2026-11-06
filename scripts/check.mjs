@@ -8,5 +8,5 @@ function check(directory) {
     else if (/\.(mjs|js)$/.test(path)) { const result = spawnSync(process.execPath, ['--check', path], { stdio: 'inherit' }); if (result.status) process.exit(result.status); }
   }
 }
-for (const directory of ['src', 'web', 'test', 'scripts']) check(directory);
+for (const directory of ['src', 'web', 'test', 'scripts', 'electron']) check(directory);
 console.log('Syntax checks passed');

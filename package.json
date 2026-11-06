@@ -25,10 +25,13 @@
     "test:core": "node --disable-warning=ExperimentalWarning --test test/contract/*.test.mjs test/internal/*.test.mjs test/process/*.test.mjs",
     "test:web": "vitest run --config web/vite.config.ts",
     "typecheck:backend": "tsc -p tsconfig.backend.json",
-    "lint:backend": "eslint src test scripts",
+    "lint:backend": "eslint src test scripts electron",
     "check": "node scripts/check.mjs && node scripts/check-design.mjs && npm run typecheck && npm run typecheck:backend && npm run lint:backend",
     "launch": "node --disable-warning=ExperimentalWarning src/launcher.mjs",
-    "package": "npm run build && node scripts/build-release.mjs"
+    "package": "npm run build && node scripts/build-release.mjs",
+    "desktop": "npm run build && node electron/launch.mjs",
+    "desktop:quick": "node electron/launch.mjs",
+    "desktop:dev": "node electron/dev.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.60.0",
@@ -55,6 +58,7 @@
     "@types/node": "^26.6.5",
     "@vitejs/plugin-vue": "^6.0.10",
     "concurrently": "^10.0.6",
+    "electron": "45.2.3",
     "eslint": "^10.14.0",
     "globals": "^17.13.0",
     "tailwindcss": "^4.3.3",
