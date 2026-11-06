@@ -2296,3 +2296,17 @@ html[data-density='loose'] {
 [data-slot='disclosure-heading'] { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--component-disclosure-gap); }
 [data-slot='disclosure-content'] { display: flex; min-width: 0; flex-direction: column; gap: var(--component-disclosure-gap); padding-top: var(--component-disclosure-gap); }
 [data-slot='disclosure-content'] > :first-child { margin-top: 0; }
+
+/* 有界滚动区:高度与间距由调用处以 style 传入,其余行为在共享层统一 ——
+   滚动不传给外层页面(overscroll-behavior),长标识换行而不是撑出横向滚动;
+   区域可聚焦,键盘能滚动,并保持与其它可交互元素一致的焦点环。 */
+[data-slot='scroll-region'] {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding-inline-end: 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+[data-slot='scroll-region']:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

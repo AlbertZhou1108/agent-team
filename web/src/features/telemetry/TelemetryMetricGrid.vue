@@ -2,6 +2,7 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Progress } from '@/components/ui/progress';
+import { ScrollRegion } from '@/components/ui/scroll-region';
 import { cn } from '@/lib/utils';
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
 import { METRIC_KEYS, METRIC_LABELS, metricDisplay } from './format';
@@ -41,12 +42,17 @@ function display(key: keyof TelemetryMetrics) {
     </div>
     <Disclosure v-if="showDetail">
       <template #summary>全部指标</template>
-      <dl class="mt-3 flex max-h-[min(24rem,50vh)] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="全部指标内容" tabindex="0">
+      <ScrollRegion
+        as="dl"
+        label="全部指标内容"
+        max-height="min(24rem,50vh)"
+        gap="0.75rem"
+      >
         <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-wrap items-center justify-between gap-2 text-foreground">
           <dt>{{ METRIC_LABELS[key] }}</dt>
           <dd>{{ metricDisplay(metrics[key], key) }}</dd>
         </div>
-      </dl>
+      </ScrollRegion>
     </Disclosure>
   </div>
 </template>

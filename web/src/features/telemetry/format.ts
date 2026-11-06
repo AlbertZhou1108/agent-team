@@ -161,6 +161,15 @@ export function batchStateLabel(state: TelemetryBatch['state']): string {
   return BATCH_STATE_LABELS[state];
 }
 
+/**
+ * 失败状态用危险色强调;其余状态保持常规文字,不靠颜色承载含义
+ * (标签本身已经写明「失败」)。带 ! 是为了在同一行里盖过外层弱化文字与
+ * Badge outline 的前景色。
+ */
+export function batchStateClass(state: TelemetryBatch['state']): string {
+  return state === 'failed' ? 'text-destructive!' : '';
+}
+
 const SESSION_STATUS_LABELS: Record<
   'active' | 'ended' | 'reset' | 'unknown',
   string

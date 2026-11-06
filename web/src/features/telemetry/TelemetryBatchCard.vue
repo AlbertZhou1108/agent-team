@@ -2,22 +2,15 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { compactNumber, numeric } from './visuals';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import type { TelemetryBatch } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
-import TelemetryContextCard from './TelemetryContextCard.vue';
+import TelemetryContextSection from './TelemetryContextSection.vue';
 import {
-  batchHasExclusiveSubtotal,
   batchMergeLabels,
+  batchStateClass,
   batchStateLabel,
   completenessLabel,
   formatTimestamp,
@@ -30,9 +23,6 @@ const props = defineProps<{
 }>();
 
 const mergeLabels = computed(() => batchMergeLabels(props.batch));
-const completenessVariant = computed(() =>
-  props.batch.completeness === 'partial' ? 'secondary' : 'outline',
-);
 const roleLabels: Record<
   TelemetryBatch['inputBatch']['messages'][number]['role'],
   string
@@ -44,40 +34,26 @@ const roleLabels: Record<
 </script>
 
 <template>
-  <Disclosure variant="card" class="min-w-0">
+  <Disclosure class="min-w-0" :data-batch-id="batch.batchId">
     <template #summary>
       <span class="flex items-center justify-between gap-3">
         <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
         <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
       </span>
-      <span class="flex flex-wrap items-center gap-2 text-muted-foreground">
-        <span>{{ batchStateLabel(batch.state) }}</span>
+      <span class="flex flex-wrap items-center gap-1 text-muted-foreground">
+        <span :class="batchStateClass(batch.state)">{{ batchStateLabel(batch.state) }}</span>
         <span v-if="batch.completeness !== 'complete'">{{ completenessLabel(batch.completeness) }}</span>
         <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
-        <span>展开执行详情</span>
+        <Badge v-if="shared" variant="secondary">共同批次</Badge>
       </span>
     </template>
-  <Card size="compact"
-    class="min-w-0"
-    :class="shared ? 'border-primary/50' : undefined"
-    :data-batch-id="batch.batchId"
-  >
-    <CardHeader>
-      <CardTitle class="break-all text-sm">
-        {{ batch.frameworkTurnId }}
-      </CardTitle>
-      <CardDescription class="flex flex-wrap items-center gap-1 text-xs">
-        <span>{{ batch.executor.name }} · {{ batch.executor.host }}</span>
-        <Badge :variant="shared ? 'default' : 'outline'">{{
-          batchStateLabel(batch.state)
-        }}</Badge>
-        <Badge :variant="completenessVariant">{{
-          completenessLabel(batch.completeness)
-        }}</Badge>
-      </CardDescription>
-    </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4">
-      <div class="flex flex-wrap gap-1">
+
+    <div class="flex min-w-0 flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-1">
+        <span class="break-all font-mono text-2xs text-muted-foreground">{{
+          batch.frameworkTurnId
+        }}</span>
+        <Badge variant="outline">{{ batch.executor.host }}</Badge>
         <Badge
           v-for="label in mergeLabels"
           :key="label"
@@ -88,7 +64,6 @@ const roleLabels: Record<
           "
           >{{ label }}</Badge
         >
-        <Badge v-if="shared" variant="default">共同批次 · 独立展示</Badge>
       </div>
 
       <p class="text-xs text-muted-foreground">
@@ -103,6 +78,8 @@ const roleLabels: Record<
         · endpoint {{ batch.physicalSession.endpointId }} · hostSessionId
         {{ batch.physicalSession.hostSessionId ?? '未提供' }}
       </p>
+
+      <Separator />
 
       <section class="flex min-w-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-1">
@@ -140,7 +117,7 @@ const roleLabels: Record<
       <Separator />
 
       <TelemetryMetricGrid :metrics="batch.metrics" />
-      <TelemetryContextCard
+      <TelemetryContextSection
         :context-reference="batch.contextReference"
         title="该批次最近请求采样"
       />
@@ -159,39 +136,47 @@ const roleLabels: Record<
         </AlertDescription>
       </Alert>
 
+      <Separator />
+
       <Disclosure>
         <template #summary>
           尝试视图（{{ batch.attempts.length }}）· 不与批次指标相加
         </template>
-        <div class="mt-2 flex flex-col gap-2">
+        <div class="flex flex-col gap-2">
           <p v-if="!batch.attempts.length" class="text-muted-foreground">
             无尝试级记录。
           </p>
-          <div
-            v-for="attempt in batch.attempts"
-            :key="attempt.attemptId"
-          ><Card size="compact"><CardContent class="flex min-w-0 flex-col gap-2">
-            <div class="flex flex-wrap items-center gap-1">
-              <span class="font-mono break-all">{{ attempt.attemptId }}</span>
-              <Badge variant="outline">{{ batchStateLabel(attempt.state) }}</Badge>
-              <Badge variant="outline">{{
-                completenessLabel(attempt.completeness)
-              }}</Badge>
-              <span v-if="attempt.hostTurnRef" class="text-muted-foreground"
-                >原生回合 {{ attempt.hostTurnRef }}</span
-              >
-            </div>
-            <div v-if="attempt.metrics" class="mt-2">
+          <div v-else class="divide-y divide-border">
+            <div
+              v-for="attempt in batch.attempts"
+              :key="attempt.attemptId"
+              class="flex min-w-0 flex-col gap-2 py-2"
+            >
+              <div class="flex flex-wrap items-center gap-1">
+                <span class="font-mono break-all">{{ attempt.attemptId }}</span>
+                <Badge
+                  variant="outline"
+                  :class="batchStateClass(attempt.state)"
+                  >{{ batchStateLabel(attempt.state) }}</Badge
+                >
+                <Badge variant="outline">{{
+                  completenessLabel(attempt.completeness)
+                }}</Badge>
+                <span v-if="attempt.hostTurnRef" class="text-muted-foreground"
+                  >原生回合 {{ attempt.hostTurnRef }}</span
+                >
+              </div>
               <TelemetryMetricGrid
+                v-if="attempt.metrics"
                 :metrics="attempt.metrics"
                 :show-detail="false"
                 :columns="2"
               />
+              <p v-else class="text-muted-foreground">
+                无独立尝试级指标视图；已知部分保留在批次指标中。null 不等于 0，不推断为未消耗。
+              </p>
             </div>
-            <p v-else class="mt-2 text-muted-foreground">
-              无独立尝试级指标视图；已知部分保留在批次指标中。null 不等于 0，不推断为未消耗。
-            </p>
-          </CardContent></Card></div>
+          </div>
         </div>
       </Disclosure>
 
@@ -199,7 +184,7 @@ const roleLabels: Record<
         <template #summary>
           来源回查（{{ batch.provenance.length }}）
         </template>
-        <ul class="mt-2 flex flex-col gap-1">
+        <ul class="flex flex-col gap-1">
           <li
             v-for="(item, index) in batch.provenance"
             :key="index"
@@ -220,7 +205,6 @@ const roleLabels: Record<
           missingReasonLabel('not_captured')
         }}。
       </p>
-    </CardContent>
-  </Card>
+    </div>
   </Disclosure>
 </template>

@@ -5,12 +5,13 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { LoaderCircle, UsersRound } from '@lucide/vue';
+import { UsersRound } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { useManagerConversationTelemetryQuery } from '@/features/queries';
 import type { Member } from '@/shared/api/raw-types';
 import TelemetryManagerSideCard from './TelemetryManagerSideCard.vue';
 import TelemetryManagerBatchCard from './TelemetryManagerBatchCard.vue';
+import TelemetryBatchSection from './TelemetryBatchSection.vue';
 import { formatTimestamp } from './format';
 
 const props = defineProps<{
@@ -195,45 +196,37 @@ function clearFilters() {
         />
       </div>
 
-      <section class="flex min-w-0 flex-col gap-3" data-manager-batches>
-        <div class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          <Badge variant="outline">成员侧批次 {{ data.summary.memberBatchIds.length }}</Badge>
-          <Badge variant="outline">管理者侧批次 {{ data.summary.managerBatchIds.length }}</Badge>
-          <Badge variant="secondary">独占 {{ data.summary.exclusiveManagerBatchIds.length }}</Badge>
-          <Badge variant="secondary">共享 {{ data.summary.sharedManagerBatchIds.length }}</Badge>
-        </div>
-
-        <PanelState
-          v-if="!query.batches.value.length"
-          :icon="UsersRound"
-          title="暂无成员 ↔ 主 Agent 批次"
-          description="成员侧 pair 批次与管理侧相关批次尚未产生遥测；缺失不补零，显示无观测。"
-        />
+      <TelemetryBatchSection
+        data-manager-batches
+        :count="query.batches.value.length"
+        :has-more="query.hasNextPage.value"
+        :fetching="query.isFetchingNextPage.value"
+        :empty-icon="UsersRound"
+        empty-title="暂无成员 ↔ 主 Agent 批次"
+        empty-description="成员侧 pair 批次与管理侧相关批次尚未产生遥测；缺失不补零，显示无观测。"
+        @load-more="loadMore"
+      >
+        <template #badges>
+          <Badge variant="outline"
+            >成员侧 {{ data.summary.memberBatchIds.length }}</Badge
+          >
+          <Badge variant="outline"
+            >管理者侧 {{ data.summary.managerBatchIds.length }}</Badge
+          >
+          <Badge variant="secondary"
+            >独占 {{ data.summary.exclusiveManagerBatchIds.length }}</Badge
+          >
+          <Badge variant="secondary"
+            >共享 {{ data.summary.sharedManagerBatchIds.length }}</Badge
+          >
+        </template>
         <TelemetryManagerBatchCard
           v-for="batch in query.batches.value"
           :key="batch.batchId"
           :batch="batch"
           :member-names="memberNames"
         />
-
-        <Button
-          v-if="query.hasNextPage.value"
-          variant="outline"
-          size="sm"
-          class="w-full"
-          :disabled="query.isFetchingNextPage.value"
-          data-manager-load-more
-          @click="loadMore"
-        >
-          <LoaderCircle
-            v-if="query.isFetchingNextPage.value"
-            class="animate-spin"
-          />
-          {{
-            query.isFetchingNextPage.value ? '正在加载' : '加载更多批次'
-          }}
-        </Button>
-      </section>
+      </TelemetryBatchSection>
     </template>
   </div>
 </template>

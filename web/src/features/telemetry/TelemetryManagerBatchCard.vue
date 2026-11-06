@@ -2,13 +2,6 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { compactNumber, numeric } from './visuals';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
@@ -17,13 +10,12 @@ import type {
   TelemetryOutgoingMessage,
 } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
-import TelemetryContextCard from './TelemetryContextCard.vue';
+import TelemetryContextSection from './TelemetryContextSection.vue';
 import {
   batchMergeLabels,
+  batchStateClass,
   batchStateLabel,
-  completenessLabel,
   formatTimestamp,
-  missingReasonLabel,
 } from './format';
 
 const props = defineProps<{
@@ -51,9 +43,6 @@ const outgoingSummary = computed(() =>
     kindLabel: message.kind === 'send' ? '发送' : '留言',
   })),
 );
-const completenessVariant = computed(() =>
-  props.batch.completeness === 'partial' ? 'secondary' : 'outline',
-);
 
 function recipientKindLabel(
   kind: TelemetryOutgoingMessage['recipientKind'],
@@ -68,21 +57,8 @@ function recipientKindLabel(
 </script>
 
 <template>
-  <Disclosure variant="card" class="min-w-0">
-    <template #summary>
-      <span class="flex items-center justify-between gap-3">
-        <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
-        <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
-      </span>
-      <span class="flex flex-wrap items-center gap-2 text-muted-foreground">
-        <span>{{ batchStateLabel(batch.state) }}</span>
-        <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
-        <span>展开执行详情</span>
-      </span>
-    </template>
-  <Card size="compact"
+  <Disclosure
     class="min-w-0"
-    :data-batch-id="batch.batchId"
     :data-manager-batch-id="batch.batchId"
     :data-side="batch.side"
     :data-involvement="
@@ -95,22 +71,37 @@ function recipientKindLabel(
         : 'none'
     "
   >
-    <CardHeader>
-      <CardTitle class="break-all text-sm">
-        {{ batch.frameworkTurnId }}
-      </CardTitle>
-      <CardDescription class="flex flex-wrap items-center gap-1 text-xs">
+    <template #summary>
+      <span class="flex items-center justify-between gap-3">
+        <span class="min-w-0 truncate font-medium">{{ batch.executor.name }}</span>
+        <span class="shrink-0 tabular-nums">{{ compactNumber(numeric(batch.metrics.totalTokens)) }} token</span>
+      </span>
+      <span class="flex flex-wrap items-center gap-1 text-muted-foreground">
+        <span :class="batchStateClass(batch.state)">{{ batchStateLabel(batch.state) }}</span>
+        <span v-if="batch.anomalies.length" class="text-destructive">{{ batch.anomalies.length }} 项异常</span>
+      </span>
+    </template>
+
+    <div class="flex min-w-0 flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-1">
+        <span class="break-all font-mono text-2xs text-muted-foreground">{{
+          batch.frameworkTurnId
+        }}</span>
         <Badge :variant="batch.side === 'manager' ? 'default' : 'secondary'">
           {{ batch.side === 'manager' ? '管理者侧' : '成员侧' }}
         </Badge>
-        <span>{{ batch.executor.name }} · {{ batch.executor.host }}</span>
+        <Badge variant="outline">{{ batch.executor.host }}</Badge>
         <Badge :variant="batch.side === 'manager' ? 'default' : 'outline'">
           {{ involvementLabel }}
         </Badge>
-        <Badge variant="outline">{{ batchStateLabel(batch.state) }}</Badge>
-      </CardDescription>
-    </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-4">
+        <Badge
+          v-for="label in mergeLabels"
+          :key="label"
+          variant="outline"
+          >{{ label }}</Badge
+        >
+      </div>
+
       <p
         v-if="batch.involvement"
         class="text-xs text-muted-foreground"
@@ -133,6 +124,8 @@ function recipientKindLabel(
         }}
         · endpoint {{ batch.physicalSession.endpointId }}
       </p>
+
+      <Separator />
 
       <section class="flex min-w-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-1">
@@ -184,7 +177,7 @@ function recipientKindLabel(
       <Separator />
 
       <TelemetryMetricGrid :metrics="batch.metrics" :columns="2" />
-      <TelemetryContextCard
+      <TelemetryContextSection
         :context-reference="batch.contextReference"
         title="该批次最近请求采样"
       />
@@ -205,21 +198,18 @@ function recipientKindLabel(
         <template #summary>
           来源与完整性
         </template>
-        <div class="mt-2 flex flex-col gap-1">
-          <div class="flex flex-wrap gap-1">
-            <Badge
-              v-for="key in ['inputTokensTotal', 'outputTokens', 'totalTokens'] as const"
-              :key="key"
-              variant="outline"
-              :data-manager-metric-key="key"
-            >
-              {{ key }}：
-              {{ batch.metrics[key].value == null ? '—' : batch.metrics[key].value }}
-            </Badge>
-          </div>
+        <div class="flex flex-wrap gap-1">
+          <Badge
+            v-for="key in ['inputTokensTotal', 'outputTokens', 'totalTokens'] as const"
+            :key="key"
+            variant="outline"
+            :data-manager-metric-key="key"
+          >
+            {{ key }}：
+            {{ batch.metrics[key].value == null ? '—' : batch.metrics[key].value }}
+          </Badge>
         </div>
       </Disclosure>
-    </CardContent>
-  </Card>
+    </div>
   </Disclosure>
 </template>

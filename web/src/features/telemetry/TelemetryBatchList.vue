@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { LoaderCircle, ListChecks } from '@lucide/vue';
-import { Button } from '@/components/ui/button';
+import { ListChecks } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
-import PanelState from '@/components/panel/PanelState.vue';
 import type { TelemetryBatch } from '@/shared/api/raw-types';
 import TelemetryBatchCard from './TelemetryBatchCard.vue';
+import TelemetryBatchSection from './TelemetryBatchSection.vue';
 import { sharedBatchesAreMerged, sourceSubtotalsExcludeMerged } from './format';
 
 const props = withDefaults(
@@ -47,21 +46,23 @@ const invariantOk = computed(() =>
 </script>
 
 <template>
-  <div class="flex min-w-0 flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-      <Badge variant="outline">批次 {{ batches.length }}</Badge>
-      <Badge v-if="!invariantOk" variant="destructive">归因异常</Badge>
-    </div>
-    <p v-if="!invariantOk" class="text-xs text-destructive">
-      服务端返回的来源小计包含合并批次，或共同批次未列入合并批次；页面不自行重算，请回查 API。
-    </p>
-
-    <PanelState
-      v-if="!batches.length"
-      :icon="ListChecks"
-      :title="emptyTitle"
-      :description="emptyDescription"
-    />
+  <TelemetryBatchSection
+    :count="batches.length"
+    :has-more="Boolean(nextCursor)"
+    :fetching="fetchingNextPage"
+    :empty-icon="ListChecks"
+    :empty-title="emptyTitle"
+    :empty-description="emptyDescription"
+    @load-more="emit('loadMore')"
+  >
+    <template v-if="!invariantOk" #badges>
+      <Badge variant="destructive">归因异常</Badge>
+    </template>
+    <template #notice>
+      <p v-if="!invariantOk" class="text-xs text-destructive">
+        服务端返回的来源小计包含合并批次，或共同批次未列入合并批次；页面不自行重算，请回查 API。
+      </p>
+    </template>
     <TelemetryBatchCard
       v-for="batch in batches"
       :key="batch.batchId"
@@ -69,17 +70,5 @@ const invariantOk = computed(() =>
       :shared="sharedIds.has(batch.batchId)"
       :data-merged="mergedIds.has(batch.batchId) || undefined"
     />
-
-    <Button
-      v-if="nextCursor"
-      variant="outline"
-      size="sm"
-      class="w-full"
-      :disabled="fetchingNextPage"
-      @click="emit('loadMore')"
-    >
-      <LoaderCircle v-if="fetchingNextPage" class="animate-spin" />
-      {{ fetchingNextPage ? '正在加载' : '加载更多批次' }}
-    </Button>
-  </div>
+  </TelemetryBatchSection>
 </template>

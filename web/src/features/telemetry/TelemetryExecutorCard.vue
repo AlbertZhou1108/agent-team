@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { ScrollRegion } from '@/components/ui/scroll-region';
 import type {
   TelemetryContextReference,
   TelemetryCoverage,
@@ -17,7 +18,7 @@ import type {
   TelemetrySessionTelemetry,
 } from '@/shared/api/raw-types';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
-import TelemetryContextCard from './TelemetryContextCard.vue';
+import TelemetryContextSection from './TelemetryContextSection.vue';
 import { formatTimestamp, sessionStatusLabel } from './format';
 
 defineProps<{
@@ -51,58 +52,64 @@ defineProps<{
     <CardContent class="flex min-w-0 flex-col gap-4">
       <p v-if="batchCount === 0 && totals.totalTokens.value == null" class="text-xs text-muted-foreground">暂无执行观测</p>
       <TelemetryMetricGrid v-else :metrics="totals" />
+      <Separator />
       <Disclosure>
         <template #summary>上下文、会话与采集详情</template>
-        <div class="mt-3 flex max-h-[min(28rem,60vh)] min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="上下文、会话与采集详情内容" tabindex="0">
-      <TelemetryContextCard :context-reference="contextReference" />
-      <Separator />
-      <section class="flex min-w-0 flex-col gap-2">
-        <div class="flex items-center justify-between gap-2">
-          <h4 class="text-xs font-semibold">
-            物理 session 累计（{{ physicalSessions.length }}）
-          </h4>
-        </div>
-        <p
-          v-if="!physicalSessions.length"
-          class="text-xs text-muted-foreground"
+        <ScrollRegion
+          label="上下文、会话与采集详情内容"
+          max-height="min(28rem,60vh)"
+          gap="1rem"
         >
-          暂无物理 session 观测。
-        </p>
-        <Disclosure
-          v-for="session in physicalSessions"
-          :key="session.instanceId"
-          variant="card"
-          :data-session-id="session.instanceId"
-        >
-          <template #summary>
-            <Badge variant="outline">{{ session.host }}</Badge>
-            <Badge variant="secondary">{{
-              sessionStatusLabel(session.status)
-            }}</Badge>
-            <span class="font-mono break-all">{{ session.instanceId }}</span>
-          </template>
-          <div class="mt-3 flex flex-col gap-3">
-            <p class="text-muted-foreground">
-              sessionKey {{ session.sessionKey }} · endpoint
-              {{ session.endpointId }} · hostSessionId
-              {{ session.hostSessionId ?? '未提供' }} · 首次观测
-              {{ formatTimestamp(session.firstObservedAt) }} · 重置
-              {{ formatTimestamp(session.resetAt) }}
+          <TelemetryContextSection :context-reference="contextReference" />
+          <Separator />
+          <section class="flex min-w-0 flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="text-xs font-semibold">
+                物理 session 累计（{{ physicalSessions.length }}）
+              </h4>
+            </div>
+            <p
+              v-if="!physicalSessions.length"
+              class="text-xs text-muted-foreground"
+            >
+              暂无物理 session 观测。
             </p>
-            <TelemetryMetricGrid
-              :metrics="session.consumption"
-              :show-detail="false"
-              :columns="2"
-            />
-            <TelemetryContextCard
-              :context-reference="session.contextReference"
-              title="该物理 session 的上下文参考"
-            />
-          </div>
-        </Disclosure>
-      </section>
-      <slot name="footer" />
-        </div>
+            <div v-else class="divide-y divide-border">
+              <Disclosure
+                v-for="session in physicalSessions"
+                :key="session.instanceId"
+                :data-session-id="session.instanceId"
+              >
+                <template #summary>
+                  <Badge variant="outline">{{ session.host }}</Badge>
+                  <Badge variant="secondary">{{
+                    sessionStatusLabel(session.status)
+                  }}</Badge>
+                  <span class="font-mono break-all">{{ session.instanceId }}</span>
+                </template>
+                <div class="flex flex-col gap-3">
+                  <p class="text-muted-foreground">
+                    sessionKey {{ session.sessionKey }} · endpoint
+                    {{ session.endpointId }} · hostSessionId
+                    {{ session.hostSessionId ?? '未提供' }} · 首次观测
+                    {{ formatTimestamp(session.firstObservedAt) }} · 重置
+                    {{ formatTimestamp(session.resetAt) }}
+                  </p>
+                  <TelemetryMetricGrid
+                    :metrics="session.consumption"
+                    :show-detail="false"
+                    :columns="2"
+                  />
+                  <TelemetryContextSection
+                    :context-reference="session.contextReference"
+                    title="该物理 session 的上下文参考"
+                  />
+                </div>
+              </Disclosure>
+            </div>
+          </section>
+          <slot name="footer" />
+        </ScrollRegion>
       </Disclosure>
     </CardContent>
   </Card>

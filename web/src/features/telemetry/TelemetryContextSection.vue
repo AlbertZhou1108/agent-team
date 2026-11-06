@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { computed } from 'vue';
 import type { TelemetryContextReference } from '@/shared/api/raw-types';
 import { CONTEXT_METRIC_LABELS, contextMetricDisplay } from './format';
@@ -27,11 +26,8 @@ const metrics = computed(() =>
 </script>
 
 <template>
-  <Card size="compact">
-    <CardHeader>
-      <CardTitle>{{ title ?? '上下文参考' }}</CardTitle>
-    </CardHeader>
-    <CardContent class="flex min-w-0 flex-col gap-3">
+  <section class="flex min-w-0 flex-col gap-2">
+    <h4 class="text-xs font-semibold">{{ title ?? '上下文参考' }}</h4>
     <dl
       class="grid gap-x-3 gap-y-2"
       :class="columns === 1 ? 'grid-cols-1' : 'grid-cols-3'"
@@ -53,6 +49,5 @@ const metrics = computed(() =>
     <p v-if="contextReference.model" class="text-2xs text-muted-foreground">
       模型：{{ contextReference.model.provider ? `${contextReference.model.provider}/` : '' }}{{ contextReference.model.model }}
     </p>
-    </CardContent>
-  </Card>
+  </section>
 </template>
