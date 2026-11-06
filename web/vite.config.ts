@@ -42,5 +42,13 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // 覆盖率按需开启（npm run coverage:web）；npm test 不传 --coverage，所以不产出报告、不阻断。
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: '../coverage/web',
+      reporter: ['text', 'text-summary', 'json-summary', 'html'],
+      include: ['src/**/*.{ts,vue}'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts'],
+    },
   },
 });

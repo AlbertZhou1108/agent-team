@@ -26,3 +26,6 @@ docs/
 
 # Local release artifacts
 /dist/
+
+# 覆盖率报告产物（P3-2；npm run coverage 生成）
+coverage/
