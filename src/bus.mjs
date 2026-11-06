@@ -8,17 +8,11 @@ import { Telemetry } from './telemetry.mjs';
 import { MessageDispatch } from './message-dispatch.mjs';
 import { BusQueries } from './bus-queries.mjs';
 import { ToolStreams } from './tool-streams.mjs';
-import { toolsFor, validateTool } from './tools.mjs';
+import { toolsFor } from './tools.mjs';
 import { panelToolsFor } from './panel-tools.mjs';
-import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './tool-ops.mjs';
 import { Collaboration } from './collaboration.mjs';
 import { GroupLifecycle } from './group-lifecycle.mjs';
-import { Information, CONTEXT_SCHEMA_VERSION } from './information.mjs';
-import {
-  memberRules,
-  legacyMemberRules,
-  profileIntro,
-} from './prompts.mjs';
+import { Information } from './information.mjs';
 import {
   BUILTIN_PRESET_ID,
   normalizeModelPolicy,
@@ -28,6 +22,7 @@ import { Interactions } from './interactions.mjs';
 import { Attachments } from './attachments.mjs';
 import { PanelSessions } from './panel-sessions.mjs';
 import { TurnExecutor } from './turn-executor.mjs';
+import { ToolDispatch } from './tool-dispatch.mjs';
 import { ArchiveSnapshots } from './archive-snapshots.mjs';
 import { Notes } from './notes.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
@@ -65,6 +60,7 @@ export class Bus extends EventEmitter {
     this.interactions = new Interactions(this);
     this.attachments = new Attachments(this);
     this.panel = new PanelSessions(this);
+    this.toolDispatch = new ToolDispatch(this);
     this.lifecycle = new GroupLifecycle(this);
     this.dispatch = new MessageDispatch(this);
     this.queries = new BusQueries(this);
@@ -411,179 +407,11 @@ export class Bus extends EventEmitter {
     return this.applyMemberModel(groupId, member.id, validated);
   }
   // 任务面板:模型自述当前任务,整体替换自己的列表;无阻塞语义,进度由模型控制。
-  rules(endpoint, schema = this.information.memberSchemaForEndpoint(endpoint.id)) {
-    const member = this.store.member(endpoint.member_id);
-    if (schema === CONTEXT_SCHEMA_VERSION) {
-      const modelPolicy = member.role === 'lead' && ['coordination', 'private'].includes(endpoint.context) ? this.modelPolicy() : null;
-      return memberRules(member, { modelPolicy });
-    }
-    // Legacy sessions keep plain communication rules; their turn inputs stay
-    // raw JSON so old host conversations remain readable.
-    const membersJson = JSON.stringify(this.members(member.group_id).map(({ id, name, profile }) => ({ id, name, profile })));
-    return legacyMemberRules(member, membersJson);
-  }
-  introduce(member) {
-    if (this.closing) return;
-    const endpoint = this.store.conversation('member', member.id, 'profile');
-    this.runEndpoint(endpoint, profileIntro()).catch(error => {
-      if (!this.closing) this.notify(member.group_id, this.teamController(member.group_id).id, `成员 ${member.name} 入群说明失败：${error.message}`);
-    });
-  }
-  async tool(endpointId, key, name, args, provenance = {}) {
-    // 归属由会话行决定,不再依赖 id 前缀约定。
-    if (this.store.conversationById(endpointId)?.owner_kind === 'panel_agent') return this.panelTool(endpointId, key, name, args, provenance);
-    const endpoint = this.store.authenticate(endpointId, key);
-    const member = this.store.member(endpoint.member_id);
-    validateTool(member.role, name, args, endpoint.context);
-    const { turnId, nativeCallId = null } = provenance;
-    if (turnId && this.running.get(endpointId)?.turnId !== turnId) throw new Error('工具不属于当前执行回合');
-    const origin = turnId ? { turnId, callId: randomUUID(), nativeCallId } : null;
-    if (origin) origin.eventSeq = this.events.member(endpointId, { type: 'framework.tool_call', name, args, callId: origin.callId, nativeCallId }, turnId);
-    try {
-      const result = await this.executeTool(endpointId, key, name, args, origin);
-      this.measureToolCall({ groupId: member.group_id, endpointId, turnId, name, args, result, schema: this.information.toolSchema(turnId, endpointId) });
-      if (origin) this.events.member(endpointId, { type: 'framework.tool_result', callId: origin.callId, result }, turnId);
-      return result;
-    } catch (error) {
-      if (origin) this.events.member(endpointId, { type: 'framework.tool_result', callId: origin.callId, error: error.message }, turnId);
-      throw error;
-    }
-  }
-  measureToolCall({ groupId, endpointId, turnId, name, args, result, schema }) {
-    if (!turnId) return;
-    try {
-      const detail = { view: result?.view ?? null, complete: result?.complete ?? null, hasMore: result?.hasMore ?? null };
-      if (args?.messageId) {
-        detail.expansion = true;
-        detail.messageId = args.messageId;
-        detail.offset = result?.offset ?? args.offset ?? 0;
-        detail.bodyLimit = args.bodyLimit ?? null;
-        detail.next = result?.next ?? null;
-      }
-      if (args?.itemId) detail.itemId = args.itemId;
-      if (Array.isArray(result?.omissions)) detail.omissions = result.omissions.length;
-      this.information.measureToolResult({ groupId, endpointId, turnId, schemaVersion: schema, name, result, detail });
-    } catch {
-      // Measurement is observational and must never change a tool outcome.
-    }
-  }
-  async executeTool(endpointId, key, name, args, origin) {
-    const endpoint = this.store.authenticate(endpointId, key);
-    const member = this.store.member(endpoint.member_id);
-    validateTool(member.role, name, args, endpoint.context);
-    const groupId = member.group_id;
-    if (name === 'model_catalog') return this.modelCatalog({ refresh: true });
-    if (name === 'members') return this.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
-    if (name === 'read') {
-      const schema = this.information.toolSchema(origin?.turnId, endpoint.id);
-      return readSharedMessages(this, {
-        groupId,
-        args,
-        schema,
-        resolveSenderId: sender => (sender ? this.resolveMember(groupId, sender).id : null),
-      });
-    }
-    if (name === 'profile_set') { teamsAgg.updateMemberProfile(this.store, member.id, args.text); return { member: member.id, profile: args.text }; }
-    if (name === 'send' || name === 'note') {
-      this.collaboration.requireCommunication(groupId);
-      const target = this.resolveRecipient(groupId, args.to);
-      if (target.id === member.id) throw new Error('不能向自己发消息');
-      const expectsReply = name === 'send' && args.expects_reply === true;
-      if (name === 'send' && args.reply_to !== undefined) {
-        assertReplyTarget(this.store, groupId, args.reply_to, member.id, target.id);
-      }
-      const message = appendRoutedMessage(this.store, {
-        groupId,
-        senderId: member.id,
-        targetId: target.id,
-        kind: name,
-        text: args.text,
-        replyTo: args.reply_to ?? null,
-        expectsReply,
-        origin,
-      });
-      this.emit('message', message);
-      if (origin?.turnId) {
-        this.completeToolMessageStream(
-          origin.turnId,
-          name,
-          args,
-          { messageId: message.id },
-          origin.nativeCallId,
-        );
-      }
-      queueMicrotask(() => this.pump());
-      return { messageId: message.id };
-    }
-    if (name === 'ask') {
-      // 先校验入参形态,再判回合来源:参数错误与上下文错误各自给出明确原因。
-      assertAskCard(args);
-      if (!origin) throw new Error('互动卡只能在执行回合内发出');
-      this.collaboration.requireCommunication(groupId);
-      if (member.role !== 'lead') this.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
-      // 卡片是唯一展示面:锚点消息只为答复 reply_to 与群记录存在,面板不渲染它的正文。
-      const payload = askCardPayload(args);
-      const message = appendRoutedMessage(this.store, {
-        groupId,
-        senderId: member.id,
-        targetId: 'user',
-        kind: 'send',
-        text: payload.text,
-        origin,
-      });
-      this.emit('message', message);
-      const interaction = this.store.createInteraction({
-        id: randomUUID(),
-        groupId,
-        memberId: member.id,
-        endpointId: endpoint.id,
-        context: endpoint.context,
-        turnId: origin.turnId,
-        callId: origin.callId,
-        messageId: message.id,
-        kind: payload.kind,
-        payload,
-      });
-      return { interaction: interaction.id, state: interaction.state };
-    }
-    if (name === 'tasks_set') {
-      return this.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
-    }
-    if (name === 'groups') return teamsAgg.groupsAll(this.store);
-    if (name === 'group_create') {
-      const people = (args.members ?? '').split(',').filter(Boolean).map(item => {
-        const [name, host, ...extra] = item.trim().split('=');
-        if (!name || !host || extra.length) throw new Error('成员格式应为 名称=宿主');
-        this.requireHost(host);
-        return { name, host };
-      });
-      return this.requestGroupAction(member, endpoint, origin, 'group_create',
-        `请求创建团队「${args.name}」（工作区 ${args.workspace}）`,
-        { name: args.name, workspace: args.workspace, lead: { name: member.name, host: member.host }, members: people });
-    }
-    if (name === 'group_add') {
-      this.requireHost(args.host);
-      if (args.name.trim().length > 100) throw new Error('成员名称无效');
-      return this.requestGroupAction(member, endpoint, origin, 'group_add',
-        `请求向本群添加成员 ${args.name}（${args.host}）`,
-        { name: args.name, host: args.host });
-    }
-    if (name === 'group_remove') return this.removeMember(groupId, args.member);
-    if (name === 'group_delete') {
-      return this.requestGroupAction(member, endpoint, origin, 'group_delete',
-        `请求删除群 ${this.store.group(groupId).name} 的配置与消息记录`,
-        {});
-    }
-    if (name === 'member_model') {
-      const target = this.resolveMember(groupId, args.member);
-      if (target.role !== 'member') throw new Error('member_model 只能调整普通成员');
-      const selection = await this.validateMemberModelSelection(target, args);
-      return this.requestGroupAction(member, endpoint, origin, 'member_model',
-        `请求将成员 ${target.name} 的模型调整为 ${memberModelSummary(selection)}`,
-        { member: args.member, ...(selection ?? {}) });
-    }
-    throw new Error('工具不存在');
-  }
+  rules(...args) { return this.toolDispatch.rules(...args); }
+  introduce(...args) { return this.toolDispatch.introduce(...args); }
+  async tool(...args) { return this.toolDispatch.tool(...args); }
+  measureToolCall(...args) { return this.toolDispatch.measureToolCall(...args); }
+  async executeTool(...args) { return this.toolDispatch.executeTool(...args); }
   notify(...args) { return this.dispatch.notify(...args); }
   pump(...args) { return this.dispatch.pump(...args); }
   canRun(...args) { return this.dispatch.canRun(...args); }
