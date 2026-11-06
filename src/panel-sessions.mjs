@@ -8,6 +8,9 @@ import { panelCoordinationInstructions, panelPrivateInstructions } from './promp
 import { panelToolsFor, validatePanelTool } from './panel-tools.mjs';
 import { attachmentError } from './attachments.mjs';
 import { ensureDefaultPanelWorkspace } from './default-workspace.mjs';
+import * as messagesAgg from './aggregates/messages.mjs';
+import * as turnsAgg from './aggregates/turns.mjs';
+import * as conversationsAgg from './aggregates/conversations.mjs';
 
 // Panel 会话模块:Panel Agent 创建配置、私聊协作回合、面板更新与 Panel 工具。
 
@@ -106,7 +109,7 @@ export class PanelSessions {
          ORDER BY u.created DESC LIMIT 100`,
         agent.id,
       ).map(row => this.bus.panelUpdate(row)),
-      sessions: this.bus.store.all('SELECT id,context,group_id,session,updated FROM conversations WHERE panel_agent_id=? ORDER BY created', agent.id),
+      sessions: conversationsAgg.sessionsForPanelAgent(this.bus.store, agent.id),
       teams: this.bus.panelTeamViews(),
       conversation: this.withPanelAttachments(
         agent.id,
@@ -210,7 +213,7 @@ export class PanelSessions {
         now,
         now,
       );
-      this.bus.store.conversation('panel_agent', id, 'private');
+      conversationsAgg.forPanelAgent(this.bus.store, id, 'private');
     });
     this.bus.ensurePanelBindings();
     return this.bus.panelAgentState();
@@ -270,9 +273,9 @@ export class PanelSessions {
         agent.id,
       );
       if (hostModelChanged) {
-        this.bus.store.run("UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=?", now, agent.id);
+        conversationsAgg.clearSessionsForPanelAgent(this.bus.store, agent.id);
       } else if (privateChanged) {
-        this.bus.store.run("UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=? AND context='private'", now, agent.id);
+        conversationsAgg.clearSessionsForPanelAgent(this.bus.store, agent.id, { privateOnly: true });
       }
     });
     return this.bus.panelAgentState();
@@ -329,9 +332,7 @@ export class PanelSessions {
     validatePanelTool(session.context, name, args);
     const turnId = provenance.turnId;
     if (turnId && this.bus.running.get(sessionId)?.turnId !== turnId) throw new Error('工具不属于当前 Panel Agent 执行回合');
-    const recordedTurn = turnId
-      ? this.bus.store.get('SELECT active_team_id FROM turns WHERE id=? AND conversation_id=?', turnId, sessionId)
-      : null;
+    const recordedTurn = turnId ? turnsAgg.find(this.bus.store, turnId, sessionId) : null;
     const activeTeamId = recordedTurn
       ? recordedTurn.active_team_id ?? null
       : provenance.activeTeamId ?? null;
@@ -420,10 +421,7 @@ export class PanelSessions {
         throw new Error('团队更新必须与当前 activeTeamId 一致，请先切换团队上下文');
       }
       const sourceMessageIds = origin.turnId
-        ? this.bus.store.all(
-            'SELECT message_id FROM turn_inputs WHERE turn_id=? ORDER BY ordinal',
-            origin.turnId,
-          ).map(row => row.message_id)
+        ? turnsAgg.inputMessageIds(this.bus.store, origin.turnId)
         : [];
       const update = this.bus.publishPanelUpdate({
         panelAgentId: panelAgent.id,
@@ -453,8 +451,7 @@ export class PanelSessions {
       });
     }
     if (name === 'team_message_trace') {
-      const message = this.bus.store.get('SELECT id FROM messages WHERE id=? AND group_id=?', args.messageId, group.id);
-      if (!message) throw new Error('消息不属于当前团队');
+      if (!messagesAgg.existsInGroup(this.bus.store, args.messageId, group.id)) throw new Error('消息不属于当前团队');
       return this.bus.store.messageTrace(args.messageId);
     }
     if (name === 'team_turn_trace') {
@@ -467,7 +464,7 @@ export class PanelSessions {
     if (origin.activeTeamId !== group.id) {
       throw new Error('团队写操作必须与当前 activeTeamId 一致，请先切换团队上下文');
     }
-    const coordination = this.bus.store.conversation('panel_agent', panelAgent.id, 'coordination', { groupId: group.id });
+    const coordination = conversationsAgg.forPanelAgent(this.bus.store, panelAgent.id, 'coordination', { groupId: group.id });
     if (coordination.id !== session.id && this.bus.running.has(coordination.id)) {
       throw new Error('该团队的 Panel Agent coordination 正在运行，请等待后再写入');
     }
@@ -576,7 +573,7 @@ export class PanelSessions {
     onAccepted = () => {},
   }) {
     if (this.bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行');
-    if (this.bus.store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", session.id)) {
+    if (turnsAgg.hasUnknown(this.bus.store, session.id)) {
       throw new Error('Panel Agent 会话存在待核实运行，请先核实宿主已经停止');
     }
     if (session.context === 'coordination') {
@@ -629,11 +626,11 @@ export class PanelSessions {
       }),
       accepted: turnId => onAccepted(turnId),
       onSession: (turnId, value) => {
-        this.bus.store.setConversationSession(session.id, value);
+        conversationsAgg.setSession(this.bus.store, session.id, value);
         session.session = value;
       },
       onPolicy: (turnId, signature) => {
-        this.bus.store.setConversationPolicySignature(session.id, signature);
+        conversationsAgg.setPolicySignature(this.bus.store, session.id, signature);
         session.policy_signature = signature;
       },
       onStart: turnId => this.bus.events.panel(session.id, {
@@ -701,13 +698,13 @@ export class PanelSessions {
       getHostSessionId: () => session.session ?? null,
       onComplete: (turnId, result, abort) => {
         if (result) {
-          const finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', turnId)?.active_team_id ?? activeTeamId;
+          const finalActiveTeamId = turnsAgg.find(this.bus.store, turnId)?.active_team_id ?? activeTeamId;
           this.bus.store.panelAppend(panelAgent.id, session.context, 'assistant', String(result), finalActiveTeamId);
         }
         const publishedReplies = !abort.signal.aborted && session.context === 'coordination'
           ? this.bus.teamDirectives.publishOutput(turnId, result)
           : [];
-        return publishedReplies?.[0] ?? this.bus.store.get("SELECT m.* FROM messages m JOIN message_origins o ON o.message_id=m.id WHERE o.turn_id=? AND m.recipient='user' AND m.reply_to IS NOT NULL ORDER BY m.seq DESC LIMIT 1", turnId) ?? null;
+        return publishedReplies?.[0] ?? messagesAgg.finalReplyForTurn(this.bus.store, turnId);
       },
       nativeTurnEvent: true,
       failureDetail: false,
@@ -813,7 +810,7 @@ export class PanelSessions {
 
     // 宿主调用前准备附件输入;文件缺失在此明确报错,不悄悄只发文字。
     const preparedAttachments = attachmentIds.length ? this.bus.attachmentPrepare(panelAgent.id, attachmentIds) : [];
-    const session = this.bus.store.conversation('panel_agent', panelAgent.id, 'private');
+    const session = conversationsAgg.forPanelAgent(this.bus.store, panelAgent.id, 'private');
     let accepted = false;
     let acceptedTurnId = null;
     try {
@@ -831,7 +828,7 @@ export class PanelSessions {
       });
       let finalActiveTeamId = activeTeamId ?? null;
       if (acceptedTurnId) {
-        finalActiveTeamId = this.bus.store.get('SELECT active_team_id FROM turns WHERE id=?', acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
+        finalActiveTeamId = turnsAgg.find(this.bus.store, acceptedTurnId)?.active_team_id ?? finalActiveTeamId;
       }
       if (finalActiveTeamId && finalActiveTeamId !== (activeTeamId ?? null)) {
         this.bus.store.run('UPDATE panel_messages SET active_team_id=? WHERE id=?', finalActiveTeamId, user.id);
@@ -857,9 +854,9 @@ export class PanelSessions {
   }
   resolvePanelRuntime(turnId, reason) {
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');
-    const turn = this.bus.store.get("SELECT * FROM turns WHERE id=? AND executor_kind='panel_agent' AND state='unknown'", turnId);
+    const turn = turnsAgg.unknownPanelTurn(this.bus.store, turnId);
     if (!turn) throw new Error('待核实 Panel Agent 运行不存在');
-    this.bus.store.setTurnState(turnId, 'stopped');
+    turnsAgg.setState(this.bus.store, turnId, 'stopped');
     this.bus.events.panel(turn.conversation_id, {
       type: 'framework.runtime_verified_by_user',
       turnId,
@@ -871,7 +868,7 @@ export class PanelSessions {
   panelInteractionAnchor(session, panelAgent, origin, text) {
     if (session.context === 'coordination') {
       const groupId = session.group_id;
-      const message = this.bus.store.append(groupId, panelAgent.id, 'user', 'send', text);
+      const message = messagesAgg.append(this.bus.store, groupId, panelAgent.id, 'user', 'send', text);
       this.bus.emit('message', message);
       return { groupId, messageId: message.id, panelMessageId: null };
     }
@@ -936,23 +933,15 @@ export class PanelSessions {
   enqueuePanelPrivateAnswer(agentId, text) {
     const agent = this.bus.panelAgent();
     if (!agent || agent.id !== agentId) return;
-    const session = this.bus.store.conversation('panel_agent', agent.id, 'private');
+    const session = conversationsAgg.forPanelAgent(this.bus.store, agent.id, 'private');
     this.bus.store.transaction(() => {
       const row = this.bus.store.panelAppend(agent.id, 'private', 'user', text, null);
-      this.bus.store.run('INSERT INTO outbox(id,conversation_id,payload) VALUES(?,?,?)',
-        randomUUID(),
-        session.id,
-        JSON.stringify({ kind: 'panel-private', panelMessageId: row.id }),
-      );
+      messagesAgg.enqueueDelivery(this.bus.store, randomUUID(), session.id, { kind: 'panel-private', panelMessageId: row.id });
     });
     queueMicrotask(() => this.bus.pump());
   }
 
   panelUnknown(groupId = null) {
-    return this.bus.store.all(
-      `SELECT t.*,c.context AS session_context FROM turns t JOIN conversations c ON c.id=t.conversation_id
-       WHERE t.executor_kind='panel_agent' AND t.state='unknown' ${groupId ? 'AND t.group_id=?' : ''} ORDER BY t.created`,
-      ...(groupId ? [groupId] : []),
-    );
+    return turnsAgg.unknownPanelTurns(this.bus.store, groupId);
   }
 }

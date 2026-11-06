@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
 import { roleNameKey } from './collaboration.mjs';
+import * as messagesAgg from './aggregates/messages.mjs';
+import * as conversationsAgg from './aggregates/conversations.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -28,9 +30,9 @@ export class GroupLifecycle {
     if (running.length) throw new Error('团队仍有运行中回合，不能切换控制者');
     if (this.bus.collaboration.unknown(groupId).length) throw new Error('团队存在待核实运行，不能切换控制者');
     if (this.bus.panelUnknown(groupId).length) throw new Error('Panel Agent 团队上下文存在待核实运行，不能切换控制者');
-    const pending = this.bus.store.pending().filter(message => message.group_id === groupId);
+    const pending = messagesAgg.pending(this.bus.store).filter(message => message.group_id === groupId);
     if (pending.length) throw new Error(`团队仍有未处理正式消息，不能切换控制者: ${pending.map(message => `${message.seq}:${message.id}`).join(', ')}`);
-    if (this.bus.store.get('SELECT 1 FROM outbox WHERE accepted IS NULL AND error IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE group_id=?)', groupId)) {
+    if (messagesAgg.hasPendingDeliveryForGroup(this.bus.store, groupId)) {
       throw new Error('团队仍有待投递消息，不能切换控制者');
     }
   }
@@ -66,7 +68,7 @@ export class GroupLifecycle {
         now,
         now,
       );
-      this.bus.store.conversation('panel_agent', panelAgent.id, 'coordination', { groupId: group.id });
+      conversationsAgg.forPanelAgent(this.bus.store, panelAgent.id, 'coordination', { groupId: group.id });
       this.bus.store.run(
         "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
         now,
@@ -295,12 +297,12 @@ export class GroupLifecycle {
     const member = this.bus.resolveMember(groupId, memberId);
     if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
     this.bus.store.run('UPDATE members SET removed=? WHERE id=?', new Date().toISOString(), member.id);
-    this.bus.store.run('UPDATE messages SET awaiting=0 WHERE recipient=? AND awaiting=1', member.id);
+    messagesAgg.clearAwaitingForRecipient(this.bus.store, member.id);
     for (const row of this.bus.store.pendingMemberInteractions(groupId, member.id)) this.bus.store.setInteractionState(row.id, 'cancelled');
     await this.bus.stopWhere(endpoint => endpoint.member_id === member.id);
     // 已移除成员不会再接收输入。等待回合收尾后丢弃未接受的投递队列，
     // 消息与回合历史仍保留；避免重试重新激活永远无法投递的条目。
-    this.bus.store.run('DELETE FROM outbox WHERE accepted IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE member_id=?)', member.id);
+    messagesAgg.discardPendingDeliveriesForMember(this.bus.store, member.id);
     return { removed: member.id };
   }
   async deleteGroup(groupId, { archivedOnly = false } = {}) {
@@ -313,7 +315,7 @@ export class GroupLifecycle {
       const snapshot = this.bus.store.get('SELECT id FROM archive_snapshots WHERE group_id=?', groupId);
       if (snapshot) await this.bus.archiveSnapshots.pending.get(snapshot.id);
       const s = this.bus.store;
-      const conversations = s.all('SELECT id FROM conversations WHERE group_id=?', groupId);
+      const conversations = conversationsAgg.idsForGroup(s, groupId);
       s.transaction(() => {
         // 这些引用没有外键，需要在级联删除来源行之前清理。
         s.run(`DELETE FROM workbench_dismissals WHERE
@@ -352,7 +354,7 @@ export class GroupLifecycle {
   directive(groupId, text) {
     this.bus.collaboration.requireCommunication(groupId);
     const controller = this.bus.teamController(groupId);
-    const message = this.bus.store.append(groupId, 'user', controller.id, 'send', text);
+    const message = messagesAgg.append(this.bus.store, groupId, 'user', controller.id, 'send', text);
     queueMicrotask(() => this.bus.pump()); return { messageId: message.id };
   }
 }

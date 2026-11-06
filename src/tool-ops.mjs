@@ -1,9 +1,10 @@
 // 工具操作共享核心:成员工具(bus.executeTool)与 Panel 工具(panel.executePanelTool)
 // 的重合逻辑收口在此,执行器只保留工具名分发与执行者差异(权限门禁、目标解析、锚点)。
+import * as messagesAgg from './aggregates/messages.mjs';
 
 /** 回复指向校验:只能回复发给自己、期待答复的 send,且答复对象必须是原请求发送者。 */
 export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
-  const replyTarget = store.get('SELECT * FROM messages WHERE id=? AND group_id=?', replyTo, groupId);
+  const replyTarget = messagesAgg.replyTarget(store, replyTo, groupId);
   if (!replyTarget) throw new Error('回复的原消息不存在或不属于当前团队');
   if (replyTarget.kind !== 'send' || replyTarget.expects_reply !== 1) throw new Error('只能回复一条期待答复的消息');
   if (replyTarget.recipient !== senderId) throw new Error('不能回复不是发给自己的请求');
@@ -13,10 +14,15 @@ export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
 /** 落一条带来源的正式消息:消息与 message_origins 同事务;无回合来源时不写 origins。 */
 export function appendRoutedMessage(store, { groupId, senderId, targetId, kind, text, replyTo = null, expectsReply = false, origin = null }) {
   return store.transaction(() => {
-    const value = store.append(groupId, senderId, targetId, kind, text, replyTo, expectsReply);
+    const value = messagesAgg.append(store, groupId, senderId, targetId, kind, text, replyTo, expectsReply);
     if (origin) {
-      store.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)',
-        value.id, origin.turnId ?? null, origin.eventSeq ?? null, origin.callId, origin.nativeCallId ?? null);
+      messagesAgg.insertOrigin(store, {
+        messageId: value.id,
+        turnId: origin.turnId ?? null,
+        eventSeq: origin.eventSeq ?? null,
+        callId: origin.callId,
+        nativeCallId: origin.nativeCallId ?? null,
+      });
     }
     return value;
   });

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import * as messagesAgg from './aggregates/messages.mjs';
+import * as turnsAgg from './aggregates/turns.mjs';
 
 // Both entry points use TeamDirectives; this module owns private-source linkage.
 export class TeamRequests {
@@ -26,7 +28,7 @@ export class TeamRequests {
   submit(session, agent, origin, { groupId, text, operationId }) {
     const s = this.bus.store;
     if (session.context !== 'private' || !origin.turnId) throw new Error('团队转交需要当前私人用户回合');
-    const turn = s.get('SELECT t.*,t.conversation_id AS session_id FROM turns t WHERE t.id=? AND t.conversation_id=?', origin.turnId, session.id);
+    const turn = turnsAgg.find(s, origin.turnId, session.id);
     const user = turn?.source_user_message_id && s.get("SELECT * FROM panel_messages WHERE id=? AND panel_agent_id=? AND role='user' AND context='private'", turn.source_user_message_id, agent.id);
     if (!user || turn.state !== 'running' || this.bus.running.get(session.id)?.turnId !== turn.id) throw new Error('团队转交缺少可信的原始用户消息');
     const previous = s.get('SELECT * FROM team_requests WHERE panel_agent_id=? AND source_user_message_id=? AND operation_id=?', agent.id, user.id, operationId);
@@ -49,10 +51,10 @@ export class TeamRequests {
     this.bus.requirePanelMain(agent.id, session.group_id);
     const request = s.get('SELECT * FROM team_requests WHERE id=? AND panel_agent_id=? AND group_id=?', requestId, agent.id, session.group_id);
     if (!request) throw new Error('请求不属于当前团队');
-    const turn = s.get("SELECT t.*,t.conversation_id AS session_id FROM turns t WHERE t.id=? AND t.conversation_id=? AND t.state='running'", origin.turnId, session.id);
+    const turn = turnsAgg.find(s, origin.turnId, session.id, { state: 'running' });
     if (!turn || this.bus.running.get(session.id)?.turnId !== turn.id) throw new Error('回执不属于当前执行回合');
     for (const id of sourceMessageIds) {
-      if (!s.get('SELECT id FROM messages WHERE id=? AND group_id=?', id, session.group_id)) throw new Error('回执来源消息不属于当前团队');
+      if (!messagesAgg.existsInGroup(s, id, session.group_id)) throw new Error('回执来源消息不属于当前团队');
     }
     const previous = s.get('SELECT * FROM team_request_receipts WHERE request_id=? AND operation_id=?', requestId, operationId);
     if (previous) {
@@ -60,8 +62,8 @@ export class TeamRequests {
       return previous;
     }
     const receipt = s.transaction(() => {
-      const message = s.append(session.group_id, agent.id, 'user', 'send', text, request.message_id);
-      s.run('INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) VALUES(?,?,?,?,?)', message.id, turn.id, null, origin.callId, origin.nativeCallId ?? null);
+      const message = messagesAgg.append(s, session.group_id, agent.id, 'user', 'send', text, request.message_id);
+      messagesAgg.insertOrigin(s, { messageId: message.id, turnId: turn.id, callId: origin.callId, nativeCallId: origin.nativeCallId ?? null });
       const id = randomUUID();
       s.run('INSERT INTO team_request_receipts(id,request_id,source_turn_id,operation_id,text,source_message_ids,created) VALUES(?,?,?,?,?,?,?)', id, requestId, turn.id, operationId, text, JSON.stringify([message.id, ...sourceMessageIds]), new Date().toISOString());
       // 团队流的回执消息对私聊不可见(两套消息存储隔离);不在私聊落一条,
@@ -75,7 +77,7 @@ export class TeamRequests {
 
   view(request) {
     return { ...request, delivery: this.bus.teamDirectives.receipt(request.group_id, request.message_id, request.id),
-      receipts: this.bus.store.all('SELECT * FROM team_request_receipts WHERE request_id=? ORDER BY seq', request.id).map(row => ({ ...row, sourceMessageIds: JSON.parse(row.source_message_ids), isSourceCopy: JSON.parse(row.source_message_ids).some(id => this.bus.store.get('SELECT text FROM messages WHERE id=?', id)?.text === row.text) })) };
+      receipts: this.bus.store.all('SELECT * FROM team_request_receipts WHERE request_id=? ORDER BY seq', request.id).map(row => ({ ...row, sourceMessageIds: JSON.parse(row.source_message_ids), isSourceCopy: JSON.parse(row.source_message_ids).some(id => messagesAgg.textOf(this.bus.store, id) === row.text) })) };
   }
   list(agentId, groupId = null) {
     return this.bus.store.all(`SELECT * FROM team_requests WHERE panel_agent_id=? ${groupId ? 'AND group_id=?' : ''} ORDER BY created`, ...[agentId, ...(groupId ? [groupId] : [])]).map(row => this.view(row));
