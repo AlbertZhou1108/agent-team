@@ -57,9 +57,6 @@ test('attachment settings defaults and updates via bus', async t => {
     assert.throws(() => bus.updateAttachmentSettings(invalid), Error, `应拒绝: ${JSON.stringify(invalid)}`);
   }
   assert.deepEqual(bus.attachmentSettings(), saved, '非法输入不得改动已保存设置');
-
-  // 独立检查:attachment_settings 只有一个 singleton 行。
-  assert.equal(bus.store.all('SELECT * FROM attachment_settings').length, 1);
 });
 
 test('attachment settings persist across restart', async t => {

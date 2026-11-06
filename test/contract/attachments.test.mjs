@@ -254,7 +254,6 @@ test('discard removes unsent rows and files; bound or missing attachments are no
   const { bus, agentId, directory } = await setup(t);
   const uploaded = await bus.attachmentUpload(agentId, textBuffer(), { name: 'a.txt' });
   assert.deepEqual(bus.attachmentDiscard(agentId, uploaded.id), { discarded: uploaded.id });
-  assert.equal(bus.store.all('SELECT 1 FROM attachments WHERE id=?', uploaded.id).length, 0);
   assert.equal(readdirSync(attachmentsRoot(directory)).length, 0);
   assert.throws(() => bus.attachmentDiscard(agentId, uploaded.id), error => error.code === 'not_found');
 
@@ -335,7 +334,9 @@ test('bind and cleanup serialize: a cleaned attachment cannot be sent, a bound o
   bus.store.transaction(() => bus.attachments.bindTx(agentId, messageId, [winner.id]));
   ageAttachment(bus, winner.id, 25);
   bus.attachmentCleanup(new Date());
-  assert.ok(bus.store.get('SELECT 1 FROM attachments WHERE id=?', winner.id), '已绑定记录不被清理');
+  const stillReadable = bus.attachmentRead(agentId, winner.id);
+  assert.equal(stillReadable.name, 'w.txt', '已绑定记录不被清理');
+  stillReadable.stream.destroy();
 
   // 先清理后绑定:不能发送一个已经被清理的附件。
   const loser = await bus.attachmentUpload(agentId, textBuffer('loser'), { name: 'l.txt' });
@@ -360,7 +361,8 @@ test('bind validates ownership, duplicates and expiry inside the transaction', a
   // 过期附件不能绑定。
   ageAttachment(bus, uploaded.id, 25);
   assert.throws(() => bus.store.transaction(() => bus.attachments.bindTx(agentId, messageId, [uploaded.id])), error => error.code === 'conflict');
-  assert.equal(bus.store.get('SELECT panel_message_id FROM attachments WHERE id=?', uploaded.id).panel_message_id, null, '失败的绑定不留半套关联');
+  // 失败绑定后附件仍是未发送草稿：公共 discard 只删 panel_message_id IS NULL 的行。
+  assert.deepEqual(bus.attachmentDiscard(agentId, uploaded.id), { discarded: uploaded.id }, '失败的绑定不留半套关联');
 });
 
 test('startup-style part sweep removes stale temp files and keeps fresh ones on periodic runs', async t => {

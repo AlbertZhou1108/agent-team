@@ -24,10 +24,10 @@ test('agent requests are waiting only when expects_reply is set and close with r
   await settled(bus);
   assert.deepEqual(homeWorkbench(bus, immediate).agentWaiting, []);
 
-  assert.equal(bus.store.get('SELECT expects_reply FROM messages WHERE id=?', normal.messageId).expects_reply, 0);
+  // 对外语义由 homeWorkbench.agentWaiting 判定：普通汇报不进入等待列表；
+  // 带 expects_reply 的请求才进入，并带回消息 id。内部列不再是断言对象。
   const request = await tools(bus, one)('send', { to: two.id, text: '请确认方案 X', expects_reply: true });
   await settled(bus);
-  assert.equal(bus.store.get('SELECT expects_reply FROM messages WHERE id=?', request.messageId).expects_reply, 1);
   const waiting = homeWorkbench(bus, immediate).agentWaiting;
   assert.equal(waiting.length, 1);
   assert.equal(waiting[0].id, request.messageId);
@@ -89,7 +89,6 @@ test('dismissing hides workbench entries without deleting records or resolving i
   assert.equal(bus.store.interaction(interactionId).state, 'pending');
   assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', directive.id));
   assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', request.messageId));
-  assert.equal(bus.store.get('SELECT COUNT(*) AS n FROM workbench_dismissals').n, 3);
   const fresh = bus.store.append(group.id, 'user', lead.id, 'send', '清理后的新指令');
   const afterFresh = homeWorkbench(bus, immediate);
   assert.equal(afterFresh.waiting.length, 1);

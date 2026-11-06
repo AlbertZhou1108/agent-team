@@ -45,8 +45,9 @@ test('tasks_set writes, replaces and clears the member task list', async t => {
     ],
   });
   assert.ok(first.updated);
-  let row = f.server.bus.store.get('SELECT * FROM agent_tasks WHERE owner_id=?', f.lead.id);
-  assert.deepEqual(JSON.parse(row.tasks), [
+  // 用公共视图（snapshot/agentTasksView 的同一投影）断言，不直接读 agent_tasks 行。
+  let entry = f.server.bus.agentTasksView(f.group.id).find(item => item.owner_id === f.lead.id);
+  assert.deepEqual(entry.tasks, [
     { text: '梳理接口设计', state: 'doing' },
     { text: '准备评审材料', state: 'doing' },
   ]);
@@ -58,12 +59,12 @@ test('tasks_set writes, replaces and clears the member task list', async t => {
       { text: '准备评审材料', state: 'dropped' },
     ],
   });
-  row = f.server.bus.store.get('SELECT * FROM agent_tasks WHERE owner_id=?', f.lead.id);
-  assert.deepEqual(JSON.parse(row.tasks).map(item => item.state), ['done', 'dropped']);
+  entry = f.server.bus.agentTasksView(f.group.id).find(item => item.owner_id === f.lead.id);
+  assert.deepEqual(entry.tasks.map(item => item.state), ['done', 'dropped']);
 
   // 空数组清空
   await f.server.bus.tool(f.leadEndpoint.id, f.leadEndpoint.key, 'tasks_set', { tasks: [] });
-  assert.ok(!f.server.bus.store.get('SELECT * FROM agent_tasks WHERE owner_id=?', f.lead.id));
+  assert.equal(f.server.bus.agentTasksView(f.group.id).some(item => item.owner_id === f.lead.id), false);
 });
 
 test('snapshot exposes agentTasks scoped to the group with owner kind', async t => {

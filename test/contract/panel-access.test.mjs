@@ -262,8 +262,10 @@ test('Legacy Panel Agent rows migrate to read-only and reset the private host se
   const agent = bus.panelAgent();
   assert.equal(agent.access, 'read-only');
   assert.equal(agent.workspace, null);
-  assert.equal(bus.store.get("SELECT session FROM conversations WHERE id='private-row'").session, null);
-  assert.equal(bus.store.get("SELECT session FROM conversations WHERE id='coordination-row'").session, 'host-coordination');
+  // 迁移结果走公共视图：私聊会话被重置，协作会话保留原 host session。
+  const sessions = bus.panelAgentState().sessions;
+  assert.equal(sessions.find(row => row.context === 'private')?.session ?? null, null);
+  assert.equal(sessions.find(row => row.context === 'coordination')?.session, 'host-coordination');
 });
 
 test('Panel access maps to Codex sandbox and Claude tool configuration', () => {

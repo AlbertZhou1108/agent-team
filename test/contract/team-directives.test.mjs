@@ -27,7 +27,8 @@ test('HTTP directives work without cookies, reject cross-origin/forged identity 
  assert.equal((await f.send({...body,text:'x'.repeat(48001)})).status,400);
  assert.equal((await f.send({...body,sender:'member'})).status,400);
  assert.equal((await f.send({...body,controllerId:'stale-controller'})).status,400);
- assert.equal(f.server.bus.store.all("SELECT * FROM messages WHERE sender='user'").length,1);
+ // 公共预览：只有一次有效指令落库（被拒请求不产生指令）。
+ assert.equal((await f.read()).length,1);
 });
 test('retry after lost acknowledgement is durable, idempotent and reports actual delivery',async t=>{
  const f=await setup(t),body={text:' hello ',operationId:'durable',controllerId:f.group.lead};
@@ -35,9 +36,13 @@ test('retry after lost acknowledgement is durable, idempotent and reports actual
  const duplicate=await(await f.send(body)).json();assert.equal(duplicate.messageId,receipt.messageId);
  assert.equal((await f.send({...body,text:'changed'})).status,400);
  await until(()=>!f.server.bus.running.size);assert.equal((await f.read())[0].status,'delivered');
- const msg=f.server.bus.store.get('SELECT * FROM messages WHERE id=?',receipt.messageId);assert.equal(msg.sender,'user');assert.equal(msg.recipient,f.group.lead);
+ // 公共消息列表校验指令落库的发送者与接收者。
+ const sentMessages=await(await fetch(new URL(`/api/messages?group=${f.group.id}&latest=1`,f.server.url))).json();
+ const msg=sentMessages.find(message=>message.id===receipt.messageId);
+ assert.equal(msg.sender,'user');assert.equal(msg.recipient,f.group.lead);
  await f.restart();const again=await(await f.send(body)).json();assert.equal(again.messageId,receipt.messageId);
- assert.equal(f.server.bus.store.all("SELECT * FROM messages WHERE sender='user'").length,1);
+ // 公共预览：重启 + 幂等重放后仍只有一条指令。
+ assert.equal((await f.read()).length,1);
 });
 test('busy lead queues the next directive and keeps both messages in coordination',async t=>{
  let release;let first=true;
@@ -135,7 +140,9 @@ test('empty and failed outputs never fabricate a user reply', async t => {
  for(const operationId of ['empty','error']){
   const input=await(await f.send({text:'状态',operationId,controllerId:f.group.lead})).json();
   await until(()=>!f.server.bus.running.size);await tick();
-  assert.equal(f.server.bus.store.all('SELECT * FROM messages WHERE reply_to=?',input.messageId).length,0);
+  // 公共消息列表（/api/messages）里没有 reply_to 指向这条指令的伪造回复。
+  const groupMessages=await(await fetch(new URL(`/api/messages?group=${f.group.id}&latest=1`,f.server.url))).json();
+  assert.equal(groupMessages.filter(message=>message.reply_to===input.messageId).length,0);
   fail=true;
  }
 });

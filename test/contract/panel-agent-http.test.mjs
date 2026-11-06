@@ -89,7 +89,9 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const conversation = await (await fetch(base + '/api/panel-agent')).json();
   assert.deepEqual(conversation.conversation.map(message => message.role), ['user', 'assistant']);
   assert.equal(conversation.conversation[0].active_team_id, null);
-  assert.equal(server.bus.store.all('SELECT * FROM messages WHERE text=?', '总结当前团队').length, 0);
+  // 公共消息投影里没有这条私人聊天（panel 私聊不写群消息）。
+  const groupMessages = await (await fetch(base + `/api/messages?group=${group.id}`)).json();
+  assert.equal(groupMessages.some(message => message.text === '总结当前团队'), false);
 
   const privateSession = server.bus.store.panelSession(created.agent.id, 'private');
   const approvedTeam = await server.bus.panelTool(
@@ -139,7 +141,9 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   const afterTeamChat = await (await fetch(base + '/api/panel-agent')).json();
   assert.equal(afterTeamChat.conversation.at(-1).active_team_id, null);
   assert.equal(afterTeamChat.conversation.length, beforeTeamChat);
-  assert.equal(server.bus.store.get('SELECT recipient FROM messages WHERE id=?', teamFirstChat.messageId).recipient, created.agent.id);
+  // 公共消息列表里该指令的 recipient 是 Panel Agent 身份。
+  const teamMessages = await (await fetch(base + `/api/messages?group=${group.id}&latest=1`)).json();
+  assert.equal(teamMessages.find(message => message.id === teamFirstChat.messageId)?.recipient, created.agent.id);
 
   const staleHandback = await fetch(base + `/api/teams/${group.id}/handback`, {
     method: 'POST',
@@ -234,7 +238,9 @@ test('panel messages accept clientMessageId with attachments and replay idempote
   const replayed = await retry.json();
   assert.equal(replayed.message.id, sent.message.id);
   assert.equal(replayed.result.replayed, true);
-  assert.equal(bus.store.get("SELECT COUNT(*) AS count FROM panel_messages WHERE role='user'").count, 1);
+  // 公共记录投影：幂等重放没有追加第二条 user 消息。
+  const records = await (await fetch(base + '/api/panel-agent/records')).json();
+  assert.equal(records.messages.filter(message => message.role === 'user').length, 1);
 
   // 同 ID 不同正文 → 409 稳定错误。
   const conflict = await fetch(base + '/api/panel-agent/messages', {

@@ -1,0 +1,14 @@
+{
+  "note": "check-layering 规则 A 存量基线：test/contract 断言直读 store 行的按文件计数。迁移后运行 node scripts/check-layering.mjs --update-baseline 下调；只允许下降，新增由检查阻断。",
+  "total": 33,
+  "files": {
+    "test/contract/agent-waiting.test.mjs": 2,
+    "test/contract/archive-communication.test.mjs": 1,
+    "test/contract/attachments.test.mjs": 2,
+    "test/contract/core.test.mjs": 16,
+    "test/contract/information.test.mjs": 2,
+    "test/contract/panel-agent.test.mjs": 8,
+    "test/contract/productivity.test.mjs": 1,
+    "test/contract/role-lifecycle.test.mjs": 1
+  }
+}

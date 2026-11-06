@@ -57,7 +57,7 @@ async function upload(url, body, { name = 'a.txt', type = 'text/plain', headers 
 }
 
 test('upload succeeds with 201 JSON and no path leakage', async t => {
-  const { url, bus } = await setup(t);
+  const { url } = await setup(t);
   const response = await upload(url, Buffer.from('附件内容'));
   assert.equal(response.status, 201);
   assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
@@ -66,7 +66,10 @@ test('upload succeeds with 201 JSON and no path leakage', async t => {
   assert.equal(uploaded.name, 'a.txt');
   assert.equal(uploaded.mediaType, 'text/plain');
   assert.equal(uploaded.size, Buffer.byteLength('附件内容'));
-  assert.ok(bus.store.get('SELECT 1 FROM attachments WHERE id=?', uploaded.id));
+  // 公共下载入口能读回刚上传的内容（不依赖内部附件行）。
+  const download = await fetch(new URL(`/api/panel-agent/attachments/${uploaded.id}`, url));
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), '附件内容');
 });
 
 test('upload validates headers and media type without depending on workspace', async t => {

@@ -83,7 +83,8 @@ test('ask takes either a single question or 2-8 steps and rejects a mixture', as
     () => ask({ steps: [step('input', '一'), step('input', '二')] }),
     /只能在执行回合内发出/,
   );
-  assert.equal(f.server.bus.store.all('SELECT id FROM interactions WHERE group_id=?', f.group.id).length, 0);
+  // 公共 HTTP 投影：没有建出任何互动卡。
+  assert.deepEqual(await (await fetch(new URL(`/api/interactions?group=${f.group.id}`, f.server.url))).json(), []);
 });
 
 test('multi-step ask keeps one pending card and delivers one combined answer', async t => {
@@ -455,12 +456,12 @@ test('group_add becomes an interaction card and approval performs the add', asyn
   await until(() => f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='group_add'", f.group.id));
   const row = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='group_add'", f.group.id);
   assert.equal(row.state, 'pending');
-  assert.equal(f.server.bus.store.get("SELECT COUNT(*) n FROM members WHERE group_id=? AND name='新成员'", f.group.id).n, 0);
+  assert.equal(f.server.bus.members(f.group.id).some(member => member.name === '新成员'), false);
 
   // 拒绝 → 不加入,结果回送
   const rejected = f.server.bus.decideInteraction(row.id, { approved: false });
   assert.equal(rejected.state, 'answered');
-  assert.equal(f.server.bus.store.get("SELECT COUNT(*) n FROM members WHERE group_id=? AND name='新成员'", f.group.id).n, 0);
+  assert.equal(f.server.bus.members(f.group.id).some(member => member.name === '新成员'), false);
   await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND text LIKE '%用户已拒绝%'", f.group.id));
 
   // 再次请求 → 新卡;同意 → 成员加入
@@ -472,7 +473,7 @@ test('group_add becomes an interaction card and approval performs the add', asyn
   const second = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='group_add' AND state='pending'", f.group.id);
   const approved = f.server.bus.decideInteraction(second.id, { approved: true });
   assert.equal(approved.state, 'answered');
-  assert.equal(f.server.bus.store.get("SELECT COUNT(*) n FROM members WHERE group_id=? AND name='新成员' AND removed IS NULL", f.group.id).n, 1);
+  assert.equal(f.server.bus.members(f.group.id).filter(member => member.name === '新成员').length, 1);
   await until(() => f.server.bus.store.get("SELECT 1 FROM messages WHERE group_id=? AND text LIKE '%已生效%'", f.group.id));
 });
 
@@ -538,14 +539,18 @@ test('member_model becomes an interaction card and approval updates the member m
     c.onAccepted(); return 'done';
   }, { members: [{ name: '助手', host: 'fake' }] });
   f.server.bus.directive(f.group.id, '调整模型');
-  await until(() => f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model'", f.group.id));
-  // 同参数重复申请复用同一张卡
-  assert.equal(f.server.bus.store.get(
-    "SELECT COUNT(*) n FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'",
-    f.group.id,
-  ).n, 1);
-  const row = f.server.bus.store.get("SELECT * FROM interactions WHERE group_id=? AND kind='member_model' AND state='pending'", f.group.id);
-  const payload = JSON.parse(row.payload);
+  const memberModelCards = async () => (await (await fetch(new URL(`/api/interactions?group=${f.group.id}`, f.server.url))).json())
+    .filter(card => card.kind === 'member_model');
+  let pendingCards = await memberModelCards();
+  for (let index = 0; index < 300 && !pendingCards.length; index += 1) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    pendingCards = await memberModelCards();
+  }
+  assert.ok(pendingCards.length > 0, '互动卡应已写入');
+  // 同参数重复申请复用同一张卡（公共 HTTP 投影上只有一张 pending）
+  assert.equal(pendingCards.filter(card => card.state === 'pending').length, 1);
+  const row = pendingCards.find(card => card.state === 'pending');
+  const payload = row.payload;
   assert.equal(payload.args.member, '助手');
   assert.equal(payload.cardOnly, true, '动作卡的锚点消息同样只作记录');
   assert.equal(payload.args.model, 'test');
