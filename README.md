@@ -2,9 +2,11 @@
 
 **在本机组织多个 AI 助手，一起讨论、分工和完成工作。**
 
-把需求交给主 Agent，让不同助手负责策划、执行和审阅。在浏览器里看进展、回答问题、查找讨论，把工作留在自己的工作文件夹中。
+把需求交给主 Agent，让不同助手负责策划、执行和审阅。在桌面窗口或浏览器里看进展、回答问题、查找讨论，把工作留在自己的工作文件夹中。
 
 [下载 v0.2.0](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.2.0) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
+
+项目正在从浏览器入口逐渐收敛到桌面窗口：开发态可用 `npm run desktop` 打开独立窗口，见[开发与构建](guide/development.md)；当前可下载的发行包仍通过浏览器使用。
 
 ![一个人组织多个助手共同完成工作](assets/readme/collaboration-hero.png)
 

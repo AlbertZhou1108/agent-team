@@ -13,12 +13,32 @@ npm run dev
 
 开发 API 为 `127.0.0.1:62048`，Vite 页面为 `http://127.0.0.1:5173/`，开发数据在 `work/dev`。生产模式使用 `npm start -- serve --data /独立数据目录`；其 `prestart` 会先构建前端。终端与模型使用见 [CLI](cli.md)。
 
+### 桌面窗口（开发态）
+
+```bash
+npm run desktop          # 构建前端后打开窗口
+npm run desktop:quick    # web/dist 已是最新时跳过构建
+npm run desktop:dev      # 一条命令：自动拉起（或复用）API + Vite，再打开窗口
+npm run dev              # 只想用浏览器开发时，仍可单独启动
+```
+
+`desktop:dev` 会先探测 `127.0.0.1:62048` 与 `5173`：已经在跑的直接复用，缺哪个启动哪个，等两者就绪后才打开窗口，所以不需要先在另一个终端执行 `npm run dev`。退出时只回收它自己启动的进程，不会杀掉原本就在跑的 dev 服务。默认开发数据在 `work/dev`，可用 `AGENT_TEAM_DEV_DATA` 指向别的目录（例如做隔离验证）。
+
+窗口由 Electron 承载，但产品形态没变：本地服务仍由 `src/launcher.mjs` 以独立进程托管，窗口只是 `loadURL(instance.url)`，数据目录沿用 `applicationData()`。关闭窗口会隐藏到托盘并保留服务；需要停服或退出请用托盘菜单。开发态桌面窗口不是发行包；打包是可选的独立阶段，代码签名与自动更新按项目定位不做。
+
+桌面壳还提供原生目录选择、应用菜单与快捷键、窗口位置与尺寸持久化、Dock 徽标与托盘待办计数（来自工作台的待答复互动卡与等待回复）。这些只在桌面入口生效，浏览器入口仍走各自的原有路径。
+
+首次运行会下载 Electron 二进制，`npm ci` 不会。在无法初始化 Chromium 沙箱的受限容器里可追加 `--no-sandbox`（仅限本地开发，不要用于分发）。本仓库的 Node 脚本在桌面壳下一律经 `src/runtime.mjs` 的 `nodeRunner()` 启动，以便为子进程带上 `ELECTRON_RUN_AS_NODE=1`；新增这类调用不要直接写 `process.execPath`。
+
+原生能力按**渐进增强**接入：preload 只做可选注入（类型在 `web/src/env.d.ts`），前端写成 `globalThis.agentTeam?.xxx?.()` 并保留 HTTP 回退，因此浏览器入口始终可用。目录选择是第一个样板——桌面版走 `dialog.showOpenDialog`，浏览器版仍走 `/api/local/directory-picker`。
+
 ## 目录
 
 | 位置 | 内容 |
 | --- | --- |
 | `src/` | Node ESM 后端，宿主适配器在 `src/hosts/` |
 | `web/` | Vue 3、TypeScript、Vite 前端，npm workspace |
+| `electron/` | 开发态桌面窗口：启动器、主进程、托盘、preload |
 | `test/` | `node:test` 后端测试 |
 | `web/src/**/*.test.ts` | Vitest 前端测试 |
 | `scripts/` | 门禁、发行构建与手动真宿主验证工具 |
