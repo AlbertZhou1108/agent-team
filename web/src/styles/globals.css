@@ -188,6 +188,107 @@
   overflow: hidden;
 }
 
+/* 多选行:与打开态(bg-accent/70)区分,用 primary 内描边标出"在选区里"。 */
+.note-row[data-selected='true'] {
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+/* 拖拽幻影:拖拽期间作为跟随鼠标的自绘元素(top/left 由 dragover 实时写入,
+   transform 负责中心对齐),原生气动影像已换成透明图。 */
+.note-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 50;
+  display: none;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.note-drag-ghost[data-active='true'] {
+  display: block;
+}
+
+/* 拖起/松手的过渡:淡入放大一档、淡出缩小一档。位置(left/top)不参与过渡,
+   否则幻影会拖泥带水地追鼠标。 */
+/* 拖起/释放的过渡:入场淡入放大一档;释放动效由 JS(WAAPI)驱动——
+   幻影要飞向落点中心,目标坐标只有运行时知道。位置(left/top)不参与
+   CSS 过渡,否则幻影会拖泥带水地追鼠标。 */
+.note-drag-ghost[data-active='true'] .note-drag-ghost-card {
+  animation: note-ghost-in var(--component-feedback-duration) var(--motion-ease-out, ease-out);
+}
+
+@keyframes note-ghost-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+}
+
+.note-drag-ghost-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  inline-size: 280px;
+  padding: 10px 12px;
+  border-radius: var(--component-control-radius);
+  border: 1px solid var(--border);
+  background-color: var(--card);
+  color: var(--card-foreground);
+  box-shadow: var(--component-content-shadow, 0 8px 24px rgb(0 0 0 / 0.35));
+  /* 轻微倾斜:被"抓起来"的一叠笔记比水平卡片更像被手拿着。 */
+  transform: rotate(-1.5deg);
+  transition: border-color var(--component-feedback-duration) var(--motion-ease-out, ease-out);
+}
+
+.note-drag-ghost-card::before,
+.note-drag-ghost-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  border: 1px solid var(--border);
+  background-color: var(--card);
+}
+
+.note-drag-ghost-card::before {
+  transform: rotate(2.5deg) translateX(7px);
+  opacity: 0.7;
+}
+
+.note-drag-ghost-card::after {
+  transform: rotate(-2deg) translateX(-5px);
+  opacity: 0.45;
+}
+
+/* 批量投放卡里的动作区:虚线边框与文字同色(语义 token 文字类)。
+   拖入时用 outline 强调(不参与布局,避免边框加粗把标签挤到换行) +
+   底色压到按下态,反馈必须一眼可见。 */
+.note-batch-zone {
+  transition: background-color var(--component-feedback-duration) var(--motion-ease-out, ease-out);
+}
+.note-batch-zone[data-drag-over='true'] {
+  background-color: var(--state-pressed);
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+/* 侧栏 Panel Agent 投放目标:两段反馈——
+   ready:笔记拖起即亮出邀请态(不等悬停);hot:悬停其上,加强到可放手。 */
+[data-note-drop-target='ready'] {
+  border-radius: var(--component-control-radius);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  background-color: var(--state-hover);
+}
+
+[data-note-drop-target='hot'] {
+  border-radius: var(--component-control-radius);
+  background-color: var(--state-pressed);
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
 .notes-page-inner {
   display: flex;
   block-size: 100%;

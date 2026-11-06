@@ -111,3 +111,50 @@ export function addTodo(todos: NoteTodo[], text: string): NoteTodo[] {
   if (!value) return todos;
   return [...todos, { text: value, done: false }];
 }
+
+/** shift+点击的区间选择:与现有选中集取并集;锚点是上次普通点击的行,缺省用当前行。 */
+export function selectRange(
+  selected: string[],
+  visibleIds: string[],
+  anchorId: string | undefined,
+  id: string,
+): { selected: string[]; anchor: string } {
+  const start = visibleIds.indexOf(anchorId ?? id);
+  const end = visibleIds.indexOf(id);
+  const range = start >= 0 && end >= 0
+    ? visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1)
+    : [id];
+  return { selected: [...new Set([...selected, ...range])], anchor: anchorId ?? id };
+}
+
+/** Cmd/Ctrl+点击的间断选择:切换目标行的选中态(跨系统取 metaKey 或 ctrlKey)。 */
+export function toggleSelection(selected: string[], id: string): string[] {
+  return selected.includes(id)
+    ? selected.filter(item => item !== id)
+    : [...selected, id];
+}
+
+export type NoteBatchAction = 'handoff' | 'done' | 'archived' | 'active' | 'restore' | 'remove';
+
+export interface NoteBatchActionSpec {
+  key: NoteBatchAction;
+  label: string;
+  /** 投放区虚线与文字共用的语义色(消费主题 token,不写十六进制)。 */
+  tone: 'primary' | 'success' | 'warning' | 'info' | 'destructive';
+}
+
+/** 各状态页的批量投放区动作;状态机与单条操作一致,这里只决定「放什么区」。
+ *  「发给 Panel Agent」不在列:它走侧栏 Panel Agent 项的投放(目的地隐喻),不属于工具栏动作区。 */
+export function noteBatchActions(state: NoteState): NoteBatchActionSpec[] {
+  if (state === 'active') {
+    return [
+      { key: 'done', label: '完成', tone: 'success' },
+      { key: 'archived', label: '归档', tone: 'warning' },
+    ];
+  }
+  if (state === 'done') return [{ key: 'active', label: '取消完成', tone: 'info' }];
+  return [
+    { key: 'restore', label: '恢复', tone: 'primary' },
+    { key: 'remove', label: '删除', tone: 'destructive' },
+  ];
+}

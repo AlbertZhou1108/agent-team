@@ -2,8 +2,9 @@
 import { Input } from '@/components/ui/input';
 import { Search } from '@lucide/vue';
 import { Surface } from '@/components/surface';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
+import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
 import AgentTeamLogo from './AgentTeamLogo.vue';
 import TeamRow from './TeamRow.vue';
@@ -27,6 +28,7 @@ import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
+import { useNoteHandoffStore, NOTE_DRAG_TYPE } from '@/stores/note-handoff';
 import { cn } from '@/lib/utils';
 import { dropSide, type DropSide } from '@/shared/drag-order';
 
@@ -70,6 +72,32 @@ const draggingFolder = ref<string>();
 const agentUnreadLabel = computed(() =>
   props.agentUnreadCount > 99 ? '99+' : String(props.agentUnreadCount),
 );
+
+/* 笔记拖到 Panel Agent:投放目标注册给 PDD,按负载类型分流(canDrop),
+   团队拖拽行为不受影响。drop 只把 ids 交给随心记工作区的 handoff 链路,
+   不在这里做交互。 */
+const noteHandoff = useNoteHandoffStore();
+const noteDragOver = ref(false);
+const noteDropTargetEl = ref<HTMLElement | null>(null);
+let noteDropTargetCleanup: (() => void) | undefined;
+onMounted(() => {
+  const el = noteDropTargetEl.value;
+  if (!el) return;
+  noteDropTargetCleanup = dropTargetForElements({
+    element: el,
+    canDrop: ({ source }) => source.data.type === NOTE_DRAG_TYPE,
+    getData: () => ({ type: 'note-handoff-target', tone: 'primary' }),
+    getDropEffect: () => 'move',
+    onDragEnter: () => { noteDragOver.value = true; },
+    onDragLeave: () => { noteDragOver.value = false; },
+    onDrop: ({ source }) => {
+      noteDragOver.value = false;
+      const ids = (source.data.ids as string[] | undefined) ?? [];
+      noteHandoff.request(ids);
+    },
+  });
+});
+onBeforeUnmount(() => noteDropTargetCleanup?.());
 watch(
   () => props.currentGroupId,
   (id) => {
@@ -302,19 +330,25 @@ function submitRenameFolder() {
         <template #icon><House /></template>
         主页
       </SidebarEntry>
-      <SidebarEntry
-        :current="agentActive"
-        :collapsed="navCollapsed"
-        :label="agentUnreadCount ? `Panel Agent，${agentUnreadCount} 条新消息` : 'Panel Agent'"
-        :title="agentUnreadCount ? `Panel Agent（${agentUnreadCount} 条新消息）` : 'Panel Agent'"
-        @activate="emit('openAgent')"
+      <div
+        ref="noteDropTargetEl"
+        class="min-w-0"
+        :data-note-drop-target="noteDragOver ? 'hot' : noteHandoff.dragActive ? 'ready' : undefined"
       >
-        <template #icon><Bot /></template>
-        Panel Agent
-        <template v-if="agentUnreadCount" #indicator>
-          <Badge variant="default" class="sidebar-unread-count" aria-hidden="true">{{ agentUnreadLabel }}</Badge>
-        </template>
-      </SidebarEntry>
+        <SidebarEntry
+          :current="agentActive"
+          :collapsed="navCollapsed"
+          :label="agentUnreadCount ? `Panel Agent，${agentUnreadCount} 条新消息` : 'Panel Agent'"
+          :title="agentUnreadCount ? `Panel Agent（${agentUnreadCount} 条新消息）` : 'Panel Agent'"
+          @activate="emit('openAgent')"
+        >
+          <template #icon><Bot /></template>
+          Panel Agent
+          <template v-if="agentUnreadCount" #indicator>
+            <Badge variant="default" class="sidebar-unread-count" aria-hidden="true">{{ agentUnreadLabel }}</Badge>
+          </template>
+        </SidebarEntry>
+      </div>
 
       <SidebarEntry
         v-for="entry in toolEntries"

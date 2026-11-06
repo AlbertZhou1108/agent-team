@@ -4,10 +4,13 @@ import {
   draftFrom,
   groupNotesByDay,
   isDirty,
+  noteBatchActions,
   noteDayLabel,
   noteExcerpt,
   noteSourceLabel,
   noteStateLabel,
+  selectRange,
+  toggleSelection,
   toggleTodo,
 } from './notes-state';
 
@@ -92,5 +95,36 @@ describe('详情草稿', () => {
     const todos = [{ text: 'a', done: false }, { text: 'b', done: false }];
     expect(toggleTodo(todos, 1)).toEqual([{ text: 'a', done: false }, { text: 'b', done: true }]);
     expect(todos[1]!.done).toBe(false);
+  });
+});
+
+describe('多选与批量动作', () => {
+  const visibleIds = ['a', 'b', 'c', 'd', 'e'];
+
+  it('shift 区间选择与现有选中集取并集,锚点缺省用当前行', () => {
+    expect(selectRange([], visibleIds, undefined, 'c')).toEqual({ selected: ['c'], anchor: 'c' });
+    expect(selectRange(['a'], visibleIds, 'a', 'c')).toEqual({ selected: ['a', 'b', 'c'], anchor: 'a' });
+    // 跨已有选区的第二次 shift:并集去重,不丢先选的行。
+    expect(selectRange(['a', 'b', 'c'], visibleIds, 'c', 'e')).toEqual({
+      selected: ['a', 'b', 'c', 'd', 'e'],
+      anchor: 'c',
+    });
+    // 行不在可见序里(筛选后)退化为单选。
+    expect(selectRange(['a'], ['x', 'y'], 'a', 'x')).toEqual({ selected: ['a', 'x'], anchor: 'a' });
+  });
+
+  it('cmd/ctrl 间断选择:切换目标行且不影响其他行', () => {
+    expect(toggleSelection(['a', 'b'], 'b')).toEqual(['a']);
+    expect(toggleSelection(['a'], 'b')).toEqual(['a', 'b']);
+    expect(toggleSelection([], 'a')).toEqual(['a']);
+  });
+
+  it('各状态页的投放区动作与语义色', () => {
+    // 「发给 Panel Agent」走侧栏投放,不在工具栏动作区里。
+    expect(noteBatchActions('active').map(action => action.key)).toEqual(['done', 'archived']);
+    expect(noteBatchActions('done').map(action => action.key)).toEqual(['active']);
+    expect(noteBatchActions('archived').map(action => action.key)).toEqual(['restore', 'remove']);
+    expect(noteBatchActions('active').map(action => action.tone)).toEqual(['success', 'warning']);
+    expect(noteBatchActions('archived').find(action => action.key === 'remove')?.tone).toBe('destructive');
   });
 });

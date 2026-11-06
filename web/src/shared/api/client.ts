@@ -410,4 +410,8 @@ export const api = {
   notePrompt(id: string, instruction = '') {
     return request<{ text: string }>(query(`/api/notes/${encodeURIComponent(id)}/prompt`, { instruction }));
   },
+  /** 多选汇总提示词:所选笔记分节列出,处理协议只出现一次。 */
+  notesPrompt(ids: string[], instruction = '') {
+    return mutate<{ text: string }>('/api/notes/prompt', { ids, instruction });
+  },
 };

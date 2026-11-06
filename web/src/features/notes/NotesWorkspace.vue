@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { QUERY_POLLING } from '@/features/queries';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query';
 import { toast } from 'vue-sonner';
@@ -10,11 +10,13 @@ import { api, ApiError } from '@/shared/api/client';
 import { useResourceQuery } from '@/features/queries';
 import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentStore } from '@/stores/panel-agent';
+import { useNoteHandoffStore } from '@/stores/note-handoff';
 import type { Note, NoteState } from '@/shared/api/raw-types';
 import NoteComposer from './NoteComposer.vue';
 import NoteList from './NoteList.vue';
 import NoteDetail from './NoteDetail.vue';
-import { TEAM_FILTER_ALL, TEAM_FILTER_NONE } from './notes-state';
+import NoteBatchCard from './NoteBatchCard.vue';
+import { TEAM_FILTER_ALL, TEAM_FILTER_NONE, type NoteBatchAction } from './notes-state';
 
 // 随心记只做「记」：这里没有交接、没有回合、没有任务状态。
 // 「交给 Panel Agent」只是生成一段提示词并跳转，执行与结果都在私人会话里。
@@ -96,6 +98,9 @@ async function refresh() {
 }
 
 function openNote(id: string) {
+  // 打开详情即收起批量投放卡片:点击笔记是明确的「切换到详情」信号,
+  // 无论拖拽状态如何残留,这里都要强制切换。
+  batchCardVisible.value = false;
   if (detailDirty.value && id !== selectedId.value) {
     pendingLeave.value = id;
     return;
@@ -143,6 +148,7 @@ function applyClose() {
 // 有未保存内容时仍旧先问,不静默丢弃。
 function changeFilter(next: NoteState) {
   if (next === filter.value) return;
+  batchCardVisible.value = false;
   if (detailDirty.value) {
     pendingFilter.value = next;
     pendingLeave.value = '__filter__';
@@ -156,6 +162,7 @@ function changeFilter(next: NoteState) {
 // 否则「切团队」和「收详情」两次 replace 会互相覆盖。
 function changeTeam(next: string) {
   if (next === teamFilter.value) return;
+  batchCardVisible.value = false;
   if (detailDirty.value) {
     pendingTeam.value = next;
     pendingLeave.value = '__team__';
@@ -176,6 +183,12 @@ function applyTeam(next: string) {
   void nextTick(() => {
     document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus({ preventScroll: true });
   });
+}
+
+function onSearch(value: string) {
+  search.value = value;
+  // 搜索会清空选区(列表内部处理),批量卡片随之收起。
+  batchCardVisible.value = false;
 }
 
 function confirmLeave() {
@@ -298,6 +311,104 @@ function applyPrompt(text: string) {
   void router.push({ name: 'panel-agent' });
 }
 
+/* ------------------------------ 批量操作 ------------------------------ */
+/* 多选拖到工具栏投放区后走到这里。批量不加新端点:逐条走既有单条 API,
+   每条带自己的 revision,部分失败(乐观锁冲突)逐条汇报,不静默吞。 */
+
+const pendingBatchRemove = ref<string[] | null>(null);
+const BATCH_DONE_LABEL: Record<NoteBatchAction, string> = {
+  handoff: '已汇总',
+  done: '已完成',
+  archived: '已归档',
+  active: '已恢复为正常',
+  restore: '已恢复',
+  remove: '已删除',
+};
+
+function reportBatch(action: NoteBatchAction, results: Array<PromiseSettledResult<unknown>>) {
+  const failed = results.filter(result => result.status === 'rejected');
+  const ok = results.length - failed.length;
+  if (!failed.length) {
+    toast.success(`${BATCH_DONE_LABEL[action]} ${ok} 条`);
+    return;
+  }
+  toast.warning(`${BATCH_DONE_LABEL[action]} ${ok} 条，${failed.length} 条失败`, {
+    description: '失败的多为记录已被更新；刷新列表后可对剩余的再操作一次。',
+  });
+}
+
+async function onBatch(payload: { action: NoteBatchAction; ids: string[] }) {
+  const { action, ids } = payload;
+  if (!ids.length) return;
+  if (action === 'handoff') return batchHandoff(ids);
+  if (action === 'remove') {
+    pendingBatchRemove.value = ids;
+    return;
+  }
+  const results = await Promise.allSettled(
+    ids.map(id => {
+      const note = notes.value.find(item => item.id === id);
+      if (!note) return Promise.reject(new Error('记录不在当前列表'));
+      return api.setNoteState(id, { state: action, revision: note.revision });
+    }),
+  );
+  await refresh();
+  reportBatch(action, results);
+  if (selectedId.value && !notes.value.some(item => item.id === selectedId.value)) applyClose();
+}
+
+/* 拖起 → 收起详情、展开批量投放卡片(与详情同槽位);
+   有未保存修改时不出卡片——拖拽中丢草稿比没有卡片更糟,侧栏投放仍可用。
+   拖拽结束 → 卡片收起,详情不自动重开。 */
+const batchCardVisible = ref(false);
+
+function onNoteDragStarted() {
+  if (detailDirty.value) return;
+  if (selectedId.value) applyClose();
+  batchCardVisible.value = true;
+}
+
+function onNoteDragEnded() {
+  batchCardVisible.value = false;
+}
+
+async function confirmBatchRemove() {
+  const ids = pendingBatchRemove.value;
+  pendingBatchRemove.value = null;
+  if (!ids?.length) return;
+  const results = await Promise.allSettled(ids.map(id => api.deleteNote(id)));
+  await refresh();
+  reportBatch('remove', results);
+  if (selectedId.value && ids.includes(selectedId.value)) applyClose();
+}
+
+async function batchHandoff(ids: string[]) {
+  try {
+    const { text } = await api.notesPrompt(ids);
+    // 已有未发送草稿时不静默覆盖：先让用户决定（与单条「交给 Panel Agent」同一道闸）。
+    if (panelState.draft.trim()) {
+      pendingPrompt.value = text;
+      return;
+    }
+    applyPrompt(text);
+  } catch (cause) {
+    toast.error('生成汇总提示词失败', {
+      description: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
+
+// 侧栏 Panel Agent 投放桥:拖拽源只有本列表,这里必然挂载着,消费即处理。
+const noteHandoff = useNoteHandoffStore();
+watch(
+  () => noteHandoff.pending,
+  (ids) => {
+    if (!ids?.length) return;
+    const consumed = noteHandoff.consume();
+    if (consumed?.length) void batchHandoff(consumed);
+  },
+);
+
 function reloadDetail() {
   void detailQuery.refetch();
 }
@@ -331,7 +442,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
       <NoteComposer ref="composer" :submit="create" />
 
-      <div class="notes-page-body" :class="selectedNote ? 'has-detail' : ''">
+      <div class="notes-page-body" :class="selectedNote || batchCardVisible ? 'has-detail' : ''">
         <div class="notes-page-column">
           <NoteList
             :notes="notes"
@@ -347,17 +458,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             :teams="teams"
             @update:filter="changeFilter"
             @update:team="changeTeam"
-            @update:search="value => { search = value; }"
+            @update:search="onSearch"
             @select="openNote"
             @load-more="loadMore"
+            @drag-start="onNoteDragStarted"
+            @drag-end="onNoteDragEnded"
           />
         </div>
 
+        <!-- 详情槽位:详情卡与批量投放卡共用,拖拽期间卡片顶替详情。 -->
         <!-- 详情是独立一张内容卡片,不做「一条竖线切两半」。槽位常驻、宽 0,
-             列宽与卡片的进出才有一段可打断的过渡。 -->
+             列宽与卡片的进出才有一段可打断的过渡。拖拽批量卡片与详情共用槽位。 -->
         <div class="notes-detail-slot">
           <Transition name="pane-reveal">
-            <Card v-if="selectedNote" size="compact" class="notes-page-column notes-detail-pane min-w-0">
+            <NoteBatchCard
+              v-if="batchCardVisible"
+              :filter="filter"
+              @batch="onBatch"
+            />
+            <Card v-else-if="selectedNote" size="compact" class="notes-page-column notes-detail-pane min-w-0">
               <CardContent class="min-h-0">
                 <NoteDetail
                   :key="selectedNote.id"
@@ -396,10 +515,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     <ConfirmDialog
       :open="pendingPrompt !== null"
       title="替换 Panel Agent 里未发送的草稿"
-      description="输入框里已经有内容。继续会用它替换成这条记录。"
+      description="输入框里已经有内容，继续会替换成新的汇总内容。"
       confirm-text="替换并跳转"
       @cancel="pendingPrompt = null"
       @confirm="pendingPrompt && applyPrompt(pendingPrompt)"
+    />
+
+    <ConfirmDialog
+      :open="pendingBatchRemove !== null"
+      title="永久删除所选记录？"
+      :description="`将永久删除 ${pendingBatchRemove?.length ?? 0} 条已归档记录，删除后不可恢复。`"
+      confirm-text="全部删除"
+      destructive
+      @cancel="pendingBatchRemove = null"
+      @confirm="confirmBatchRemove"
     />
   </div>
 </template>
