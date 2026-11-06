@@ -7,7 +7,9 @@ export { default as BubbleGroup } from "./BubbleGroup.vue"
 export { default as BubbleReactions } from "./BubbleReactions.vue"
 
 export const bubbleVariants = cva(
-  "gap-1 data-[align=end]:self-end max-w-[80%] data-[variant=ghost]:max-w-full group-data-[align=end]/message:self-end group/bubble relative flex w-fit min-w-0 flex-col",
+  // ghost(普通成员消息,无气泡底)同样受 80% 宽度上限约束:不设限的长文会横贯整栏,
+  // 与气泡消息的阅读宽度不一致。ghost 只去掉底色与内边距,不豁免宽度。
+  "gap-1 data-[align=end]:self-end max-w-[80%] group-data-[align=end]/message:self-end group/bubble relative flex w-fit min-w-0 flex-col",
   {
     variants: {
       variant: {
