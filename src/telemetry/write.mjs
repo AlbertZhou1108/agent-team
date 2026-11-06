@@ -1,6 +1,6 @@
 // 遥测写入:观测归一化、指标构造、记录与物理会话轮转。公共门面见 ../telemetry.mjs。
 import { createHash, randomUUID } from 'node:crypto';
-import { METRIC_KEYS } from '../telemetry-capabilities.mjs';
+import { METRIC_KEYS } from '../capability-contract.mjs';
 
 export class TelemetryQueryError extends Error {
   constructor(message, status = 400) {
@@ -221,27 +221,4 @@ export function rotateSession(telemetry, endpointId, sessionKey = null) {
       now,
     );
   }
-}
-
-export function telemetryObservation({ source, scope = 'turn', aggregation = 'delta', observedAt = new Date().toISOString(), usage = {}, context = {}, timing = {}, quality = {}, completeness = {}, formula = {}, formulas = {}, missingReason = {}, contextSource = {}, anomalies = [], attempt = null, nativeTurnId = null, stepId = null, requestId = null }) {
-  return {
-    source,
-    scope,
-    aggregation,
-    observedAt,
-    usage,
-    context,
-    timing,
-    quality,
-    completeness,
-    formula,
-    formulas,
-    missingReason,
-    contextSource,
-    anomalies,
-    attempt,
-    nativeTurnId,
-    stepId,
-    requestId,
-  };
 }

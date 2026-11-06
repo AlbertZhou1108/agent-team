@@ -1,5 +1,5 @@
 // 遥测批次:把原始观测行装配成回合批次、输入来源与指标/上下文视图。
-import { METRIC_KEYS } from '../telemetry-capabilities.mjs';
+import { METRIC_KEYS } from '../capability-contract.mjs';
 import {
   TelemetryQueryError, aggregateCompleteness, batchCompleteness, maxObservedAt,
   metric, missingMetric, sumMetricList, worstCompleteness,

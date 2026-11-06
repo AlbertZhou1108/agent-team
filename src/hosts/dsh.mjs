@@ -6,7 +6,8 @@ import { connectionProbe, exchange } from './probe.mjs';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
 import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
-import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
+import { telemetryObservation } from '../observation.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
 
 export async function runDshCatalogProbe(command, directory, { signal } = {}) {
   const { mkdtempSync, rmSync } = await import('node:fs');
@@ -34,6 +35,25 @@ export async function runDshCatalogProbe(command, directory, { signal } = {}) {
     });
   } finally { rmSync(probeDirectory, { recursive: true, force: true }); }
 }
+/** dsh 的遥测能力声明:原生事件里的桶与质量语义由适配器自己声明。 */
+export function dshCapabilities() {
+    const dshTokens = ['assistant/message.usage.inputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'outputTokens'];
+    return capabilities('dsh', {
+      inputTokensTotal: capability('derived', 'dsh.assistant_message_usage', dshTokens, [...tokenConditions, 'inputTokensTotal = usage.inputTokens + cacheReadTokens + cacheWriteTokens', '不与 session tokenUsage 投影相加']),
+      uncachedInputTokens: capability('direct', 'dsh.assistant_message_usage', ['usage.inputTokens'], tokenConditions),
+      cacheReadTokens: capability('direct', 'dsh.assistant_message_usage', ['usage.cacheReadTokens'], tokenConditions),
+      cacheWriteTokens: capability('direct', 'dsh.assistant_message_usage', ['usage.cacheWriteTokens'], tokenConditions),
+      outputTokens: capability('direct', 'dsh.assistant_message_usage', ['usage.outputTokens'], tokenConditions),
+      totalTokens: capability('direct', 'dsh.assistant_message_usage', ['usage.totalTokens'], ['优先核对宿主 total', '不与 session 投影相加']),
+      cacheReadRatio: capability('derived', 'query.aggregate', ['cacheReadTokens', 'inputTokensTotal'], ['同一完整样本集合', '输入为 0 时不生成比例']),
+      executionWallMs: capability('derived', 'framework.measured', ['run start/settle'], executionConditions),
+      hostTurnWallMs: capability('direct', 'dsh.turn_time', ['turn/end.time - turn/start.time'], ['插件提供原生回合起止时间']),
+      lastRequestInputTokens: capability('direct', 'dsh.context_pressure', ['contextPressure.pressureTokens'], ['最近请求采样，不与 projectedTokens 混淆']),
+      contextWindowTokens: capability('direct', 'dsh.context_pressure', ['contextPressure.contextWindow'], ['与压力采样同一模型路由']),
+      lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
+    });
+}
+
 export function createDshHost({ directory, socketPath, command = 'dsh', model }) {
   if (model) throw new Error('DSH 模型由其 headless profile 设置；本版本不伪造未验证的模型参数');
   const lifecycle = createCliLifecycle('dsh', command, value => { command = value; });
@@ -50,7 +70,7 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         defaultModel: models.some(item => item.key === result.defaultModel) ? result.defaultModel : null,
       });
     },
-    telemetryCapabilities: telemetryCapabilitiesFor('dsh'),
+    telemetryCapabilities: dshCapabilities(),
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
         ? { supported: true }

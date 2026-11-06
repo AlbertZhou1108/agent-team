@@ -7,7 +7,8 @@ import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
 import { ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
 import { modelCatalog } from './catalog.mjs';
-import { telemetryCapabilitiesFor, telemetryObservation } from '../telemetry.mjs';
+import { telemetryObservation } from '../observation.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
 
 function sameSessionConfiguration(previous, signature) {
   try {
@@ -27,6 +28,24 @@ export function codexTurnInput(prompt, attachments = []) {
   const images = list.filter(item => Object.hasOwn(ATTACHMENT_IMAGE_TYPES, item.mediaType)).map(item => ({ type: 'localImage', path: item.path }));
   const manifest = attachmentManifest(list.filter(item => item.mediaType === 'text/plain'));
   return [{ type: 'text', text: manifest ? `${prompt}\n\n[附件文件清单]\n${manifest}` : prompt }, ...images];
+}
+
+/** codex 的遥测能力声明:原生事件里的桶与质量语义由适配器自己声明。 */
+export function codexCapabilities() {
+  return capabilities('codex', {
+    inputTokensTotal: capability('direct', 'codex.thread_token_usage', ['thread/tokenUsage/updated.total.inputTokens'], tokenConditions),
+    uncachedInputTokens: capability('derived', 'codex.thread_token_usage', ['total.inputTokens', 'total.cachedInputTokens', 'total.cacheWriteInputTokens'], tokenConditions),
+    cacheReadTokens: capability('direct', 'codex.thread_token_usage', ['total.cachedInputTokens'], tokenConditions),
+    cacheWriteTokens: capability('direct', 'codex.thread_token_usage', ['total.cacheWriteInputTokens'], tokenConditions),
+    outputTokens: capability('direct', 'codex.thread_token_usage', ['total.outputTokens'], tokenConditions),
+    totalTokens: capability('direct', 'codex.thread_token_usage', ['total.totalTokens'], tokenConditions),
+    cacheReadRatio: capability('derived', 'query.aggregate', ['cacheReadTokens', 'inputTokensTotal'], ['同一完整样本集合', '输入为 0 时不生成比例']),
+    executionWallMs: capability('derived', 'framework.measured', ['run start/settle'], executionConditions),
+    hostTurnWallMs: capability('direct', 'codex.turn_completed', ['turn/completed.durationMs'], ['宿主成功报告回合结束耗时']),
+    lastRequestInputTokens: capability('direct', 'codex.token_usage_last', ['tokenUsage.last.inputTokens'], ['按原生回合身份关联', '恢复会话的旧回合通知不得覆盖当前回合']),
+    contextWindowTokens: capability('direct', 'codex.token_usage', ['tokenUsage.modelContextWindow'], ['与最近请求采样来自同一模型路由']),
+    lastRequestInputRatio: capability('derived', 'query.aggregate', ['lastRequestInputTokens', 'contextWindowTokens'], ['模型路由匹配且窗口大于 0']),
+  });
 }
 
 export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
@@ -247,7 +266,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
     supportsPanelAccess() {
       return { supported: true };
     },
-    telemetryCapabilities: telemetryCapabilitiesFor('codex'),
+    telemetryCapabilities: codexCapabilities(),
     async run(context) {
       await ready();
       const { endpoint, prompt, instructions, onSession, onAccepted, signal } = context;

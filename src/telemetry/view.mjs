@@ -1,11 +1,12 @@
 // 遥测视图:批次汇总、覆盖度、分页与只读查询底座。
-import { capability, METRIC_KEYS, UNIFIED_FIELDS, telemetryCapabilitiesFor } from '../telemetry-capabilities.mjs';
+import { capability, METRIC_KEYS, UNIFIED_FIELDS } from '../capability-contract.mjs';
 import {
   TelemetryQueryError, maxObservedAt, metric, missingMetric, sumMetricList, worstCompleteness,
 } from './write.mjs';
 
 export function _capabilitiesForHost(telemetry, host) {
-  const declared = telemetry.capabilityFor(host) ?? telemetryCapabilitiesFor(host);
+  // 宿主在自描述里声明能力;没有声明的宿主按全部 unsupported 处理。
+  const declared = telemetry.capabilityFor(host) ?? { version: 1, host, metrics: {} };
   const metrics = {};
   for (const field of UNIFIED_FIELDS) {
     metrics[field] = declared?.metrics?.[field] ?? capability('unsupported', 'adapter.capability', [], [], '适配器未声明支持该字段');

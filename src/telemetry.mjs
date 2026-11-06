@@ -4,7 +4,8 @@ import * as query from './telemetry/query.mjs';
 import * as view from './telemetry/view.mjs';
 import * as write from './telemetry/write.mjs';
 
-export { TelemetryQueryError, telemetryObservation } from './telemetry/write.mjs';
+export { TelemetryQueryError } from './telemetry/write.mjs';
+export { telemetryObservation } from './observation.mjs';
 
 export class Telemetry {
   constructor(store, { capabilityFor = () => null } = {}) {
@@ -55,4 +56,4 @@ export class Telemetry {
 }
 
 export { telemetryCapabilitiesFor } from './telemetry-capabilities.mjs';
-export { METRIC_KEYS, CONTEXT_KEYS, UNIFIED_FIELDS } from './telemetry-capabilities.mjs';
+export { METRIC_KEYS, CONTEXT_KEYS, UNIFIED_FIELDS } from './capability-contract.mjs';
