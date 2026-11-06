@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -204,6 +204,7 @@ export class Store {
     if (fromVersion < 7) this.migrateV7();
     if (fromVersion < 8) this.migrateV8();
     if (fromVersion < 9) this.migrateV9();
+    if (fromVersion < 10) this.migrateV10();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -337,6 +338,22 @@ export class Store {
         DROP TABLE interactions_v8;
         CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
         CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);`);
+    });
+  }
+
+  // v10:随心记的标签与置顶。tags 是 JSON 数组存标签 id(与 todos 同款,不建关联表);
+  // note_tags 是全局标签注册表(name UNIQUE 防重);置顶用时间戳表达,可空=未置顶。
+  migrateV10() {
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS note_tags(
+        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT,
+        created TEXT NOT NULL);`);
+      const hasNotes = Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'"));
+      if (!hasNotes) return;
+      const columns = new Set(this.all('PRAGMA table_info(notes)').map(column => column.name));
+      if (!columns.has('tags')) this.db.exec("ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+      if (!columns.has('pinned_at')) this.db.exec('ALTER TABLE notes ADD COLUMN pinned_at TEXT');
+      this.db.exec("CREATE INDEX IF NOT EXISTS notes_pinned ON notes(pinned_at DESC) WHERE pinned_at IS NOT NULL;");
     });
   }
 

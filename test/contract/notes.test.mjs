@@ -183,8 +183,7 @@ test('prompt warns about nested fences when the note already contains code', asy
   assert.match(text, /四个反引号/);
 });
 
-test('batch prompt aggregates selected notes with one shared protocol', async t => {
-  const { call, json } = await setup(t);
+test('batch prompt aggregates selected notes with one shared protocol', async t => {  const { call, json } = await setup(t);
   const first = await create(call, json, { body: '第一条：同步方案', todos: [{ text: '确认冲突合并' }] });
   const second = await create(call, json, { body: '第二条：周末去哪\n```js\nrun()\n```' });
   const prompt = await call('/api/notes/prompt', json('POST', { ids: [first.id, second.id], instruction: '一起判断' }));
@@ -289,4 +288,111 @@ test('the same client id with a different source is treated as a different paylo
 
   const conflict = await call('/api/notes', json('POST', { id: 'note-source-fixed', body: '同一条想法' }));
   assert.equal(conflict.status, 409, '来源不同也算内容不同，不静默改写');
+});
+
+test('note tags have a registry, toggle on notes and filter the list', async t => {
+  const { call, json } = await setup(t);
+  const important = await call('/api/note-tags', json('POST', { name: '重要', color: '#22c55e' }));
+  assert.equal(important.status, 200);
+  assert.equal(important.body.tag.name, '重要');
+  assert.equal(important.body.tag.color, '#22c55e');
+  assert.equal(important.body.created, true);
+  // 同名幂等返回既有标签,不报错不重复。
+  const replay = await call('/api/note-tags', json('POST', { name: '重要' }));
+  assert.equal(replay.body.created, false);
+  assert.equal(replay.body.tag.id, important.body.tag.id);
+  assert.equal((await call('/api/note-tags')).body.length, 1);
+  assert.equal((await call('/api/note-tags', json('POST', { name: '' }))).status, 400);
+  assert.equal((await call('/api/note-tags', json('POST', { name: 'x', color: 'red' }))).status, 400);
+
+  // 笔记携带标签:创建与更新都按注册表校验引用,幽灵 id 400。
+  const note = await create(call, json, { body: '带标签的记录', tags: [important.body.tag.id] });
+  assert.deepEqual(note.tags, [important.body.tag.id]);
+  const ghost = await call(`/api/notes/${note.id}`, json('PATCH', { revision: note.revision, tags: ['no-such-tag'] }));
+  assert.equal(ghost.status, 400);
+  const toggled = await call(`/api/notes/${note.id}`, json('PATCH', { revision: note.revision, tags: [] }));
+  assert.deepEqual(toggled.body.tags, []);
+
+  // 按标签筛选:列表与计数都跟随。
+  const tagged = await create(call, json, { body: '另一条带标签', tags: [important.body.tag.id] });
+  const byTag = await call(`/api/notes?state=all&tag=${encodeURIComponent(important.body.tag.id)}`);
+  assert.deepEqual(byTag.body.notes.map(row => row.id), [tagged.id]);
+  assert.deepEqual(byTag.body.counts, { active: 1, done: 0, archived: 0 });
+  const untagged = await call('/api/notes?state=all');
+  assert.ok(untagged.body.notes.length > 1);
+});
+
+test('pinned notes live in their own list, outside the paginated flow', async t => {
+  const { call, json } = await setup(t);
+  const first = await create(call, json, { body: '第一条要置顶' });
+  const second = await create(call, json, { body: '第二条要置顶' });
+  const plain = await create(call, json, { body: '普通记录' });
+  await call(`/api/notes/${second.id}/pin`, json('POST', { pinned: true, revision: second.revision }));
+  await call(`/api/notes/${first.id}/pin`, json('POST', { pinned: true, revision: first.revision }));
+
+  const list = await (await call('/api/notes')).body;
+  // pinned 全量返回、按置顶时间倒序(second 后置顶在前),且不占用分页流。
+  assert.deepEqual(list.pinned.map(row => row.id), [first.id, second.id]);
+  assert.deepEqual(list.notes.map(row => row.id), [plain.id]);
+  assert.ok(list.pinned.every(row => row.pinnedAt));
+
+  // 幂等:重复置顶不 bump revision。
+  const repinned = await call(`/api/notes/${first.id}/pin`, json('POST', { pinned: true, revision: list.pinned.find(row => row.id === first.id).revision }));
+  assert.equal(repinned.body.pinnedAt, list.pinned.find(row => row.id === first.id).pinnedAt, '幂等置顶不 bump revision');
+
+  // 取消置顶回到分页流。
+  const unpinned = await call(`/api/notes/${second.id}/pin`, json('POST', { pinned: false, revision: list.pinned.find(row => row.id === second.id).revision }));
+  assert.equal(unpinned.body.pinnedAt, null);
+  const again = await (await call('/api/notes')).body;
+  assert.deepEqual(again.pinned.map(row => row.id), [first.id]);
+  assert.ok(again.notes.some(row => row.id === second.id));
+
+  // 校验:缺 pinned 字段 400,幽灵 id 404。
+  assert.equal((await call('/api/notes/missing/pin', json('POST', { pinned: true, revision: 1 }))).status, 404);
+  assert.equal((await call(`/api/notes/${first.id}/pin`, json('POST', { revision: 1 }))).status, 409, 'stale revision 走乐观锁冲突');
+});
+
+test('team facets only list teams that actually hold notes in the current scope', async t => {
+  const { call, json, group } = await setup(t, { members: [] });
+  const withTeam = await create(call, json, { body: '团队里的记录', sourceTeamId: group.id });
+  const loose = await create(call, json, { body: '无来源记录' });
+
+  const page = (await call('/api/notes?state=all')).body;
+  const facets = page.teamFacets;
+  assert.ok(facets.some(facet => facet.teamId === group.id && facet.count === 1), '有笔记的团队必须出现');
+  assert.ok(facets.some(facet => facet.teamId === null && facet.count === 1), '无来源也作为候选');
+
+  // 选中该团队后分面仍保留其它候选——否则下拉只剩当前项,用户切不走。
+  const filtered = (await call(`/api/notes?state=all&team=${encodeURIComponent(group.id)}`)).body;
+  assert.deepEqual(filtered.notes.map(row => row.id), [withTeam.id]);
+  assert.ok(filtered.teamFacets.some(facet => facet.teamId === null), '选中团队后仍能看到其它维度候选');
+
+  // 归档掉唯一那条后,该团队不再出现在候选里。
+  await call(`/api/notes/${withTeam.id}/state`, json('POST', { state: 'archived', revision: withTeam.revision }));
+  const activePage = (await call('/api/notes')).body;
+  assert.ok(!activePage.teamFacets.some(facet => facet.teamId === group.id), '没有笔记的团队不出现');
+  assert.ok(activePage.teamFacets.some(facet => facet.teamId === null));
+  assert.equal(loose.sourceTeamId, null);
+});
+
+test('tag facets only list tags that actually hold notes in the current scope', async t => {
+  const { call, json } = await setup(t);
+  const used = (await call('/api/note-tags', json('POST', { name: '有用' }))).body.tag;
+  const unused = (await call('/api/note-tags', json('POST', { name: '没人用' }))).body.tag;
+  const tagged = await create(call, json, { body: '带标签的记录', tags: [used.id] });
+  await create(call, json, { body: '无标签记录' });
+
+  const page = (await call('/api/notes?state=all')).body;
+  assert.ok(page.tagFacets.some(facet => facet.tagId === used.id && facet.count === 1), '有笔记的标签必须出现');
+  assert.ok(!page.tagFacets.some(facet => facet.tagId === unused.id), '没有笔记的标签不出现');
+
+  // 选中该标签后分面仍保留其它候选(排除标签维度本身),用户能切走。
+  const filtered = (await call(`/api/notes?state=all&tag=${encodeURIComponent(used.id)}`)).body;
+  assert.deepEqual(filtered.notes.map(row => row.id), [tagged.id]);
+  assert.ok(filtered.tagFacets.length >= 1, '选中标签后候选仍可枚举');
+
+  // 标签从笔记上摘掉后不再出现在候选里。
+  await call(`/api/notes/${tagged.id}`, json('PATCH', { revision: tagged.revision, tags: [] }));
+  const after = (await call('/api/notes?state=all')).body;
+  assert.ok(!after.tagFacets.some(facet => facet.tagId === used.id), '没有笔记引用后该标签消失');
 });

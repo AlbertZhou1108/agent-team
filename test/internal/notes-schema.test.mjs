@@ -73,3 +73,27 @@ test('notes keep no foreign key to groups so deleting a team cannot cascade into
   assert.deepEqual(store.all('PRAGMA foreign_key_list(notes)'), [], '来源是裸 id，刻意不加外键');
   store.close();
 });
+
+test('a v9 database gains tag columns, the tag registry and the pinned index on reopen', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO notes(id,title,body,state,created,updated) VALUES('a','t','b','active',?,?)", NOW, NOW);
+  store.setSchemaVersion(9);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const columns = store.all('PRAGMA table_info(notes)').map(column => column.name);
+  assert.ok(columns.includes('tags'), 'tags JSON 列必须存在');
+  assert.ok(columns.includes('pinned_at'), 'pinned_at 列必须存在');
+  const restored = store.get("SELECT tags,pinned_at FROM notes WHERE id='a'");
+  assert.equal(restored.tags, '[]', '历史笔记默认无标签');
+  assert.equal(restored.pinned_at, null, '历史笔记默认未置顶');
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_tags'"));
+  const tagIndexes = store.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='notes'").map(row => row.name);
+  assert.ok(tagIndexes.includes('notes_pinned'));
+  // 注册表 name 唯一约束生效。
+  store.run("INSERT INTO note_tags(id,name,color,created) VALUES('t1','重要','#22c55e',?)", NOW);
+  assert.throws(() => store.run("INSERT INTO note_tags(id,name,color,created) VALUES('t2','重要',NULL,?)", NOW), /UNIQUE/);
+  store.close();
+});

@@ -10,12 +10,32 @@ const MAX_BODY = 20000;
 const MAX_TITLE = 200;
 const MAX_TODOS = 30;
 const MAX_TODO_TEXT = 200;
+const MAX_TAGS_PER_NOTE = 20;
+const MAX_TAG_NAME = 32;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
 export function deriveTitle(body) {
   const line = body.split('\n').map(text => text.trim()).find(Boolean) ?? '';
   return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+}
+
+export function tagView(row) {
+  return { id: row.id, name: row.name, color: row.color ?? null, created: row.created };
+}
+
+function normalizeTagName(value) {
+  if (typeof value !== 'string') throw noteError(400, '标签名必须是文本');
+  const name = value.trim();
+  if (!name) throw noteError(400, '标签名不能为空');
+  if (name.length > MAX_TAG_NAME) throw noteError(400, `标签名不能超过 ${MAX_TAG_NAME} 字`);
+  return name;
+}
+
+function normalizeTagColor(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw noteError(400, '标签颜色无效');
+  return value;
 }
 
 function noteError(status, message) {
@@ -81,6 +101,16 @@ function normalizeTeamFilter(value) {
   return team;
 }
 
+// 标签筛选：undefined/空=不限，其它按标签 id 精确匹配(存在性不校验:标签可删)。
+function normalizeTagFilter(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw noteError(400, '标签筛选无效');
+  const tag = value.trim();
+  if (!tag) return null;
+  if (tag.length > 100) throw noteError(400, '标签筛选无效');
+  return tag;
+}
+
 function parseCursor(value) {
   if (!value) return null;
   const index = String(value).lastIndexOf('|');
@@ -102,6 +132,8 @@ export function noteView(row) {
     titleManual: row.title_manual === 1,
     body: row.body,
     todos: JSON.parse(row.todos),
+    tags: JSON.parse(row.tags ?? '[]'),
+    pinnedAt: row.pinned_at ?? null,
     due: row.due ?? null,
     state: row.state,
     sourceTeamId: row.source_team_id ?? null,
@@ -132,7 +164,7 @@ export class Notes {
   }
   // team 三态：缺省=不限；'none'=仅无来源；其它=该团队 id。
   // 不用空串表示「无来源」——空串在这里已经表示「不筛选」。
-  list({ state = null, q = '', cursor = null, limit = undefined, team = null } = {}) {
+  list({ state = null, q = '', cursor = null, limit = undefined, team = null, tag = null } = {}) {
     const scope = [];
     const scopeParams = [];
     const teamFilter = normalizeTeamFilter(team);
@@ -140,6 +172,12 @@ export class Notes {
     else if (teamFilter) {
       scope.push('n.source_team_id=?');
       scopeParams.push(teamFilter);
+    }
+    const tagFilter = normalizeTagFilter(tag);
+    if (tagFilter) {
+      // JSON 数组按成员筛选:标签 id 存在即命中(个人量级无需索引)。
+      scope.push('EXISTS (SELECT 1 FROM json_each(n.tags) je WHERE je.value = ?)');
+      scopeParams.push(tagFilter);
     }
     const keyword = typeof q === 'string' ? q.trim().slice(0, 200) : '';
     if (keyword) {
@@ -161,6 +199,9 @@ export class Notes {
       filters.push('(n.updated<? OR (n.updated=? AND n.id<?))');
       params.push(after.updated, after.updated, after.id);
     }
+    // 置顶笔记不进分页流:它们由响应里的 pinned 数组单独全量返回,
+    // 取消置顶后自然回到本页的日期分组。
+    filters.push('n.pinned_at IS NULL');
     const size = normalizeLimit(limit);
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const rows = this.store.all(
@@ -170,21 +211,77 @@ export class Notes {
     );
     const page = rows.slice(0, size);
     const nextCursor = rows.length > size ? `${page.at(-1).updated}|${page.at(-1).id}` : null;
-    // 计数跟随当前筛选（团队、搜索），只是不按状态过滤：否则页头数字会和列表条数对不上。
+    // 置顶数组与分页流同 scope/state(游标除外),按置顶时间倒序全量返回。
+    const pinnedFilters = [...scope];
+    const pinnedParams = [...scopeParams];
+    if (state && state !== 'all') {
+      if (!STATES.has(state)) throw noteError(400, '状态无效');
+      pinnedFilters.push('n.state=?');
+      pinnedParams.push(state);
+    } else if (!state) {
+      pinnedFilters.push("n.state='active'");
+    }
+    const pinnedWhere = pinnedFilters.length ? `WHERE ${pinnedFilters.join(' AND ')} AND n.pinned_at IS NOT NULL` : 'WHERE n.pinned_at IS NOT NULL';
+    const pinned = this.store.all(
+      `${SELECT_NOTE} ${pinnedWhere} ORDER BY n.pinned_at DESC, n.id DESC`,
+      ...pinnedParams,
+    ).map(noteView);
+    // 计数跟随当前筛选（团队、标签、搜索），只是不按状态过滤：否则页头数字会和列表条数对不上。
     const counts = { active: 0, done: 0, archived: 0 };
     const countWhere = scope.length ? `WHERE ${scope.join(' AND ')}` : '';
     for (const row of this.store.all(`SELECT n.state, COUNT(*) AS total FROM notes n ${countWhere} GROUP BY n.state`, ...scopeParams)) {
       counts[row.state] = row.total;
     }
-    return { notes: page.map(noteView), nextCursor, counts };
+    // 维度候选只列真有笔记的取值（空团队/无笔记的标签选了就是空列表）。分面必须排除
+    // 自己那个维度——否则选中后候选只剩它，用户再也切不走；状态/搜索与另一维度照常生效。
+    const buildFacetScope = exclude => {
+      const where = [];
+      const params = [];
+      if (exclude !== 'tag' && tagFilter) {
+        where.push('EXISTS (SELECT 1 FROM json_each(n.tags) je WHERE je.value = ?)');
+        params.push(tagFilter);
+      }
+      if (exclude !== 'team') {
+        if (teamFilter === 'none') where.push('n.source_team_id IS NULL');
+        else if (teamFilter) {
+          where.push('n.source_team_id=?');
+          params.push(teamFilter);
+        }
+      }
+      if (keyword) {
+        const pattern = escapeLike(keyword);
+        where.push("(n.title LIKE ? ESCAPE '\\' OR n.body LIKE ? ESCAPE '\\' OR n.todos LIKE ? ESCAPE '\\')");
+        params.push(pattern, pattern, pattern);
+      }
+      // 分面口径与列表一致:置顶也算有笔记(置顶行就在页面顶部)。
+      if (state && state !== 'all') {
+        where.push('n.state=?');
+        params.push(state);
+      } else if (!state) {
+        where.push("n.state='active'");
+      }
+      return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+    };
+    const teamFacet = buildFacetScope('team');
+    const teamFacets = this.store.all(
+      `SELECT n.source_team_id AS team_id, COUNT(*) AS total FROM notes n ${teamFacet.where} GROUP BY n.source_team_id`,
+      ...teamFacet.params,
+    ).map(row => ({ teamId: row.team_id ?? null, count: row.total }));
+    const tagFacet = buildFacetScope('tag');
+    const tagFacets = this.store.all(
+      `SELECT je.value AS tag_id, COUNT(*) AS total FROM notes n, json_each(n.tags) je ${tagFacet.where} GROUP BY je.value`,
+      ...tagFacet.params,
+    ).map(row => ({ tagId: row.tag_id, count: row.total }));
+    return { notes: page.map(noteView), pinned, nextCursor, counts, teamFacets, tagFacets };
   }
-  create({ id = null, body, title = undefined, todos = [], due = null, sourceTeamId = null } = {}) {
+  create({ id = null, body, title = undefined, todos = [], due = null, sourceTeamId = null, tags = [] } = {}) {
     const noteId = id === null || id === undefined ? randomUUID() : normalizeId(id);
     const normalizedBody = normalizeBody(body);
     const normalizedTodos = normalizeTodos(todos);
     const normalizedDue = normalizeDue(due);
     const normalizedTitle = title === undefined ? '' : normalizeTitle(title);
     const normalizedSource = this.normalizeSource(sourceTeamId);
+    const normalizedTags = this.normalizeTags(tags);
     const existing = this.store.get('SELECT * FROM notes WHERE id=?', noteId);
     if (existing) {
       // 同一 ID 同内容重发视为幂等回放；内容不同则拒绝，避免静默覆盖另一条记录。
@@ -193,6 +290,7 @@ export class Notes {
         && current.due === normalizedDue
         && current.sourceTeamId === normalizedSource
         && JSON.stringify(current.todos) === JSON.stringify(normalizedTodos)
+        && JSON.stringify(current.tags) === JSON.stringify(normalizedTags)
         && (normalizedTitle === '' || current.title === normalizedTitle);
       if (!same) throw noteError(409, '同一记录 ID 已用于不同内容');
       return { note: current, created: false };
@@ -200,8 +298,8 @@ export class Notes {
     const now = new Date().toISOString();
     const titleValue = normalizedTitle || deriveTitle(normalizedBody);
     this.store.run(
-      `INSERT INTO notes(id,title,title_manual,body,todos,due,state,archived_from,revision,created,updated,completed,archived,source_team_id)
-       VALUES(?,?,?,?,?,?,'active',NULL,1,?,?,NULL,NULL,?)`,
+      `INSERT INTO notes(id,title,title_manual,body,todos,due,state,archived_from,revision,created,updated,completed,archived,source_team_id,tags)
+       VALUES(?,?,?,?,?,?,'active',NULL,1,?,?,NULL,NULL,?,?)`,
       noteId,
       titleValue,
       normalizedTitle ? 1 : 0,
@@ -211,10 +309,11 @@ export class Notes {
       now,
       now,
       normalizedSource,
+      JSON.stringify(normalizedTags),
     );
     return { note: this.get(noteId), created: true };
   }
-  update(id, { revision, body, title, todos, due, sourceTeamId } = {}) {
+  update(id, { revision, body, title, todos, due, sourceTeamId, tags } = {}) {
     const current = this.store.get('SELECT * FROM notes WHERE id=?', id);
     if (!current) throw noteError(404, '记录不存在');
     if (current.state === 'archived') throw noteError(409, '记录已归档，请先恢复再修改');
@@ -224,6 +323,7 @@ export class Notes {
       todos: todos === undefined ? JSON.parse(current.todos) : normalizeTodos(todos),
       due: due === undefined ? current.due : normalizeDue(due),
       source: sourceTeamId === undefined ? (current.source_team_id ?? null) : this.normalizeSource(sourceTeamId),
+      tags: tags === undefined ? JSON.parse(current.tags ?? '[]') : this.normalizeTags(tags),
       title: current.title,
       titleManual: current.title_manual === 1,
     };
@@ -237,13 +337,14 @@ export class Notes {
     }
     const now = new Date().toISOString();
     this.store.run(
-      'UPDATE notes SET title=?,title_manual=?,body=?,todos=?,due=?,source_team_id=?,revision=revision+1,updated=? WHERE id=? AND revision=?',
+      'UPDATE notes SET title=?,title_manual=?,body=?,todos=?,due=?,source_team_id=?,tags=?,revision=revision+1,updated=? WHERE id=? AND revision=?',
       next.title,
       next.titleManual ? 1 : 0,
       next.body,
       JSON.stringify(next.todos),
       next.due,
       next.source,
+      JSON.stringify(next.tags),
       now,
       id,
       current.revision,
@@ -290,6 +391,24 @@ export class Notes {
     }
     return this.get(id);
   }
+  // 置顶是展示层诉求,不改变状态机:pinned_at 有值即置顶,取消置 NULL。
+  // 幂等:重复置顶/取消不 bump revision,避免与详情草稿的乐观锁互相踩。
+  setPin(id, { pinned, revision } = {}) {
+    const current = this.store.get('SELECT * FROM notes WHERE id=?', id);
+    if (!current) throw noteError(404, '记录不存在');
+    this.assertRevision(current, revision);
+    if (typeof pinned !== 'boolean') throw noteError(400, '置顶状态无效');
+    const now = new Date().toISOString();
+    if (pinned === Boolean(current.pinned_at)) return this.get(id);
+    this.store.run(
+      'UPDATE notes SET pinned_at=?,revision=revision+1,updated=? WHERE id=? AND revision=?',
+      pinned ? now : null,
+      now,
+      id,
+      current.revision,
+    );
+    return this.get(id);
+  }
   remove(id) {
     const current = this.store.get('SELECT * FROM notes WHERE id=?', id);
     if (!current) throw noteError(404, '记录不存在');
@@ -322,6 +441,38 @@ export class Notes {
     if (!team || team.length > 100) throw noteError(400, '来源团队无效');
     if (!this.store.get('SELECT 1 FROM groups WHERE id=?', team)) throw noteError(400, '来源团队不存在');
     return team;
+  }
+  // 标签引用与来源团队同款约定:写路径校验注册表存在,读路径从不校验——
+  // 标签未来删除时历史笔记不失效,只是内容里留下一个不再出现在列表里的 id。
+  normalizeTags(value) {
+    if (!Array.isArray(value)) throw noteError(400, '标签必须是列表');
+    if (value.length > MAX_TAGS_PER_NOTE) throw noteError(400, `标签不能超过 ${MAX_TAGS_PER_NOTE} 个`);
+    const seen = new Set();
+    for (const id of value) {
+      if (typeof id !== 'string' || !id.trim() || id.length > 100) throw noteError(400, '标签引用无效');
+      if (seen.has(id)) throw noteError(400, '标签引用重复');
+      seen.add(id);
+      if (!this.store.get('SELECT 1 FROM note_tags WHERE id=?', id)) throw noteError(400, '标签不存在');
+    }
+    return [...seen];
+  }
+  listTags() {
+    return this.store.all('SELECT id,name,color,created FROM note_tags ORDER BY created').map(tagView);
+  }
+  createTag({ name, color = null } = {}) {
+    const tagName = normalizeTagName(name);
+    const tagColor = normalizeTagColor(color);
+    // 同名幂等返回既有标签:新增面板里重复创建不报错,直接落到已有标签上。
+    const existing = this.store.get('SELECT * FROM note_tags WHERE name=?', tagName);
+    if (existing) return { tag: tagView(existing), created: false };
+    const id = randomUUID();
+    this.store.run('INSERT INTO note_tags(id,name,color,created) VALUES(?,?,?,?)', id, tagName, tagColor, new Date().toISOString());
+    return { tag: this.getTag(id), created: true };
+  }
+  getTag(id) {
+    const row = this.store.get('SELECT * FROM note_tags WHERE id=?', normalizeId(id));
+    if (!row) throw noteError(404, '标签不存在');
+    return tagView(row);
   }
   assertRevision(row, revision) {    if (revision === undefined || revision === null) throw noteError(400, '需要记录版本');
     const value = Number(revision);
