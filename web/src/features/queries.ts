@@ -16,14 +16,22 @@ import type {
   TelemetryManagerConversationResponse,
 } from '@/shared/api/raw-types';
 
-const refreshInterval = 2000;
+// 页面级轮询预算:团队页默认布局只允许 3 个 2 秒查询(消息头/互动卡/运行状态),
+// 其它查询按 5s/10s/30s 降频或按需。新增轮询必须从这里选桶,不要在调用点写数字。
+export const QUERY_POLLING = {
+  fast: 2000,
+  slow: 5000,
+  ambient: 10000,
+  rare: 30000,
+} as const;
+const refreshInterval = QUERY_POLLING.fast;
 
 export function useCollaborationQuery(groupId: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
     queryKey: computed(() => queryKeys.collaboration(toValue(groupId))),
     queryFn: ({ signal }) => api.collaboration(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.slow,
     refetchOnWindowFocus: false,
   });
 }
@@ -42,7 +50,7 @@ export function usePanelAgentQuery(full: MaybeRefOrGetter<boolean> = true) {
     queryKey: queryKeys.panelState,
     enabled: computed(() => toValue(full)),
     queryFn: ({ signal }) => api.panelAgent(signal),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.slow,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -172,7 +180,7 @@ function useTelemetryHead<T>(
     queryKey: computed(() => [...toValue(key), 'head']),
     queryFn: ({ signal }) => load(signal),
     enabled: computed(() => toValue(enabled)),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.fast,
     refetchOnWindowFocus: false,
   });
 }
@@ -340,7 +348,7 @@ export function useMembersTelemetryQuery(
     queryKey: computed(() => queryKeys.telemetryMembers(toValue(groupId))),
     queryFn: ({ signal }) => api.telemetryMembers(toValue(groupId)!, {}, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.fast,
     refetchOnWindowFocus: false,
   });
 }
@@ -353,7 +361,7 @@ export function useTelemetryCapabilitiesQuery(
     queryFn: ({ signal }) =>
       api.telemetryCapabilities(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.ambient,
     refetchOnWindowFocus: false,
   });
 }
@@ -363,7 +371,7 @@ export function useTeamDirectivesQuery(groupId: MaybeRefOrGetter<string | undefi
     queryKey: computed(() => queryKeys.teamDirectives(toValue(groupId))),
     queryFn: ({ signal }) => api.teamDirectives(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.slow,
     refetchOnWindowFocus: false,
   });
 }
@@ -373,7 +381,7 @@ export function useInteractionsQuery(groupId: MaybeRefOrGetter<string | undefine
     queryKey: computed(() => queryKeys.interactions(toValue(groupId))),
     queryFn: ({ signal }) => api.interactions(toValue(groupId)!, signal),
     enabled: computed(() => Boolean(toValue(groupId))),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.fast,
     refetchOnWindowFocus: false,
   });
 }
@@ -382,11 +390,11 @@ export function usePanelInteractionsQuery() {
   return useQuery({
     queryKey: queryKeys.panelInteractions,
     queryFn: ({ signal }) => api.panelInteractions(signal),
-    refetchInterval: refreshInterval,
+    refetchInterval: QUERY_POLLING.slow,
     refetchOnWindowFocus: false,
   });
 }
 
-export function useResourceQuery<T>(key: MaybeRefOrGetter<readonly unknown[]>, load: (signal: AbortSignal) => Promise<T>, enabled: MaybeRefOrGetter<boolean> = true, interval: number | false = 2000) {
+export function useResourceQuery<T>(key: MaybeRefOrGetter<readonly unknown[]>, load: (signal: AbortSignal) => Promise<T>, enabled: MaybeRefOrGetter<boolean> = true, interval: number | false = QUERY_POLLING.slow) {
   return useQuery({ queryKey: computed(() => toValue(key)), queryFn: ({ signal }) => load(signal), enabled: computed(() => toValue(enabled)), refetchInterval: interval, refetchOnWindowFocus: false, retry: 1 });
 }

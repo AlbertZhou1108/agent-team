@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { QUERY_POLLING } from '@/features/queries';
 import { computed, ref } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -29,7 +30,7 @@ const recent = useQuery({
   queryKey: computed(() => ['notes', 'team', teamId.value] as const),
   queryFn: ({ signal }) => api.notes({ team: teamId.value!, state: 'active', limit: 5 }, signal),
   enabled: computed(() => Boolean(teamId.value)),
-  refetchInterval: 15000,
+  refetchInterval: QUERY_POLLING.ambient,
   refetchOnWindowFocus: false,
 });
 const recentNotes = computed(() => recent.data.value?.notes ?? []);

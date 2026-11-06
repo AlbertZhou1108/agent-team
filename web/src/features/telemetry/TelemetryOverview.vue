@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { QUERY_POLLING } from '@/features/queries';
 import TelemetryDistribution from './TelemetryDistribution.vue';
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
@@ -35,7 +36,7 @@ const compositionColors=['var(--primary)','var(--info)','var(--warning)','var(--
 const compositionTotal=computed(()=>composition.value.reduce((sum,item)=>sum+(item.value??0),0));
 const overviewOpen=ref(false);
 function selectedRange(){const now=new Date();const start=new Date(now);start.setHours(0,0,0,0);start.setDate(start.getDate()-(days.value-1));return{from:start.toISOString(),to:now.toISOString(),bucket:days.value===1?'hour':'day'}}
-const query=useQuery({queryKey:computed(()=>['telemetry-overview',days.value,filters.value]),queryFn:async({signal})=>{const response=await fetch('/api/telemetry/overview?'+new URLSearchParams({...selectedRange(),...filters.value}),{signal});if(!response.ok)throw Error(await response.text());return response.json() as Promise<Overview>},refetchInterval:15000,refetchOnWindowFocus:false});
+const query=useQuery({queryKey:computed(()=>['telemetry-overview',days.value,filters.value]),queryFn:async({signal})=>{const response=await fetch('/api/telemetry/overview?'+new URLSearchParams({...selectedRange(),...filters.value}),{signal});if(!response.ok)throw Error(await response.text());return response.json() as Promise<Overview>},refetchInterval:QUERY_POLLING.ambient,refetchOnWindowFocus:false});
 const data=computed(()=>query.data.value);
 const seriesRows=computed(()=>data.value?.series??[]);
 const selectedFrom = ref<string | null>(null);

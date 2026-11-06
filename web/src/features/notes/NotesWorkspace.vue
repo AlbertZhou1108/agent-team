@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { QUERY_POLLING } from '@/features/queries';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query';
@@ -42,7 +43,7 @@ const teamFilter = computed(() => {
   const value = route.query.team;
   return typeof value === 'string' && value ? value : TEAM_FILTER_ALL;
 });
-const teamsQuery = useResourceQuery(queryKeys.groups, api.groups, true, 30000);
+const teamsQuery = useResourceQuery(queryKeys.groups, api.groups, true, QUERY_POLLING.rare);
 const teams = computed(() => (teamsQuery.data.value ?? []).map(team => ({ id: team.id, name: team.name })));
 
 const notesQuery = useInfiniteQuery({
@@ -57,11 +58,11 @@ const notesQuery = useInfiniteQuery({
       team: teamFilter.value === TEAM_FILTER_ALL ? undefined : teamFilter.value,
     }, signal),
   getNextPageParam: last => last.nextCursor,
-  refetchInterval: 10000,
+  // 笔记列表不做后台轮询:新增/修改走本地失效,切页时按需刷新。
   refetchOnWindowFocus: false,
   retry: 1,
 });
-const directoryQuery = useResourceQuery(['directory'], api.directory, true, 30000);
+const directoryQuery = useResourceQuery(['directory'], api.directory, true, QUERY_POLLING.rare);
 const panelReady = computed(() => Boolean(directoryQuery.data.value?.panelAgent));
 const notes = computed(() => notesQuery.data.value?.pages.flatMap(page => page.notes) ?? []);
 // 计数随当前筛选（状态、团队、搜索）变化，只认第一页。

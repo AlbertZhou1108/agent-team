@@ -10,6 +10,7 @@ import { toast } from 'vue-sonner';
 import { api, ApiError } from '@/shared/api/client';
 import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import {
+  QUERY_POLLING,
   useHistoryQuery,
   useInteractionsQuery,
   useMessagesQuery,
@@ -74,6 +75,7 @@ export function useTeamResources(options: TeamResourcesOptions) {
     () => queryKeys.resource(groupId.value, 'sessions'),
     (signal) => api.sessions(groupId.value, signal),
     () => Boolean(groupId.value),
+    QUERY_POLLING.slow,
   );
   const tasksQuery = useResourceQuery(
     () => queryKeys.resource(groupId.value, 'tasks'),
@@ -82,31 +84,32 @@ export function useTeamResources(options: TeamResourcesOptions) {
       Boolean(groupId.value) &&
       contextVisible.value &&
       contextPanel.value === 'collaboration',
+    QUERY_POLLING.ambient,
   );
   const archivedQuery = useResourceQuery(
     ['groups', 'archived'],
     api.archivedGroups,
     () => route.name === 'settings',
-    10000,
+    QUERY_POLLING.ambient,
   );
-  const groupsQuery = useResourceQuery(queryKeys.groups, api.groups, true, 10000);
+  const groupsQuery = useResourceQuery(queryKeys.groups, api.groups, true, QUERY_POLLING.rare);
   const directoryQuery = useResourceQuery(
     queryKeys.directory,
     api.directory,
     true,
-    10000,
+    QUERY_POLLING.rare,
   );
   const detailQuery = useResourceQuery(
     () => queryKeys.resource(groupId.value, 'detail'),
     (signal) => api.group(groupId.value, signal),
     () => Boolean(groupId.value),
-    3000,
+    QUERY_POLLING.ambient,
   );
   const policyQuery = useResourceQuery(
     queryKeys.policy,
     api.modelPolicy,
     () => Boolean(groupId.value) || route.name === 'settings',
-    10000,
+    QUERY_POLLING.ambient,
   );
   const defaultsQuery = useResourceQuery(
     queryKeys.defaults,
@@ -119,23 +122,26 @@ export function useTeamResources(options: TeamResourcesOptions) {
     queryKeys.unread,
     api.unread,
     () => route.name !== 'panel-agent',
+    QUERY_POLLING.slow,
   );
   const runtimeQuery = useResourceQuery(
     () => queryKeys.resource(groupId.value, 'runtime'),
     (signal) => api.runtime(groupId.value, signal),
     () => Boolean(groupId.value),
+    QUERY_POLLING.fast,
   );
   const homeQuery = useResourceQuery(
     queryKeys.home,
     api.homeSummary,
     () => !groupId.value && route.name === 'group',
+    QUERY_POLLING.slow,
   );
   const sessionQuery = useResourceQuery(
     () => queryKeys.session(groupId.value, selectedSessionId.value),
     (signal) =>
       api.session(groupId.value, selectedSessionId.value, signal),
     () => Boolean(groupId.value && selectedSessionId.value),
-    3000,
+    QUERY_POLLING.ambient,
   );
 
   const allGroups = computed(() => groupsQuery.data.value ?? []);

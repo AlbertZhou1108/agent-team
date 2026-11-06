@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { QUERY_POLLING } from '@/features/queries';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { RouterLink } from 'vue-router';
@@ -75,7 +76,7 @@ const query = useQuery({
     if (!response.ok) throw Error('工作台加载失败');
     return response.json() as Promise<Workbench>;
   },
-  refetchInterval: 2000,
+  refetchInterval: QUERY_POLLING.slow,
   refetchOnWindowFocus: false,
 });
 const data = computed(() => query.data.value);
