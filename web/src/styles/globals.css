@@ -1739,6 +1739,12 @@ button {
   align-items: center;
   min-width: 0;
   position: relative;
+  cursor: grab;
+}
+
+.team-row:active,
+.team-folder-heading:active {
+  cursor: grabbing;
 }
 
 .team-navigation > * {
