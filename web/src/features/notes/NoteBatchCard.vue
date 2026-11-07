@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, ref } from 'vue';
 import {
   Archive,
   ArchiveRestore,
@@ -10,7 +10,8 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import type { NoteState } from '@/shared/api/raw-types';
-import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { noteIdsFrom, NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { usePddBindings } from '@/shared/use-pdd-bindings';
 import { noteBatchActions, type NoteBatchAction } from './notes-state';
 
 /**
@@ -43,39 +44,36 @@ const toneClass = {
 } as const;
 
 const hovered = ref<NoteBatchAction | null>(null);
-const cleanups = new Map<NoteBatchAction, () => void>();
+const pddBindings = usePddBindings();
+const boundElements = new Map<NoteBatchAction, HTMLElement>();
 
 function bindZone(el: unknown, action: NoteBatchAction) {
+  const key = `note-zone:${action}`;
   const spec = actions.value.find(item => item.key === action);
+  const setup = (element: HTMLElement) => dropTargetForElements({
+    element,
+    canDrop: ({ source }) => source.data.type === NOTE_DRAG_TYPE,
+    getData: () => ({ type: 'note-drop-zone', action, tone: spec?.tone ?? 'primary' }),
+    getDropEffect: () => 'move',
+    onDragEnter: () => { hovered.value = action; },
+    onDragLeave: () => { if (hovered.value === action) hovered.value = null; },
+    onDrop: ({ source }) => {
+      hovered.value = null;
+      const ids = noteIdsFrom(source);
+      if (!ids.length) return;
+      emit('batch', { action, ids });
+    },
+  });
+
   if (el instanceof HTMLElement) {
-    if (cleanups.has(action)) return;
-    cleanups.set(
-      action,
-      dropTargetForElements({
-        element: el,
-        canDrop: ({ source }) => source.data.type === NOTE_DRAG_TYPE,
-        getData: () => ({ type: 'note-drop-zone', action, tone: spec?.tone ?? 'primary' }),
-        getDropEffect: () => 'move',
-        onDragEnter: () => { hovered.value = action; },
-        onDragLeave: () => { if (hovered.value === action) hovered.value = null; },
-        onDrop: ({ source }) => {
-          hovered.value = null;
-          const ids = (source.data.ids as string[] | undefined) ?? [];
-          if (!ids.length) return;
-          emit('batch', { action, ids });
-        },
-      }),
-    );
+    boundElements.set(action, el);
+    pddBindings.bind(key, el, setup);
     return;
   }
-  cleanups.get(action)?.();
-  cleanups.delete(action);
+  const previous = boundElements.get(action);
+  boundElements.delete(action);
+  pddBindings.bind(key, null, setup, previous);
 }
-
-onBeforeUnmount(() => {
-  cleanups.forEach(cleanup => cleanup());
-  cleanups.clear();
-});
 </script>
 
 <template>

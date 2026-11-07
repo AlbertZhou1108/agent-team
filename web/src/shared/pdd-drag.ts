@@ -30,12 +30,20 @@ export function isTeamFolderDrag(source: PddSource): boolean {
   return dataOf(source)?.type === TEAM_FOLDER_DRAG_TYPE;
 }
 
-/** 去重、过滤非字符串；非团队负载或非法 ids 返回空数组。不修改入参。 */
-export function teamIdsFrom(source: PddSource): string[] {
-  if (!isTeamDrag(source)) return [];
+function stringIdsFrom(source: PddSource): string[] {
   const ids = dataOf(source)?.ids;
   if (!Array.isArray(ids)) return [];
   return [...new Set(ids.filter((id): id is string => typeof id === 'string'))];
+}
+
+/** 去重、过滤非字符串；非团队负载或非法 ids 返回空数组。不修改入参。 */
+export function teamIdsFrom(source: PddSource): string[] {
+  return isTeamDrag(source) ? stringIdsFrom(source) : [];
+}
+
+/** 随心记拖拽负载的 id；非笔记负载或非法 ids 返回空数组。 */
+export function noteIdsFrom(source: PddSource): string[] {
+  return isNoteDrag(source) ? stringIdsFrom(source) : [];
 }
 
 export function folderIdFrom(source: PddSource): string | undefined {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Pin as PinIcon, Search as SearchIcon, NotebookPen } from '@lucide/vue';
-import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
+import { draggable } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import {
 import type { Note, NoteCounts, NoteState, NoteTag } from '@/shared/api/raw-types';
 import { useSentinelLoad } from '@/shared/use-sentinel-load';
 import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { usePddBindings } from '@/shared/use-pdd-bindings';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { motionDurationMs, MOTION_EASING, prefersReducedMotion } from '@/shared/motion';
 import { cn } from '@/lib/utils';
@@ -104,8 +105,19 @@ const teamLabel = computed(() => {
 
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
-// shift 区间跨面板:可见序 = 置顶面板在前 + 日期分组的其余行。
-const visibleIds = computed(() => [...props.pinned, ...props.notes].map(note => note.id));
+// 可见序 = 未折叠的置顶面板 + 未折叠日期分组。折叠内容的笔记不参与区间选择。
+const visibleIds = computed(() => {
+  const ids: string[] = [];
+  if (!collapsedGroups.value.has('__pinned__')) {
+    ids.push(...props.pinned.map(note => note.id));
+  }
+  for (const group of groups.value) {
+    if (!collapsedGroups.value.has(group.key)) {
+      ids.push(...group.notes.map(note => note.id));
+    }
+  }
+  return ids;
+});
 
 // 拖拽幻影:拖动中的视觉交给原生拖拽影像(合成器渲染,1:1 跟手不节流),
 // DOM 幻影只在松手瞬间接力播放「飞向落点」的释放动画。
@@ -114,14 +126,25 @@ const dragGhost = ref<HTMLElement | null>(null);
 const ghostTitle = ref('');
 const ghostCount = ref(0);
 const ghostVisible = ref(false);
-let ghostLeaveTimer: ReturnType<typeof setTimeout> | undefined;
 const noteHandoff = useNoteHandoffStore();
 
 function clearSelection() {
   selected.value = [];
   anchor.value = undefined;
 }
+
+/** 只保留当前可见的选中项；列表内容或折叠状态变化后调用。 */
+function pruneSelection() {
+  if (!selected.value.length) return;
+  const visible = new Set(visibleIds.value);
+  selected.value = selected.value.filter(id => visible.has(id));
+  if (anchor.value && !selected.value.includes(anchor.value)) {
+    anchor.value = selected.value[0];
+  }
+}
+
 watch(() => [props.filter, props.search, props.team], clearSelection);
+watch(() => [props.notes, props.pinned], pruneSelection);
 
 function toggleSelect(note: Note, event: MouseEvent) {
   // shift = 区间并集;Cmd(Mac)/Ctrl(Windows/Linux)= 间断切换;两者都接受,
@@ -145,69 +168,71 @@ function toggleSelect(note: Note, event: MouseEvent) {
   emit('select', note.id);
 }
 
-/* ------------------------------ 拖拽接线（PDD 试点） ------------------------------ */
-/* 事件层交给 @atlaskit/pragmatic-drag-and-drop:draggable/dropTarget 只声明
-   「谁能拖、谁能放、负载是什么」,业务动作与视觉反馈仍是上面的既有逻辑。
-   拖拽负载走 PDD 的 data(source.data),不再直接读写 dataTransfer。 */
+/* ------------------------------ 拖拽接线 ------------------------------ */
+/* 事件层交给 @atlaskit/pragmatic-drag-and-drop:draggable 只声明
+   「谁能拖、负载是什么」,业务动作与视觉反馈仍是上面的既有逻辑。 */
 
-const rowCleanups = new Map<string, () => void>();
+const pddBindings = usePddBindings();
+const boundElements = new Map<string, HTMLElement>();
+
 function bindRowDraggable(el: unknown, note: Note) {
+  const key = `note:${note.id}`;
+  const setup = (element: HTMLElement) => draggable({
+    element,
+    getInitialData: () => {
+      // 拖拽行不在选区时收缩为单条,与左侧栏团队列表同一套语义。
+      if (!selected.value.includes(note.id)) {
+        selected.value = [note.id];
+        anchor.value = note.id;
+      }
+      // 只带可见项,并按列表可见顺序提交。
+      const ids = visibleIds.value.filter(id => selected.value.includes(id));
+      const first = [...props.pinned, ...props.notes].find(item => item.id === ids[0]);
+      return {
+        type: NOTE_DRAG_TYPE,
+        ids,
+        title: first?.title || '无标题',
+        count: ids.length,
+      };
+    },
+    onGenerateDragPreview: ({ source, location, nativeSetDragImage }) => {
+      // 填好幻影内容 → 显示在视口外 → 抓为原生拖拽影像(合成器 1:1 跟手) → 再藏起。
+      // 原生影像是拖起瞬间的快照,拖动中不需要 DOM 跟随。
+      ghostTitle.value = String(source.data.title);
+      ghostCount.value = Number(source.data.count);
+      const ghost = dragGhost.value;
+      ghost?.getAnimations().forEach(animation => animation.cancel());
+      if (ghost) {
+        ghost.style.left = '-1000px';
+        ghost.style.top = `${location.current.input.clientY}px`;
+        ghostVisible.value = true;
+        nativeSetDragImage?.(ghost, 140, 28);
+        ghostVisible.value = false;
+        ghost.style.left = '';
+        ghost.style.top = '';
+      }
+      noteHandoff.beginDrag();
+      // 拖起信号:工作区据此收起详情、展开批量投放卡片。
+      emit('drag-start');
+    },
+    // 落下与取消(Esc/落空)都会走到 onDrop:释放动效 + 收尾一次到位。
+    onDrop: ({ location }) => {
+      noteHandoff.endDrag();
+      releaseGhost(location.current.dropTargets[0]?.element, location.current.input);
+      // 拖拽结束信号:工作区收起批量投放卡片。
+      emit('drag-end');
+    },
+  });
+
   if (el instanceof HTMLElement) {
-    // 同一元素重复回调(重渲染)时跳过,避免反复增删监听。
-    if (rowCleanups.has(note.id)) return;
-    rowCleanups.set(
-      note.id,
-      draggable({
-        element: el,
-        getInitialData: () => {
-          // 拖拽行不在选区时收缩为单条,与左侧栏团队列表同一套语义。
-          if (!selected.value.includes(note.id)) {
-            selected.value = [note.id];
-            anchor.value = note.id;
-          }
-          const ids = [...selected.value];
-          const first = props.notes.find(item => item.id === ids[0]);
-          return {
-            type: NOTE_DRAG_TYPE,
-            ids,
-            title: first?.title || '无标题',
-            count: ids.length,
-          };
-        },
-        onGenerateDragPreview: ({ source, location, nativeSetDragImage }) => {
-          // 填好幻影内容 → 显示在视口外 → 抓为原生拖拽影像(合成器 1:1 跟手) → 再藏起。
-          // 原生影像是拖起瞬间的快照,拖动中不需要 DOM 跟随。
-          ghostTitle.value = String(source.data.title);
-          ghostCount.value = Number(source.data.count);
-          const ghost = dragGhost.value;
-          ghost?.getAnimations().forEach(animation => animation.cancel());
-          if (ghost) {
-            ghost.style.left = '-1000px';
-            ghost.style.top = `${location.current.input.clientY}px`;
-            ghostVisible.value = true;
-            nativeSetDragImage?.(ghost, 140, 28);
-            ghostVisible.value = false;
-            ghost.style.left = '';
-            ghost.style.top = '';
-          }
-          noteHandoff.beginDrag();
-          // 拖起信号:工作区据此收起详情、展开批量投放卡片。
-          emit('drag-start');
-        },
-        // 落下与取消(Esc/落空)都会走到 onDrop:释放动效 + 收尾一次到位。
-        onDrop: ({ location }) => {
-          noteHandoff.endDrag();
-          releaseGhost(location.current.dropTargets[0]?.element, location.current.input);
-          // 拖拽结束信号:工作区收起批量投放卡片。
-          emit('drag-end');
-        },
-      }),
-    );
+    boundElements.set(key, el);
+    pddBindings.bind(key, el, setup);
     return;
   }
-  // 卸载:ref 以 null 回调,清掉该行的 PDD 绑定。
-  rowCleanups.get(note.id)?.();
-  rowCleanups.delete(note.id);
+  // 卸载:把正在离开的元素一起交给账本,避免新旧元素交接时误删新注册。
+  const previous = boundElements.get(key);
+  boundElements.delete(key);
+  pddBindings.bind(key, null, setup, previous);
 }
 
 // 释放动效:原生影像在松手瞬间消失,同款幻影在光标处接力,飞向落点中心、
@@ -243,9 +268,28 @@ function releaseGhost(targetElement: Element | undefined, input: { clientX: numb
   setTimeout(hide, duration + 80);
 }
 
+/* 普通左键点行以外的地方即取消选择；文档级监听，不依赖列表获得焦点。 */
+function onDocumentPointerDown(event: PointerEvent) {
+  if (event.button !== 0 || !selected.value.length) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest('.note-row')) return;
+  if (target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]')) return;
+  clearSelection();
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && selected.value.length) clearSelection();
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown);
+  document.addEventListener('keydown', onDocumentKeydown);
+});
+
 onBeforeUnmount(() => {
-  rowCleanups.forEach(cleanup => cleanup());
-  rowCleanups.clear();
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  document.removeEventListener('keydown', onDocumentKeydown);
 });
 
 /* ------------------------------ 日期分组折叠 ------------------------------ */
@@ -256,6 +300,7 @@ function toggleGroup(key: string, open: boolean) {
   if (open) collapsedGroups.value.delete(key);
   else collapsedGroups.value.add(key);
 }
+watch(() => [...collapsedGroups.value], pruneSelection);
 
 // 触底自动加载:哨兵进入视口即追加下一页,不设按钮。
 // 列表是倒序时间线,追加不会改变已读位置,所以不需要用户点头。
@@ -269,7 +314,7 @@ useSentinelLoad({
 </script>
 
 <template>
-  <div class="flex min-w-0 flex-col gap-3" @keydown.esc.prevent="clearSelection">
+  <div class="flex min-w-0 flex-col gap-3">
     <div class="flex flex-wrap items-center gap-2">
       <div class="flex items-center gap-1" role="tablist" aria-label="记录状态">
         <Button

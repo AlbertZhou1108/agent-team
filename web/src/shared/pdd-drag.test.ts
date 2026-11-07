@@ -7,6 +7,7 @@ import {
   isNoteDrag,
   isTeamDrag,
   isTeamFolderDrag,
+  noteIdsFrom,
   teamIdsFrom,
   type PddSource,
 } from './pdd-drag';
@@ -44,6 +45,12 @@ describe('pdd 拖拽协议', () => {
     expect(teamIdsFrom(source({ type: NOTE_DRAG_TYPE, ids: ['a'] }))).toEqual([]);
     expect(teamIdsFrom(source({ type: TEAM_DRAG_TYPE }))).toEqual([]);
     expect(teamIdsFrom(source({ type: TEAM_DRAG_TYPE, ids: 'a' }))).toEqual([]);
+  });
+
+  it('笔记 id 只从笔记负载读取，且过滤非法项', () => {
+    expect(noteIdsFrom(source({ type: NOTE_DRAG_TYPE, ids: ['a', 'a', 1, 'b'] }))).toEqual(['a', 'b']);
+    expect(noteIdsFrom(source({ type: TEAM_DRAG_TYPE, ids: ['a'] }))).toEqual([]);
+    expect(noteIdsFrom(source({ type: NOTE_DRAG_TYPE }))).toEqual([]);
   });
 
   it('文件夹 id 只从文件夹负载读取', () => {

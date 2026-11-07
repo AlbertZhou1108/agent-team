@@ -29,7 +29,8 @@ import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
-import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { NOTE_DRAG_TYPE, noteIdsFrom } from '@/shared/pdd-drag';
+import { usePddBindings } from '@/shared/use-pdd-bindings';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { cn } from '@/lib/utils';
 import { prefersReducedMotion } from '@/shared/motion';
@@ -89,26 +90,6 @@ const agentUnreadLabel = computed(() =>
    不在这里做交互。 */
 const noteHandoff = useNoteHandoffStore();
 const noteDragOver = ref(false);
-const noteDropTargetEl = ref<HTMLElement | null>(null);
-let noteDropTargetCleanup: (() => void) | undefined;
-onMounted(() => {
-  const el = noteDropTargetEl.value;
-  if (!el) return;
-  noteDropTargetCleanup = dropTargetForElements({
-    element: el,
-    canDrop: ({ source }) => source.data.type === NOTE_DRAG_TYPE,
-    getData: () => ({ type: 'note-handoff-target', tone: 'primary' }),
-    getDropEffect: () => 'move',
-    onDragEnter: () => { noteDragOver.value = true; },
-    onDragLeave: () => { noteDragOver.value = false; },
-    onDrop: ({ source }) => {
-      noteDragOver.value = false;
-      const ids = (source.data.ids as string[] | undefined) ?? [];
-      noteHandoff.request(ids);
-    },
-  });
-});
-onBeforeUnmount(() => noteDropTargetCleanup?.());
 watch(
   () => props.currentGroupId,
   (id) => {
@@ -394,6 +375,22 @@ const pinnedZoneRef = stableRef('pinned', bindPinnedZone);
 const rootZoneRef = stableRef('root', bindRootZone);
 const navigationRef = stableRef('navigation', bindNavigation);
 
+const notePddBindings = usePddBindings();
+const noteDropTargetRef = stableRef('note-handoff', (element, previous) => {
+  notePddBindings.bind('note-handoff', element, el => dropTargetForElements({
+    element: el,
+    canDrop: ({ source }) => source.data.type === NOTE_DRAG_TYPE,
+    getData: () => ({ type: 'note-handoff-target', tone: 'primary' }),
+    getDropEffect: () => 'move',
+    onDragEnter: () => { noteDragOver.value = true; },
+    onDragLeave: () => { noteDragOver.value = false; },
+    onDrop: ({ source }) => {
+      noteDragOver.value = false;
+      noteHandoff.request(noteIdsFrom(source));
+    },
+  }), previous);
+});
+
 const navigationEl = ref<HTMLElement | null>(null);
 function navigationElement(element: Element | ComponentPublicInstance | null) {
   navigationEl.value = element instanceof HTMLElement ? element : null;
@@ -487,7 +484,7 @@ function submitRenameFolder() {
         主页
       </SidebarEntry>
       <div
-        ref="noteDropTargetEl"
+        :ref="noteDropTargetRef"
         class="min-w-0"
         :data-note-drop-target="noteDragOver ? 'hot' : noteHandoff.dragActive ? 'ready' : undefined"
       >
