@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/select';
 import type { Note, NoteCounts, NoteState, NoteTag } from '@/shared/api/raw-types';
 import { useSentinelLoad } from '@/shared/use-sentinel-load';
-import { NOTE_DRAG_TYPE, useNoteHandoffStore } from '@/stores/note-handoff';
+import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { motionDurationMs, MOTION_EASING, prefersReducedMotion } from '@/shared/motion';
 import { cn } from '@/lib/utils';
 import {

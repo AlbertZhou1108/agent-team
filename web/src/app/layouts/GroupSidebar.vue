@@ -28,7 +28,8 @@ import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/ui';
 import { useConnectionStore } from '@/stores/connection';
-import { useNoteHandoffStore, NOTE_DRAG_TYPE } from '@/stores/note-handoff';
+import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
+import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { cn } from '@/lib/utils';
 import { dropSide, type DropSide } from '@/shared/drag-order';
 

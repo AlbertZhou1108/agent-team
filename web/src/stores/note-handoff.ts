@@ -1,9 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-/** PDD 拖拽负载的类型标记:draggable/dropTarget 双方按它分流,不与团队拖拽混淆。 */
-export const NOTE_DRAG_TYPE = 'note-drags';
-
 /**
  * 侧栏 Panel Agent 投放 → 随心记工作区的交接桥。
  * 侧栏只投递所选笔记 id;提示词生成、草稿覆盖确认、跳转全部仍归

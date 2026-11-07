@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import type { NoteState } from '@/shared/api/raw-types';
-import { NOTE_DRAG_TYPE } from '@/stores/note-handoff';
+import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
 import { noteBatchActions, type NoteBatchAction } from './notes-state';
 
 /**
