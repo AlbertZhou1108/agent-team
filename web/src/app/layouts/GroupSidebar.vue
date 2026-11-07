@@ -2,6 +2,7 @@
 import { Input } from '@/components/ui/input';
 import { Search } from '@lucide/vue';
 import { Surface } from '@/components/surface';
+import type { ComponentPublicInstance } from 'vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
@@ -31,7 +32,13 @@ import { useConnectionStore } from '@/stores/connection';
 import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { cn } from '@/lib/utils';
-import { dropSide, type DropSide } from '@/shared/drag-order';
+import {
+  containerOf,
+  applyTeamClick,
+  type ContainerKey,
+  type SidebarDropAction,
+} from '@/features/layout/sidebar-drag';
+import { useSidebarTeamDrag } from '@/features/layout/use-sidebar-team-drag';
 
 const props = defineProps<{
   groups: Group[];
@@ -60,16 +67,9 @@ const compact = useMediaQuery('(max-width: 760px)');
 const navCollapsed = computed(() => ui.sidebarCollapsed || compact.value);
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
+const selectionContainer = ref<ContainerKey>();
 const creating = ref(false);
 const folderName = ref('');
-const dropTarget = ref<string>();
-const insertion = ref<{
-  id: string;
-  kind: 'team' | 'folder';
-  side: DropSide;
-}>();
-const dragging = ref<'team' | 'folder'>();
-const draggingFolder = ref<string>();
 const agentUnreadLabel = computed(() =>
   props.agentUnreadCount > 99 ? '99+' : String(props.agentUnreadCount),
 );
@@ -104,62 +104,10 @@ watch(
   (id) => {
     selected.value = id ? [id] : [];
     anchor.value = id;
+    selectionContainer.value = id ? containerOfTeam(id) : undefined;
   },
   { immediate: true },
 );
-function clearDrag() {
-  dropTarget.value = undefined;
-  insertion.value = undefined;
-  dragging.value = undefined;
-  draggingFolder.value = undefined;
-}
-function showTeamInsertion(id: string, event: DragEvent) {
-  dropTarget.value = undefined;
-  if (dragging.value !== 'team' || selected.value.includes(id)) {
-    insertion.value = undefined;
-    return;
-  }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  insertion.value = {
-    id,
-    kind: 'team',
-    side: dropSide(event, rect, 'y'),
-  };
-}
-function leaveNavigation(event: DragEvent) {
-  const element = event.currentTarget as HTMLElement;
-  if (!element.contains(event.relatedTarget as Node | null)) {
-    dropTarget.value = undefined;
-    insertion.value = undefined;
-  }
-}
-function leaveInsertion(event: DragEvent) {
-  const element = event.currentTarget as HTMLElement;
-  if (!element.contains(event.relatedTarget as Node | null))
-    insertion.value = undefined;
-}
-function overFolder(id: string, event: DragEvent) {
-  if (dragging.value === 'folder') {
-    dropTarget.value = undefined;
-    const element = event.currentTarget as HTMLElement;
-    const rect = (
-      element.querySelector('.team-folder-heading') ?? element
-    ).getBoundingClientRect();
-    insertion.value = {
-      id,
-      kind: 'folder',
-      side: dropSide(event, rect, 'y'),
-    };
-  } else if (dragging.value === 'team') {
-    insertion.value = undefined;
-    dropTarget.value = id;
-  }
-}
-function insertionSide(id: string, kind: 'team' | 'folder') {
-  return insertion.value?.id === id && insertion.value.kind === kind
-    ? insertion.value.side
-    : undefined;
-}
 const sortedTeams = computed(() =>
   [...props.groups].sort((a, b) => {
     const index = (id: string) => {
@@ -186,112 +134,180 @@ const folderTeams = (id: string) =>
     (group) =>
       !org.teams[group.id]?.pinned && org.teams[group.id]?.folder === id,
   );
-const visibleIds = computed(() =>
-  [
-    ...(org.sections.pinned ? [] : pinned.value),
-    ...org.folders.flatMap((folder) =>
-      folder.collapsed ? [] : folderTeams(folder.id),
-    ),
-    ...rootTeams.value,
-  ].map((group) => group.id),
-);
+
+function containerOfTeam(id: string): ContainerKey {
+  return containerOf(id, org.teams[id]);
+}
+
+function visibleIdsOf(container: ContainerKey | undefined): string[] {
+  if (!container) return [];
+  if (container === 'pinned') {
+    return org.sections.pinned ? [] : pinned.value.map(group => group.id);
+  }
+  if (container === 'root') {
+    return org.sections.ungrouped ? [] : rootTeams.value.map(group => group.id);
+  }
+  const folderId = container.slice('folder:'.length);
+  const folder = org.folders.find(item => item.id === folderId);
+  return folder && !folder.collapsed
+    ? folderTeams(folderId).map(group => group.id)
+    : [];
+}
+
+function clearSelection() {
+  selected.value = [];
+  anchor.value = undefined;
+  selectionContainer.value = undefined;
+}
+
 function selectTeam(id: string, event: MouseEvent) {
-  if (event.shiftKey) {
-    const ids = visibleIds.value;
-    const start = ids.indexOf(anchor.value ?? id),
-      end = ids.indexOf(id);
-    selected.value = Array.from(
-      new Set([
-        ...selected.value,
-        ...ids.slice(Math.min(start, end), Math.max(start, end) + 1),
-      ]),
-    );
-    if (!anchor.value) anchor.value = id;
-    return;
+  const container = containerOfTeam(id);
+  const result = applyTeamClick({
+    id,
+    container,
+    selection: selected.value,
+    selectionContainer: selectionContainer.value,
+    anchor: anchor.value,
+    visibleIds: visibleIdsOf(container),
+    currentGroupId: props.currentGroupId,
+    shiftKey: event.shiftKey,
+    toggleKey: event.metaKey || event.ctrlKey,
+  });
+  selected.value = result.selected;
+  anchor.value = result.anchor;
+  selectionContainer.value = result.selected.length ? container : undefined;
+  if (result.navigate) emit('select', id);
+}
+
+function dragIds(id: string): string[] {
+  if (!selected.value.includes(id)) {
+    selected.value = [id];
+    anchor.value = id;
+    selectionContainer.value = containerOfTeam(id);
   }
-  if (id === props.currentGroupId) return;
-  selected.value = [id];
-  anchor.value = id;
-  emit('select', id);
+  const container = selectionContainer.value ?? containerOfTeam(id);
+  return visibleIdsOf(container).filter(item => selected.value.includes(item));
 }
-function startDrag(id: string, event: DragEvent) {
-  dragging.value = 'team';
-  draggingFolder.value = undefined;
-  if (!selected.value.includes(id)) selected.value = [id];
-  event.dataTransfer?.setData(
-    'application/x-agent-team-ids',
-    JSON.stringify(selected.value),
-  );
-  event.dataTransfer?.setData('text/plain', selected.value.join(', '));
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-}
-function reorderTeam(target: string, event: DragEvent) {
-  const raw = event.dataTransfer?.getData('application/x-agent-team-ids');
-  if (!raw) return;
-  event.preventDefault();
-  event.stopPropagation();
-  try {
-    const ids = JSON.parse(raw);
-    if (!Array.isArray(ids)) return;
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    org.reorderTeams(
-      ids.filter((id) => props.groups.some((group) => group.id === id)),
-      target,
-      dropSide(event, rect, 'y') === 'after',
-      props.groups.map((group) => group.id),
-    );
-  } catch {
-    /* Ignore unrelated drag data. */
+
+function applyAction(action: SidebarDropAction) {
+  switch (action.kind) {
+    case 'reorder-teams': {
+      org.reorderTeams(action.ids, action.targetId, action.after, props.groups.map(group => group.id));
+      selectionContainer.value = containerOfTeam(action.targetId);
+      break;
+    }
+    case 'move-teams': {
+      if (action.folderId) {
+        org.appendTo(action.ids, { folder: action.folderId, pinned: false });
+        org.expandFolder(action.folderId);
+        selectionContainer.value = `folder:${action.folderId}`;
+      } else {
+        org.appendTo(action.ids, { pinned: false });
+        org.expandSection('ungrouped');
+        selectionContainer.value = 'root';
+      }
+      break;
+    }
+    case 'pin-teams': {
+      org.appendTo(action.ids, { pinned: true });
+      org.expandSection('pinned');
+      selectionContainer.value = 'pinned';
+      break;
+    }
+    case 'reorder-folder':
+      org.reorderFolder(action.folderId, action.targetId, action.after);
+      return;
+    case 'none':
+      return;
   }
-  dropTarget.value = undefined;
-  insertion.value = undefined;
+  const first = action.ids.find(id => selected.value.includes(id)) ?? action.ids[0];
+  if (first) anchor.value = first;
 }
-function dragFolder(id: string, event: DragEvent) {
-  dragging.value = 'folder';
-  draggingFolder.value = id;
-  event.stopPropagation();
-  event.dataTransfer?.setData('application/x-agent-team-folder', id);
-  event.dataTransfer?.setData('text/plain', id);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+
+const {
+  bindTeamRow,
+  bindFolderHeading,
+  bindFolderBlock,
+  bindPinnedZone,
+  bindRootZone,
+  bindNavigation,
+  dragging,
+  draggingIds,
+  draggingFolder,
+  insertion,
+  dropZone,
+} = useSidebarTeamDrag({
+  dragIds,
+  applyAction,
+});
+
+const pinnedZoneVisible = computed(() => pinned.value.length > 0 || dragging.value === 'team');
+
+function insertionSide(id: string, kind: 'team' | 'folder') {
+  return insertion.value?.id === id && insertion.value.kind === kind
+    ? insertion.value.side
+    : undefined;
 }
-function dropFolder(target: string, event: DragEvent) {
-  const id = event.dataTransfer?.getData('application/x-agent-team-folder');
-  if (!id) {
-    drop(event, target);
-    return;
+
+function containerDropZone(zone: string) {
+  return dropZone.value === zone ? 'true' : undefined;
+}
+
+function pruneSelection() {
+  if (!selected.value.length) return;
+  const visible = visibleIdsOf(selectionContainer.value);
+  selected.value = selected.value.filter(id => visible.includes(id));
+  if (anchor.value && !selected.value.includes(anchor.value)) {
+    anchor.value = selected.value[0];
   }
-  event.preventDefault();
-  const element = event.currentTarget as HTMLElement;
-  const rect = (
-    element.querySelector('.team-folder-heading') ?? element
-  ).getBoundingClientRect();
-  org.reorderFolder(id, target, dropSide(event, rect, 'y') === 'after');
-  dropTarget.value = undefined;
-  insertion.value = undefined;
+  if (!selected.value.length) selectionContainer.value = undefined;
 }
-function drop(event: DragEvent, folder?: string) {
-  event.preventDefault();
-  dropTarget.value = undefined;
-  insertion.value = undefined;
-  try {
-    const ids = JSON.parse(
-      event.dataTransfer?.getData('application/x-agent-team-ids') ?? '[]',
-    );
-    if (Array.isArray(ids))
-      org.move(
-        ids.filter(
-          (id) =>
-            typeof id === 'string' &&
-            props.groups.some((group) => group.id === id),
-        ),
-        folder,
-      );
-  } catch {
-    /* Ignore unrelated dragged content. */
-  } finally {
-    clearDrag();
+
+function toggleSection(section: 'pinned' | 'ungrouped') {
+  org.toggleSection(section);
+  pruneSelection();
+}
+
+function toggleFolder(id: string) {
+  org.toggleFolder(id);
+  pruneSelection();
+}
+
+const refBinders = new Map<string, (element: Element | ComponentPublicInstance | null) => void>();
+function stableRef(key: string, bind: (element: Element | null) => void) {
+  let fn = refBinders.get(key);
+  if (!fn) {
+    fn = element => bind(element instanceof HTMLElement ? element : null);
+    refBinders.set(key, fn);
   }
+  return fn;
 }
+
+const pinnedZoneRef = stableRef('pinned', bindPinnedZone);
+const rootZoneRef = stableRef('root', bindRootZone);
+const navigationRef = stableRef('navigation', bindNavigation);
+
+function onDocumentPointerDown(event: PointerEvent) {
+  if (!selected.value.length) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest('.team-row')) return;
+  if (target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]')) return;
+  clearSelection();
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && selected.value.length) clearSelection();
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown);
+  document.addEventListener('keydown', onDocumentKeydown);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  document.removeEventListener('keydown', onDocumentKeydown);
+});
 function createFolder() {
   const id = org.createFolder(folderName.value);
   if (!id) return;
@@ -404,54 +420,60 @@ function submitRenameFolder() {
     </form>
     <nav
       v-if="!navCollapsed"
+      :ref="navigationRef"
       class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
       aria-label="团队列表"
-      @dragover.prevent
-      @drop="drop($event)"
-      @dragend="clearDrag"
-      @dragleave="leaveNavigation"
     >
-      <SidebarEntry v-if="pinned.length" title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="org.toggleSection('pinned')">
-        置顶
-      </SidebarEntry>
-      <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length"><div class="team-pinned-children">
-      <TeamRow
-        v-for="group in pinned"
-        :key="group.id"
-        :group="group"
-        :active="group.id === currentGroupId"
-        :selected="selected.includes(group.id)"
-        :collapsed="ui.sidebarCollapsed"
-        @select="selectTeam(group.id, $event)"
-        @drag="startDrag(group.id, $event)"
-        @reorder="reorderTeam(group.id, $event)"
-        @over="showTeamInsertion(group.id, $event)"
-        @leave="leaveInsertion"
-        @archive="emit('archive', group.id)"
-        data-drop-axis="y"
-        :data-drop-side="insertionSide(group.id, 'team')"
-        :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
-      />
-      </div></CollapseReveal>
+      <div
+        v-if="pinnedZoneVisible"
+        :ref="pinnedZoneRef"
+        class="flex flex-col"
+        :data-drop-container="containerDropZone('pinned')"
+      >
+        <SidebarEntry v-if="pinned.length" title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="toggleSection('pinned')">
+          置顶
+        </SidebarEntry>
+        <p
+          v-else
+          class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
+        >
+          拖入置顶
+        </p>
+        <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length">
+          <div class="team-pinned-children">
+            <TeamRow
+              v-for="group in pinned"
+              :key="group.id"
+              :group="group"
+              :active="group.id === currentGroupId"
+              :selected="selected.includes(group.id)"
+              :collapsed="ui.sidebarCollapsed"
+              :attach="el => bindTeamRow(group.id, el)"
+              @select="selectTeam(group.id, $event)"
+              @archive="emit('archive', group.id)"
+              data-drop-axis="y"
+              :data-drop-side="insertionSide(group.id, 'team')"
+              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
+            />
+          </div>
+        </CollapseReveal>
+      </div>
       <section
         v-for="folder in org.folders"
         :key="folder.id"
         class="team-folder"
         :class="{ 'team-folder-collapsed': folder.collapsed }"
-        data-drop-axis="y"
-        :data-drop-side="insertionSide(folder.id, 'folder')"
-        :data-drop-container="dropTarget === folder.id ? 'true' : undefined"
-        @dragover.prevent.stop="overFolder(folder.id, $event)"
-        @dragleave.self="dropTarget = undefined"
-        @drop.stop="dropFolder(folder.id, $event)"
+        :ref="stableRef(`folder-block:${folder.id}`, el => bindFolderBlock(folder.id, el))"
+        :data-drop-container="containerDropZone(`folder:${folder.id}`)"
       >
         <div
           class="team-folder-heading"
-          draggable="true"
+          :ref="stableRef(`folder-heading:${folder.id}`, el => bindFolderHeading(folder.id, el))"
           :data-dragging="draggingFolder === folder.id ? 'true' : undefined"
-          @dragstart="dragFolder(folder.id, $event)"
+          data-drop-axis="y"
+          :data-drop-side="insertionSide(folder.id, 'folder')"
         >
-          <SidebarEntry :title="folder.name" :controls="`sidebar-folder-${folder.id}`" :expanded="!folder.collapsed" @activate="org.toggleFolder(folder.id)">
+          <SidebarEntry :title="folder.name" :controls="`sidebar-folder-${folder.id}`" :expanded="!folder.collapsed" @activate="toggleFolder(folder.id)">
             {{ folder.name }}
             <template #icon><component :is="folder.collapsed ? Folder : FolderOpen" /></template>
             <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder @rename="beginRenameFolder(folder.id, folder.name)" /></template>
@@ -485,15 +507,12 @@ function submitRenameFolder() {
               :active="group.id === currentGroupId"
               :selected="selected.includes(group.id)"
               :collapsed="ui.sidebarCollapsed"
+              :attach="el => bindTeamRow(group.id, el)"
               @select="selectTeam(group.id, $event)"
-              @drag="startDrag(group.id, $event)"
-              @reorder="reorderTeam(group.id, $event)"
-              @over="showTeamInsertion(group.id, $event)"
-              @leave="leaveInsertion"
               @archive="emit('archive', group.id)"
               data-drop-axis="y"
               :data-drop-side="insertionSide(group.id, 'team')"
-              :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
+              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
             />
             <p
               v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
@@ -507,13 +526,9 @@ function submitRenameFolder() {
       <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
       <div
         v-if="rootTeams.length"
+        :ref="rootZoneRef"
         class="team-root-drop"
-        @dragover.prevent.stop="
-          dropTarget = dragging === 'team' ? 'root' : undefined;
-          insertion = undefined;
-        "
-        @drop.stop="drop($event)"
-        :data-drop-container="dropTarget === 'root' ? 'true' : undefined"
+        :data-drop-container="containerDropZone('root')"
       >
         <SidebarEntry
           v-if="rootTeams.length"
@@ -521,29 +536,28 @@ function submitRenameFolder() {
           controls="sidebar-ungrouped-content"
           :expanded="!org.sections.ungrouped"
           :active="org.sections.ungrouped && rootTeams.some(g => g.id === currentGroupId)"
-          @activate="org.toggleSection('ungrouped')"
+          @activate="toggleSection('ungrouped')"
         >
           未分组
         </SidebarEntry>
-        <CollapseReveal id="sidebar-ungrouped-content" :show="!org.sections.ungrouped && !!rootTeams.length"><div class="team-root-children">
-        <TeamRow
-          v-for="group in rootTeams"
-          :key="group.id"
-          :group="group"
-          :active="group.id === currentGroupId"
-          :selected="selected.includes(group.id)"
-          :collapsed="ui.sidebarCollapsed"
-          @select="selectTeam(group.id, $event)"
-          @drag="startDrag(group.id, $event)"
-          @reorder="reorderTeam(group.id, $event)"
-          @over="showTeamInsertion(group.id, $event)"
-          @leave="leaveInsertion"
-          @archive="emit('archive', group.id)"
-          data-drop-axis="y"
-          :data-drop-side="insertionSide(group.id, 'team')"
-          :data-dragging="dragging === 'team' && selected.includes(group.id) ? 'true' : undefined"
-        />
-        </div></CollapseReveal>
+        <CollapseReveal id="sidebar-ungrouped-content" :show="!org.sections.ungrouped && !!rootTeams.length">
+          <div class="team-root-children">
+            <TeamRow
+              v-for="group in rootTeams"
+              :key="group.id"
+              :group="group"
+              :active="group.id === currentGroupId"
+              :selected="selected.includes(group.id)"
+              :collapsed="ui.sidebarCollapsed"
+              :attach="el => bindTeamRow(group.id, el)"
+              @select="selectTeam(group.id, $event)"
+              @archive="emit('archive', group.id)"
+              data-drop-axis="y"
+              :data-drop-side="insertionSide(group.id, 'team')"
+              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
+            />
+          </div>
+        </CollapseReveal>
       </div>
       <p
         v-if="!groups.length && !ui.sidebarCollapsed"
