@@ -105,6 +105,8 @@ const teamLabel = computed(() => {
 
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
+// 折叠是会话内状态:切筛选/搜索后分组重排,保留旧 key 没有意义。
+const collapsedGroups = ref(new Set<string>());
 // 可见序 = 未折叠的置顶面板 + 未折叠日期分组。折叠内容的笔记不参与区间选择。
 const visibleIds = computed(() => {
   const ids: string[] = [];
@@ -144,7 +146,11 @@ function pruneSelection() {
 }
 
 watch(() => [props.filter, props.search, props.team], clearSelection);
-watch(() => [props.notes, props.pinned], pruneSelection);
+// 用 id 列表做依赖：父层即使就地改数组也能触发清理。
+watch(
+  () => [...props.pinned.map(note => note.id), ...props.notes.map(note => note.id)],
+  pruneSelection,
+);
 
 function toggleSelect(note: Note, event: MouseEvent) {
   // shift = 区间并集;Cmd(Mac)/Ctrl(Windows/Linux)= 间断切换;两者都接受,
@@ -159,8 +165,11 @@ function toggleSelect(note: Note, event: MouseEvent) {
     return;
   }
   if (event.metaKey || event.ctrlKey) {
-    selected.value = toggleSelection(selected.value, note.id);
-    anchor.value = note.id;
+    const next = toggleSelection(selected.value, note.id);
+    selected.value = next;
+    // 点中的项被取消时，只有原锚点仍在选区里才保留它。
+    if (next.includes(note.id)) anchor.value = note.id;
+    else if (!anchor.value || !next.includes(anchor.value)) anchor.value = next[0];
     return;
   }
   selected.value = [note.id];
@@ -175,8 +184,10 @@ function toggleSelect(note: Note, event: MouseEvent) {
 const pddBindings = usePddBindings();
 const boundElements = new Map<string, HTMLElement>();
 
-function bindRowDraggable(el: unknown, note: Note) {
-  const key = `note:${note.id}`;
+function bindRowDraggable(el: unknown, note: Note, scope: 'pinned' | 'day') {
+  // 置顶面板与日期分组是两份独立的列表：key 带上来源，笔记在两者之间移动时
+  // 新旧元素各自走各自的注册，不会因为共用 key 而误删。
+  const key = `note:${scope}:${note.id}`;
   const setup = (element: HTMLElement) => draggable({
     element,
     getInitialData: () => {
@@ -274,7 +285,7 @@ function onDocumentPointerDown(event: PointerEvent) {
   const target = event.target;
   if (!(target instanceof Element)) return;
   if (target.closest('.note-row')) return;
-  if (target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]')) return;
+  if (target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="select-content"], [data-slot="dialog-content"]')) return;
   clearSelection();
 }
 
@@ -295,7 +306,6 @@ onBeforeUnmount(() => {
 /* ------------------------------ 日期分组折叠 ------------------------------ */
 
 // 折叠是会话内状态:切筛选/搜索后分组重排,保留旧 key 没有意义。
-const collapsedGroups = ref(new Set<string>());
 function toggleGroup(key: string, open: boolean) {
   if (open) collapsedGroups.value.delete(key);
   else collapsedGroups.value.add(key);
@@ -409,7 +419,7 @@ useSentinelLoad({
           <li v-for="note in pinned" :key="note.id">
             <button
               type="button"
-              :ref="el => bindRowDraggable(el, note)"
+              :ref="el => bindRowDraggable(el, note, 'pinned')"
               :data-note-id="note.id"
               :data-selected="selected.includes(note.id) ? 'true' : undefined"
               :class="cn(
@@ -469,7 +479,7 @@ useSentinelLoad({
           <li v-for="note in group.notes" :key="note.id">
             <button
               type="button"
-              :ref="el => bindRowDraggable(el, note)"
+              :ref="el => bindRowDraggable(el, note, 'day')"
               :data-note-id="note.id"
               :data-selected="selected.includes(note.id) ? 'true' : undefined"
               :class="cn(

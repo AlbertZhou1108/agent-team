@@ -45,7 +45,6 @@ const toneClass = {
 
 const hovered = ref<NoteBatchAction | null>(null);
 const pddBindings = usePddBindings();
-const boundElements = new Map<NoteBatchAction, HTMLElement>();
 
 function bindZone(el: unknown, action: NoteBatchAction) {
   const key = `note-zone:${action}`;
@@ -65,14 +64,7 @@ function bindZone(el: unknown, action: NoteBatchAction) {
     },
   });
 
-  if (el instanceof HTMLElement) {
-    boundElements.set(action, el);
-    pddBindings.bind(key, el, setup);
-    return;
-  }
-  const previous = boundElements.get(action);
-  boundElements.delete(action);
-  pddBindings.bind(key, null, setup, previous);
+  pddBindings.bind(key, el instanceof HTMLElement ? el : null, setup);
 }
 </script>
 
