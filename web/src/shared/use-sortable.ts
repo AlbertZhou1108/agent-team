@@ -6,7 +6,6 @@ import {
   type ElementDragPayload,
 } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/utils/combine';
-import { dropSide } from '@/shared/drag-order';
 import { captureFlipRects, playFlip } from '@/shared/layout-flip';
 import { prefersReducedMotion } from '@/shared/motion';
 import { usePddBindings } from '@/shared/use-pdd-bindings';
@@ -51,7 +50,6 @@ export function useSortable(options: SortableOptions): Sortable {
   const bindings = usePddBindings();
   const draggingIds = ref<string[]>([]);
   const preview = ref<SortPreview>();
-  let candidate: { targetId: string; after: boolean } | undefined;
   const itemElements = new Map<string, HTMLElement>();
 
   function heightOf(element: Element): number {
@@ -59,7 +57,6 @@ export function useSortable(options: SortableOptions): Sortable {
   }
 
   function clearPreview() {
-    candidate = undefined;
     preview.value = undefined;
     draggingIds.value = [];
   }
@@ -75,23 +72,112 @@ export function useSortable(options: SortableOptions): Sortable {
     return { index: gapIndexForSource(options.ids(), [id]), height };
   }
 
+  type Slot = {
+    id: string;
+    centerX: number;
+    centerY: number;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+
+  /** 可投放项按列表顺序排列，附带中心点与矩形。 */
+  function slots(): Slot[] {
+    const dragged = new Set(draggingIds.value);
+    const result: Slot[] = [];
+    for (const id of options.ids()) {
+      if (dragged.has(id) || !options.canTarget(id)) continue;
+      const element = itemElements.get(id);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      result.push({
+        id,
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * 指针落在第几个“槽位”：纵向列表按中心线计数；
+   * 网格先按行分组，跨过的行整行计数，指针所在行按卡片中心 X 计数。
+   * 空位正好落在指针与相邻卡片中心之间，计数稳定，不会因为空位移动而抖动。
+   */
+  function slotIndex(input: { clientX: number; clientY: number }, list: Slot[]): number {
+    if (options.axis() === 'y') {
+      let index = 0;
+      for (const slot of list) {
+        if (input.clientY > slot.centerY) index += 1;
+      }
+      return index;
+    }
+
+    const rows: Slot[][] = [];
+    for (const slot of list) {
+      const row = rows.find(items => Math.abs(items[0]!.centerY - slot.centerY) < 2);
+      if (row) row.push(slot);
+      else rows.push([slot]);
+    }
+
+    let index = 0;
+    for (const row of rows) {
+      row.sort((a, b) => a.centerX - b.centerX);
+      if (input.clientY > row[0]!.centerY) {
+        index += row.length;
+        continue;
+      }
+      for (const slot of row) {
+        if (input.clientX > slot.centerX) index += 1;
+      }
+      break;
+    }
+    return index;
+  }
+
+  function targetAt(input: { clientX: number; clientY: number }): { id: string; after: boolean } | undefined {
+    const list = slots();
+    if (!list.length) return undefined;
+
+    // 网格：指针落在某张卡片矩形内时，直接“占用它的位置”——目标卡向源位置让，
+    // 不需要再瞄准左半/右半。插入方向由源与目标在列表里的先后决定。
+    if (options.axis() === 'x') {
+      const draggedId = draggingIds.value[0];
+      const inside = list.find(slot =>
+        input.clientX >= slot.left
+        && input.clientX <= slot.right
+        && input.clientY >= slot.top
+        && input.clientY <= slot.bottom,
+      );
+      if (inside && draggedId) {
+        const ids = options.ids();
+        const sourceIndex = ids.indexOf(draggedId);
+        const targetIndex = ids.indexOf(inside.id);
+        return { id: inside.id, after: sourceIndex >= 0 && targetIndex >= 0 && sourceIndex < targetIndex };
+      }
+    }
+
+    const index = Math.min(Math.max(slotIndex(input, list), 0), list.length);
+    if (index <= 0) return { id: list[0]!.id, after: false };
+    if (index >= list.length) return { id: list[list.length - 1]!.id, after: true };
+    return { id: list[index]!.id, after: false };
+  }
+
   function updatePreview(source: ElementDragPayload, location: DropLocation) {
     const id = String(source.data.id);
     const height = preview.value?.height ?? 0;
-    const target = location.dropTargets[0];
-    const data = target?.data;
-    const targetId = data?.kind === 'sort-item' && typeof data.id === 'string' ? data.id : undefined;
-
-    if (data?.kind === 'sort-gap') return; // 悬停空位：保留上一候选
-    if (!target || !targetId || !options.canTarget(targetId) || targetId === id) {
-      candidate = undefined;
+    const target = targetAt(location.input);
+    if (!target) {
       setPreview(sourcePreview(id, height));
       return;
     }
-    const side = dropSide(location.input, target.element.getBoundingClientRect(), options.axis());
-    candidate = { targetId, after: side === 'after' };
     setPreview({
-      index: gapIndexForTarget(options.ids(), [id], targetId, side === 'after'),
+      index: gapIndexForTarget(options.ids(), [id], target.id, target.after),
       height,
     });
   }
@@ -116,7 +202,9 @@ export function useSortable(options: SortableOptions): Sortable {
         clearPreview();
         return;
       }
-      if (candidate) options.onReorder(String(source.data.id), candidate.targetId, candidate.after);
+      // 以松手瞬间的指针位置为准，避免最后一次让位后的旧候选。
+      const target = targetAt(location.current.input);
+      if (target) options.onReorder(String(source.data.id), target.id, target.after);
       clearPreview();
     },
   });
