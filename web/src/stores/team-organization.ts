@@ -48,16 +48,30 @@ export const useTeamOrganization = defineStore('team-organization', {
     },
     move(ids: string[], folder?: string) {
       if (folder && !this.folders.some(item => item.id === folder)) return;
-      for (const id of ids) this.teams[id] = { ...this.teams[id], folder };
+      for (const id of ids) {
+        const meta = { ...this.teams[id], pinned: undefined };
+        if (folder) meta.folder = folder;
+        else delete meta.folder;
+        this.teams[id] = meta;
+      }
       this.persist();
     },
     reorderTeams(ids: string[], target: string, after: boolean, allIds: string[]) {
       if (ids.includes(target)) return;
-      const metadata = this.teams[target] ?? {};
-      for (const id of ids) this.teams[id] = { ...this.teams[id], folder: metadata.folder, pinned: metadata.pinned };
       const order = [...new Set([...this.order, ...allIds])].filter(id => !ids.includes(id));
       const index = order.indexOf(target);
       if (index < 0) return;
+      const metadata = this.teams[target] ?? {};
+      for (const id of ids) {
+        if (metadata.pinned) {
+          this.teams[id] = { ...this.teams[id], pinned: true };
+        } else {
+          const meta = { ...this.teams[id], pinned: undefined };
+          if (metadata.folder) meta.folder = metadata.folder;
+          else delete meta.folder;
+          this.teams[id] = meta;
+        }
+      }
       order.splice(index + (after ? 1 : 0), 0, ...ids);
       this.order = order;
       this.persist();
@@ -68,6 +82,34 @@ export const useTeamOrganization = defineStore('team-organization', {
       if (!folder || !this.folders.some(folder => folder.id === target)) return;
       this.folders = this.folders.filter(folder => folder.id !== id);
       this.folders.splice(this.folders.findIndex(folder => folder.id === target) + (after ? 1 : 0), 0, folder);
+      this.persist();
+    },
+    appendTo(ids: string[], target: { folder?: string; pinned?: boolean }) {
+      if (target.folder && !this.folders.some(item => item.id === target.folder)) return;
+      for (const id of ids) {
+        const meta = { ...this.teams[id] };
+        if (target.pinned) {
+          meta.pinned = true;
+        } else {
+          meta.pinned = undefined;
+          if (target.folder) meta.folder = target.folder;
+          else delete meta.folder;
+        }
+        this.teams[id] = meta;
+      }
+      const moving = new Set(ids);
+      this.order = [...this.order.filter(id => !moving.has(id)), ...ids];
+      this.persist();
+    },
+    expandFolder(id: string) {
+      const folder = this.folders.find(item => item.id === id);
+      if (!folder || !folder.collapsed) return;
+      folder.collapsed = false;
+      this.persist();
+    },
+    expandSection(section: 'pinned' | 'ungrouped') {
+      if (!this.sections[section]) return;
+      this.sections[section] = false;
       this.persist();
     },
     reorderHomeTeams(ids: string[], target: string, after: boolean, allIds: string[]) {

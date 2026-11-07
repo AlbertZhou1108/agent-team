@@ -117,27 +117,7 @@ export function addTodo(todos: NoteTodo[], text: string): NoteTodo[] {
   return [...todos, { text: value, done: false }];
 }
 
-/** shift+点击的区间选择:与现有选中集取并集;锚点是上次普通点击的行,缺省用当前行。 */
-export function selectRange(
-  selected: string[],
-  visibleIds: string[],
-  anchorId: string | undefined,
-  id: string,
-): { selected: string[]; anchor: string } {
-  const start = visibleIds.indexOf(anchorId ?? id);
-  const end = visibleIds.indexOf(id);
-  const range = start >= 0 && end >= 0
-    ? visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1)
-    : [id];
-  return { selected: [...new Set([...selected, ...range])], anchor: anchorId ?? id };
-}
-
-/** Cmd/Ctrl+点击的间断选择:切换目标行的选中态(跨系统取 metaKey 或 ctrlKey)。 */
-export function toggleSelection(selected: string[], id: string): string[] {
-  return selected.includes(id)
-    ? selected.filter(item => item !== id)
-    : [...selected, id];
-}
+export { selectRange, toggleSelection } from '@/shared/selection';
 
 export type NoteBatchAction = 'handoff' | 'done' | 'archived' | 'active' | 'restore' | 'remove';
 

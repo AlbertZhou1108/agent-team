@@ -9,12 +9,14 @@ beforeEach(() => {
   setActivePinia(createPinia());
 });
 describe('team organization', () => {
-  it('moves multiple teams and dissolves folders without losing colors or pins', () => {
+  it('移动团队并解散文件夹时不丢颜色，移动会清除置顶', () => {
     const store = useTeamOrganization();
     const folder = store.createFolder('测试')!;
-    store.color('a', '#22c55e'); store.togglePin('a');
+    store.color('a', '#22c55e');
     store.move(['a', 'b'], folder);
-    expect(store.teams.b.folder).toBe(folder);
+    expect(store.teams.a.folder).toBe(folder);
+    expect(store.teams.a.pinned).toBeUndefined();
+    store.togglePin('a');
     store.dissolve(folder);
     expect(store.folders).toEqual([]);
     expect(store.teams.a).toEqual({ color: '#22c55e', pinned: true });
@@ -88,3 +90,83 @@ it('reorders folders and teams while preserving selected block order and members
    restored.toggleSection('ungrouped');
    expect(restored.sections).toEqual({ pinned: true, ungrouped: true });
  });
+
+describe('拖拽归属语义', () => {
+  it('投放到置顶行：置顶但保留原文件夹归属', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.move(['a'], folder);
+    store.togglePin('pinned-target');
+    store.reorderTeams(['a'], 'pinned-target', true, ['a', 'pinned-target']);
+    expect(store.teams.a?.pinned).toBe(true);
+    expect(store.teams.a?.folder).toBe(folder);
+  });
+
+  it('投放到普通行：跟随目标文件夹并取消置顶', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.move(['target'], folder);
+    store.togglePin('a');
+    store.reorderTeams(['a'], 'target', false, ['a', 'target']);
+    expect(store.teams.a?.pinned).toBeUndefined();
+    expect(store.teams.a?.folder).toBe(folder);
+  });
+
+  it('appendTo 追加到容器末尾并处理归属与置顶', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.order = ['x', 'y'];
+
+    store.appendTo(['a', 'b'], { folder, pinned: false });
+    expect(store.teams.a?.folder).toBe(folder);
+    expect(store.teams.a?.pinned).toBeUndefined();
+    expect(store.order).toEqual(['x', 'y', 'a', 'b']);
+
+    store.appendTo(['a'], { pinned: true });
+    expect(store.teams.a?.pinned).toBe(true);
+    expect(store.teams.a?.folder).toBe(folder);
+    expect(store.order).toEqual(['x', 'y', 'b', 'a']);
+
+    store.appendTo(['a'], { pinned: false });
+    expect(store.teams.a?.folder).toBeUndefined();
+    expect(store.order).toEqual(['x', 'y', 'b', 'a']);
+  });
+
+  it('expandFolder 与 expandSection 只在折叠时改变状态', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.toggleFolder(folder);
+    store.expandFolder(folder);
+    expect(store.folders[0]?.collapsed).toBe(false);
+
+    store.toggleSection('pinned');
+    store.expandSection('pinned');
+    expect(store.sections.pinned).toBe(false);
+
+    store.expandSection('ungrouped');
+    expect(store.sections.ungrouped).toBe(false);
+  });
+
+  it('目标不在 order 中时不改动团队归属', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.move(['a'], folder);
+    store.reorderTeams(['a'], 'missing', false, []);
+    expect(store.teams.a?.folder).toBe(folder);
+    expect(store.order).toEqual([]);
+  });
+
+  it('展开动作会持久化', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('F')!;
+    store.toggleFolder(folder);
+    store.expandFolder(folder);
+    store.toggleSection('pinned');
+    store.expandSection('pinned');
+
+    setActivePinia(createPinia());
+    const restored = useTeamOrganization();
+    expect(restored.folders[0]?.collapsed).toBe(false);
+    expect(restored.sections.pinned).toBe(false);
+  });
+});
