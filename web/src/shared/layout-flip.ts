@@ -23,13 +23,20 @@ export function captureFlipRects(root: HTMLElement | null | undefined): FlipRect
 export function playFlip(root: HTMLElement | null | undefined, before: FlipRects): void {
   if (!root || prefersReducedMotion()) return;
   const duration = motionDurationMs('fast');
+  // 落点行淡入比让位更短：松手瞬间就要看到，只留一点点出现感。
+  const appearDuration = Math.round(duration * 0.6);
   for (const element of root.querySelectorAll<HTMLElement>(SELECTOR)) {
     const key = element.dataset.flipKey;
     if (!key) continue;
     ownAnimations.get(element)?.cancel();
     const previous = before.get(key);
-    // 新出现的行（例如松手后落回列表的被拖行）直接显示，不做淡入，避免“出现慢半拍”。
-    if (!previous) continue;
+    if (!previous) {
+      ownAnimations.set(element, element.animate(
+        [{ opacity: 0 }, { opacity: 1 }],
+        { duration: appearDuration, easing: MOTION_EASING.out },
+      ));
+      continue;
+    }
     const delta = previous.top - element.getBoundingClientRect().top;
     if (Math.abs(delta) < 0.5) continue;
     ownAnimations.set(element, element.animate(
