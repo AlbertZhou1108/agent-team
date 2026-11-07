@@ -44,6 +44,7 @@ export interface SidebarTeamDrag {
   draggingFolder: Ref<string | undefined>;
   insertion: Ref<{ id: string; kind: 'team' | 'folder'; side: DropSide } | undefined>;
   dropZone: Ref<SidebarDropZone | undefined>;
+  gapHeight: Ref<number>;
   dispose: () => void;
 }
 
@@ -94,6 +95,18 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
   const draggingFolder = ref<string>();
   const insertion = ref<{ id: string; kind: 'team' | 'folder'; side: DropSide }>();
   const dropZone = ref<SidebarDropZone>();
+  const gapHeight = ref(0);
+
+  function measureTeamBlock(ids: string[]): number {
+    if (typeof document === 'undefined') return 0;
+    const wanted = new Set(ids);
+    let height = 0;
+    for (const element of document.querySelectorAll<HTMLElement>('[data-team-id]')) {
+      const id = element.dataset.teamId;
+      if (id && wanted.has(id)) height += element.getBoundingClientRect().height;
+    }
+    return height;
+  }
 
   function clearVisual() {
     insertion.value = undefined;
@@ -201,7 +214,11 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     bindings.bind(`team:${id}`, element, el => combine(
       draggable({
         element: el,
-        getInitialData: () => ({ type: TEAM_DRAG_TYPE, ids: options.dragIds(id) }),
+        getInitialData: () => {
+          const ids = options.dragIds(id);
+          gapHeight.value = measureTeamBlock(ids);
+          return { type: TEAM_DRAG_TYPE, ids };
+        },
       }),
       dropTargetForElements({
         element: el,
@@ -216,7 +233,11 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     bindings.bind(`folder-heading:${id}`, element, el => combine(
       draggable({
         element: el,
-        getInitialData: () => ({ type: TEAM_FOLDER_DRAG_TYPE, folderId: id }),
+        getInitialData: () => {
+          const section = el.closest('.team-folder');
+          gapHeight.value = (section ?? el).getBoundingClientRect().height;
+          return { type: TEAM_FOLDER_DRAG_TYPE, folderId: id };
+        },
       }),
       dropTargetForElements({
         element: el,
@@ -289,6 +310,7 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     draggingFolder,
     insertion,
     dropZone,
+    gapHeight,
     dispose,
   };
 }
