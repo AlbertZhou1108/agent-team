@@ -23,8 +23,8 @@ export function captureFlipRects(root: HTMLElement | null | undefined): FlipRect
 export function playFlip(root: HTMLElement | null | undefined, before: FlipRects): void {
   if (!root || prefersReducedMotion()) return;
   const duration = motionDurationMs('fast');
-  // 落点行淡入比让位更短：松手瞬间就要看到，只留一点点出现感。
-  const appearDuration = Math.round(duration * 0.6);
+  // 让位位移比出现动画更短：快速连续跨行时列表要跟手。
+  const moveDuration = Math.round(duration * 0.6);
   for (const element of root.querySelectorAll<HTMLElement>(SELECTOR)) {
     const key = element.dataset.flipKey;
     if (!key) continue;
@@ -33,7 +33,7 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
     if (!previous) {
       ownAnimations.set(element, element.animate(
         [{ opacity: 0 }, { opacity: 1 }],
-        { duration: appearDuration, easing: MOTION_EASING.out },
+        { duration, easing: MOTION_EASING.out },
       ));
       continue;
     }
@@ -41,7 +41,7 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
     if (Math.abs(delta) < 0.5) continue;
     ownAnimations.set(element, element.animate(
       [{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
-      { duration, easing: MOTION_EASING.standard },
+      { duration: moveDuration, easing: MOTION_EASING.standard },
     ));
   }
 }
