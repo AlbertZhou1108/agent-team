@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Search } from '@lucide/vue';
 import { Surface } from '@/components/surface';
 import type { ComponentPublicInstance } from 'vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
@@ -39,6 +39,15 @@ import {
   type SidebarDropAction,
 } from '@/features/layout/sidebar-drag';
 import { useSidebarTeamDrag } from '@/features/layout/use-sidebar-team-drag';
+import {
+  gapIndexForSource,
+  gapIndexForTarget,
+  withFolderGap,
+  withTeamGap,
+  type GapItem,
+  type SortPreview,
+} from '@/features/layout/sidebar-sort-preview';
+import { captureFlipRects, playFlip } from '@/shared/layout-flip';
 
 const props = defineProps<{
   groups: Group[];
@@ -69,7 +78,7 @@ const selected = ref<string[]>([]);
 const anchor = ref<string>();
 const selectionContainer = ref<ContainerKey>();
 const creating = ref(false);
-const folderName = ref('');
+const newFolderName = ref('');
 const agentUnreadLabel = computed(() =>
   props.agentUnreadCount > 99 ? '99+' : String(props.agentUnreadCount),
 );
@@ -237,15 +246,95 @@ const {
   draggingFolder,
   insertion,
   dropZone,
+  gapHeight,
 } = useSidebarTeamDrag({
   dragIds,
   applyAction,
 });
 
-function insertionSide(id: string, kind: 'team' | 'folder') {
-  return insertion.value?.id === id && insertion.value.kind === kind
-    ? insertion.value.side
-    : undefined;
+function visibleTeamIds(container: ContainerKey): string[] {
+  if (container === 'pinned') return pinned.value.map(group => group.id);
+  if (container === 'root') return rootTeams.value.map(group => group.id);
+  return folderTeams(container.slice('folder:'.length)).map(group => group.id);
+}
+
+const sortPreview = computed<SortPreview | undefined>(() => {
+  if (dragging.value === 'team' && draggingIds.value.length) {
+    const first = draggingIds.value[0];
+    if (!first) return undefined;
+    const sourceContainer = containerOfTeam(first);
+    const target = insertion.value;
+    if (target?.kind === 'team') {
+      const container = containerOfTeam(target.id);
+      return {
+        kind: 'team',
+        container,
+        index: gapIndexForTarget(
+          visibleTeamIds(container),
+          draggingIds.value,
+          target.id,
+          target.side === 'after',
+        ),
+        height: gapHeight.value,
+      };
+    }
+    return {
+      kind: 'team',
+      container: sourceContainer,
+      index: gapIndexForSource(visibleTeamIds(sourceContainer), draggingIds.value),
+      height: gapHeight.value,
+    };
+  }
+  if (dragging.value === 'folder' && draggingFolder.value) {
+    const ids = org.folders.map(folder => folder.id);
+    const target = insertion.value;
+    return {
+      kind: 'folder',
+      index: target?.kind === 'folder'
+        ? gapIndexForTarget(ids, [draggingFolder.value], target.id, target.side === 'after')
+        : gapIndexForSource(ids, [draggingFolder.value]),
+      height: gapHeight.value,
+    };
+  }
+  return undefined;
+});
+
+const pinnedRows = computed(() => withTeamGap(pinned.value, sortPreview.value, 'pinned', draggingIds.value));
+const rootRows = computed(() => withTeamGap(rootTeams.value, sortPreview.value, 'root', draggingIds.value));
+function folderRows(id: string) {
+  return withTeamGap(folderTeams(id), sortPreview.value, `folder:${id}`, draggingIds.value);
+}
+const folderItems = computed(() => withFolderGap(org.folders, sortPreview.value, draggingFolder.value));
+
+type FolderEntry = { id: string; name: string; collapsed?: boolean };
+
+function attachTeam(row: GapItem<Group>, element: Element | null, previous?: Element | null) {
+  if (row.item) bindTeamRow(row.item.id, element, previous);
+}
+function selectRow(row: GapItem<Group>, event: MouseEvent) {
+  if (row.item) selectTeam(row.item.id, event);
+}
+function archiveRow(row: GapItem<Group>) {
+  if (row.item) emit('archive', row.item.id);
+}
+
+function attachFolderBlock(entry: GapItem<FolderEntry>, element: Element | null, previous?: Element | null) {
+  if (entry.item) bindFolderBlock(entry.item.id, element, previous);
+}
+function attachFolderHeading(entry: GapItem<FolderEntry>, element: Element | null, previous?: Element | null) {
+  if (entry.item) bindFolderHeading(entry.item.id, element, previous);
+}
+function folderName(entry: GapItem<FolderEntry>): string {
+  return entry.item?.name ?? '';
+}
+function folderCollapsed(entry: GapItem<FolderEntry>): boolean {
+  return entry.item?.collapsed === true;
+}
+function toggleFolderEntry(entry: GapItem<FolderEntry>) {
+  if (entry.item) toggleFolder(entry.item.id);
+}
+function renameFolderEntry(entry: GapItem<FolderEntry>) {
+  if (entry.item) beginRenameFolder(entry.item.id, entry.item.name);
 }
 
 function containerDropZone(zone: string) {
@@ -299,6 +388,37 @@ const pinnedZoneRef = stableRef('pinned', bindPinnedZone);
 const rootZoneRef = stableRef('root', bindRootZone);
 const navigationRef = stableRef('navigation', bindNavigation);
 
+const navigationEl = ref<HTMLElement | null>(null);
+function navigationElement(element: Element | ComponentPublicInstance | null) {
+  navigationEl.value = element instanceof HTMLElement ? element : null;
+  navigationRef(element);
+}
+
+let flipToken = 0;
+let lastPreviewKey = '';
+
+function previewKey(preview: SortPreview | undefined): string {
+  if (!preview) return '';
+  return preview.kind === 'team'
+    ? `team:${preview.container}:${preview.index}:${preview.height}`
+    : `folder:${preview.index}:${preview.height}`;
+}
+
+watch(
+  sortPreview,
+  async () => {
+    const key = previewKey(sortPreview.value);
+    if (key === lastPreviewKey) return;
+    lastPreviewKey = key;
+    const token = ++flipToken;
+    const before = captureFlipRects(navigationEl.value);
+    await nextTick();
+    if (token !== flipToken) return;
+    playFlip(navigationEl.value, before);
+  },
+  { flush: 'pre' },
+);
+
 function onDocumentPointerDown(event: PointerEvent) {
   if (event.button !== 0 || !selected.value.length) return;
   const target = event.target;
@@ -321,9 +441,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocumentKeydown);
 });
 function createFolder() {
-  const id = org.createFolder(folderName.value);
+  const id = org.createFolder(newFolderName.value);
   if (!id) return;
-  folderName.value = '';
+  newFolderName.value = '';
   creating.value = false;
 }
 const renamingFolder = ref<{ id: string; name: string }>();
@@ -416,7 +536,7 @@ function submitRenameFolder() {
       @submit.prevent="createFolder"
     >
       <Input
-        v-model="folderName"
+        v-model="newFolderName"
         class="field-select w-full"
         aria-label="文件夹名称"
         placeholder="文件夹名称"
@@ -432,7 +552,7 @@ function submitRenameFolder() {
     </form>
     <nav
       v-if="!navCollapsed"
-      :ref="navigationRef"
+      :ref="navigationElement"
       class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
       aria-label="团队列表"
     >
@@ -447,88 +567,103 @@ function submitRenameFolder() {
         </SidebarEntry>
         <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length">
           <div class="team-pinned-children">
-            <TeamRow
-              v-for="group in pinned"
-              :key="group.id"
-              :group="group"
-              :active="group.id === currentGroupId"
-              :selected="selected.includes(group.id)"
-              :collapsed="ui.sidebarCollapsed"
-              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
-              @select="selectTeam(group.id, $event)"
-              @archive="emit('archive', group.id)"
-              data-drop-axis="y"
-              :data-drop-side="insertionSide(group.id, 'team')"
-              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
-            />
+            <template v-for="row in pinnedRows" :key="row.key">
+              <TeamRow
+                v-if="row.item"
+                :group="row.item"
+                :active="row.item.id === currentGroupId"
+                :selected="selected.includes(row.item.id)"
+                :collapsed="ui.sidebarCollapsed"
+                :attach="(el, prev) => attachTeam(row, el, prev)"
+                :data-flip-key="`team:${row.item.id}`"
+                @select="selectRow(row, $event)"
+                @archive="archiveRow(row)"
+              />
+              <div
+                v-else
+                class="team-sort-gap"
+                aria-hidden="true"
+                :style="{ height: `${sortPreview?.height ?? 0}px` }"
+              />
+            </template>
           </div>
         </CollapseReveal>
       </div>
-      <section
-        v-for="folder in org.folders"
-        :key="folder.id"
-        class="team-folder"
-        :class="{ 'team-folder-collapsed': folder.collapsed }"
-        :ref="stableRef(`folder-block:${folder.id}`, (el, prev) => bindFolderBlock(folder.id, el, prev))"
-        :data-drop-container="containerDropZone(`folder:${folder.id}`)"
-      >
+      <template v-for="entry in folderItems" :key="entry.key">
         <div
-          class="team-folder-heading"
-          :ref="stableRef(`folder-heading:${folder.id}`, (el, prev) => bindFolderHeading(folder.id, el, prev))"
-          :data-dragging="draggingFolder === folder.id ? 'true' : undefined"
-          data-drop-axis="y"
-          :data-drop-side="insertionSide(folder.id, 'folder')"
+          v-if="!entry.item"
+          class="team-folder team-sort-gap"
+          aria-hidden="true"
+          :style="{ height: `${sortPreview?.height ?? 0}px` }"
+        />
+        <section
+          v-else
+          class="team-folder"
+          :class="{ 'team-folder-collapsed': folderCollapsed(entry) }"
+          :ref="stableRef(`folder-block:${entry.item.id}`, (el, prev) => attachFolderBlock(entry, el, prev))"
+          :data-flip-key="`folder:${entry.item.id}`"
+          :data-drop-container="containerDropZone(`folder:${entry.item.id}`)"
         >
-          <SidebarEntry :title="folder.name" :controls="`sidebar-folder-${folder.id}`" :expanded="!folder.collapsed" @activate="toggleFolder(folder.id)">
-            {{ folder.name }}
-            <template #icon><component :is="folder.collapsed ? Folder : FolderOpen" /></template>
-            <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="folder.id" :name="folder.name" folder @rename="beginRenameFolder(folder.id, folder.name)" /></template>
-          </SidebarEntry>
-        </div>
-        <form
-          v-if="renamingFolder?.id === folder.id"
-          class="mb-1 ml-4 flex flex-col gap-2"
-          @submit.prevent="submitRenameFolder"
-        >
-          <Input
-            v-model="renamingFolder.name"
-            class="field-select w-full"
-            :aria-label="`重命名文件夹 ${folder.name}`"
-            maxlength="60"
-            @keydown.esc="renamingFolder = undefined"
-          />
-          <div class="flex gap-2">
-            <Button size="sm" type="submit">保存</Button
-            ><Button size="sm" variant="ghost" @click="renamingFolder = undefined"
-              >取消</Button
-            >
+          <div
+            class="team-folder-heading"
+            :ref="stableRef(`folder-heading:${entry.item.id}`, (el, prev) => attachFolderHeading(entry, el, prev))"
+          >
+            <SidebarEntry :title="folderName(entry)" :controls="`sidebar-folder-${entry.item.id}`" :expanded="!folderCollapsed(entry)" @activate="toggleFolderEntry(entry)">
+              {{ folderName(entry) }}
+              <template #icon><component :is="folderCollapsed(entry) ? Folder : FolderOpen" /></template>
+              <template v-if="!ui.sidebarCollapsed" #actions><TeamMenu :id="entry.item.id" :name="folderName(entry)" folder @rename="renameFolderEntry(entry)" /></template>
+            </SidebarEntry>
           </div>
-        </form>
-        <CollapseReveal :id="`sidebar-folder-${folder.id}`" :show="!folder.collapsed">
-          <div :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
-            <TeamRow
-              v-for="group in folderTeams(folder.id)"
-              :key="group.id"
-              :group="group"
-              :active="group.id === currentGroupId"
-              :selected="selected.includes(group.id)"
-              :collapsed="ui.sidebarCollapsed"
-              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
-              @select="selectTeam(group.id, $event)"
-              @archive="emit('archive', group.id)"
-              data-drop-axis="y"
-              :data-drop-side="insertionSide(group.id, 'team')"
-              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
+          <form
+            v-if="renamingFolder?.id === entry.item.id"
+            class="mb-1 ml-4 flex flex-col gap-2"
+            @submit.prevent="submitRenameFolder"
+          >
+            <Input
+              v-model="renamingFolder.name"
+              class="field-select w-full"
+              :aria-label="`重命名文件夹 ${folderName(entry)}`"
+              maxlength="60"
+              @keydown.esc="renamingFolder = undefined"
             />
-            <p
-              v-if="dragging === 'team' && !folderTeams(folder.id).length && !ui.sidebarCollapsed"
-              class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
-            >
-              拖入团队
-            </p>
-          </div>
-        </CollapseReveal>
-      </section>
+            <div class="flex gap-2">
+              <Button size="sm" type="submit">保存</Button
+              ><Button size="sm" variant="ghost" @click="renamingFolder = undefined"
+                >取消</Button
+              >
+            </div>
+          </form>
+          <CollapseReveal :id="`sidebar-folder-${entry.item.id}`" :show="!folderCollapsed(entry)">
+            <div :class="{ 'team-folder-children': !ui.sidebarCollapsed }">
+              <template v-for="row in folderRows(entry.item.id)" :key="row.key">
+                <TeamRow
+                  v-if="row.item"
+                  :group="row.item"
+                  :active="row.item.id === currentGroupId"
+                  :selected="selected.includes(row.item.id)"
+                  :collapsed="ui.sidebarCollapsed"
+                  :attach="(el, prev) => attachTeam(row, el, prev)"
+                  :data-flip-key="`team:${row.item.id}`"
+                  @select="selectRow(row, $event)"
+                  @archive="archiveRow(row)"
+                />
+                <div
+                  v-else
+                  class="team-sort-gap"
+                  aria-hidden="true"
+                  :style="{ height: `${sortPreview?.height ?? 0}px` }"
+                />
+              </template>
+              <p
+                v-if="dragging === 'team' && !folderTeams(entry.item.id).length && !ui.sidebarCollapsed"
+                class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
+              >
+                拖入团队
+              </p>
+            </div>
+          </CollapseReveal>
+        </section>
+      </template>
       <Separator v-if="org.folders.length && rootTeams.length" class="my-2" />
       <div
         v-if="rootTeams.length"
@@ -548,20 +683,25 @@ function submitRenameFolder() {
         </SidebarEntry>
         <CollapseReveal id="sidebar-ungrouped-content" :show="!org.sections.ungrouped && !!rootTeams.length">
           <div class="team-root-children">
-            <TeamRow
-              v-for="group in rootTeams"
-              :key="group.id"
-              :group="group"
-              :active="group.id === currentGroupId"
-              :selected="selected.includes(group.id)"
-              :collapsed="ui.sidebarCollapsed"
-              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
-              @select="selectTeam(group.id, $event)"
-              @archive="emit('archive', group.id)"
-              data-drop-axis="y"
-              :data-drop-side="insertionSide(group.id, 'team')"
-              :data-dragging="dragging === 'team' && draggingIds.includes(group.id) ? 'true' : undefined"
-            />
+            <template v-for="row in rootRows" :key="row.key">
+              <TeamRow
+                v-if="row.item"
+                :group="row.item"
+                :active="row.item.id === currentGroupId"
+                :selected="selected.includes(row.item.id)"
+                :collapsed="ui.sidebarCollapsed"
+                :attach="(el, prev) => attachTeam(row, el, prev)"
+                :data-flip-key="`team:${row.item.id}`"
+                @select="selectRow(row, $event)"
+                @archive="archiveRow(row)"
+              />
+              <div
+                v-else
+                class="team-sort-gap"
+                aria-hidden="true"
+                :style="{ height: `${sortPreview?.height ?? 0}px` }"
+              />
+            </template>
           </div>
         </CollapseReveal>
       </div>

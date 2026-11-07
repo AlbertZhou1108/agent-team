@@ -1832,6 +1832,12 @@ button {
   box-shadow: inset 0 0 0 2px var(--primary);
 }
 
+/* 排序空位:占住被拖行的高度,本身不响应指针 */
+.team-sort-gap {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 .message-content {
   width: 100%;
   min-width: 0;
