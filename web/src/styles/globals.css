@@ -1850,6 +1850,15 @@ button {
   pointer-events: auto;
 }
 
+/* 右栏工具页:整个标题行可拖,拖拽影像只显示标题行 */
+.tools-panel-section [data-slot='disclosure-header'] {
+  cursor: grab;
+}
+
+.tools-panel-section [data-slot='disclosure-header']:active {
+  cursor: grabbing;
+}
+
 /* 被拖项保留在 DOM 里（PDD 需要拖拽源保持挂载），仅退出布局 */
 [data-sort-hidden='true'] {
   display: none;

@@ -24,7 +24,8 @@ export interface SortableOptions {
   canDrag: (id: string) => boolean;
   canTarget: (id: string) => boolean;
   axis: () => 'x' | 'y';
-  handleSelector?: () => string | undefined;
+  /** 可选的拖拽源选择器：命中项内部某一行作为拖拽源（拖拽影像只显示该行），投放目标仍是整项。 */
+  dragElementSelector?: () => string | undefined;
   onReorder: (id: string, targetId: string, after: boolean) => void;
 }
 
@@ -51,6 +52,7 @@ export function useSortable(options: SortableOptions): Sortable {
   const draggingIds = ref<string[]>([]);
   const preview = ref<SortPreview>();
   let candidate: { targetId: string; after: boolean } | undefined;
+  const itemElements = new Map<string, HTMLElement>();
 
   function heightOf(element: Element): number {
     return element.getBoundingClientRect().height;
@@ -101,7 +103,7 @@ export function useSortable(options: SortableOptions): Sortable {
       const id = String(source.data.id);
       if (!options.ids().includes(id)) return;
       draggingIds.value = [id];
-      setPreview(sourcePreview(id, heightOf(source.element)));
+      setPreview(sourcePreview(id, heightOf(itemElements.get(id) ?? source.element)));
     },
     onDrag: ({ source, location }) => {
       if (isSortPayload(source)) updatePreview(source, location.current);
@@ -139,25 +141,29 @@ export function useSortable(options: SortableOptions): Sortable {
   );
 
   const bindItem: Sortable['bindItem'] = (id, element, previous) => {
+    if (element instanceof HTMLElement) itemElements.set(id, element);
+    else itemElements.delete(id);
     bindings.bind(`sort-item:${id}`, element, el => {
-      const handleSelector = options.handleSelector?.();
+      const selector = options.dragElementSelector?.();
+      const dragElement = selector
+        ? el.querySelector<HTMLElement>(selector)
+        : el;
+      const dropTarget = dropTargetForElements({
+        element: el,
+        canDrop: ({ source }) => isSortPayload(source)
+          && source.data.id !== id
+          && options.canTarget(id),
+        getData: () => ({ kind: 'sort-item', id }),
+        getDropEffect: () => 'move',
+      });
+      if (!dragElement) return dropTarget;
       return combine(
         draggable({
-          element: el,
+          element: dragElement,
           canDrag: () => options.canDrag(id),
-          dragHandle: handleSelector
-            ? (el.querySelector(handleSelector) ?? undefined)
-            : undefined,
           getInitialData: () => ({ type: SORT_DRAG_TYPE, id }),
         }),
-        dropTargetForElements({
-          element: el,
-          canDrop: ({ source }) => isSortPayload(source)
-            && source.data.id !== id
-            && options.canTarget(id),
-          getData: () => ({ kind: 'sort-item', id }),
-          getDropEffect: () => 'move',
-        }),
+        dropTarget,
       );
     }, previous);
   };

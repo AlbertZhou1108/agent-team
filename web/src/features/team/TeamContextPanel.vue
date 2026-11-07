@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Disclosure } from '@/components/ui/disclosure';
 import {
   ArrowUpToLine,
-  GripVertical,
   MoreHorizontal,
   PinOff,
   Wrench,
@@ -117,7 +116,8 @@ const sortable = useSortable({
   canDrag: () => true,
   canTarget: () => true,
   axis: () => 'y',
-  handleSelector: () => '.tools-drag-handle',
+  // 与侧栏文件夹一致：拖拽源是标题行，投放目标与空位仍是整个区块。
+  dragElementSelector: () => '[data-slot="disclosure-header"]',
   onReorder: (id, targetId, after) => reorder(id, targetId, after),
 });
 const toolRows = computed(() =>
@@ -307,10 +307,6 @@ function onTab(value: string | number) {
                       </DropdownMenuGroup>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <span
-                    class="tools-drag-handle inline-flex size-(--component-control-height) cursor-grab items-center justify-center rounded-(--component-control-radius) text-muted-foreground/60 active:cursor-grabbing"
-                    title="拖拽排序"
-                  ><GripVertical class="size-4" /></span>
                 </template>
                 <div class="mt-3">
                   <component :is="toolComponent(row)" :group-id="groupId" />
