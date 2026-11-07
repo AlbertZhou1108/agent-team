@@ -418,7 +418,7 @@ watch(
     const before = captureFlipRects(navigationEl.value);
     await nextTick();
     if (token !== flipToken) return;
-    playFlip(navigationEl.value, before, 0.6);
+    playFlip(navigationEl.value, before);
   },
   { flush: 'pre' },
 );
