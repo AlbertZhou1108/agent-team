@@ -90,14 +90,6 @@ function overDraggedRow(input: { clientX: number; clientY: number }, ids: string
   return false;
 }
 
-/** 指针落在空位上时保留上一个候选位置：空位本身不是投放目标。 */
-function overGap(input: { clientX: number; clientY: number }): boolean {
-  if (typeof document === 'undefined') return false;
-  return document
-    .elementsFromPoint(input.clientX, input.clientY)
-    .some(element => element.closest('.team-sort-gap') !== null);
-}
-
 export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeamDrag {
   const bindings = usePddBindings();
   const dragging = ref<'team' | 'folder'>();
@@ -125,10 +117,34 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     dropZone.value = undefined;
   }
 
-  function updateVisual(source: SidebarDragSource, location: DropLocation) {
-    // 空位会随行让位移动到指针下方；此时保留上一个候选，避免预览在源位与目标位之间来回跳。
-    if (overGap(location.input)) return;
+  function sameInsertion(
+    a: { id: string; kind: 'team' | 'folder'; side: DropSide } | undefined,
+    b: { id: string; kind: 'team' | 'folder'; side: DropSide } | undefined,
+  ): boolean {
+    return a?.id === b?.id && a?.kind === b?.kind && a?.side === b?.side;
+  }
 
+  function candidateKey(
+    value: { target: SidebarDropTarget; side: DropSide } | undefined,
+  ): string {
+    if (!value) return '';
+    const id = 'id' in value.target ? value.target.id : '';
+    return `${value.target.kind}:${id}:${value.side}`;
+  }
+
+  function setInsertion(next: { id: string; kind: 'team' | 'folder'; side: DropSide } | undefined) {
+    if (!sameInsertion(insertion.value, next)) insertion.value = next;
+  }
+
+  function setCandidate(next: { target: SidebarDropTarget; side: DropSide } | undefined) {
+    if (candidateKey(candidate.value) !== candidateKey(next)) candidate.value = next;
+  }
+
+  function setDropZone(next: SidebarDropZone | undefined) {
+    if (dropZone.value !== next) dropZone.value = next;
+  }
+
+  function updateVisual(source: SidebarDragSource, location: DropLocation) {
     const target = location.dropTargets[0];
     if (!target) {
       clearVisual();
@@ -136,53 +152,53 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     }
     const data = targetData(target.data);
     if (!data) {
-      clearVisual();
+      // 最内层是排序空位：保留上一候选，避免在源位与目标位之间抖动。
       return;
     }
     const side = dropSide(location.input, target.element.getBoundingClientRect(), 'y');
 
     if (source.type === 'folder') {
-      dropZone.value = undefined;
+      setDropZone(undefined);
       if (data.kind === 'folder' && data.id !== source.folderId) {
-        insertion.value = { id: data.id, kind: 'folder', side };
-        candidate.value = { target: data, side };
+        setInsertion({ id: data.id, kind: 'folder', side });
+        setCandidate({ target: data, side });
       } else {
-        insertion.value = undefined;
-        candidate.value = undefined;
+        setInsertion(undefined);
+        setCandidate(undefined);
       }
       return;
     }
 
     switch (data.kind) {
       case 'team':
-        dropZone.value = undefined;
+        setDropZone(undefined);
         if (source.ids.includes(data.id)) {
-          insertion.value = undefined;
-          candidate.value = undefined;
+          setInsertion(undefined);
+          setCandidate(undefined);
         } else {
-          insertion.value = { id: data.id, kind: 'team', side };
-          candidate.value = { target: data, side };
+          setInsertion({ id: data.id, kind: 'team', side });
+          setCandidate({ target: data, side });
         }
         return;
       case 'folder':
-        insertion.value = undefined;
-        dropZone.value = `folder:${data.id}`;
-        candidate.value = { target: data, side };
+        setInsertion(undefined);
+        setDropZone(`folder:${data.id}`);
+        setCandidate({ target: data, side });
         return;
       case 'pinned':
-        insertion.value = undefined;
-        dropZone.value = 'pinned';
-        candidate.value = { target: data, side };
+        setInsertion(undefined);
+        setDropZone('pinned');
+        setCandidate({ target: data, side });
         return;
       case 'root':
-        insertion.value = undefined;
-        dropZone.value = 'root';
-        candidate.value = { target: data, side };
+        setInsertion(undefined);
+        setDropZone('root');
+        setCandidate({ target: data, side });
         return;
       case 'navigation':
-        insertion.value = undefined;
-        dropZone.value = undefined;
-        candidate.value = { target: data, side };
+        setInsertion(undefined);
+        setDropZone(undefined);
+        setCandidate({ target: data, side });
         return;
     }
   }
