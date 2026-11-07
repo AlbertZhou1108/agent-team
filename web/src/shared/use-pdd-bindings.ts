@@ -2,7 +2,12 @@ import { getCurrentScope, onScopeDispose } from 'vue';
 
 export type PddCleanup = () => void;
 export type PddSetup = (element: HTMLElement) => PddCleanup;
-export type PddBind = (key: string, element: Element | null | undefined, setup: PddSetup) => void;
+export type PddBind = (
+  key: string,
+  element: Element | null | undefined,
+  setup: PddSetup,
+  previous?: Element | null,
+) => void;
 
 type Entry = { element: HTMLElement; cleanup: PddCleanup };
 
@@ -32,8 +37,12 @@ export function usePddBindings() {
     entry.cleanup();
   }
 
-  const bind: PddBind = (key, element, setup) => {
+  const bind: PddBind = (key, element, setup, previous) => {
     if (!isElementNode(element)) {
+      const entry = entries.get(key);
+      if (!entry) return;
+      // 旧元素卸载晚于新元素注册时，不能误删新注册；只有登记元素确实是要卸载的那个才释放。
+      if (previous && entry.element !== previous) return;
       release(key);
       return;
     }

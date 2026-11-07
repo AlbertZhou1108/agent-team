@@ -33,12 +33,12 @@ export interface SidebarTeamDragOptions {
 }
 
 export interface SidebarTeamDrag {
-  bindTeamRow: (id: string, element: Element | null | undefined) => void;
-  bindFolderHeading: (id: string, element: Element | null | undefined) => void;
-  bindFolderBlock: (id: string, element: Element | null | undefined) => void;
-  bindPinnedZone: (element: Element | null | undefined) => void;
-  bindRootZone: (element: Element | null | undefined) => void;
-  bindNavigation: (element: Element | null | undefined) => void;
+  bindTeamRow: (id: string, element: Element | null | undefined, previous?: Element | null) => void;
+  bindFolderHeading: (id: string, element: Element | null | undefined, previous?: Element | null) => void;
+  bindFolderBlock: (id: string, element: Element | null | undefined, previous?: Element | null) => void;
+  bindPinnedZone: (element: Element | null | undefined, previous?: Element | null) => void;
+  bindRootZone: (element: Element | null | undefined, previous?: Element | null) => void;
+  bindNavigation: (element: Element | null | undefined, previous?: Element | null) => void;
   dragging: Ref<'team' | 'folder' | undefined>;
   draggingIds: Ref<string[]>;
   draggingFolder: Ref<string | undefined>;
@@ -74,6 +74,14 @@ function dragSource(source: ElementDragPayload): SidebarDragSource | undefined {
     return folderId ? { type: 'folder', folderId } : undefined;
   }
   return undefined;
+}
+
+function overDraggedRow(input: { clientX: number; clientY: number }, ids: string[]): boolean {
+  if (typeof document === 'undefined') return false;
+  const element = document.elementFromPoint(input.clientX, input.clientY);
+  const row = element instanceof Element ? element.closest('[data-team-id]') : null;
+  const id = row?.getAttribute('data-team-id');
+  return id ? ids.includes(id) : false;
 }
 
 export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeamDrag {
@@ -125,9 +133,12 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
         dropZone.value = 'pinned';
         return;
       case 'root':
-      case 'navigation':
         insertion.value = undefined;
         dropZone.value = 'root';
+        return;
+      case 'navigation':
+        insertion.value = undefined;
+        dropZone.value = undefined;
         return;
     }
   }
@@ -157,6 +168,13 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     },
     onDrop: ({ source, location }) => {
       const parsed = dragSource(source);
+      if (parsed?.type === 'team' && overDraggedRow(location.current.input, parsed.ids)) {
+        clearVisual();
+        dragging.value = undefined;
+        draggingIds.value = [];
+        draggingFolder.value = undefined;
+        return;
+      }
       const target = location.current.dropTargets[0];
       if (parsed && target) {
         const data = targetData(target.data);
@@ -176,7 +194,7 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     },
   });
 
-  const bindTeamRow: SidebarTeamDrag['bindTeamRow'] = (id, element) => {
+  const bindTeamRow: SidebarTeamDrag['bindTeamRow'] = (id, element, previous) => {
     bindings.bind(`team:${id}`, element, el => combine(
       draggable({
         element: el,
@@ -188,10 +206,10 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
         getData: () => ({ kind: 'team', id }),
         getDropEffect: () => 'move',
       }),
-    ));
+    ), previous);
   };
 
-  const bindFolderHeading: SidebarTeamDrag['bindFolderHeading'] = (id, element) => {
+  const bindFolderHeading: SidebarTeamDrag['bindFolderHeading'] = (id, element, previous) => {
     bindings.bind(`folder-heading:${id}`, element, el => combine(
       draggable({
         element: el,
@@ -199,48 +217,53 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
       }),
       dropTargetForElements({
         element: el,
-        canDrop: ({ source }) => isTeamDrag(source)
+        canDrop: ({ source, input }) => (isTeamDrag(source)
+          && !overDraggedRow(input, teamIdsFrom(source)))
           || (isTeamFolderDrag(source) && folderIdFrom(source) !== id),
         getData: () => ({ kind: 'folder', id }),
         getDropEffect: () => 'move',
       }),
-    ));
+    ), previous);
   };
 
-  const bindFolderBlock: SidebarTeamDrag['bindFolderBlock'] = (id, element) => {
+  const bindFolderBlock: SidebarTeamDrag['bindFolderBlock'] = (id, element, previous) => {
     bindings.bind(`folder-block:${id}`, element, el => dropTargetForElements({
       element: el,
-      canDrop: ({ source }) => isTeamDrag(source),
+      canDrop: ({ source, input }) => isTeamDrag(source)
+        && !overDraggedRow(input, teamIdsFrom(source)),
       getData: () => ({ kind: 'folder', id }),
       getDropEffect: () => 'move',
-    }));
+    }), previous);
   };
 
-  const bindPinnedZone: SidebarTeamDrag['bindPinnedZone'] = element => {
+  const bindPinnedZone: SidebarTeamDrag['bindPinnedZone'] = (element, previous) => {
     bindings.bind('pinned', element, el => dropTargetForElements({
       element: el,
-      canDrop: ({ source }) => isTeamDrag(source),
+      canDrop: ({ source, input }) => isTeamDrag(source)
+        && !overDraggedRow(input, teamIdsFrom(source)),
       getData: () => ({ kind: 'pinned' }),
       getDropEffect: () => 'move',
-    }));
+    }), previous);
   };
 
-  const bindRootZone: SidebarTeamDrag['bindRootZone'] = element => {
+  const bindRootZone: SidebarTeamDrag['bindRootZone'] = (element, previous) => {
     bindings.bind('root', element, el => dropTargetForElements({
       element: el,
-      canDrop: ({ source }) => isTeamDrag(source),
+      canDrop: ({ source, input }) => isTeamDrag(source)
+        && !overDraggedRow(input, teamIdsFrom(source)),
       getData: () => ({ kind: 'root' }),
       getDropEffect: () => 'move',
-    }));
+    }), previous);
   };
 
-  const bindNavigation: SidebarTeamDrag['bindNavigation'] = element => {
+  const bindNavigation: SidebarTeamDrag['bindNavigation'] = (element, previous) => {
     bindings.bind('navigation', element, el => dropTargetForElements({
       element: el,
-      canDrop: ({ source }) => isTeamDrag(source),
+      canDrop: ({ source, input }) => isTeamDrag(source)
+        && !overDraggedRow(input, teamIdsFrom(source)),
       getData: () => ({ kind: 'navigation' }),
       getDropEffect: () => 'move',
-    }));
+    }), previous);
   };
 
   function dispose() {

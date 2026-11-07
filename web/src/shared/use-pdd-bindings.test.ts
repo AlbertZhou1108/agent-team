@@ -165,6 +165,31 @@ describe('pdd 元素绑定账本', () => {
     scope.stop();
     expect(cleanups[0]).toHaveBeenCalledOnce();
   });
+
+  it('旧元素晚到的卸载回调不会误删新注册', () => {
+    const { bind } = usePddBindings();
+    const { setup } = setupSpy();
+    const first = fakeElement();
+    const second = fakeElement();
+    bind('a', first, setup);
+    bind('a', second, setup);
+    bind('a', null, setup, first);
+
+    const probe = setupSpy();
+    bind('a', second, probe.setup);
+    expect(probe.setup).not.toHaveBeenCalled();
+  });
+
+  it('卸载回调携带的元素与当前登记一致时才释放', () => {
+    const { bind } = usePddBindings();
+    const { setup, cleanups } = setupSpy();
+    const element = fakeElement();
+    bind('a', element, setup);
+    bind('a', null, setup, fakeElement());
+    expect(cleanups[0]).not.toHaveBeenCalled();
+    bind('a', null, setup, element);
+    expect(cleanups[0]).toHaveBeenCalledOnce();
+  });
 });
 
 describe('pdd 绑定类型', () => {

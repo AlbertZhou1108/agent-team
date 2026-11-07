@@ -274,10 +274,23 @@ function toggleFolder(id: string) {
 }
 
 const refBinders = new Map<string, (element: Element | ComponentPublicInstance | null) => void>();
-function stableRef(key: string, bind: (element: Element | null) => void) {
+function stableRef(
+  key: string,
+  bind: (element: Element | null, previous?: Element | null) => void,
+) {
   let fn = refBinders.get(key);
   if (!fn) {
-    fn = element => bind(element instanceof HTMLElement ? element : null);
+    let current: Element | null = null;
+    fn = element => {
+      if (element instanceof HTMLElement) {
+        current = element;
+        bind(element);
+        return;
+      }
+      const previous = current;
+      current = null;
+      bind(null, previous);
+    };
     refBinders.set(key, fn);
   }
   return fn;
@@ -433,8 +446,9 @@ function submitRenameFolder() {
         <SidebarEntry v-if="pinned.length" title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="toggleSection('pinned')">
           置顶
         </SidebarEntry>
+        <span v-else class="eyebrow px-2 py-1">置顶</span>
         <p
-          v-else
+          v-if="!pinned.length"
           class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
         >
           拖入置顶
@@ -448,7 +462,7 @@ function submitRenameFolder() {
               :active="group.id === currentGroupId"
               :selected="selected.includes(group.id)"
               :collapsed="ui.sidebarCollapsed"
-              :attach="el => bindTeamRow(group.id, el)"
+              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
               @select="selectTeam(group.id, $event)"
               @archive="emit('archive', group.id)"
               data-drop-axis="y"
@@ -463,12 +477,12 @@ function submitRenameFolder() {
         :key="folder.id"
         class="team-folder"
         :class="{ 'team-folder-collapsed': folder.collapsed }"
-        :ref="stableRef(`folder-block:${folder.id}`, el => bindFolderBlock(folder.id, el))"
+        :ref="stableRef(`folder-block:${folder.id}`, (el, prev) => bindFolderBlock(folder.id, el, prev))"
         :data-drop-container="containerDropZone(`folder:${folder.id}`)"
       >
         <div
           class="team-folder-heading"
-          :ref="stableRef(`folder-heading:${folder.id}`, el => bindFolderHeading(folder.id, el))"
+          :ref="stableRef(`folder-heading:${folder.id}`, (el, prev) => bindFolderHeading(folder.id, el, prev))"
           :data-dragging="draggingFolder === folder.id ? 'true' : undefined"
           data-drop-axis="y"
           :data-drop-side="insertionSide(folder.id, 'folder')"
@@ -507,7 +521,7 @@ function submitRenameFolder() {
               :active="group.id === currentGroupId"
               :selected="selected.includes(group.id)"
               :collapsed="ui.sidebarCollapsed"
-              :attach="el => bindTeamRow(group.id, el)"
+              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
               @select="selectTeam(group.id, $event)"
               @archive="emit('archive', group.id)"
               data-drop-axis="y"
@@ -549,7 +563,7 @@ function submitRenameFolder() {
               :active="group.id === currentGroupId"
               :selected="selected.includes(group.id)"
               :collapsed="ui.sidebarCollapsed"
-              :attach="el => bindTeamRow(group.id, el)"
+              :attach="(el, prev) => bindTeamRow(group.id, el, prev)"
               @select="selectTeam(group.id, $event)"
               @archive="emit('archive', group.id)"
               data-drop-axis="y"

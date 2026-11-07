@@ -10,7 +10,7 @@ const props = defineProps<{
   selected: boolean;
   collapsed: boolean;
   /** 由侧栏注册 PDD 拖拽与投放；本组件不 import PDD。 */
-  attach: (element: HTMLElement | null) => void;
+  attach: (element: HTMLElement | null, previous?: HTMLElement) => void;
 }>();
 const org = useTeamOrganization();
 const emit = defineEmits<{
@@ -18,12 +18,20 @@ const emit = defineEmits<{
   archive: [];
 }>();
 
+let current: HTMLElement | null = null;
 function setElement(element: Element | ComponentPublicInstance | null) {
-  props.attach(element instanceof HTMLElement ? element : null);
+  if (element instanceof HTMLElement) {
+    current = element;
+    props.attach(element);
+    return;
+  }
+  const previous = current ?? undefined;
+  current = null;
+  props.attach(null, previous);
 }
 </script>
 <template>
-  <div class="team-row w-full" :class="{ 'team-row-selected': selected }" :ref="setElement">
+  <div class="team-row w-full" :class="{ 'team-row-selected': selected }" :ref="setElement" :data-team-id="group.id">
     <SidebarEntry :color="org.teams[group.id]?.color" :active="active" :current="active" :selected="selected" :pressed="selected" :title="`${group.name} · ${group.id}`" @activate="emit('select', $event)">
       {{ collapsed ? group.name.slice(0, 1) : group.name }}
       <template v-if="!collapsed" #actions><TeamMenu :id="group.id" :name="group.name" :archived="group.state === 'archived'" @archive="emit('archive')" /></template>
