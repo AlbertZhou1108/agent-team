@@ -59,6 +59,7 @@ export function useSortable(options: SortableOptions): Sortable {
   function clearPreview() {
     preview.value = undefined;
     draggingIds.value = [];
+    startSlots = [];
   }
 
   /** 逐帧 pointermove 会反复走到这里；索引与高度未变时保持同一个对象，避免列表逐帧重渲染。 */
@@ -82,12 +83,14 @@ export function useSortable(options: SortableOptions): Sortable {
     bottom: number;
   };
 
-  /** 可投放项按列表顺序排列，附带中心点与矩形。 */
-  function slots(): Slot[] {
-    const dragged = new Set(draggingIds.value);
+  let startSlots: Slot[] = [];
+  let startRootTop = 0;
+  let startRootLeft = 0;
+
+  /** 拖起瞬间冻结所有项的位置。用固定几何判定，避免空位让位反过来改变指针命中的卡片。 */
+  function captureSlots(): Slot[] {
     const result: Slot[] = [];
     for (const id of options.ids()) {
-      if (dragged.has(id) || !options.canTarget(id)) continue;
       const element = itemElements.get(id);
       if (!element) continue;
       const rect = element.getBoundingClientRect();
@@ -102,6 +105,25 @@ export function useSortable(options: SortableOptions): Sortable {
       });
     }
     return result;
+  }
+
+  /** 冻结位置 + 根元素滚动偏移，得到当前指针坐标系里的可投放项。 */
+  function currentSlots(): Slot[] {
+    const rootRect = options.root.value?.getBoundingClientRect();
+    const dx = rootRect ? rootRect.left - startRootLeft : 0;
+    const dy = rootRect ? rootRect.top - startRootTop : 0;
+    const dragged = new Set(draggingIds.value);
+    return startSlots
+      .filter(slot => !dragged.has(slot.id) && options.canTarget(slot.id))
+      .map(slot => ({
+        ...slot,
+        centerX: slot.centerX + dx,
+        centerY: slot.centerY + dy,
+        left: slot.left + dx,
+        right: slot.right + dx,
+        top: slot.top + dy,
+        bottom: slot.bottom + dy,
+      }));
   }
 
   /**
@@ -141,7 +163,7 @@ export function useSortable(options: SortableOptions): Sortable {
   }
 
   function targetAt(input: { clientX: number; clientY: number }): { id: string; after: boolean } | undefined {
-    const list = slots();
+    const list = currentSlots();
     if (!list.length) return undefined;
 
     // 网格：指针落在某张卡片矩形内时，直接“占用它的位置”——目标卡向源位置让，
@@ -188,6 +210,11 @@ export function useSortable(options: SortableOptions): Sortable {
       if (!isSortPayload(source)) return;
       const id = String(source.data.id);
       if (!options.ids().includes(id)) return;
+      // 先冻结几何，再进入拖拽态：之后空位怎么移动都不反过来影响命中判定。
+      startSlots = captureSlots();
+      const rootRect = options.root.value?.getBoundingClientRect();
+      startRootTop = rootRect?.top ?? 0;
+      startRootLeft = rootRect?.left ?? 0;
       draggingIds.value = [id];
       setPreview(sourcePreview(id, heightOf(itemElements.get(id) ?? source.element)));
     },
