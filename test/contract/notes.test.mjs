@@ -328,6 +328,8 @@ test('pinned notes live in their own list, outside the paginated flow', async t 
   const second = await create(call, json, { body: '第二条要置顶' });
   const plain = await create(call, json, { body: '普通记录' });
   await call(`/api/notes/${second.id}/pin`, json('POST', { pinned: true, revision: second.revision }));
+  // pinned_at 精度是毫秒;连续置顶可能得到相同时间戳,顺序会退化为 id,这里拉开时间。
+  await new Promise(resolve => setTimeout(resolve, 5));
   await call(`/api/notes/${first.id}/pin`, json('POST', { pinned: true, revision: first.revision }));
 
   const list = await (await call('/api/notes')).body;
