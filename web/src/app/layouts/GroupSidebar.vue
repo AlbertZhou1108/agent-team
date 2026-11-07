@@ -180,12 +180,13 @@ function selectTeam(id: string, event: MouseEvent) {
 }
 
 function dragIds(id: string): string[] {
-  if (!selected.value.includes(id)) {
+  const container = containerOfTeam(id);
+  // 选区可能因菜单置顶等操作过期：被拖行已经不在原容器时，收缩为该行重新开始。
+  if (!selected.value.includes(id) || selectionContainer.value !== container) {
     selected.value = [id];
     anchor.value = id;
-    selectionContainer.value = containerOfTeam(id);
+    selectionContainer.value = container;
   }
-  const container = selectionContainer.value ?? containerOfTeam(id);
   return visibleIdsOf(container).filter(item => selected.value.includes(item));
 }
 
@@ -301,7 +302,7 @@ const rootZoneRef = stableRef('root', bindRootZone);
 const navigationRef = stableRef('navigation', bindNavigation);
 
 function onDocumentPointerDown(event: PointerEvent) {
-  if (!selected.value.length) return;
+  if (event.button !== 0 || !selected.value.length) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   if (target.closest('.team-row')) return;

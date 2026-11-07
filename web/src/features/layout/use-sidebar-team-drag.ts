@@ -78,10 +78,13 @@ function dragSource(source: ElementDragPayload): SidebarDragSource | undefined {
 
 function overDraggedRow(input: { clientX: number; clientY: number }, ids: string[]): boolean {
   if (typeof document === 'undefined') return false;
-  const element = document.elementFromPoint(input.clientX, input.clientY);
-  const row = element instanceof Element ? element.closest('[data-team-id]') : null;
-  const id = row?.getAttribute('data-team-id');
-  return id ? ids.includes(id) : false;
+  // elementsFromPoint 而非 elementFromPoint：PDD 的 honey pot 会盖住 2px 区域。
+  for (const element of document.elementsFromPoint(input.clientX, input.clientY)) {
+    const row = element.closest('[data-team-id]');
+    const id = row?.getAttribute('data-team-id');
+    if (id && ids.includes(id)) return true;
+  }
+  return false;
 }
 
 export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeamDrag {

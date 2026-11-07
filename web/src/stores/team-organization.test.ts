@@ -156,6 +156,13 @@ describe('拖拽归属语义', () => {
     expect(store.order).toEqual([]);
   });
 
+  it('appendTo 对不存在的文件夹不改变状态', () => {
+    const store = useTeamOrganization();
+    store.appendTo(['a'], { folder: 'missing' });
+    expect(store.teams.a).toBeUndefined();
+    expect(store.order).toEqual([]);
+  });
+
   it('展开动作会持久化', () => {
     const store = useTeamOrganization();
     const folder = store.createFolder('F')!;
