@@ -19,7 +19,7 @@ import {
   EmptyDescription,
   EmptyContent,
 } from '@/components/ui/empty';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
 import {
   Bot,
   Folder,
@@ -42,7 +42,9 @@ import { Button } from '@/components/ui/button';
 
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTeamOrganization } from '@/stores/team-organization';
-import { dropSide, type DropAxis, type DropSide } from '@/shared/drag-order';
+import type { DropAxis } from '@/shared/drag-order';
+import { withGap, type SortItem } from '@/shared/sort-preview';
+import { useSortable } from '@/shared/use-sortable';
 
 function workspaceLabel(workspace: string) {
   return workspace.split(/[\\/]/).filter(Boolean).slice(-2).join(' / ');
@@ -63,8 +65,6 @@ const emit = defineEmits<{
 }>();
 
 const teamsOpen = ref(false);
-const draggingId = ref<string>();
-const dropInsertion = ref<{ id: string; side: DropSide; axis: DropAxis }>();
 const organization = useTeamOrganization();
 const sortedGroups = computed(() =>
   [...props.groups].sort((left, right) => {
@@ -113,62 +113,6 @@ function homeDropAxis(): DropAxis {
   return window.matchMedia('(max-width: 760px)').matches ? 'y' : 'x';
 }
 
-function startHomeDrag(groupId: string, event: DragEvent) {
-  if (isHomePinned(groupId)) {
-    event.preventDefault();
-    return;
-  }
-  draggingId.value = groupId;
-  event.dataTransfer?.setData('application/x-agent-team-home-id', groupId);
-  event.dataTransfer?.setData('text/plain', groupId);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-}
-
-function overHomeCard(groupId: string, event: DragEvent) {
-  if (
-    !draggingId.value ||
-    draggingId.value === groupId ||
-    isHomePinned(groupId)
-  ) {
-    dropInsertion.value = undefined;
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const axis = homeDropAxis();
-  dropInsertion.value = { id: groupId, side: dropSide(event, rect, axis), axis };
-}
-
-function leaveHomeCard(groupId: string, event: DragEvent) {
-  const element = event.currentTarget as HTMLElement;
-  if (
-    !element.contains(event.relatedTarget as Node | null) &&
-    dropInsertion.value?.id === groupId
-  ) {
-    dropInsertion.value = undefined;
-  }
-}
-
-function dropHomeCard(groupId: string, event: DragEvent) {
-  if (!draggingId.value || isHomePinned(groupId)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const movedId = draggingId.value;
-  const after =
-    dropInsertion.value?.id === groupId
-      ? dropInsertion.value.side === 'after'
-      : false;
-  organization.reorderHomeTeams(
-    [movedId],
-    groupId,
-    after,
-    props.groups.map((group) => group.id),
-  );
-  clearHomeDrag();
-}
-
 const search = ref('');
 watch(search, () => { teamsOpen.value = true; });
 const visibleGroups = computed(() => {
@@ -182,9 +126,65 @@ const visibleGroups = computed(() => {
   );
 });
 
-function clearHomeDrag() {
-  draggingId.value = undefined;
-  dropInsertion.value = undefined;
+type HomeRow = SortItem<Group>;
+
+const gridRoot = ref<HTMLElement | null>(null);
+const sortable = useSortable({
+  root: gridRoot,
+  ids: () => visibleGroups.value.map((group) => group.id),
+  canDrag: (id) => !search.value.trim() && !isHomePinned(id),
+  canTarget: (id) => !isHomePinned(id),
+  axis: homeDropAxis,
+  onReorder: (id, targetId, after) =>
+    organization.reorderHomeTeams(
+      [id],
+      targetId,
+      after,
+      props.groups.map((group) => group.id),
+    ),
+});
+const cardRows = computed(() =>
+  withGap(visibleGroups.value, sortable.preview.value, sortable.draggingIds.value),
+);
+const gapStyle = computed(() => {
+  const size = sortable.preview.value?.size ?? 0;
+  return homeDropAxis() === 'x'
+    ? { width: `${size}px`, height: 'auto' }
+    : { height: `${size}px` };
+});
+
+function attachCard(row: HomeRow, element: Element | ComponentPublicInstance | null) {
+  if (!row.item) return;
+  const root = element instanceof HTMLElement
+    ? element
+    : element && '$el' in element
+      ? element.$el
+      : null;
+  sortable.bindItem(row.item.id, root instanceof HTMLElement ? root : null);
+}
+function selectCard(row: HomeRow) {
+  if (row.item) emit('select', row.item.id);
+}
+function togglePinCard(row: HomeRow) {
+  if (row.item) organization.toggleHomePin(row.item.id);
+}
+function isPinnedCard(row: HomeRow) {
+  return row.item ? isHomePinned(row.item.id) : false;
+}
+function pinnedLabel(row: HomeRow) {
+  return isPinnedCard(row) ? '取消首页置顶团队' : '首页置顶团队';
+}
+function memberCountCard(row: HomeRow) {
+  return row.item ? memberCountFor(row.item.id) : 0;
+}
+function runningCountCard(row: HomeRow) {
+  return row.item ? runningCountFor(row.item.id) : 0;
+}
+function folderNameCard(row: HomeRow) {
+  return row.item ? folderNameFor(row.item.id) : undefined;
+}
+function bindGapRef(element: Element | ComponentPublicInstance | null) {
+  sortable.bindGap(element instanceof HTMLElement ? element : null);
 }
 </script>
 
@@ -264,76 +264,75 @@ function clearHomeDrag() {
               :max-visible-items="10"
               aria-label="全部团队列表"
             >
-              <ItemGroup class="team-home-grid">
-                <Item
-                  v-for="group in visibleGroups"
-                  :key="group.id"
-                  variant="outline"
-                  class="team-home-card flex-nowrap"
-                  data-component="content-surface"
-                  :draggable="!search.trim() && !isHomePinned(group.id)"
-                  :data-dragging="draggingId === group.id ? 'true' : undefined"
-                  :data-drop-axis="dropInsertion?.id === group.id ? dropInsertion.axis : undefined"
-                  :data-drop-side="dropInsertion?.id === group.id ? dropInsertion.side : undefined"
-                  :title="
-                    isHomePinned(group.id)
-                      ? '已置顶团队固定在前面'
-                      : '拖动调整首页排序'
-                  "
-                  @dragstart="startHomeDrag(group.id, $event)"
-                  @dragover="overHomeCard(group.id, $event)"
-                  @dragleave="leaveHomeCard(group.id, $event)"
-                  @drop="dropHomeCard(group.id, $event)"
-                  @dragend="clearHomeDrag"
-                >
-                  <ItemContent>
-                    <button
-                      type="button"
-                      class="flex min-w-0 flex-col gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      @click="emit('select', group.id)"
-                    >
-                      <span class="flex min-w-0 flex-col gap-1">
-                        <ItemTitle>{{ group.name }}</ItemTitle>
-                        <ItemDescription :title="group.workspace">{{
-                          workspaceLabel(group.workspace)
-                        }}</ItemDescription>
-                      </span>
-                      <span class="flex flex-wrap items-center gap-2">
-                        <span class="text-xs text-muted-foreground"
-                          >{{ memberCountFor(group.id) }} 名成员</span
-                        >
-                        <Badge
-                          v-if="runningCountFor(group.id)"
-                          variant="secondary"
-                          ><Radio />{{
-                            runningCountFor(group.id)
-                          }}
-                          个运行中</Badge
-                        >
-                        <Badge v-if="folderNameFor(group.id)" variant="outline"
-                          ><Folder />{{ folderNameFor(group.id) }}</Badge
-                        >
-                      </span>
-                    </button>
-                  </ItemContent>
-                  <ItemActions>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      :variant="isHomePinned(group.id) ? 'secondary' : 'ghost'"
-                      :aria-label="
-                        isHomePinned(group.id)
-                          ? '取消首页置顶团队'
-                          : '首页置顶团队'
+              <div ref="gridRoot">
+                <ItemGroup class="team-home-grid">
+                  <template v-for="row in cardRows" :key="row.key">
+                    <Item
+                      v-if="row.item"
+                      :ref="el => attachCard(row, el)"
+                      variant="outline"
+                      class="team-home-card flex-nowrap"
+                      data-component="content-surface"
+                      :data-flip-key="`home:${row.item.id}`"
+                      :data-sort-hidden="row.hidden ? 'true' : undefined"
+                      :title="
+                        isPinnedCard(row)
+                          ? '已置顶团队固定在前面'
+                          : '拖动调整首页排序'
                       "
-                      :aria-pressed="isHomePinned(group.id)"
-                      @dragstart.stop.prevent
-                      @click="organization.toggleHomePin(group.id)"
-                      ><Pin
-                    /></Button>
-                  </ItemActions>
-                </Item>
-              </ItemGroup>
+                    >
+                      <ItemContent>
+                        <button
+                          type="button"
+                          class="flex min-w-0 flex-col gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          @click="selectCard(row)"
+                        >
+                          <span class="flex min-w-0 flex-col gap-1">
+                            <ItemTitle>{{ row.item.name }}</ItemTitle>
+                            <ItemDescription :title="row.item.workspace">{{
+                              workspaceLabel(row.item.workspace)
+                            }}</ItemDescription>
+                          </span>
+                          <span class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs text-muted-foreground"
+                              >{{ memberCountCard(row) }} 名成员</span
+                            >
+                            <Badge
+                              v-if="runningCountCard(row)"
+                              variant="secondary"
+                              ><Radio />{{ runningCountCard(row) }}
+                              个运行中</Badge
+                            >
+                            <Badge
+                              v-if="folderNameCard(row)"
+                              variant="outline"
+                              ><Folder />{{ folderNameCard(row) }}</Badge
+                            >
+                          </span>
+                        </button>
+                      </ItemContent>
+                      <ItemActions>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          :variant="isPinnedCard(row) ? 'secondary' : 'ghost'"
+                          :aria-label="pinnedLabel(row)"
+                          :aria-pressed="isPinnedCard(row)"
+                          @click="togglePinCard(row)"
+                          ><Pin
+                        /></Button>
+                      </ItemActions>
+                    </Item>
+                    <div
+                      v-else
+                      class="team-home-gap"
+                      :ref="bindGapRef"
+                      aria-hidden="true"
+                      :style="gapStyle"
+                    />
+                  </template>
+                </ItemGroup>
+              </div>
             </ScrollArea>
 
 </Disclosure>

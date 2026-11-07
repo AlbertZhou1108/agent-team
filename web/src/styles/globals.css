@@ -653,6 +653,11 @@
   gap: 12px;
 }
 
+.team-home-gap {
+  min-width: 0;
+  pointer-events: auto;
+}
+
 .team-home-card[draggable='true'] {
   cursor: grab;
 }

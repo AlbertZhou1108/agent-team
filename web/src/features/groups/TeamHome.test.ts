@@ -41,13 +41,15 @@ beforeEach(() => {
 });
 
 describe('team home directory cards', () => {
-  it('starts the team directory collapsed and keeps drag sorting and the pin toggle', async () => {
+  it('starts the team directory collapsed and keeps the card flip keys and pin toggle', async () => {
     const html = await renderHome();
     expect(html).toMatch(/data-state="closed"[^>]*data-slot="disclosure"/);
     // 分区之间只用留白分层，不再插分割线。
     expect(html).not.toContain('data-slot="separator"');
     expect(html).toContain('团队甲');
-    expect(html).toContain('draggable="true"');
+    // 排序已交给 PDD：卡片不再带原生 draggable，改为 FLIP 键。
+    expect(html).not.toContain('draggable="true"');
+    expect(html).toContain('data-flip-key="home:alpha"');
     expect(html).toContain('首页置顶团队');
     expect(html).toContain('aria-label="打开 Panel Agent"');
     expect(html).not.toContain('>打开 Panel Agent<');
