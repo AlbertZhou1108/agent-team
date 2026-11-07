@@ -242,8 +242,6 @@ const {
   applyAction,
 });
 
-const pinnedZoneVisible = computed(() => pinned.value.length > 0 || dragging.value === 'team');
-
 function insertionSide(id: string, kind: 'team' | 'folder') {
   return insertion.value?.id === id && insertion.value.kind === kind
     ? insertion.value.side
@@ -439,21 +437,14 @@ function submitRenameFolder() {
       aria-label="团队列表"
     >
       <div
-        v-if="pinnedZoneVisible"
+        v-if="pinned.length"
         :ref="pinnedZoneRef"
         class="flex flex-col"
         :data-drop-container="containerDropZone('pinned')"
       >
-        <SidebarEntry v-if="pinned.length" title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="toggleSection('pinned')">
+        <SidebarEntry title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="toggleSection('pinned')">
           置顶
         </SidebarEntry>
-        <span v-else class="eyebrow px-2 py-1">置顶</span>
-        <p
-          v-if="!pinned.length"
-          class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
-        >
-          拖入置顶
-        </p>
         <CollapseReveal id="sidebar-pinned-content" :show="!org.sections.pinned && !!pinned.length">
           <div class="team-pinned-children">
             <TeamRow
