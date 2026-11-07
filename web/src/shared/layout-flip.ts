@@ -28,14 +28,8 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
     if (!key) continue;
     ownAnimations.get(element)?.cancel();
     const previous = before.get(key);
-    if (!previous) {
-      // 从半透明起步而不是全透明：松手后立即能看见新行，只是轻微落定。
-      ownAnimations.set(element, element.animate(
-        [{ opacity: 0.5 }, { opacity: 1 }],
-        { duration, easing: MOTION_EASING.out },
-      ));
-      continue;
-    }
+    // 新出现的行（例如松手后落回列表的被拖行）直接显示，不做淡入，避免“出现慢半拍”。
+    if (!previous) continue;
     const delta = previous.top - element.getBoundingClientRect().top;
     if (Math.abs(delta) < 0.5) continue;
     ownAnimations.set(element, element.animate(
