@@ -6,12 +6,12 @@ export type PddBind = (key: string, element: Element | null | undefined, setup: 
 
 type Entry = { element: HTMLElement; cleanup: PddCleanup };
 
-/**
- * 元素节点判定：不用 `instanceof HTMLElement`，因为本模块的用例跑在 node 环境，
- * 那里没有 DOM 全局；nodeType === 1 在浏览器与测试替身上都成立。
- */
 function isElementNode(value: unknown): value is HTMLElement {
-  return typeof value === 'object' && value !== null && (value as Node).nodeType === 1;
+  if (typeof value !== 'object' || value === null) return false;
+  // 浏览器里只接受真正的 HTMLElement（排除 SVG 等其它 Element）；
+  // node 测试环境没有 DOM 全局，退化为 nodeType 判定。
+  if (typeof HTMLElement !== 'undefined') return value instanceof HTMLElement;
+  return (value as Node).nodeType === 1;
 }
 
 /**
@@ -45,7 +45,19 @@ export function usePddBindings() {
   };
 
   function dispose() {
-    for (const key of [...entries.keys()]) release(key);
+    let failed = false;
+    let firstError: unknown;
+    for (const key of [...entries.keys()]) {
+      try {
+        release(key);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    }
+    if (failed) throw firstError;
   }
 
   if (getCurrentScope()) onScopeDispose(dispose);

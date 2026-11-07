@@ -17,11 +17,34 @@ function setupSpy() {
 }
 
 describe('pdd 元素绑定账本', () => {
-  it('首次绑定调用一次 setup', () => {
+  it('首次绑定调用一次 setup，且传入的就是该元素', () => {
     const { bind } = usePddBindings();
     const { setup } = setupSpy();
-    bind('a', fakeElement(), setup);
+    const element = fakeElement();
+    bind('a', element, setup);
     expect(setup).toHaveBeenCalledOnce();
+    expect(setup).toHaveBeenCalledWith(element);
+  });
+
+  it('卸载后同一元素重新挂载会重新 setup', () => {
+    const { bind } = usePddBindings();
+    const { setup } = setupSpy();
+    const element = fakeElement();
+    bind('a', element, setup);
+    bind('a', null, setup);
+    bind('a', element, setup);
+    expect(setup).toHaveBeenCalledTimes(2);
+  });
+
+  it('某个 cleanup 抛错时仍清理其余条目，并抛出首个错误', () => {
+    const { bind, dispose } = usePddBindings();
+    const later = vi.fn();
+    bind('a', fakeElement(), () => () => {
+      throw new Error('cleanup boom');
+    });
+    bind('b', fakeElement(), () => later);
+    expect(() => dispose()).toThrow('cleanup boom');
+    expect(later).toHaveBeenCalledOnce();
   });
 
   it('同一 key 同一元素重复回调不重复注册', () => {
