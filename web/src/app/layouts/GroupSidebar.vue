@@ -602,7 +602,7 @@ function submitRenameFolder() {
                 :selected="selected.includes(row.item.id)"
                 :collapsed="ui.sidebarCollapsed"
                 :attach="(el, prev) => attachTeam(row, el, prev)"
-                :data-flip-key="`team:${row.item.id}`"
+                :data-sort-hidden="row.hidden ? 'true' : undefined" :data-flip-key="row.hidden ? undefined : `team:${row.item.id}`"
                 @select="selectRow(row, $event)"
                 @archive="archiveRow(row)"
               />
@@ -630,7 +630,7 @@ function submitRenameFolder() {
           class="team-folder"
           :class="{ 'team-folder-collapsed': folderCollapsed(entry) }"
           :ref="stableRef(`folder-block:${entry.item.id}`, (el, prev) => attachFolderBlock(entry, el, prev))"
-          :data-flip-key="`folder:${entry.item.id}`"
+          :data-sort-hidden="entry.hidden ? 'true' : undefined" :data-flip-key="entry.hidden ? undefined : `folder:${entry.item.id}`"
           :data-drop-container="containerDropZone(`folder:${entry.item.id}`)"
         >
           <div
@@ -672,7 +672,7 @@ function submitRenameFolder() {
                   :selected="selected.includes(row.item.id)"
                   :collapsed="ui.sidebarCollapsed"
                   :attach="(el, prev) => attachTeam(row, el, prev)"
-                  :data-flip-key="`team:${row.item.id}`"
+                  :data-sort-hidden="row.hidden ? 'true' : undefined" :data-flip-key="row.hidden ? undefined : `team:${row.item.id}`"
                   @select="selectRow(row, $event)"
                   @archive="archiveRow(row)"
                 />
@@ -722,7 +722,7 @@ function submitRenameFolder() {
                 :selected="selected.includes(row.item.id)"
                 :collapsed="ui.sidebarCollapsed"
                 :attach="(el, prev) => attachTeam(row, el, prev)"
-                :data-flip-key="`team:${row.item.id}`"
+                :data-sort-hidden="row.hidden ? 'true' : undefined" :data-flip-key="row.hidden ? undefined : `team:${row.item.id}`"
                 @select="selectRow(row, $event)"
                 @archive="archiveRow(row)"
               />

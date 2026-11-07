@@ -1839,6 +1839,11 @@ button {
   pointer-events: auto;
 }
 
+/* 被拖项保留在 DOM 里（PDD 需要拖拽源保持挂载），仅退出布局 */
+[data-sort-hidden='true'] {
+  display: none;
+}
+
 .message-content {
   width: 100%;
   min-width: 0;

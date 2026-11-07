@@ -27,11 +27,12 @@ describe('空位索引', () => {
 describe('带空位的序列', () => {
   const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
 
-  it('过滤被拖项并在匹配容器插入空位', () => {
+  it('被拖项保留为 hidden，空位插在可见序的目标位置', () => {
     const preview: SortPreview = { kind: 'team', container: 'root', index: 1, height: 40 };
     const rows = withTeamGap(items, preview, 'root', ['b']);
     expect(rows).toEqual([
       { key: 'team:a', item: { id: 'a' } },
+      { key: 'team:b', item: { id: 'b' }, hidden: true },
       { key: 'gap:root', gap: true },
       { key: 'team:c', item: { id: 'c' } },
     ]);
@@ -49,10 +50,11 @@ describe('带空位的序列', () => {
     expect(rows[rows.length - 1]).toEqual({ key: 'gap:root', gap: true });
   });
 
-  it('文件夹预览过滤被拖文件夹并插入空位', () => {
+  it('文件夹预览把被拖文件夹标记 hidden 并插入空位', () => {
     const preview: SortPreview = { kind: 'folder', index: 1, height: 60 };
     const rows = withFolderGap(items, preview, 'a');
     expect(rows).toEqual([
+      { key: 'folder:a', item: { id: 'a' }, hidden: true },
       { key: 'folder:b', item: { id: 'b' } },
       { key: 'gap:folders', gap: true },
       { key: 'folder:c', item: { id: 'c' } },

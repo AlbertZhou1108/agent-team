@@ -15,7 +15,7 @@ export type FolderSortPreview = {
 
 export type SortPreview = TeamSortPreview | FolderSortPreview;
 
-export type GapItem<T> = { key: string; item?: T; gap?: boolean };
+export type GapItem<T> = { key: string; item?: T; gap?: boolean; hidden?: boolean };
 
 /** 被拖行原位置：过滤被拖项后，位于第一个被拖行之前的可见项数量。 */
 export function gapIndexForSource(visibleIds: string[], draggedIds: string[]): number {
@@ -46,6 +46,10 @@ function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length);
 }
 
+/**
+ * 被拖项保留在渲染序列里但标记 hidden：PDD 要求拖拽源在拖拽期间保持挂载，
+ * 否则取消时拿不到 dragend，会留下无法收尾的预览。hidden 元素用 display:none 退出布局。
+ */
 export function withTeamGap<T extends { id: string }>(
   items: T[],
   preview: SortPreview | undefined,
@@ -53,11 +57,28 @@ export function withTeamGap<T extends { id: string }>(
   draggedIds: string[],
 ): GapItem<T>[] {
   const dragged = new Set(draggedIds);
-  const rows: GapItem<T>[] = items
-    .filter(item => !dragged.has(item.id))
-    .map(item => ({ key: `team:${item.id}`, item }));
-  if (preview?.kind === 'team' && preview.container === container) {
-    rows.splice(clamp(preview.index, rows.length), 0, { key: `gap:${container}`, gap: true });
+  const visibleCount = items.filter(item => !dragged.has(item.id)).length;
+  const gapIndex = preview?.kind === 'team' && preview.container === container
+    ? clamp(preview.index, visibleCount)
+    : -1;
+
+  const rows: GapItem<T>[] = [];
+  let visible = 0;
+  let placed = false;
+  for (const item of items) {
+    if (dragged.has(item.id)) {
+      rows.push({ key: `team:${item.id}`, item, hidden: true });
+      continue;
+    }
+    if (!placed && visible === gapIndex) {
+      rows.push({ key: `gap:${container}`, gap: true });
+      placed = true;
+    }
+    rows.push({ key: `team:${item.id}`, item });
+    visible += 1;
+  }
+  if (!placed && gapIndex >= 0) {
+    rows.push({ key: `gap:${container}`, gap: true });
   }
   return rows;
 }
@@ -67,11 +88,26 @@ export function withFolderGap<T extends { id: string }>(
   preview: SortPreview | undefined,
   draggedFolderId: string | undefined,
 ): GapItem<T>[] {
-  const rows: GapItem<T>[] = folders
-    .filter(folder => folder.id !== draggedFolderId)
-    .map(folder => ({ key: `folder:${folder.id}`, item: folder }));
-  if (preview?.kind === 'folder') {
-    rows.splice(clamp(preview.index, rows.length), 0, { key: 'gap:folders', gap: true });
+  const visibleCount = folders.filter(folder => folder.id !== draggedFolderId).length;
+  const gapIndex = preview?.kind === 'folder' ? clamp(preview.index, visibleCount) : -1;
+
+  const rows: GapItem<T>[] = [];
+  let visible = 0;
+  let placed = false;
+  for (const folder of folders) {
+    if (folder.id === draggedFolderId) {
+      rows.push({ key: `folder:${folder.id}`, item: folder, hidden: true });
+      continue;
+    }
+    if (!placed && visible === gapIndex) {
+      rows.push({ key: 'gap:folders', gap: true });
+      placed = true;
+    }
+    rows.push({ key: `folder:${folder.id}`, item: folder });
+    visible += 1;
+  }
+  if (!placed && gapIndex >= 0) {
+    rows.push({ key: 'gap:folders', gap: true });
   }
   return rows;
 }
