@@ -1,4 +1,4 @@
-export type SortPreview = { index: number; size: number };
+export type SortPreview = { index: number; height: number };
 
 export type SortItem<T> = { key: string; item?: T; gap?: boolean; hidden?: boolean };
 

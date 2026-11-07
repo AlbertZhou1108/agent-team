@@ -273,7 +273,7 @@ function onTab(value: string | number) {
               v-if="row.item"
               :ref="el => attachTool(row, el)"
               class="tools-panel-section"
-              :data-flip-key="`tool:${row.item.id}`"
+              :data-flip-key="row.hidden ? undefined : `tool:${row.item.id}`"
               :data-sort-hidden="row.hidden ? 'true' : undefined"
             >
               <Disclosure persist-actions>
@@ -322,7 +322,7 @@ function onTab(value: string | number) {
               :ref="bindGapRef"
               class="sort-gap"
               aria-hidden="true"
-              :style="{ height: `${sortable.preview.value?.size ?? 0}px` }"
+              :style="{ height: `${sortable.preview.value?.height ?? 0}px` }"
             />
           </template>
         </div>

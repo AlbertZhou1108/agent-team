@@ -19,7 +19,7 @@ describe('空位序列', () => {
   const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
 
   it('隐藏被拖项并在可见索引插入空位', () => {
-    expect(withGap(items, { index: 1, size: 40 }, ['b'])).toEqual([
+    expect(withGap(items, { index: 1, height: 40 }, ['b'])).toEqual([
       { key: 'item:a', item: { id: 'a' } },
       { key: 'item:b', item: { id: 'b' }, hidden: true },
       { key: 'sort-gap', gap: true },
@@ -29,7 +29,7 @@ describe('空位序列', () => {
 
   it('无预览时不插空位；越界夹紧到末尾', () => {
     expect(withGap(items, undefined, []).some(row => row.gap)).toBe(false);
-    const rows = withGap(items, { index: 99, size: 20 }, []);
+    const rows = withGap(items, { index: 99, height: 20 }, []);
     expect(rows[rows.length - 1]).toEqual({ key: 'sort-gap', gap: true });
   });
 });

@@ -52,9 +52,8 @@ export function useSortable(options: SortableOptions): Sortable {
   const preview = ref<SortPreview>();
   let candidate: { targetId: string; after: boolean } | undefined;
 
-  function sizeOf(element: Element): number {
-    const rect = element.getBoundingClientRect();
-    return options.axis() === 'x' ? rect.width : rect.height;
+  function heightOf(element: Element): number {
+    return element.getBoundingClientRect().height;
   }
 
   function clearPreview() {
@@ -63,13 +62,20 @@ export function useSortable(options: SortableOptions): Sortable {
     draggingIds.value = [];
   }
 
-  function sourcePreview(id: string, size: number): SortPreview {
-    return { index: gapIndexForSource(options.ids(), [id]), size };
+  /** 逐帧 pointermove 会反复走到这里；索引与高度未变时保持同一个对象，避免列表逐帧重渲染。 */
+  function setPreview(next: SortPreview | undefined) {
+    const current = preview.value;
+    if (current?.index === next?.index && current?.height === next?.height) return;
+    preview.value = next;
+  }
+
+  function sourcePreview(id: string, height: number): SortPreview {
+    return { index: gapIndexForSource(options.ids(), [id]), height };
   }
 
   function updatePreview(source: ElementDragPayload, location: DropLocation) {
     const id = String(source.data.id);
-    const size = preview.value?.size ?? 0;
+    const height = preview.value?.height ?? 0;
     const target = location.dropTargets[0];
     const data = target?.data;
     const targetId = data?.kind === 'sort-item' && typeof data.id === 'string' ? data.id : undefined;
@@ -77,15 +83,15 @@ export function useSortable(options: SortableOptions): Sortable {
     if (data?.kind === 'sort-gap') return; // 悬停空位：保留上一候选
     if (!target || !targetId || !options.canTarget(targetId) || targetId === id) {
       candidate = undefined;
-      preview.value = sourcePreview(id, size);
+      setPreview(sourcePreview(id, height));
       return;
     }
     const side = dropSide(location.input, target.element.getBoundingClientRect(), options.axis());
     candidate = { targetId, after: side === 'after' };
-    preview.value = {
+    setPreview({
       index: gapIndexForTarget(options.ids(), [id], targetId, side === 'after'),
-      size,
-    };
+      height,
+    });
   }
 
   const stopMonitor = monitorForElements({
@@ -93,8 +99,9 @@ export function useSortable(options: SortableOptions): Sortable {
     onDragStart: ({ source }) => {
       if (!isSortPayload(source)) return;
       const id = String(source.data.id);
+      if (!options.ids().includes(id)) return;
       draggingIds.value = [id];
-      preview.value = sourcePreview(id, sizeOf(source.element));
+      setPreview(sourcePreview(id, heightOf(source.element)));
     },
     onDrag: ({ source, location }) => {
       if (isSortPayload(source)) updatePreview(source, location.current);
@@ -118,7 +125,7 @@ export function useSortable(options: SortableOptions): Sortable {
     preview,
     async () => {
       const value = preview.value;
-      const key = value ? `${value.index}:${value.size}` : '';
+      const key = value ? `${value.index}:${value.height}` : '';
       if (key === lastKey) return;
       lastKey = key;
       if (prefersReducedMotion()) return;

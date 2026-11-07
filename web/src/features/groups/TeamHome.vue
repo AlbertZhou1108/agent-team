@@ -147,10 +147,9 @@ const cardRows = computed(() =>
   withGap(visibleGroups.value, sortable.preview.value, sortable.draggingIds.value),
 );
 const gapStyle = computed(() => {
-  const size = sortable.preview.value?.size ?? 0;
-  return homeDropAxis() === 'x'
-    ? { width: `${size}px`, height: 'auto' }
-    : { height: `${size}px` };
+  // 网格里空位占一格；min-height 保证末行只剩空位时行高不塌。
+  const height = sortable.preview.value?.height ?? 0;
+  return { minHeight: `${height}px` };
 });
 
 function attachCard(row: HomeRow, element: Element | ComponentPublicInstance | null) {
@@ -273,7 +272,7 @@ function bindGapRef(element: Element | ComponentPublicInstance | null) {
                       variant="outline"
                       class="team-home-card flex-nowrap"
                       data-component="content-surface"
-                      :data-flip-key="`home:${row.item.id}`"
+                      :data-flip-key="row.hidden ? undefined : `home:${row.item.id}`"
                       :data-sort-hidden="row.hidden ? 'true' : undefined"
                       :title="
                         isPinnedCard(row)
