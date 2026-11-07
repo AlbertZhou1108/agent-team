@@ -402,17 +402,6 @@ function navigationElement(element: Element | ComponentPublicInstance | null) {
 
 let flipToken = 0;
 let lastPreviewKey = '';
-const dragRects = new Map<string, DOMRect>();
-
-// 拖起瞬间记录全量位置：松手时被拖行是重新挂载的，捕获不到它的旧位置。
-watch(dragging, (value, previous) => {
-  if (value && !previous) {
-    dragRects.clear();
-    for (const [key, rect] of captureFlipRects(navigationEl.value)) {
-      dragRects.set(key, rect);
-    }
-  }
-});
 
 function previewKey(preview: SortPreview | undefined): string {
   if (!preview) return '';
@@ -427,20 +416,12 @@ watch(
     const key = previewKey(sortPreview.value);
     if (key === lastPreviewKey) return;
     lastPreviewKey = key;
-    if (prefersReducedMotion()) {
-      if (!sortPreview.value) dragRects.clear();
-      return;
-    }
+    if (prefersReducedMotion()) return;
     const token = ++flipToken;
     const before = captureFlipRects(navigationEl.value);
-    // 重新挂载的被拖行不在 DOM 里，用拖起时的位置补上，让它们滑动归位而不是淡入等待。
-    for (const [dragKey, rect] of dragRects) {
-      if (!before.has(dragKey)) before.set(dragKey, rect);
-    }
     await nextTick();
     if (token !== flipToken) return;
     playFlip(navigationEl.value, before);
-    if (!sortPreview.value) dragRects.clear();
   },
   { flush: 'pre' },
 );

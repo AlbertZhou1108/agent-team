@@ -29,8 +29,9 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
     ownAnimations.get(element)?.cancel();
     const previous = before.get(key);
     if (!previous) {
+      // 从半透明起步而不是全透明：松手后立即能看见新行，只是轻微落定。
       ownAnimations.set(element, element.animate(
-        [{ opacity: 0 }, { opacity: 1 }],
+        [{ opacity: 0.5 }, { opacity: 1 }],
         { duration, easing: MOTION_EASING.out },
       ));
       continue;
