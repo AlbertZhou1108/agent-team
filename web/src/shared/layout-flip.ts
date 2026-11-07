@@ -20,11 +20,15 @@ export function captureFlipRects(root: HTMLElement | null | undefined): FlipRect
  * 在 DOM 更新后播放位移：已有元素从旧位置反演回零，新元素淡入。
  * 只取消本模块上一次给该元素挂的动画，不碰 CSS 动画。
  */
-export function playFlip(root: HTMLElement | null | undefined, before: FlipRects): void {
+export function playFlip(
+  root: HTMLElement | null | undefined,
+  before: FlipRects,
+  moveScale = 1,
+): void {
   if (!root || prefersReducedMotion()) return;
   const duration = motionDurationMs('fast');
-  // 让位位移比出现动画更短：快速连续跨行时列表要跟手。
-  const moveDuration = Math.round(duration * 0.6);
+  // 各场景按需缩让位时长；默认与出现动画同档，避免“统一调快”波及无关界面。
+  const moveDuration = Math.round(duration * moveScale);
   for (const element of root.querySelectorAll<HTMLElement>(SELECTOR)) {
     const key = element.dataset.flipKey;
     if (!key) continue;
