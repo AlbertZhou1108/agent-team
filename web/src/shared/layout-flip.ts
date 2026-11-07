@@ -37,10 +37,12 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
       ));
       continue;
     }
-    const delta = previous.top - element.getBoundingClientRect().top;
-    if (Math.abs(delta) < 0.5) continue;
+    const rect = element.getBoundingClientRect();
+    const dx = previous.left - rect.left;
+    const dy = previous.top - rect.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
     ownAnimations.set(element, element.animate(
-      [{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
       { duration: moveDuration, easing: MOTION_EASING.standard },
     ));
   }
