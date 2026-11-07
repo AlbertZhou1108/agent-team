@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, type ComponentPublicInstance } from 'vue';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
@@ -27,10 +27,12 @@ import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import SessionList from '@/features/sessions/SessionList.vue';
 import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
 import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
-import { mountKey } from '@/tools';
+import { mountKey, type MountedTool } from '@/tools';
 import { useUiStore } from '@/stores/ui';
 import { useToolOrder } from './use-tool-order';
 import { contextTabs, type ContextPanel } from './types';
+import { withGap, type SortItem } from '@/shared/sort-preview';
+import { useSortable } from '@/shared/use-sortable';
 import type { InspectorTab } from '@/features/sessions/types';
 import type {
   AgentTaskEntry,
@@ -93,16 +95,59 @@ const emit = defineEmits<{
 const ui = useUiStore();
 const {
   toolsPanelMounts,
-  insertionSide,
-  startDrag,
-  clearDrag,
-  showInsertion,
-  leaveInsertion,
-  reorderTools,
+  reorder,
   isPinned,
   togglePin,
   closeTool,
 } = useToolOrder(() => props.groupId);
+
+type ToolEntry = { id: string; entry: MountedTool };
+type ToolRow = SortItem<ToolEntry>;
+
+const toolsRoot = ref<HTMLElement | null>(null);
+const toolEntries = computed<ToolEntry[]>(() =>
+  toolsPanelMounts.value.map(entry => ({
+    id: mountKey(entry.tool.id, 'right-tools'),
+    entry,
+  })),
+);
+const sortable = useSortable({
+  root: toolsRoot,
+  ids: () => toolEntries.value.map(row => row.id),
+  canDrag: () => true,
+  canTarget: () => true,
+  axis: () => 'y',
+  handleSelector: () => '.tools-drag-handle',
+  onReorder: (id, targetId, after) => reorder(id, targetId, after),
+});
+const toolRows = computed(() =>
+  withGap(toolEntries.value, sortable.preview.value, sortable.draggingIds.value),
+);
+
+function setToolsRoot(element: Element | ComponentPublicInstance | null) {
+  toolsRoot.value = element instanceof HTMLElement ? element : null;
+}
+function attachTool(row: ToolRow, element: Element | ComponentPublicInstance | null) {
+  if (row.item) sortable.bindItem(row.item.id, element instanceof HTMLElement ? element : null);
+}
+function toolName(row: ToolRow): string {
+  return row.item?.entry.tool.name ?? '';
+}
+function toolPinned(row: ToolRow): boolean {
+  return row.item ? isPinned(row.item.entry.tool.id) : false;
+}
+function togglePinRow(row: ToolRow) {
+  if (row.item) togglePin(row.item.entry.tool.id);
+}
+function closeRow(row: ToolRow) {
+  if (row.item) closeTool(row.item.entry.tool.id, row.item.entry.tool.name);
+}
+function toolComponent(row: ToolRow) {
+  return row.item ? row.item.entry.mount.component : null;
+}
+function bindGapRef(element: Element | ComponentPublicInstance | null) {
+  sortable.bindGap(element instanceof HTMLElement ? element : null);
+}
 
 const modelDialogMember = ref<Member | null>(null);
 const modelDialogOpen = ref(false);
@@ -212,69 +257,74 @@ function onTab(value: string | number) {
              头部动作作用于这一节本身(与展开状态无关):置顶把挂载提到最前,
              关闭只隐藏右栏这一处挂载(设置里可恢复),抓手拖拽排序。
              顺序与显隐都记在工具偏好里。 -->
-        <div v-else-if="panel === 'tools'" class="flex min-w-0 flex-col gap-4">
+        <div
+          v-else-if="panel === 'tools'"
+          :ref="setToolsRoot"
+          class="flex min-w-0 flex-col gap-4"
+        >
           <PanelState
             v-if="!toolsPanelMounts.length"
             :icon="Wrench"
             title="没有启用的工具"
             description="在设置 → 工具里启用并勾选「右栏工具页」。"
           />
-          <div
-            v-for="entry in toolsPanelMounts"
-            :key="entry.tool.id"
-            class="tools-panel-section"
-            data-drop-axis="y"
-            :data-drop-side="insertionSide(entry.tool.id)"
-            @dragover.prevent="showInsertion(entry.tool.id, $event)"
-            @dragleave="leaveInsertion($event)"
-            @drop.prevent="reorderTools(mountKey(entry.tool.id, 'right-tools'), $event)"
-          >
-            <Disclosure persist-actions>
-              <template #summary>
-                <h3 class="min-w-0 flex-1 truncate text-sm font-semibold">{{ entry.tool.name }}</h3>
-              </template>
-              <template #actions>
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      :aria-label="`${entry.tool.name} 的工具操作`"
-                      title="工具操作"
-                    >
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuGroup>
-                      <DropdownMenuItem @select="togglePin(entry.tool.id)">
-                        <component
-                          :is="isPinned(entry.tool.id) ? PinOff : ArrowUpToLine"
-                        />
-                        {{ isPinned(entry.tool.id) ? '取消置顶' : '置顶' }}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        @select="closeTool(entry.tool.id, entry.tool.name)"
+          <template v-for="row in toolRows" :key="row.key">
+            <div
+              v-if="row.item"
+              :ref="el => attachTool(row, el)"
+              class="tools-panel-section"
+              :data-flip-key="`tool:${row.item.id}`"
+              :data-sort-hidden="row.hidden ? 'true' : undefined"
+            >
+              <Disclosure persist-actions>
+                <template #summary>
+                  <h3 class="min-w-0 flex-1 truncate text-sm font-semibold">{{ toolName(row) }}</h3>
+                </template>
+                <template #actions>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        :aria-label="`${toolName(row)} 的工具操作`"
+                        title="工具操作"
                       >
-                        <X />
-                        关闭
-                      </DropdownMenuItem>
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <span
-                  class="inline-flex size-(--component-control-height) cursor-grab items-center justify-center rounded-(--component-control-radius) text-muted-foreground/60 active:cursor-grabbing"
-                  draggable="true"
-                  title="拖拽排序"
-                  @dragstart="startDrag(mountKey(entry.tool.id, 'right-tools'), $event)"
-                  @dragend="clearDrag"
-                ><GripVertical class="size-4" /></span>
-              </template>
-              <div class="mt-3">
-                <component :is="entry.mount.component" :group-id="groupId" />
-              </div>
-            </Disclosure>
-          </div>
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem @select="togglePinRow(row)">
+                          <component
+                            :is="toolPinned(row) ? PinOff : ArrowUpToLine"
+                          />
+                          {{ toolPinned(row) ? '取消置顶' : '置顶' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem @select="closeRow(row)">
+                          <X />
+                          关闭
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <span
+                    class="tools-drag-handle inline-flex size-(--component-control-height) cursor-grab items-center justify-center rounded-(--component-control-radius) text-muted-foreground/60 active:cursor-grabbing"
+                    title="拖拽排序"
+                  ><GripVertical class="size-4" /></span>
+                </template>
+                <div class="mt-3">
+                  <component :is="toolComponent(row)" :group-id="groupId" />
+                </div>
+              </Disclosure>
+            </div>
+            <div
+              v-else
+              :ref="bindGapRef"
+              class="sort-gap"
+              aria-hidden="true"
+              :style="{ height: `${sortable.preview.value?.size ?? 0}px` }"
+            />
+          </template>
         </div>
         <InspectorPanel
           v-else

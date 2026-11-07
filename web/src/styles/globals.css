@@ -1839,6 +1839,12 @@ button {
   pointer-events: auto;
 }
 
+/* 通用排序空位(右栏工具页等):高度由内联样式给出 */
+.sort-gap {
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
 /* 被拖项保留在 DOM 里（PDD 需要拖拽源保持挂载），仅退出布局 */
 [data-sort-hidden='true'] {
   display: none;
