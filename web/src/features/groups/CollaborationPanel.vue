@@ -9,13 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import PanelState from '@/components/panel/PanelState.vue';
 import TasksPanel from './TasksPanel.vue';
+import { countTaskStates } from './task-panel-model';
 import { api } from '@/shared/api/client';
 import { useCharterQuery, useCollaborationQuery } from '@/features/queries';
-import type { AgentTaskEntry, Member, PanelAgent } from '@/shared/api/raw-types';
+import type { AgentTasksView, Member, PanelAgent } from '@/shared/api/raw-types';
 
 const props = defineProps<{
   groupId: string;
-  tasks?: AgentTaskEntry[];
+  view?: AgentTasksView;
   members?: Member[];
   panelAgent?: PanelAgent | null;
 }>();
@@ -24,19 +25,16 @@ const summaryQuery = useCollaborationQuery(() => props.groupId || undefined);
 const charterQuery = useCharterQuery(() => props.groupId || undefined);
 const summary = computed(() => summaryQuery.data.value);
 const charter = computed(() => charterQuery.data.value ?? null);
-const doingCount = computed(() =>
-  (props.tasks ?? []).reduce(
-    (total, entry) => total + entry.tasks.filter(task => task.state === 'doing').length,
-    0,
-  ),
-);
+const emptyView: AgentTasksView = { currentPlan: null, historicalPlans: [], memberTasks: [], cancelledSteps: [] };
+const counts = computed(() => countTaskStates(props.view));
+const doingCount = computed(() => counts.value.doing);
 // 收起态也要给完成留痕:没有进行中时显示已完成计数,展开可见灰显明细。
-const finishedCount = computed(() =>
-  (props.tasks ?? []).reduce(
-    (total, entry) => total + entry.tasks.filter(task => task.state !== 'doing').length,
-    0,
-  ),
-);
+const finishedCount = computed(() => counts.value.finished);
+const hasTasks = computed(() => Boolean(
+  props.view?.currentPlan
+  || props.view?.historicalPlans.length
+  || props.view?.memberTasks.some(entry => entry.tasks.length),
+));
 const archived = computed(() =>
   summary.value ? !summary.value.communicationOpen : false,
 );
@@ -115,12 +113,12 @@ async function restoreTeam() {
           <Badge v-if="doingCount" variant="secondary">{{ doingCount }} 进行中</Badge>
           <Badge v-else-if="finishedCount" variant="outline">{{ finishedCount }} 项已完成</Badge>
           <span v-else class="text-xs font-normal text-muted-foreground">
-            {{ (props.tasks ?? []).length ? '暂无进行中任务' : '未使用' }}
+            {{ hasTasks ? '暂无进行中任务' : '未使用' }}
           </span>
         </template>
         <div class="scrollbar-thin mt-3 max-h-[45vh] overflow-y-auto pr-1">
           <TasksPanel
-            :tasks="props.tasks ?? []"
+            :view="props.view ?? emptyView"
             :members="props.members ?? []"
             :panel-agent="props.panelAgent ?? null"
           />

@@ -3,11 +3,17 @@ import { askInputProperties } from './tool-ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const definitions = [
-  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。', {
+  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。', {
     to: string,
     text: string,
     expects_reply: { type: 'boolean' },
     reply_to: { type: 'string', minLength: 1, maxLength: 100 },
+    step_ref: {
+      type: 'object',
+      properties: { planId: { type: 'string', minLength: 1, maxLength: 100 }, stepId: { type: 'string', minLength: 1, maxLength: 32 } },
+      required: ['planId', 'stepId'],
+      additionalProperties: false,
+    },
   }, ['to', 'text']],
   ['note', '给一位成员留言，不唤醒，随下一条正式消息交付。', { to: string, text: string }, ['to', 'text']],
   ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标，只返回 seq 大于 after 的消息（不含该序号本身）；续读把上一次返回的 nextAfter 原样传入 after，不要自行推算序号。新会话默认返回有界列表（ID/seq/作者/接收者/kind/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
@@ -35,7 +41,7 @@ const definitions = [
   }, ['name', 'workspace']],
   ['groups', '主 Agent 列出自己可见的群。', {}, []],
   ['model_catalog', '读取当前实时模型目录。', {}, []],
-  ['tasks_set', '把自己当前的任务列表整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {text, state}，state 为 doing（进行中）/done（已完成）/dropped（已放弃）；开始、推进或完成工作时更新，空数组清空自己的任务。', {
+  ['tasks_set', '把自己当前的任务列表整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：普通成员每条 {text, state, parent?}；主控（lead）写当前任期计划时每条必须带 id（1-32 位小写字母、数字或连字符），计划内唯一且不可复用。state 为 doing（进行中）/done（已完成）/dropped（已放弃）；开始、推进或完成工作时更新，空数组清空自己的任务。', {
     tasks: {
       type: 'array',
       minItems: 0,
@@ -43,12 +49,22 @@ const definitions = [
       items: {
         type: 'object',
         properties: {
+          id: { type: 'string', minLength: 1, maxLength: 32 },
           text: { type: 'string', minLength: 1, maxLength: 500 },
           state: { type: 'string', enum: ['doing', 'done', 'dropped'] },
+          parent: {
+            type: 'object',
+            properties: { planId: { type: 'string', minLength: 1, maxLength: 100 }, stepId: { type: 'string', minLength: 1, maxLength: 32 } },
+            required: ['planId', 'stepId'],
+            additionalProperties: false,
+          },
         },
+        required: ['text', 'state'],
+        additionalProperties: false,
       },
     },
   }, ['tasks']],
+  ['member_stop', '停止一位成员的当前回合；整回合中断，未完成的工作可能丢失。只有当前主控可用。', { to: string }, ['to']],
   ['member_model', '主 Agent 为普通成员申请调整模型配置；只能选 model_catalog 实时目录中真实存在的模型与受支持的思考强度，model 留空表示恢复宿主默认。创建互动卡等待用户在面板上确认，同意后生效，成员下一回合起使用新配置。', {
     member: string,
     model_provider: string,

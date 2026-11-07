@@ -53,12 +53,18 @@ const mainDefinitions = [
     ...readRange,
   }, ['groupId']],
   ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。', {
+  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。', {
     groupId,
     to: string,
     text: string,
     expects_reply: { type: 'boolean' },
     reply_to: { type: 'string', minLength: 1, maxLength: 100 },
+    step_ref: {
+      type: 'object',
+      properties: { planId: { type: 'string', minLength: 1, maxLength: 100 }, stepId: { type: 'string', minLength: 1, maxLength: 32 } },
+      required: ['planId', 'stepId'],
+      additionalProperties: false,
+    },
   }, ['groupId', 'to', 'text']],
   ['team_note', '以当前团队主 Agent 身份向成员留下不唤醒的留言。', {
     groupId,
@@ -71,7 +77,7 @@ const mainDefinitions = [
     host: string,
   }, ['groupId', 'name', 'host']],
   ['group_remove', '主 Agent 移除普通成员。', { groupId, member: string }, ['groupId', 'member']],
-  ['group_tasks_set', '把你（主控）自己在当前团队的任务列表整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {text, state}，state 为 doing/done/dropped；开始、推进或完成工作时更新，空数组清空。', {
+  ['group_tasks_set', '把你（主控）自己在当前团队的计划步骤整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {id, text, state}；id 为 1-32 位小写字母、数字或连字符，计划内唯一且不可复用；state 为 doing/done/dropped；开始、推进或完成工作时更新，空数组清空。', {
     groupId,
     tasks: {
       type: 'array',
@@ -80,14 +86,16 @@ const mainDefinitions = [
       items: {
         type: 'object',
         properties: {
+          id: { type: 'string', minLength: 1, maxLength: 32 },
           text: { type: 'string', minLength: 1, maxLength: 500 },
           state: { type: 'string', enum: ['doing', 'done', 'dropped'] },
         },
-        required: ['text', 'state'],
+        required: ['id', 'text', 'state'],
         additionalProperties: false,
       },
     },
   }, ['groupId', 'tasks']],
+  ['team_member_stop', '停止一位成员的当前回合；整回合中断，未完成的工作可能丢失。', { groupId, member: string }, ['groupId', 'member']],
   ['group_member_model', '为当前团队的普通成员申请调整模型配置；只能选 model_catalog 实时目录中真实存在的模型与受支持的思考强度，model 留空表示恢复宿主默认。创建互动卡等待用户在面板上确认，同意后生效，下一回合起使用新配置。', {
     groupId,
     member: string,

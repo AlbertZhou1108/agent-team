@@ -3,31 +3,22 @@ import { computed } from 'vue';
 import { CircleCheck, CircleOff, ClipboardList, Radio } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
-import type { AgentTaskEntry, Member, PanelAgent } from '@/shared/api/raw-types';
-import { identityColor } from '@/features/messages/identity';
+import { Disclosure } from '@/components/ui/disclosure';
+import TaskPlanSteps from './TaskPlanSteps.vue';
+import { buildTaskPanelModel } from './task-panel-model';
+import type { AgentTasksView, Member, PanelAgent } from '@/shared/api/raw-types';
 
 const props = defineProps<{
-  tasks: AgentTaskEntry[];
+  view: AgentTasksView;
   members: Member[];
   panelAgent: PanelAgent | null;
 }>();
 
-const groups = computed(() =>
-  props.tasks.map(entry => {
-    const member = props.members.find(item => item.id === entry.owner_id);
-    const name = member?.name
-      ?? (props.panelAgent && entry.owner_id === props.panelAgent.id ? props.panelAgent.name : entry.owner_id);
-    return {
-      key: entry.owner_id,
-      name,
-      isController: entry.owner_kind === 'panel_agent',
-      color: identityColor(name),
-      tasks: entry.tasks,
-      updated: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(entry.updated)),
-      doingCount: entry.tasks.filter(task => task.state === 'doing').length,
-    };
-  }),
-);
+const model = computed(() => buildTaskPanelModel({
+  view: props.view,
+  members: props.members,
+  panelAgent: props.panelAgent,
+}));
 
 const stateMeta = {
   doing: { icon: Radio, label: '进行中', class: 'task-doing' },
@@ -38,37 +29,79 @@ const stateMeta = {
 
 <template>
   <PanelState
-    v-if="!groups.length"
+    v-if="model.empty"
     :icon="ClipboardList"
     title="任务面板为空"
   />
-  <div v-else class="flex flex-col divide-y divide-border">
-    <!-- 面板本身已是唯一一层;每位成员的任务组分段展示,靠分割线与标题区分。 -->
-    <section
-      v-for="group in groups"
-      :key="group.key"
-      class="flex min-w-0 flex-col gap-2 py-4 first:pt-0 last:pb-0"
-    >
-      <header class="flex min-w-0 items-center gap-2">
-        <span class="speaking-dot" :style="{ backgroundColor: group.color }" />
-        <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ group.name }}</span>
-        <Badge v-if="group.isController" variant="outline">主控</Badge>
-        <Badge v-if="group.doingCount" variant="secondary">{{ group.doingCount }} 进行中</Badge>
-        <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ group.updated }}</span>
+  <div v-else class="flex flex-col gap-6">
+    <!-- 当前计划:主控本任期写下的步骤;成员任务按 parent 挂到步骤下。 -->
+    <section class="flex flex-col gap-2" data-testid="current-plan">
+      <header class="flex min-w-0 flex-wrap items-center gap-2">
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">当前计划</h3>
+        <Badge v-if="model.current" variant="secondary">主控：{{ model.current.ownerName }}</Badge>
+        <span v-if="model.current?.timeLabel" class="ms-auto text-xs text-muted-foreground tabular-nums">{{ model.current.timeLabel }}</span>
       </header>
-      <ul class="flex flex-col gap-2">
-        <li
-          v-for="(task, index) in group.tasks"
-          :key="index"
-          class="flex items-start gap-2 text-sm"
-          :class="stateMeta[task.state].class"
+      <TaskPlanSteps v-if="model.current?.steps.length" :plan="model.current" />
+      <p v-else class="text-xs text-muted-foreground">
+        {{ model.current ? '当前计划为空。' : (model.historical.length ? '当前任期尚未建立计划，上一任期计划已归档。' : '当前任期尚未建立计划。') }}
+      </p>
+      <div v-if="model.cancelled.length" class="flex flex-col gap-1 rounded-md border border-border/60 p-2">
+        <p class="text-xs font-medium text-muted-foreground">已取消的步骤</p>
+        <p v-for="item in model.cancelled" :key="item.key" class="text-xs leading-5">
+          「{{ item.text }}」<span v-if="item.affectedNames.length" class="text-muted-foreground"> · 影响：{{ item.affectedNames.join('、') }}</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- 历史计划:只出现仍有子任务挂靠的冻结快照;默认折叠。 -->
+    <Disclosure v-if="model.historical.length" class="min-w-0">
+      <template #summary>
+        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">历史计划</h3>
+        <Badge variant="outline">{{ model.historical.length }}</Badge>
+      </template>
+      <div class="mt-3 flex flex-col gap-4">
+        <section
+          v-for="plan in model.historical"
+          :key="plan.planId"
+          class="flex min-w-0 flex-col gap-2"
+          :data-testid="`historical-plan-${plan.planId}`"
         >
-          <!-- 16px 图标在 24px 行高里居中需要 4px 上偏移。 -->
-          <component :is="stateMeta[task.state].icon" class="mt-1 size-4 shrink-0" />
-          <span class="min-w-0 flex-1 break-words leading-6">{{ task.text }}</span>
-          <span class="sr-only">{{ stateMeta[task.state].label }}</span>
-        </li>
-      </ul>
+          <header class="flex min-w-0 flex-wrap items-center gap-2">
+            <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: plan.color }" />
+            <span class="text-xs text-muted-foreground">前任主控：{{ plan.ownerName }}</span>
+            <span class="ms-auto text-xs text-muted-foreground tabular-nums">{{ plan.timeLabel }}</span>
+          </header>
+          <TaskPlanSteps :plan="plan" />
+        </section>
+      </div>
+    </Disclosure>
+
+    <!-- 未挂靠任务:没有 parent,或父步骤已不存在。 -->
+    <section v-if="model.members.length" class="flex flex-col gap-3" data-testid="member-tasks">
+      <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">成员任务</h3>
+      <section
+        v-for="group in model.members"
+        :key="group.ownerId"
+        class="flex min-w-0 flex-col gap-2"
+      >
+        <header class="flex min-w-0 items-center gap-2">
+          <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: group.color }" />
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ group.name }}</span>
+        </header>
+        <ul class="flex flex-col gap-2">
+          <li
+            v-for="item in group.tasks"
+            :key="item.key"
+            class="flex items-start gap-2 text-sm"
+            :class="stateMeta[item.task.state].class"
+          >
+            <component :is="stateMeta[item.task.state].icon" class="mt-1 size-4 shrink-0" />
+            <span class="min-w-0 flex-1 break-words leading-6">{{ item.task.text }}</span>
+            <Badge v-if="item.orphan" variant="outline" title="所属步骤已移除">未挂靠</Badge>
+            <span class="sr-only">{{ stateMeta[item.task.state].label }}</span>
+          </li>
+        </ul>
+      </section>
     </section>
   </div>
 </template>

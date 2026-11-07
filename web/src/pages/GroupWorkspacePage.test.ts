@@ -156,7 +156,7 @@ function makeResources(overrides: Record<string, unknown> = {}) {
     members: ref(members),
     actors: ref([]),
     overview: ref({ panelAgent: null, panelTeams: [] }),
-    snapshot: ref({ agentTasks: [] }),
+    agentTasksView: ref({ currentPlan: null, historicalPlans: [], memberTasks: [], cancelledSteps: [] }),
     navigationState: { data: ref({}), isPending: ref(false), error: ref(null), refetch: vi.fn() },
     workspaceState: { data: ref({}), isPending: ref(false), error: ref(null), refetch: vi.fn() },
     refreshResources: vi.fn(),

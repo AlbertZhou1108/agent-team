@@ -34,7 +34,7 @@ import { withGap, type SortItem } from '@/shared/sort-preview';
 import { useSortable } from '@/shared/use-sortable';
 import type { InspectorTab } from '@/features/sessions/types';
 import type {
-  AgentTaskEntry,
+  AgentTasksView,
   HistoryRow,
   Member,
   PanelAgent,
@@ -55,7 +55,7 @@ const props = defineProps<{
   /** 当前右栏数据加载错误（会话/概览/详情）。 */
   contextError: Error | null;
   panelAgent: PanelAgent | null;
-  tasks: AgentTaskEntry[];
+  tasksView: AgentTasksView;
   members: Member[];
   currentMembers: Member[];
   runningMemberIds: Set<string>;
@@ -222,7 +222,7 @@ function onTab(value: string | number) {
         <CollaborationPanel
           v-if="panel === 'collaboration'"
           :group-id="groupId"
-          :tasks="tasks"
+          :view="tasksView"
           :members="members"
           :panel-agent="panelAgent"
         />

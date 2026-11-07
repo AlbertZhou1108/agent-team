@@ -13,6 +13,7 @@ import {
   useTurnsQuery,
 } from '@/features/queries';
 import type { InspectorTab } from '@/features/sessions/types';
+import type { AgentTaskEntry, AgentTasksView } from '@/shared/api/raw-types';
 import type { ContextPanel } from './types';
 
 export type TeamQueriesOptions = {
@@ -159,9 +160,28 @@ export function useTeamQueries(options: TeamQueriesOptions) {
         }
       : undefined,
   );
+  const agentTasksView = computed<AgentTasksView>(() =>
+    tasksQuery.data.value ?? { currentPlan: null, historicalPlans: [], memberTasks: [], cancelledSteps: [] },
+  );
+  // 面板主体在第 4 阶段切换到三段结构;这里先保留平铺投影,避免本次 API 改造让面板失效。
+  const agentTasks = computed<AgentTaskEntry[]>(() => {
+    const view = agentTasksView.value;
+    return [
+      ...(view.currentPlan
+        ? [{
+            owner_id: view.currentPlan.owner_id,
+            group_id: view.currentPlan.group_id,
+            owner_kind: view.currentPlan.owner_kind,
+            tasks: view.currentPlan.steps,
+            updated: view.currentPlan.updated ?? view.currentPlan.frozen_at ?? '',
+          }]
+        : []),
+      ...view.memberTasks,
+    ];
+  });
   const snapshot = computed(() => ({
     endpoints: endpoints.value,
-    agentTasks: tasksQuery.data.value ?? [],
+    agentTasks: agentTasks.value,
   }));
   async function refreshResources() {
     await invalidateWorkspaceResources(queryClient);
@@ -236,6 +256,7 @@ export function useTeamQueries(options: TeamQueriesOptions) {
     archivedQuery,
     sessionsQuery,
     tasksQuery,
+    agentTasksView,
     sessionQuery,
     runtimeQuery,
     detailQuery,

@@ -68,7 +68,7 @@ const detailsVisible = computed(() => contextVisible.value && contextPanel.value
 
 const resources = useTeamResources({ groupId, selectedSessionId, activeTab, contextPanel, contextVisible, detailsVisible });
 const {
-  allGroups, groups, archivedGroups, group, members, actors, overview, snapshot,
+  allGroups, groups, archivedGroups, group, members, actors, overview, agentTasksView,
   navigationState, workspaceState, refreshResources, isPanelAgentRoute,
   isSettingsRoute, isNotesRoute, sidebarGroupId, currentModelPolicy,
   modelPolicyDefaults, homeRunningByGroup, runningEndpoints, currentControllerId,
@@ -364,7 +364,7 @@ function onMemberModelSaved() {
           :visible="contextVisible"
           :context-error="contextError"
           :panel-agent="overview?.panelAgent ?? null"
-          :tasks="snapshot?.agentTasks ?? []"
+          :tasks-view="agentTasksView"
           :members="members"
           :current-members="currentMembers"
           :running-member-ids="runningMemberIds"

@@ -24,7 +24,7 @@ test('archive freezes facts without calling a model, survives history pruning, a
   });
   const message = bus.store.append(group.id, group.lead, 'user', 'send', '已有结果');
   bus.store.run('UPDATE messages SET created=? WHERE id=?', '2000-01-01T00:00:00.000Z', message.id);
-  bus.setAgentTasks({ ownerId: group.lead, groupId: group.id, tasks: [{ text: '检查', state: 'done' }] });
+  bus.setAgentTasks({ ownerId: group.lead, groupId: group.id, tasks: [{ id: 'step-1', text: '检查', state: 'done' }] });
   const before = calls.length;
   await bus.archiveGroup(group.id);
   const first = bus.archiveSnapshot(group.id);

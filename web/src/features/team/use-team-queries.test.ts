@@ -111,7 +111,12 @@ beforeEach(() => {
       sessionBindings: [{ endpoint_id: 'e1', session_key: 'k', session: 's', updated: '' }],
     },
     [key('group', 'g1', 'session', 'e2')]: endpoint('e2', { peer: 'm2' }),
-    [key('group', 'g1', 'tasks')]: [{ owner_id: 'm1', group_id: 'g1', tasks: [] }],
+    [key('group', 'g1', 'tasks')]: {
+      currentPlan: null,
+      historicalPlans: [],
+      memberTasks: [{ owner_id: 'm1', group_id: 'g1', owner_kind: 'member', tasks: [], updated: '' }],
+      cancelledSteps: [],
+    },
     [key('group', 'g1', 'runtime')]: [{ id: 'e1', group_id: 'g1', member_id: 'm1' }],
     [key('home-summary')]: [{ id: 'h1', group_id: 'g1', member_id: 'm1' }],
     [key('model-policy')]: { policy: 'safe' },

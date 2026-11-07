@@ -132,12 +132,12 @@ export function insertPanelController(store, { groupId, panelAgentId, now }) {
 
 // --- 任务面板(agent_tasks) -------------------------------------------------
 
-/** 写任务列表:非空 upsert,空列表删除该 owner 的行。 */
-export function setAgentTasks(store, { ownerId, groupId, tasks, updated }) {
+/** 写任务列表:非空 upsert,空列表删除该 owner 的行。revision 记录写入时的控制者版本。 */
+export function setAgentTasks(store, { ownerId, groupId, tasks, updated, revision = 0 }) {
   if (tasks.length) {
     return store.run(
-      'INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) VALUES(?,?,?,?) ON CONFLICT(owner_id,group_id) DO UPDATE SET tasks=excluded.tasks,updated=excluded.updated',
-      ownerId, groupId, JSON.stringify(tasks), updated,
+      'INSERT INTO agent_tasks(owner_id,group_id,tasks,updated,revision) VALUES(?,?,?,?,?) ON CONFLICT(owner_id,group_id) DO UPDATE SET tasks=excluded.tasks,updated=excluded.updated,revision=excluded.revision',
+      ownerId, groupId, JSON.stringify(tasks), updated, revision,
     );
   }
   return store.run('DELETE FROM agent_tasks WHERE owner_id=? AND group_id=?', ownerId, groupId);
@@ -145,7 +145,28 @@ export function setAgentTasks(store, { ownerId, groupId, tasks, updated }) {
 
 /** 团队任务面板投影(原始行,owner_kind 由调用方补)。 */
 export function agentTasksForGroup(store, groupId) {
-  return store.all('SELECT owner_id,group_id,tasks,updated FROM agent_tasks WHERE group_id=? ORDER BY updated DESC', groupId);
+  return store.all('SELECT owner_id,group_id,tasks,updated,revision FROM agent_tasks WHERE group_id=? ORDER BY updated DESC', groupId);
+}
+
+/** 计划事件:任期冻结快照或步骤取消墓碑。 */
+export function insertPlanEvent(store, { id, groupId, planId, kind, ownerId = null, revision = null, payload, created }) {
+  return store.run(
+    'INSERT INTO plan_events(id,group_id,plan_id,kind,owner_id,revision,payload,created) VALUES(?,?,?,?,?,?,?,?)',
+    id, groupId, planId, kind, ownerId, revision, JSON.stringify(payload), created,
+  );
+}
+
+/** 某团队的全部计划事件(按时间倒序,调用方自行按 kind 过滤)。 */
+export function planEventsForGroup(store, groupId) {
+  return store.all('SELECT plan_id,kind,owner_id,revision,payload,created FROM plan_events WHERE group_id=? ORDER BY created DESC', groupId);
+}
+
+/** 读取某份历史计划的冻结快照;没有则返回 null。 */
+export function frozenPlan(store, groupId, planId) {
+  return store.get(
+    "SELECT payload FROM plan_events WHERE group_id=? AND plan_id=? AND kind='frozen' ORDER BY created DESC LIMIT 1",
+    groupId, planId,
+  ) ?? null;
 }
 
 // --- 团队创建幂等(operation_records) ---------------------------------------

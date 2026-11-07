@@ -94,6 +94,9 @@ export class ToolDispatch {
       if (name === 'send' && args.reply_to !== undefined) {
         assertReplyTarget(this.bus.store, groupId, args.reply_to, member.id, target.id);
       }
+      const stepRef = name === 'send' && args.step_ref
+        ? this.bus.assertStepRef(groupId, member.id, args.step_ref)
+        : null;
       const message = appendRoutedMessage(this.bus.store, {
         groupId,
         senderId: member.id,
@@ -102,6 +105,7 @@ export class ToolDispatch {
         text: args.text,
         replyTo: args.reply_to ?? null,
         expectsReply,
+        stepRef,
         origin,
       });
       this.bus.emit('message', message);
@@ -150,6 +154,13 @@ export class ToolDispatch {
     }
     if (name === 'tasks_set') {
       return this.bus.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
+    }
+    if (name === 'member_stop') {
+      if (this.bus.teamController(groupId).id !== member.id) throw new Error('只有当前主控可以停止成员');
+      const target = this.bus.resolveMember(groupId, args.to);
+      if (target.id === member.id) throw new Error('不能停止自己');
+      await this.bus.stopWhere(endpoint => endpoint.member_id === target.id);
+      return { stopped: target.id, note: '当前回合已中断，未完成的工作可能丢失' };
     }
     if (name === 'groups') return teamsAgg.groupsAll(this.bus.store);
     if (name === 'group_create') {

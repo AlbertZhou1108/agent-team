@@ -70,6 +70,7 @@ export function useTeamResources(options: TeamResourcesOptions) {
     archivedQuery: queries.archivedQuery,
     sessionsQuery: queries.sessionsQuery,
     tasksQuery: queries.tasksQuery,
+    agentTasksView: queries.agentTasksView,
     sessionQuery: queries.sessionQuery,
     // 工具导航
     notesTool: derived.notesTool,

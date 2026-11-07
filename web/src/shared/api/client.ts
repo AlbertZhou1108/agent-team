@@ -1,5 +1,5 @@
 import type { PanelMessagePage } from './raw-types';
-import type { UnreadProjection, RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTaskEntry } from './raw-types';
+import type { UnreadProjection, RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTasksView } from './raw-types';
 import type {
   ArchiveSnapshot,
   AttachmentSettings,
@@ -128,7 +128,7 @@ export const api = {
   sessionTarget(group: string, member: string, context: string) { return request<SessionEndpoint | null>(query('/api/session-target', { group, member, context })); },
   runtime(group: string, signal?: AbortSignal) { return request<RuntimeEndpoint[]>(query('/api/group-runtime', { group }), signal); },
   homeSummary(signal?: AbortSignal) { return request<RuntimeEndpoint[]>('/api/home-summary', signal); },
-  tasks(group: string, signal?: AbortSignal) { return request<AgentTaskEntry[]>(query('/api/agent-tasks', { group }), signal); },
+  tasks(group: string, signal?: AbortSignal) { return request<AgentTasksView>(query('/api/agent-tasks', { group }), signal); },
   unread(signal?: AbortSignal) { return request<UnreadProjection>('/api/panel-agent/unread', signal); },
   dismissWorkbench(items: Array<{ category: 'interaction' | 'waiting:user' | 'waiting:agent' | 'activity:recent' | 'panel:update'; id: string }>) {
     return mutate<{ dismissed: number }>('/api/workbench/dismiss', { items });

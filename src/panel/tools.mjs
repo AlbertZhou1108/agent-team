@@ -164,6 +164,9 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
     if (name === 'team_send' && args.reply_to !== undefined) {
       assertReplyTarget(bus.store, group.id, args.reply_to, panelAgent.id, target.id);
     }
+    const stepRef = name === 'team_send' && args.step_ref
+      ? bus.assertStepRef(group.id, panelAgent.id, args.step_ref)
+      : null;
     const message = appendRoutedMessage(bus.store, {
       groupId: group.id,
       senderId: panelAgent.id,
@@ -172,6 +175,7 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
       text: args.text,
       replyTo: args.reply_to ?? null,
       expectsReply,
+      stepRef,
       origin,
     });
     bus.emit('message', message);
@@ -190,6 +194,11 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
     return bus.addMember(group.id, args);
   }
   if (name === 'group_remove') return bus.removeMember(group.id, args.member);
+  if (name === 'team_member_stop') {
+    const target = bus.resolveMember(group.id, args.member);
+    await bus.stopWhere(endpoint => endpoint.member_id === target.id);
+    return { stopped: target.id, note: '当前回合已中断，未完成的工作可能丢失' };
+  }
   if (name === 'group_member_model') {
     const target = bus.resolveMember(group.id, args.member);
     if (target.role !== 'member') throw new Error('group_member_model 只能调整普通成员');

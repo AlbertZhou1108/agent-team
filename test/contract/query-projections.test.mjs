@@ -27,7 +27,12 @@ test('query projections isolate teams and never compute list model histories', a
   assert.ok((await get('/api/directory')).members.length >= 4);
   assert.equal((await get(`/api/group?group=${group.id}`)).controller.kind, 'member');
   assert.deepEqual(await get(`/api/group-runtime?group=${group.id}`), []);
-  assert.deepEqual(await get(`/api/agent-tasks?group=${group.id}`), []);
+  assert.deepEqual(await get(`/api/agent-tasks?group=${group.id}`), {
+    currentPlan: null,
+    historicalPlans: [],
+    memberTasks: [],
+    cancelledSteps: [],
+  });
   assert.deepEqual(await get('/api/home-summary'), []);
   assert.ok((await get('/api/model-policy/defaults')).smart);
   await server.bus.archiveGroup(group.id);

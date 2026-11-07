@@ -11,10 +11,16 @@ export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
   if (replyTarget.sender !== targetId) throw new Error('回复对象必须是原请求的发送者');
 }
 
-/** 落一条带来源的正式消息:消息与 message_origins 同事务;无回合来源时不写 origins。 */
-export function appendRoutedMessage(store, { groupId, senderId, targetId, kind, text, replyTo = null, expectsReply = false, origin = null }) {
+/** 落一条带来源的正式消息:消息、步骤引用与 message_origins 同事务;无回合来源时不写 origins。 */
+export function appendRoutedMessage(store, { groupId, senderId, targetId, kind, text, replyTo = null, expectsReply = false, stepRef = null, origin = null }) {
   return store.transaction(() => {
     const value = messagesAgg.append(store, groupId, senderId, targetId, kind, text, replyTo, expectsReply);
+    if (stepRef) {
+      store.run(
+        'INSERT INTO message_step_refs(message_id,plan_id,step_id) VALUES(?,?,?)',
+        value.id, stepRef.planId, stepRef.stepId,
+      );
+    }
     if (origin) {
       messagesAgg.insertOrigin(store, {
         messageId: value.id,

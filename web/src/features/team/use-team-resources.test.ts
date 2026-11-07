@@ -53,6 +53,7 @@ const QUERY_KEYS = [
   'archivedQuery',
   'sessionsQuery',
   'tasksQuery',
+  'agentTasksView',
   'sessionQuery',
 ] as const;
 const DERIVED_KEYS = [

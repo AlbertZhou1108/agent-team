@@ -272,8 +272,46 @@ export interface Snapshot extends Overview {
 export type AgentTaskState = 'doing' | 'done' | 'dropped';
 
 export interface AgentTask {
+  /** 计划步骤的身份；成员任务没有 id。 */
+  id?: string;
   text: string;
   state: AgentTaskState;
+  /** 成员任务挂靠的计划步骤。 */
+  parent?: { planId: string; stepId: string };
+}
+
+export interface AgentPlanStep {
+  id: string;
+  text: string;
+  state: AgentTaskState;
+}
+
+export interface AgentPlanView {
+  plan_id: string;
+  group_id: string;
+  owner_id: string;
+  owner_kind: 'member' | 'panel_agent';
+  revision: number;
+  updated?: string;
+  frozen_at?: string;
+  steps: AgentPlanStep[];
+}
+
+export interface AgentCancelledStep {
+  id: string;
+  plan_id: string;
+  step_id: string;
+  text: string;
+  source: 'dropped' | 'removed';
+  created: string;
+  affected: Array<{ owner_id: string; owner_kind: 'member' | 'panel_agent' }>;
+}
+
+export interface AgentTasksView {
+  currentPlan: AgentPlanView | null;
+  historicalPlans: AgentPlanView[];
+  memberTasks: AgentTaskEntry[];
+  cancelledSteps: AgentCancelledStep[];
 }
 
 export interface AgentTaskEntry {

@@ -18,6 +18,26 @@ export class MessageDispatch {
     const notice = messagesAgg.append(this.bus.store, groupId, 'system', recipient, 'system', text);
     this.bus.emit('notice', notice);
   }
+  /** 回合输入中的计划与预算:主控读自己的当前计划,普通成员只读自己的任务上限。 */
+  roundTaskContext(groupId, ownerId) {
+    const controller = this.bus.teamController(groupId);
+    const revision = controller.assignment?.revision ?? 0;
+    if (controller.id === ownerId) {
+      const plan = this.bus.currentPlan(groupId);
+      const pendingCancellations = this.bus.pendingCancellations(groupId);
+      return {
+        plan: {
+          planId: plan?.planId ?? `plan-${revision}`,
+          revision,
+          limit: 20,
+          steps: plan?.tasks ?? [],
+        },
+        ...(pendingCancellations.length ? { pendingCancellations } : {}),
+      };
+    }
+    const row = this.bus.store.get('SELECT tasks FROM agent_tasks WHERE owner_id=? AND group_id=?', ownerId, groupId);
+    return { taskBudget: { used: row ? JSON.parse(row.tasks).length : 0, limit: 20 } };
+  }
   pump() {
     if (this.bus.closing) return;
     for (const entry of this.bus.store.pendingDeliveries()) {
@@ -69,6 +89,7 @@ export class MessageDispatch {
         policy: context.policy,
         input,
         schema: context.schema,
+        ...this.roundTaskContext(group.id, endpoint.member_id),
       }));
     }, () => {
       messagesAgg.markDeliveryAccepted(this.bus.store, entry);
@@ -107,6 +128,7 @@ export class MessageDispatch {
           policy: { mode: 'communication', allowShell: false, domain: 'communication' },
           input,
           schema,
+          ...this.roundTaskContext(group.id, panelAgent.id),
           ...(awaitingReceipt.length ? { awaitingReceipt } : {}),
         }));
       } else {

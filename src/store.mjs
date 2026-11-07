@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -78,7 +78,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_turn_inputs(turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
       CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
       CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-      CREATE TABLE IF NOT EXISTS agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(owner_id,group_id));
+      CREATE TABLE IF NOT EXISTS agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(owner_id,group_id));
+      CREATE TABLE IF NOT EXISTS plan_events(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('frozen','step_cancelled')),owner_id TEXT,revision INTEGER,payload TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS message_step_refs(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,step_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS model_policy_presets(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS theme_packs(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,light TEXT NOT NULL,dark TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS attachment_settings(singleton INTEGER PRIMARY KEY CHECK(singleton=1),max_file_bytes INTEGER NOT NULL,max_files INTEGER NOT NULL,max_image_pixels INTEGER NOT NULL,updated TEXT NOT NULL);
@@ -86,6 +88,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_message_requests(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,client_message_id TEXT NOT NULL,payload_hash TEXT NOT NULL,panel_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,created_at TEXT NOT NULL,PRIMARY KEY(panel_agent_id,client_message_id));
       CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
       CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);
+      CREATE INDEX IF NOT EXISTS plan_events_group ON plan_events(group_id,plan_id,created);
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
       CREATE INDEX IF NOT EXISTS messages_group ON messages(group_id,seq);
       CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
@@ -205,6 +208,7 @@ export class Store {
     if (fromVersion < 8) this.migrateV8();
     if (fromVersion < 9) this.migrateV9();
     if (fromVersion < 10) this.migrateV10();
+    if (fromVersion < 11) this.migrateV11();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -354,6 +358,16 @@ export class Store {
       if (!columns.has('tags')) this.db.exec("ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
       if (!columns.has('pinned_at')) this.db.exec('ALTER TABLE notes ADD COLUMN pinned_at TEXT');
       this.db.exec("CREATE INDEX IF NOT EXISTS notes_pinned ON notes(pinned_at DESC) WHERE pinned_at IS NOT NULL;");
+    });
+  }
+  // v11:任务面板步骤化 — 计划事件、派工引用与 agent_tasks.revision。
+  migrateV11() {
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS plan_events(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('frozen','step_cancelled')),owner_id TEXT,revision INTEGER,payload TEXT NOT NULL,created TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS plan_events_group ON plan_events(group_id,plan_id,created);
+        CREATE TABLE IF NOT EXISTS message_step_refs(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,step_id TEXT NOT NULL);`);
+      const columns = new Set(this.all('PRAGMA table_info(agent_tasks)').map(column => column.name));
+      if (columns.size && !columns.has('revision')) this.db.exec('ALTER TABLE agent_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
     });
   }
 
@@ -515,18 +529,23 @@ export class Store {
   }
   // agent_tasks 主键从 owner_id 演进为 (owner_id,group_id):
   // Panel Agent 在多个团队各有一份任务列表,单列主键会让跨团队写入互相覆盖。
+  // revision 记录写入时的控制者版本,用于区分当前任期的计划与普通任务。
   migrateAgentTasks() {
     const info = this.all('PRAGMA table_info(agent_tasks)');
     if (!info.length) return;
     const pkColumns = info.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name);
-    if (pkColumns.length === 2) return;
-    this.transaction(() => {
-      this.db.exec(`ALTER TABLE agent_tasks RENAME TO agent_tasks_legacy;
-        CREATE TABLE agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(owner_id,group_id));
-        INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) SELECT owner_id,group_id,tasks,updated FROM agent_tasks_legacy;
-        DROP TABLE agent_tasks_legacy;
-        CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);`);
-    });
+    if (pkColumns.length !== 2) {
+      this.transaction(() => {
+        this.db.exec(`ALTER TABLE agent_tasks RENAME TO agent_tasks_legacy;
+          CREATE TABLE agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(owner_id,group_id));
+          INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) SELECT owner_id,group_id,tasks,updated FROM agent_tasks_legacy;
+          DROP TABLE agent_tasks_legacy;
+          CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);`);
+      });
+    }
+    if (!this.all('PRAGMA table_info(agent_tasks)').some(column => column.name === 'revision')) {
+      this.db.exec('ALTER TABLE agent_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+    }
   }
   // interactions 结构演进统一走重建:请求方泛化(v2)、动作类 kind 扩展(v3)。
   // 用 sqlite_master 里的 CHECK 文本探测当前表是否包含全部所需 kind。
@@ -780,7 +799,12 @@ export class Store {
         AND m.awaiting=1 ORDER BY m.seq`, ...(conversation.context === 'coordination' ? [] : [message.sender]), message.recipient, message.id);
       const additional = [];
       for (const candidate of candidates) if (canBatch([message, ...additional, candidate])) additional.push(candidate);
-      const payload = { groupId: message.group_id, conversation: conversation.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message, ...(additional.length ? { additionalMessages: additional } : {}), notes };
+      // 派工引用单独存表,投递时作为消息的附加字段交给成员;不修改 messages 核心表。
+      const withStepRef = row => {
+        const ref = this.get('SELECT plan_id,step_id FROM message_step_refs WHERE message_id=?', row.id);
+        return ref ? { ...row, stepRef: { planId: ref.plan_id, stepId: ref.step_id } } : row;
+      };
+      const payload = { groupId: message.group_id, conversation: conversation.context === 'coordination' ? 'coordination' : [message.sender, message.recipient].sort(), message: withStepRef(message), ...(additional.length ? { additionalMessages: additional.map(withStepRef) } : {}), notes };
       const id = randomUUID();
       this.run('INSERT INTO outbox(id,conversation_id,payload) VALUES(?,?,?)', id, conversation.id, JSON.stringify(payload));
       for (const item of [message, ...additional, ...notes]) {

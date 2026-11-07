@@ -67,6 +67,8 @@ export class Bus extends EventEmitter {
     this.turnExecutor = new TurnExecutor(this);
     this.archiveSnapshots = new ArchiveSnapshots(this);
     this.notes = new Notes(this);
+    // 旧任务列表没有 step id;把当前控制者的列表提升为当前任期计划,只做一次。
+    this.lifecycle.migrateLegacyPlans();
   }
   get panelStreams() { return this.toolStreams.panelStreams; }
   get teamStreams() { return this.toolStreams.teamStreams; }
@@ -192,6 +194,10 @@ export class Bus extends EventEmitter {
   normalizeAgentTasks(...args) { return this.lifecycle.normalizeAgentTasks(...args); }
   setAgentTasks(...args) { return this.lifecycle.setAgentTasks(...args); }
   agentTasksView(...args) { return this.lifecycle.agentTasksView(...args); }
+  agentTasksPlanView(...args) { return this.lifecycle.agentTasksPlanView(...args); }
+  pendingCancellations(...args) { return this.lifecycle.pendingCancellations(...args); }
+  currentPlan(...args) { return this.lifecycle.currentPlan(...args); }
+  assertStepRef(...args) { return this.lifecycle.assertStepRef(...args); }
   createGroup(...args) { return this.lifecycle.createGroup(...args); }
   setGroupState(...args) { return this.lifecycle.setGroupState(...args); }
   members(...args) { return this.lifecycle.members(...args); }
