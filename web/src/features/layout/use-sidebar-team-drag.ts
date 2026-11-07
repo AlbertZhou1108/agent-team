@@ -39,6 +39,8 @@ export interface SidebarTeamDrag {
   bindPinnedZone: (element: Element | null | undefined, previous?: Element | null) => void;
   bindRootZone: (element: Element | null | undefined, previous?: Element | null) => void;
   bindNavigation: (element: Element | null | undefined, previous?: Element | null) => void;
+  /** 排序空位：不是业务落点，只用来让 PDD 在悬停空位时仍有可投放目标。 */
+  bindSortGap: (key: string, element: Element | null | undefined, previous?: Element | null) => void;
   dragging: Ref<'team' | 'folder' | undefined>;
   draggingIds: Ref<string[]>;
   draggingFolder: Ref<string | undefined>;
@@ -88,12 +90,21 @@ function overDraggedRow(input: { clientX: number; clientY: number }, ids: string
   return false;
 }
 
+/** 指针落在空位上时保留上一个候选位置：空位本身不是投放目标。 */
+function overGap(input: { clientX: number; clientY: number }): boolean {
+  if (typeof document === 'undefined') return false;
+  return document
+    .elementsFromPoint(input.clientX, input.clientY)
+    .some(element => element.closest('.team-sort-gap') !== null);
+}
+
 export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeamDrag {
   const bindings = usePddBindings();
   const dragging = ref<'team' | 'folder'>();
   const draggingIds = ref<string[]>([]);
   const draggingFolder = ref<string>();
   const insertion = ref<{ id: string; kind: 'team' | 'folder'; side: DropSide }>();
+  const candidate = ref<{ target: SidebarDropTarget; side: DropSide }>();
   const dropZone = ref<SidebarDropZone>();
   const gapHeight = ref(0);
 
@@ -110,10 +121,14 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
 
   function clearVisual() {
     insertion.value = undefined;
+    candidate.value = undefined;
     dropZone.value = undefined;
   }
 
   function updateVisual(source: SidebarDragSource, location: DropLocation) {
+    // 空位会随行让位移动到指针下方；此时保留上一个候选，避免预览在源位与目标位之间来回跳。
+    if (overGap(location.input)) return;
+
     const target = location.dropTargets[0];
     if (!target) {
       clearVisual();
@@ -124,39 +139,59 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
       clearVisual();
       return;
     }
+    const side = dropSide(location.input, target.element.getBoundingClientRect(), 'y');
 
     if (source.type === 'folder') {
       dropZone.value = undefined;
-      insertion.value = data.kind === 'folder' && data.id !== source.folderId
-        ? { id: data.id, kind: 'folder', side: dropSide(location.input, target.element.getBoundingClientRect(), 'y') }
-        : undefined;
+      if (data.kind === 'folder' && data.id !== source.folderId) {
+        insertion.value = { id: data.id, kind: 'folder', side };
+        candidate.value = { target: data, side };
+      } else {
+        insertion.value = undefined;
+        candidate.value = undefined;
+      }
       return;
     }
 
     switch (data.kind) {
       case 'team':
         dropZone.value = undefined;
-        insertion.value = source.ids.includes(data.id)
-          ? undefined
-          : { id: data.id, kind: 'team', side: dropSide(location.input, target.element.getBoundingClientRect(), 'y') };
+        if (source.ids.includes(data.id)) {
+          insertion.value = undefined;
+          candidate.value = undefined;
+        } else {
+          insertion.value = { id: data.id, kind: 'team', side };
+          candidate.value = { target: data, side };
+        }
         return;
       case 'folder':
         insertion.value = undefined;
         dropZone.value = `folder:${data.id}`;
+        candidate.value = { target: data, side };
         return;
       case 'pinned':
         insertion.value = undefined;
         dropZone.value = 'pinned';
+        candidate.value = { target: data, side };
         return;
       case 'root':
         insertion.value = undefined;
         dropZone.value = 'root';
+        candidate.value = { target: data, side };
         return;
       case 'navigation':
         insertion.value = undefined;
         dropZone.value = undefined;
+        candidate.value = { target: data, side };
         return;
     }
+  }
+
+  function endDrag() {
+    clearVisual();
+    dragging.value = undefined;
+    draggingIds.value = [];
+    draggingFolder.value = undefined;
   }
 
   const stopMonitor = monitorForElements({
@@ -183,30 +218,22 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
       if (parsed) updateVisual(parsed, location.current);
     },
     onDrop: ({ source, location }) => {
-      const parsed = dragSource(source);
-      if (parsed?.type === 'team' && overDraggedRow(location.current.input, parsed.ids)) {
-        clearVisual();
-        dragging.value = undefined;
-        draggingIds.value = [];
-        draggingFolder.value = undefined;
+      // 取消（Esc、拖出窗口）时 PDD 会清空 dropTargets；此时不能用上一个候选投放。
+      if (!location.current.dropTargets.length) {
+        endDrag();
         return;
       }
-      const target = location.current.dropTargets[0];
-      if (parsed && target) {
-        const data = targetData(target.data);
-        if (data) {
-          const action = resolveSidebarDrop(
-            parsed,
-            data,
-            dropSide(location.current.input, target.element.getBoundingClientRect(), 'y'),
-          );
-          if (action.kind !== 'none') options.applyAction(action);
-        }
+      const parsed = dragSource(source);
+      if (parsed?.type === 'team' && overDraggedRow(location.current.input, parsed.ids)) {
+        endDrag();
+        return;
       }
-      clearVisual();
-      dragging.value = undefined;
-      draggingIds.value = [];
-      draggingFolder.value = undefined;
+      const chosen = candidate.value;
+      if (parsed && chosen) {
+        const action = resolveSidebarDrop(parsed, chosen.target, chosen.side);
+        if (action.kind !== 'none') options.applyAction(action);
+      }
+      endDrag();
     },
   });
 
@@ -290,6 +317,15 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     }), previous);
   };
 
+  const bindSortGap: SidebarTeamDrag['bindSortGap'] = (key, element, previous) => {
+    bindings.bind(key, element, el => dropTargetForElements({
+      element: el,
+      canDrop: ({ source }) => isTeamDrag(source) || isTeamFolderDrag(source),
+      getData: () => ({ kind: 'gap' }),
+      getDropEffect: () => 'move',
+    }), previous);
+  };
+
   function dispose() {
     stopMonitor();
     bindings.dispose();
@@ -305,6 +341,7 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
     bindPinnedZone,
     bindRootZone,
     bindNavigation,
+    bindSortGap,
     dragging,
     draggingIds,
     draggingFolder,

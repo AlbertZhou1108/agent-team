@@ -32,6 +32,7 @@ import { useConnectionStore } from '@/stores/connection';
 import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { cn } from '@/lib/utils';
+import { prefersReducedMotion } from '@/shared/motion';
 import {
   containerOf,
   applyTeamClick,
@@ -241,6 +242,7 @@ const {
   bindPinnedZone,
   bindRootZone,
   bindNavigation,
+  bindSortGap,
   dragging,
   draggingIds,
   draggingFolder,
@@ -336,6 +338,10 @@ function toggleFolderEntry(entry: GapItem<FolderEntry>) {
 function renameFolderEntry(entry: GapItem<FolderEntry>) {
   if (entry.item) beginRenameFolder(entry.item.id, entry.item.name);
 }
+function folderGapRef(entry: GapItem<FolderEntry>) {
+  const key = `gap:folder:${entry.item?.id ?? ''}`;
+  return stableRef(key, (el, prev) => bindSortGap(key, el, prev));
+}
 
 function containerDropZone(zone: string) {
   return dropZone.value === zone ? 'true' : undefined;
@@ -396,6 +402,17 @@ function navigationElement(element: Element | ComponentPublicInstance | null) {
 
 let flipToken = 0;
 let lastPreviewKey = '';
+const dragRects = new Map<string, DOMRect>();
+
+// 拖起瞬间记录全量位置：松手时被拖行是重新挂载的，捕获不到它的旧位置。
+watch(dragging, (value, previous) => {
+  if (value && !previous) {
+    dragRects.clear();
+    for (const [key, rect] of captureFlipRects(navigationEl.value)) {
+      dragRects.set(key, rect);
+    }
+  }
+});
 
 function previewKey(preview: SortPreview | undefined): string {
   if (!preview) return '';
@@ -410,11 +427,20 @@ watch(
     const key = previewKey(sortPreview.value);
     if (key === lastPreviewKey) return;
     lastPreviewKey = key;
+    if (prefersReducedMotion()) {
+      if (!sortPreview.value) dragRects.clear();
+      return;
+    }
     const token = ++flipToken;
     const before = captureFlipRects(navigationEl.value);
+    // 重新挂载的被拖行不在 DOM 里，用拖起时的位置补上，让它们滑动归位而不是淡入等待。
+    for (const [dragKey, rect] of dragRects) {
+      if (!before.has(dragKey)) before.set(dragKey, rect);
+    }
     await nextTick();
     if (token !== flipToken) return;
     playFlip(navigationEl.value, before);
+    if (!sortPreview.value) dragRects.clear();
   },
   { flush: 'pre' },
 );
@@ -560,6 +586,7 @@ function submitRenameFolder() {
         v-if="pinned.length"
         :ref="pinnedZoneRef"
         class="flex flex-col"
+        data-flip-key="section:pinned"
         :data-drop-container="containerDropZone('pinned')"
       >
         <SidebarEntry title="置顶" controls="sidebar-pinned-content" :expanded="!org.sections.pinned" :active="org.sections.pinned && pinned.some(g => g.id === currentGroupId)" @activate="toggleSection('pinned')">
@@ -581,6 +608,7 @@ function submitRenameFolder() {
               />
               <div
                 v-else
+                :ref="stableRef('gap:pinned', (el, prev) => bindSortGap('gap:pinned', el, prev))"
                 class="team-sort-gap"
                 aria-hidden="true"
                 :style="{ height: `${sortPreview?.height ?? 0}px` }"
@@ -592,6 +620,7 @@ function submitRenameFolder() {
       <template v-for="entry in folderItems" :key="entry.key">
         <div
           v-if="!entry.item"
+          :ref="stableRef('gap:folders', (el, prev) => bindSortGap('gap:folders', el, prev))"
           class="team-folder team-sort-gap"
           aria-hidden="true"
           :style="{ height: `${sortPreview?.height ?? 0}px` }"
@@ -649,6 +678,7 @@ function submitRenameFolder() {
                 />
                 <div
                   v-else
+                  :ref="folderGapRef(entry)"
                   class="team-sort-gap"
                   aria-hidden="true"
                   :style="{ height: `${sortPreview?.height ?? 0}px` }"
@@ -669,6 +699,7 @@ function submitRenameFolder() {
         v-if="rootTeams.length"
         :ref="rootZoneRef"
         class="team-root-drop"
+        data-flip-key="section:root"
         :data-drop-container="containerDropZone('root')"
       >
         <SidebarEntry
@@ -697,6 +728,7 @@ function submitRenameFolder() {
               />
               <div
                 v-else
+                :ref="stableRef('gap:root', (el, prev) => bindSortGap('gap:root', el, prev))"
                 class="team-sort-gap"
                 aria-hidden="true"
                 :style="{ height: `${sortPreview?.height ?? 0}px` }"
