@@ -24,7 +24,7 @@ export function playFlip(root: HTMLElement | null | undefined, before: FlipRects
   if (!root || prefersReducedMotion()) return;
   const duration = motionDurationMs('fast');
   // 让位位移比出现动画更短：快速连续跨行时列表要跟手。
-  const moveDuration = Math.round(duration * 0.6);
+  const moveDuration = Math.round(duration * 0.5);
   for (const element of root.querySelectorAll<HTMLElement>(SELECTOR)) {
     const key = element.dataset.flipKey;
     if (!key) continue;
