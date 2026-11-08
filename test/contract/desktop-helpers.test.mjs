@@ -12,8 +12,9 @@ function menuItem(template, label) {
   return undefined;
 }
 
-test('待办数 = 待答复互动卡 + 等待回复，字段缺失按 0', () => {
-  assert.equal(pendingCount({ pending: [{}, {}], waiting: [{}] }), 3);
+test('待办数只统计待答复互动卡，等回复的消息不计入，字段缺失按 0', () => {
+  assert.equal(pendingCount({ pending: [{}, {}], waiting: [{}] }), 2);
+  assert.equal(pendingCount({ pending: [], waiting: [{}, {}, {}] }), 0);
   assert.equal(pendingCount({ pending: [], waiting: [] }), 0);
   assert.equal(pendingCount({}), 0);
   assert.equal(pendingCount(null), 0);

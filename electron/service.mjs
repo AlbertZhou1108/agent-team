@@ -26,7 +26,12 @@ export async function stop(directory) {
   return stopService(directory);
 }
 
-/** 工作台待办数：待答复互动卡 + 等待回复的消息。字段缺失按 0 处理。 */
+/**
+ * 桌面徽标数：只统计待办卡片（互动卡/动作卡）。
+ *
+ * 「等待回复」是用户发出后没有回音的指令，属于待办审计而非「有事找我」，
+ * 不计入徽标；字段缺失按 0 处理。
+ */
 export function pendingCount(workbench) {
-  return (workbench?.pending?.length ?? 0) + (workbench?.waiting?.length ?? 0);
+  return workbench?.pending?.length ?? 0;
 }
