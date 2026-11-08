@@ -135,7 +135,7 @@ Agent Team 的核心是宿主无关、无头优先的多 Agent 协作控制面�
 
 ## 当前开放边界（2026-11-09）
 
-- 控制协议版本为 `1`，持久化 schema 为 `17`。旧库逐级迁移；较新 schema 不能被旧程序打开，发布说明必须注明。
+- 控制协议版本为 `1`，持久化 schema 为 `18`。旧库逐级迁移；较新 schema 不能被旧程序打开，发布说明必须注明。
 - 对外主控、外部投递、decision、能力交集、workspace 路径边界、协议降级、双 binding 单写席位和归档暂停已有契约测试；其中前五项另用真实 Claude/DSH/MCP 环境复验。
 - Codex 主动唤醒具备 provisioning/ready/degraded/unsupported 状态和真实回合启动证据；Codex multi-agent 子会话只能 pull-only，其他宿主当前也默认 pull-only，直到各自实现 wake driver。
 - 主动唤醒回合使用 Codex `read-only` sandbox；只为 `agent_team` MCP server 设置工具自动批准，不绕过宿主文件系统 sandbox。
