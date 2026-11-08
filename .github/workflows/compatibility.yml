@@ -31,6 +31,9 @@ jobs:
   desktop-smoke:
     runs-on: macos-latest
     timeout-minutes: 15
+    env:
+      # GitHub-hosted runner 偶发无法下载 Electron release；本地手动 smoke 仍为硬失败。
+      ELECTRON_SMOKE_OPTIONAL: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

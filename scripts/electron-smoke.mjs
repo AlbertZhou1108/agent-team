@@ -21,7 +21,16 @@ if (!existsSync(join(root, 'web/dist/index.html'))) {
   process.exit(1);
 }
 
-const binary = require('electron');
+let binary;
+try {
+  binary = require('electron');
+} catch (error) {
+  if (process.env.ELECTRON_SMOKE_OPTIONAL === '1') {
+    console.warn(`[electron-smoke] SKIP: Electron 二进制不可用：${error.message}`);
+    process.exit(0);
+  }
+  throw error;
+}
 const dataRoot = mkdtempSync(join(tmpdir(), 'agent-team-smoke-'));
 const env = {
   ...process.env,
