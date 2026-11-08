@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pendingCount } from '../../electron/service.mjs';
+import { badgeCount } from '../../electron/service.mjs';
 import { pickDirectory } from '../../electron/dialogs.mjs';
 import { applicationMenuTemplate } from '../../electron/menus.mjs';
 
@@ -12,12 +12,13 @@ function menuItem(template, label) {
   return undefined;
 }
 
-test('待办数只统计待答复互动卡，等回复的消息不计入，字段缺失按 0', () => {
-  assert.equal(pendingCount({ pending: [{}, {}], waiting: [{}] }), 2);
-  assert.equal(pendingCount({ pending: [], waiting: [{}, {}, {}] }), 0);
-  assert.equal(pendingCount({ pending: [], waiting: [] }), 0);
-  assert.equal(pendingCount({}), 0);
-  assert.equal(pendingCount(null), 0);
+test('徽标 = 待办卡片 + 未读条数，等回复的消息不计入，字段缺失按 0', () => {
+  assert.equal(badgeCount({ pending: [{}, {}], unreadTotal: 3, waiting: [{}] }), 5);
+  assert.equal(badgeCount({ pending: [], unreadTotal: 0, waiting: [{}, {}, {}] }), 0);
+  assert.equal(badgeCount({ pending: [{}, {}] }), 2);
+  assert.equal(badgeCount({ unreadTotal: 4 }), 4);
+  assert.equal(badgeCount({}), 0);
+  assert.equal(badgeCount(null), 0);
 });
 
 test('目录对话框的选中、取消、空列表与异常', async () => {

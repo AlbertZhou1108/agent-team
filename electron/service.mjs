@@ -27,11 +27,11 @@ export async function stop(directory) {
 }
 
 /**
- * 桌面徽标数：只统计待办卡片（互动卡/动作卡）。
+ * 桌面徽标数：待办卡片 + 未读消息，两者都是「有事找我」。
  *
  * 「等待回复」是用户发出后没有回音的指令，属于待办审计而非「有事找我」，
  * 不计入徽标；字段缺失按 0 处理。
  */
-export function pendingCount(workbench) {
-  return workbench?.pending?.length ?? 0;
+export function badgeCount(workbench) {
+  return (workbench?.pending?.length ?? 0) + (workbench?.unreadTotal ?? 0);
 }

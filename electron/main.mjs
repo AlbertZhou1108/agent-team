@@ -2,7 +2,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog } f
 import { Buffer } from 'node:buffer';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ensureService, serviceAlive, serviceDirectory, stop, pendingCount } from './service.mjs';
+import { ensureService, serviceAlive, serviceDirectory, stop, badgeCount } from './service.mjs';
 import { pickDirectory } from './dialogs.mjs';
 import { applicationMenuTemplate } from './menus.mjs';
 
@@ -26,22 +26,29 @@ const state = { panelUrl: DEV ? DEV_URL : null, showingError: false, quitting: f
 let win;
 let tray;
 let healthTimer;
+let badgeTimer;
 // 目录选择器的单飞锁：用方法读写，避免 await 之后再给共享状态赋值。
 const pickerLock = {
   busy: false,
   acquire() { if (this.busy) return false; this.busy = true; return true; },
   release() { this.busy = false; },
 };
-// 待办徽标：数值来自工作台的 pending（待答复互动卡）与 waiting（等待回复）。
+// 待办徽标：待答复的卡片 + 未读消息。「等待回复」不计入，它是待办审计而不是通知。
+// 超过两位数时角标会挤，macOS 改用 dock 的字符串角标显示 99+。
+const BADGE_CAP = 99;
 const badge = {
   count: -1,
   update(count) {
     if (count === this.count) return;
     this.count = count;
-    app.setBadgeCount(count);
+    if (count > BADGE_CAP && process.platform === 'darwin' && app.dock) {
+      app.dock.setBadge(`${BADGE_CAP}+`);
+    } else {
+      app.setBadgeCount(Math.min(count, BADGE_CAP));
+    }
     if (tray && !tray.isDestroyed()) {
       tray.setToolTip(count ? `Agent Team · ${count} 项待处理` : 'Agent Team');
-      if (process.platform === 'darwin') tray.setTitle(count ? ` ${count}` : '');
+      if (process.platform === 'darwin') tray.setTitle(count ? ` ${count > BADGE_CAP ? `${BADGE_CAP}+` : count}` : '');
     }
   },
 };
@@ -112,7 +119,7 @@ async function refreshBadge() {
     const response = await fetch(new URL('api/workbench', state.panelUrl));
     if (!response.ok) return;
     const workbench = await response.json();
-    badge.update(pendingCount(workbench));
+    badge.update(badgeCount(workbench));
   } catch { /* 服务重启期间静默跳过，下一轮再刷新 */ }
 }
 
@@ -207,23 +214,34 @@ function createTray() {
   refreshMenu();
 }
 
+// 徽标比服务存活检查更敏感：窗口缩到托盘时它是唯一能看见的信号，
+// 延迟 15 秒会像卡住，所以单独一条 5 秒的轮询。
+function startBadgePoll() {
+  if (badgeTimer) return;
+  badgeTimer = setInterval(() => {
+    if (state.quitting || state.showingError || !win || win.isDestroyed()) return;
+    void refreshBadge();
+  }, 5000);
+  badgeTimer.unref?.();
+}
+
 function startHealthCheck() {
   if (healthTimer) return;
   healthTimer = setInterval(async () => {
     if (state.quitting || state.showingError || !win || win.isDestroyed()) return;
     // dev 模式的服务由 npm run dev 托管，不能按 applicationData() 判活。
-    if (DEV) return refreshBadge();
+    if (DEV) return;
     if (!await serviceAlive(directory)) {
       showError('本地服务已停止，可以重试重新连接。');
-      return;
     }
-    await refreshBadge();
   }, 15000);
   healthTimer.unref?.();
 }
 
 function quit() {
   state.quitting = true;
+  if (healthTimer) clearInterval(healthTimer);
+  if (badgeTimer) clearInterval(badgeTimer);
   if (tray && !tray.isDestroyed()) tray.destroy();
   app.quit();
 }
@@ -258,6 +276,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray();
     await openPanel();
     await refreshBadge();
+    startBadgePoll();
     startHealthCheck();
   });
 }
