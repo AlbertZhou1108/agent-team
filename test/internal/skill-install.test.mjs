@@ -22,8 +22,8 @@ function fixture(t) {
 }
 
 test('known hosts resolve stable Skill directories', () => {
-  assert.equal(defaultSkillTarget('codex', '/home/u'), '/home/u/.codex/skills/agent-team');
-  assert.equal(defaultSkillTarget('claude', '/home/u'), '/home/u/.claude/skills/agent-team');
+  assert.equal(defaultSkillTarget('codex', '/home/u'), join('/home/u', '.codex', 'skills', 'agent-team'));
+  assert.equal(defaultSkillTarget('claude', '/home/u'), join('/home/u', '.claude', 'skills', 'agent-team'));
   assert.equal(defaultSkillTarget('other', '/home/u'), null);
 });
 

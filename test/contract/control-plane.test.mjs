@@ -368,14 +368,15 @@ test('pending external controller deliveries and bindings survive a service rest
   await bus.close();
 
   const reopened = new Bus({ directory, hosts: new Map([['fake', fakeHost({ profileText: null })]]) });
-  t.after(async () => {
-    if (!reopened.closing) await reopened.close();
-  });
-  const inbox = await reopened.controlTool(identity.binding.id, identity.key, 'control_inbox', { limit: 10 });
-  assert.equal(inbox.deliveries.length, 1);
-  assert.equal(inbox.deliveries[0].payload.message.text, '服务重启前的回复');
-  assert.equal(inbox.deliveries[0].state, 'delivered');
-  assert.equal((await reopened.controlTool(identity.binding.id, identity.key, 'control_status', {})).delivery.pending, 0);
+  try {
+    const inbox = await reopened.controlTool(identity.binding.id, identity.key, 'control_inbox', { limit: 10 });
+    assert.equal(inbox.deliveries.length, 1);
+    assert.equal(inbox.deliveries[0].payload.message.text, '服务重启前的回复');
+    assert.equal(inbox.deliveries[0].state, 'delivered');
+    assert.equal((await reopened.controlTool(identity.binding.id, identity.key, 'control_status', {})).delivery.pending, 0);
+  } finally {
+    await reopened.close();
+  }
 });
 
 test('protocol mismatch degrades to read-only tools and blocks control writes', async t => {
