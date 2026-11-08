@@ -130,6 +130,14 @@ export function insertPanelController(store, { groupId, panelAgentId, now }) {
   );
 }
 
+/** 外部主控建群或接管时直接写 assignment；groups.lead 可以为空。 */
+export function insertExternalController(store, { groupId, principalId, bindingId, now }) {
+  return store.run(
+    "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,controller_binding_id,state,original_lead_id,revision,updated) VALUES(?,'external_agent',?,?,'active',NULL,1,?)",
+    groupId, principalId, bindingId, now,
+  );
+}
+
 // --- 任务面板(agent_tasks) -------------------------------------------------
 
 /** 写任务列表:非空 upsert,空列表删除该 owner 的行。revision 记录写入时的控制者版本。 */

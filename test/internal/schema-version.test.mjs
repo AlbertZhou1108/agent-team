@@ -105,6 +105,50 @@ test('a v8 database rebuilds interactions so multi-step flow cards can be stored
   store.close();
 });
 
+test('a v11 database gains external controller identities, controller kind and binding seat', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run(
+    "INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g1','lead','fake','lead')",
+  );
+  store.run(
+    "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated) VALUES('g1','member','m1','active',NULL,1,?)",
+    NOW,
+  );
+  const v11Sql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='team_lead_controllers'").sql
+    .replace(",'external_agent'", '');
+  store.run('ALTER TABLE team_lead_controllers RENAME TO team_lead_controllers_v12');
+  store.run(v11Sql);
+  store.run('INSERT INTO team_lead_controllers SELECT * FROM team_lead_controllers_v12');
+  store.run('DROP TABLE team_lead_controllers_v12');
+  store.run('DROP TABLE external_decisions');
+  store.run('DROP TABLE external_deliveries');
+  store.run('DROP TABLE external_client_bindings');
+  store.run('DROP TABLE external_principals');
+  store.setSchemaVersion(11);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.equal(store.get("SELECT controller_kind FROM team_lead_controllers WHERE group_id='g1'").controller_kind, 'member');
+  assert.match(
+    store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='team_lead_controllers'").sql,
+    /external_agent/,
+  );
+  assert.ok(
+    store.all('PRAGMA table_info(team_lead_controllers)').some(column => column.name === 'controller_binding_id'),
+  );
+  assert.ok(store.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'command'));
+  assert.ok(store.all('PRAGMA table_info(external_deliveries)').some(column => column.name === 'wake_state'));
+  store.run(
+    "INSERT INTO external_principals(id,name,created,updated) VALUES('p1','user',?,?)",
+    NOW, NOW,
+  );
+  assert.equal(store.get("SELECT name FROM external_principals WHERE id='p1'").name, 'user');
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

@@ -4,6 +4,24 @@
 
 普通用户可优先使用[发行包和页面](quick-start.md)。本页适合从终端启动、指定混合宿主成员或查询团队的用户。
 
+## 外部主控连接
+
+无头控制面通过稳定的 stdio MCP shim 接入。首次连接使用一次登记命令；日常协作不需要打开 Agent Team 页面：
+
+```bash
+npm start -- connect --data /你的框架数据目录 \
+  --host codex --client codex-main --principal 本机用户 \
+  --workspace /允许创建团队的工作目录
+```
+
+命令会为 Codex/Claude 安装或更新 Skill，并输出 principal、binding、有效能力、Skill 内容哈希和可直接写入宿主 MCP 配置的 `mcp.agent_team` 配置。重复执行同一 `--principal` + `--client` 会轮换连接凭据，旧 Skill 目录保存在同级 `.backup-*` 路径。未知宿主用 `--skill-root` 指定安装目录，或用 `--no-install-skill` 跳过。
+
+`--workspace` 是可创建团队的根目录；当前连接默认允许 communication/read-only/workspace-write，但每次 `team_create` 仍要显式选择策略。外部主控不能指定该根目录之外的团队工作区。
+
+外宿主 Skill 应在会话开始时调用 `control_protocol`；需要领取成员回复或决策请求时调用 `control_inbox`。MCP shim 只有在宿主 thread 可确认时才会自动记录 Codex session：顶层会话的 `CODEX_THREAD_ID` 与 `CODEX_SESSION_ID` 相同；Codex multi-agent 子会话两者不同，不自动绑定唤醒 session，保持 pull-only。外围启动器仍可对 `thread.started` 调用受凭据保护的 `bind_client_session`；显式设置 `AGENT_TEAM_HOST_SESSION` 可声明可恢复 session，`AGENT_TEAM_DISABLE_ACTIVE_WAKE=1` 可禁止自动绑定并清理旧 session；外围启动器后续显式绑定仍可恢复唤醒。其他宿主当前采用持久收件箱，不承诺主动唤醒。
+
+控制协议版本不兼容时，MCP 只暴露状态和读取工具。写操作会返回明确错误，要求更新 Skill 并新建或重连宿主会话。
+
 ## 启动与连接
 
 在仓库根目录安装依赖后执行；`npm start` 会先构建前端。下面的路径都是示例，请替换为自己的目录。

@@ -62,6 +62,10 @@ export class MessageDispatch {
         if (entry) this.bus.deliverPanel(entry);
         continue;
       }
+      if (message.recipient === controller.id && controller.kind === 'external_agent') {
+        this.bus.enqueueExternalMessage(controller.id, message);
+        continue;
+      }
       const endpoint = conversationsAgg.forMember(this.bus.store, message.recipient, message.recipient === controller.id ? 'coordination' : `pair:${message.sender}`, { peer: message.recipient === controller.id ? null : message.sender });
       if (this.bus.running.has(endpoint.id) || messagesAgg.hasPendingDelivery(this.bus.store, endpoint.id)) continue;
       const entry = messagesAgg.prepareDelivery(this.bus.store, endpoint, message);
@@ -238,7 +242,7 @@ export class MessageDispatch {
       instructions,
       schema,
       policy,
-      previousPolicy,
+      previousPolicy: previousPolicy ? { signature: previousPolicy } : null,
       workspace: group.workspace,
       tools: toolsFor(member.role, endpoint.context),
       hostEndpoint: effectiveEndpoint,

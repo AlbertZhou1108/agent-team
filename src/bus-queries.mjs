@@ -42,7 +42,7 @@ export class BusQueries {
         created: panelAgent.created,
         updated: panelAgent.updated,
       } : null,
-      panelTeams: panelAgent ? this.bus.panelTeamViews() : [],
+      panelTeams: this.bus.panelTeamViews(),
       actors: this.bus.store.actors().map(actor => actor.kind === 'member'
         ? { id: actor.id, name: actor.name }
         : {
@@ -68,7 +68,10 @@ export class BusQueries {
     const panelAgent = this.bus.panelAgent();
     return {
       members: this.bus.store.all('SELECT * FROM members ORDER BY rowid'),
-      actors: this.bus.store.all('SELECT id,name FROM members ORDER BY rowid'),
+      actors: [
+        ...this.bus.store.all('SELECT id,name FROM members ORDER BY rowid'),
+        ...this.bus.store.all('SELECT id,name FROM external_principals ORDER BY created'),
+      ],
       panelAgent: panelAgent ? Object.fromEntries(['id','name','host','model_provider','model','reasoning_effort','created','updated'].map(key => [key, panelAgent[key]])) : null,
     };
   }

@@ -188,9 +188,9 @@ export interface PanelAgent {
 }
 
 export interface PanelTeamView extends Group {
-  relation: 'observer' | 'main';
+  relation: 'observer' | 'main' | null;
   controller: {
-    kind: 'member' | 'panel_agent';
+    kind: 'member' | 'panel_agent' | 'external_agent';
     id: string;
     name: string;
     assignment?: {
@@ -290,7 +290,7 @@ export interface AgentPlanView {
   plan_id: string;
   group_id: string;
   owner_id: string;
-  owner_kind: 'member' | 'panel_agent';
+  owner_kind: 'member' | 'panel_agent' | 'external_agent';
   revision: number;
   updated?: string;
   frozen_at?: string;
@@ -304,7 +304,7 @@ export interface AgentCancelledStep {
   text: string;
   source: 'dropped' | 'removed';
   created: string;
-  affected: Array<{ owner_id: string; owner_kind: 'member' | 'panel_agent' }>;
+  affected: Array<{ owner_id: string; owner_kind: 'member' | 'panel_agent' | 'external_agent' }>;
 }
 
 export interface AgentTasksView {
@@ -317,7 +317,7 @@ export interface AgentTasksView {
 export interface AgentTaskEntry {
   owner_id: string;
   group_id: string;
-  owner_kind: 'member' | 'panel_agent';
+  owner_kind: 'member' | 'panel_agent' | 'external_agent';
   tasks: AgentTask[];
   updated: string;
 }

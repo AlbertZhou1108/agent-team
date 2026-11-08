@@ -63,10 +63,18 @@ export function countTaskStates(view: AgentTasksView | null | undefined) {
   };
 }
 
-function ownerNameOf(ownerId: string, ownerKind: 'member' | 'panel_agent', members: Member[], panelAgent: PanelAgent | null) {
+function ownerNameOf(
+  ownerId: string,
+  ownerKind: 'member' | 'panel_agent' | 'external_agent',
+  members: Member[],
+  panelAgent: PanelAgent | null,
+  actors: Array<{ id: string; name: string }>,
+) {
   const member = members.find(item => item.id === ownerId);
   if (member) return member.name;
   if (ownerKind === 'panel_agent' && panelAgent) return panelAgent.name;
+  const actor = actors.find(item => item.id === ownerId);
+  if (actor) return actor.name;
   return ownerId;
 }
 
@@ -117,9 +125,10 @@ function buildPlan(
   linked: Map<string, LinkedTask[]>,
   members: Member[],
   panelAgent: PanelAgent | null,
+  actors: Array<{ id: string; name: string }>,
   withDate: boolean,
 ): TaskPanelPlan {
-  const ownerName = ownerNameOf(plan.owner_id, plan.owner_kind, members, panelAgent);
+  const ownerName = ownerNameOf(plan.owner_id, plan.owner_kind, members, panelAgent, actors);
   return {
     planId: plan.plan_id,
     ownerName,
@@ -128,7 +137,7 @@ function buildPlan(
     steps: plan.steps.map((step, index) => {
       const key = `${plan.plan_id}\u0000${step.id}`;
       const children = (linked.get(key) ?? []).map(({ entry, task }, childIndex) => {
-        const name = ownerNameOf(entry.owner_id, entry.owner_kind, members, panelAgent);
+        const name = ownerNameOf(entry.owner_id, entry.owner_kind, members, panelAgent, actors);
         return {
           key: `${entry.owner_id}:${childIndex}:${task.text}`,
           number: `${index + 1}.${childIndex + 1}`,
@@ -146,14 +155,19 @@ function buildPlan(
  * 把三段投影整理成可直接渲染的模型。
  * 当前计划的步骤不参与“已归档”展示;挂在历史计划下的成员任务计入成员区之前的历史结构。
  */
-export function buildTaskPanelModel({ view, members, panelAgent }: {
+export function buildTaskPanelModel({ view, members, panelAgent, actors = [] }: {
   view: AgentTasksView;
   members: Member[];
   panelAgent: PanelAgent | null;
+  actors?: Array<{ id: string; name: string }>;
 }): TaskPanelModel {
   const linked = collectLinked(view, members);
-  const current = view.currentPlan ? buildPlan(view.currentPlan, linked, members, panelAgent, false) : null;
-  const historical = view.historicalPlans.map(plan => buildPlan(plan, linked, members, panelAgent, true));
+  const current = view.currentPlan
+    ? buildPlan(view.currentPlan, linked, members, panelAgent, actors, false)
+    : null;
+  const historical = view.historicalPlans.map(plan => (
+    buildPlan(plan, linked, members, panelAgent, actors, true)
+  ));
 
   const known = new Set<string>();
   if (view.currentPlan) for (const step of view.currentPlan.steps) known.add(`${view.currentPlan.plan_id}\u0000${step.id}`);
@@ -161,7 +175,7 @@ export function buildTaskPanelModel({ view, members, panelAgent }: {
 
   const loose = new Map<string, TaskPanelMemberGroup>();
   for (const entry of view.memberTasks) {
-    const name = ownerNameOf(entry.owner_id, entry.owner_kind, members, panelAgent);
+    const name = ownerNameOf(entry.owner_id, entry.owner_kind, members, panelAgent, actors);
     const group = loose.get(entry.owner_id) ?? {
       ownerId: entry.owner_id,
       name,
@@ -183,7 +197,9 @@ export function buildTaskPanelModel({ view, members, panelAgent }: {
   const cancelled = (view.cancelledSteps ?? []).map(item => ({
     key: item.id,
     text: item.text,
-    affectedNames: item.affected.map(person => ownerNameOf(person.owner_id, person.owner_kind, members, panelAgent)),
+    affectedNames: item.affected.map(person => (
+      ownerNameOf(person.owner_id, person.owner_kind, members, panelAgent, actors)
+    )),
   }));
   return {
     current,

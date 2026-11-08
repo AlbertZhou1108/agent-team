@@ -3,10 +3,16 @@ import { version } from './version.mjs';
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { startServer, socketFor } from './server.mjs';
-import { rpc, serveMcp } from './rpc.mjs';
+import { rpc, serveMcp, serveControlMcp } from './rpc.mjs';
+import { Store } from './store.mjs';
+import { createExternalIdentity } from './control-plane.mjs';
+import { CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
+import { nodeRunner } from './runtime.mjs';
+import { defaultSkillTarget, installSkill } from './skill-install.mjs';
 
 const options = {
   data: { type: 'string', default: 'work/local' }, port: { type: 'string', default: '0' },
@@ -15,6 +21,9 @@ const options = {
   group: { type: 'string' }, host: { type: 'string' }, member: { type: 'string' }, text: { type: 'string' },
   hosts: { type: 'string' }, socket: { type: 'string' }, endpoint: { type: 'string' }, help: { type: 'boolean', short: 'h' },
   charter: { type: 'string' }, policy: { type: 'string' }, reason: { type: 'string' }, turn: { type: 'string' },
+  client: { type: 'string' }, principal: { type: 'string' }, session: { type: 'string' },
+  capabilities: { type: 'string' }, command: { type: 'string' },
+  'skill-root': { type: 'string' }, 'no-install-skill': { type: 'boolean' },
 };
 export function parseMembers(text = '') {
   return text ? text.split(',').filter(Boolean).map(item => {
@@ -33,7 +42,9 @@ async function main() {
 继续已有群：
   npm start -- --group 群编号
 
-命令：start / serve / models / new / chat / groups / members / state / direct / archive / restore / resolve-runtime / add / remove / delete / retry / stop
+命令：start / serve / connect / bind-session / mcp / models / new / chat / groups / members / state / direct / archive / restore / resolve-runtime / add / remove / delete / retry / stop
+  connect           登记外部主控 client binding，并输出 stdio MCP 配置
+  bind-session      用 AGENT_TEAM_CLIENT_KEY 把宿主 thread/session 绑定到 client
   new               在已有总线上创建新群（--charter 可选团队说明文件）
   state             查看群沟通状态与待核实运行
   direct 文本       向团队调度会话发送一条明确共享的用户指令
@@ -46,12 +57,22 @@ async function main() {
   --group 编号      操作的群
   --text 文本       chat 单次私聊（先运行 serve）
   --member 名称     remove / stop 的成员
+  --client 名称     外部主控连接名称（connect）
+  --principal 名称  外部主控身份名称，默认本机用户
+  --session ID      外部宿主稳定 session 标识
+  --capabilities    逗号分隔的主控能力 ID；默认使用成为主控所需的最小能力
+  --command 路径    主动唤醒使用的宿主命令，默认与 --host 相同
+  --skill-root 目录 覆盖 Skill 安装目录
+  --no-install-skill 只登记连接，不安装或更新 Skill
 
 聊天中：/members /add 名称=宿主 /remove 名称 /stop 名称 /retry /groups /use 群编号 /archive /restore /delete /quit
 普通输入只发给主 Agent，不进入群记录。Ctrl+C 停止当前总线；群配置与消息保留。
 主 Agent 和成员使用宿主现有认证。请先登录相应 CLI。`);
   const directory = resolve(values.data);
-  if (command === 'mcp') return serveMcp(values.socket, values.endpoint, process.env.AGENT_TEAM_KEY, process.env.AGENT_TEAM_TURN);
+  if (command === 'mcp') {
+    if (values.client) return serveControlMcp(values.socket ?? socketFor(directory), values.client, process.env.AGENT_TEAM_CLIENT_KEY);
+    return serveMcp(values.socket, values.endpoint, process.env.AGENT_TEAM_KEY, process.env.AGENT_TEAM_TURN);
+  }
   const socketPath = socketFor(directory);
   const groupArgs = () => ({
     name: values.name,
@@ -61,11 +82,95 @@ async function main() {
     lead: { name: '主 Agent', host: values.lead },
     members: parseMembers(values.members),
   });
+  if (command === 'connect') {
+    const host = values.host;
+    const client = values.client;
+    if (!host || !client) throw new Error('connect 需要 --host 与 --client');
+    const capabilityIds = values.capabilities
+      ? values.capabilities.split(',').map(item => item.trim()).filter(Boolean)
+      : [...CONTROLLER_REQUIRED_CAPABILITIES];
+    const required = new Set(CONTROLLER_REQUIRED_CAPABILITIES);
+    if ([...required].some(capability => !capabilityIds.includes(capability))) {
+      throw new Error(`外部主控至少需要能力: ${[...required].join(', ')}`);
+    }
+    const store = new Store(directory);
+    try {
+      let installedSkill = null;
+      if (!values['no-install-skill']) {
+        const targetDir = values['skill-root'] || defaultSkillTarget(host);
+        if (targetDir) {
+          installedSkill = installSkill({
+            sourceDir: fileURLToPath(new URL('../skills/agent-team', import.meta.url)),
+            targetDir,
+            version,
+            protocolVersion: CONTROL_PROTOCOL_VERSION,
+          });
+        } else {
+          installedSkill = {
+            installed: false,
+            current: false,
+            reason: `未知宿主的 Skill 目录；请用 --skill-root 指定，或加 --no-install-skill`,
+          };
+        }
+      }
+      const identity = createExternalIdentity(store, {
+        principalName: values.principal,
+        bindingName: client,
+        host,
+        command: values.command ?? host,
+        session: values.session ?? null,
+        declared: {
+          capabilities: capabilityIds,
+          workspaceRoots: [resolve(values.workspace)],
+          policies: ['communication', 'read-only', 'workspace-write'],
+        },
+        probed: {
+          capabilities: capabilityIds,
+          workspaceRoots: [resolve(values.workspace)],
+          policies: ['communication', 'read-only', 'workspace-write'],
+        },
+      });
+      const runner = nodeRunner();
+      const cli = fileURLToPath(new URL('./cli.mjs', import.meta.url));
+      console.log(JSON.stringify({
+        principal: identity.principal,
+        binding: {
+          id: identity.binding.id,
+          name: identity.binding.name,
+          host: identity.binding.host,
+          session: identity.binding.session,
+        },
+        capabilities: identity.capabilities,
+        skill: installedSkill,
+        mcp: {
+          agent_team: {
+            command: runner.command,
+            args: ['--disable-warning=ExperimentalWarning', cli, 'mcp', '--socket', socketPath, '--client', identity.binding.id],
+            env: {
+              ...runner.env,
+              AGENT_TEAM_CLIENT_KEY: identity.key,
+              AGENT_TEAM_CONTROL_PROTOCOL: String(CONTROL_PROTOCOL_VERSION),
+            },
+          },
+        },
+      }, null, 2));
+    } finally {
+      store.close();
+    }
+    return;
+  }
   if (command !== 'start' && command !== 'serve') {
     let request;
     if (command === 'new') request = { op: 'new', args: groupArgs() };
     else if (command === 'groups') request = { op: 'groups' };
     else if (command === 'models') request = { op: 'model_catalog', refresh: true };
+    else if (command === 'bind-session') request = {
+      op: 'bind_client_session',
+      binding: values.client,
+      key: process.env.AGENT_TEAM_CLIENT_KEY,
+      session: values.session,
+      protocolVersion: Number(process.env.AGENT_TEAM_CONTROL_PROTOCOL) || null,
+    };
     else if (command === 'chat' && values.text) request = { op: 'chat', group: values.group, text: values.text };
     else if (command === 'chat') return interactive(socketPath, values.group);
     else if (command === 'members') request = { op: 'members', group: values.group };

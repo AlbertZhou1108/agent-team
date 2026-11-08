@@ -19,6 +19,7 @@ const props = defineProps<{
   view?: AgentTasksView;
   members?: Member[];
   panelAgent?: PanelAgent | null;
+  actors?: Array<{ id: string; name: string }>;
 }>();
 const queryClient = useQueryClient();
 const summaryQuery = useCollaborationQuery(() => props.groupId || undefined);
@@ -121,6 +122,7 @@ async function restoreTeam() {
             :view="props.view ?? emptyView"
             :members="props.members ?? []"
             :panel-agent="props.panelAgent ?? null"
+            :actors="props.actors ?? []"
           />
         </div>
       </Disclosure>

@@ -44,6 +44,27 @@ test('different peers get separate recipient contexts and may run concurrently',
   assert.equal(endpoints.length, 2); assert.notEqual(endpoints[0].id, endpoints[1].id);
 });
 
+test('reused member sessions receive the previous policy in the host contract shape', async t => {
+  const previousPolicies = [];
+  const { bus, members } = fixture(t, async ctx => {
+    previousPolicies.push(ctx.previousPolicy);
+    if (previousPolicies.length === 1) {
+      assert.equal(ctx.previousPolicy, null);
+      ctx.onPolicy?.({ signature: 'policy-signature' });
+    } else {
+      assert.deepEqual(ctx.previousPolicy, { signature: 'policy-signature' });
+    }
+    ctx.onAccepted();
+    return `turn-${previousPolicies.length}`;
+  });
+  const [lead, one] = members;
+  await until(() => bus.running.size === 0);
+  const endpoint = bus.store.endpoint(one.id, `pair:${lead.id}`, lead.id);
+  await bus.runEndpoint(endpoint, 'first');
+  await bus.runEndpoint(endpoint, 'second');
+  assert.equal(previousPolicies.length, 2);
+});
+
 test('messages accumulated within one busy pair become one ordered next input', async t => {
   let release;
   const { bus, members } = fixture(t, ctx => new Promise(resolve => { release = () => { ctx.onAccepted(); resolve('done'); }; }));

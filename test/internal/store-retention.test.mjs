@@ -96,3 +96,46 @@ test('prunes delivered history older than the retention window and keeps live da
   assert.ok(result.outbox >= 1);
   store.close();
 });
+
+test('retention keeps pending external deliveries and decision requests', t => {
+  const { store, appendAt } = setup(t);
+  store.run(
+    "INSERT INTO external_principals(id,name,created,updated) VALUES('p','user',?,?)",
+    old, old,
+  );
+  store.run(
+    `INSERT INTO external_client_bindings(
+       id,principal_id,name,host,key_hash,session,declared_capabilities,probed_capabilities,status,created,updated
+     ) VALUES('b','p','main','fake','hash',NULL,'{}','{}','active',?,?)`,
+    old, old,
+  );
+  store.run(
+    `INSERT INTO team_lead_controllers(
+       group_id,controller_kind,controller_id,controller_binding_id,state,original_lead_id,revision,updated
+     ) VALUES('g','external_agent','p','b','active',NULL,1,?)`,
+    old,
+  );
+  const incoming = appendAt('m2', 'p', 'send', 'pending controller report', old);
+  store.run('UPDATE messages SET awaiting=0 WHERE id=?', incoming.id);
+  store.run(
+    `INSERT INTO external_deliveries(
+       id,principal_id,group_id,message_id,binding_id,state,payload,created
+     ) VALUES('d','p','g',?,'b','pending','{}',?)`,
+    incoming.id, old,
+  );
+  const request = appendAt('m2', 'p', 'send', 'decision request', old);
+  store.run('UPDATE messages SET awaiting=0 WHERE id=?', request.id);
+  store.run(
+    `INSERT INTO external_decisions(
+       id,group_id,requester_member_id,controller_principal_id,request_message_id,payload,state,created
+     ) VALUES('dec','g','m2','p',?,'{}','pending',?)`,
+    request.id, old,
+  );
+
+  store.pruneHistory({ retentionDays: 30 });
+  assert.equal(store.get('SELECT count(*) AS n FROM messages WHERE id=?', incoming.id).n, 1);
+  assert.equal(store.get('SELECT count(*) AS n FROM messages WHERE id=?', request.id).n, 1);
+  assert.equal(store.get("SELECT state FROM external_deliveries WHERE id='d'").state, 'pending');
+  assert.equal(store.get("SELECT state FROM external_decisions WHERE id='dec'").state, 'pending');
+  store.close();
+});

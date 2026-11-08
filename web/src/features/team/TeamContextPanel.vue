@@ -67,7 +67,7 @@ const props = defineProps<{
   runningEndpoints: string[];
   selectedEndpoint?: SessionEndpoint;
   currentController?: {
-    kind: 'member' | 'panel_agent';
+    kind: 'member' | 'panel_agent' | 'external_agent';
     id: string;
     name: string;
     assignment?: { revision: number; state: 'active' | 'suspended'; original_lead_id: string | null } | null;
@@ -225,6 +225,7 @@ function onTab(value: string | number) {
           :view="tasksView"
           :members="members"
           :panel-agent="panelAgent"
+          :actors="actors"
         />
         <div
           v-else-if="panel === 'members'"

@@ -219,7 +219,7 @@ export class GroupLifecycle {
     ).map(row => JSON.parse(row.payload).stepId);
   }
   affectedOwners(groupId, planId, stepId) {
-    const panelAgent = this.bus.panelAgent();
+    const ownerKind = id => this.taskOwnerKind(groupId, id);
     const owners = new Map();
     for (const row of teamsAgg.agentTasksForGroup(this.bus.store, groupId)) {
       const tasks = JSON.parse(row.tasks);
@@ -228,7 +228,7 @@ export class GroupLifecycle {
         && task.parent?.stepId === stepId)) continue;
       owners.set(row.owner_id, {
         owner_id: row.owner_id,
-        owner_kind: panelAgent && row.owner_id === panelAgent.id ? 'panel_agent' : 'member',
+        owner_kind: ownerKind(row.owner_id),
       });
     }
     return [...owners.values()];
@@ -328,20 +328,18 @@ export class GroupLifecycle {
     });
   }
   agentTasksView(groupId) {
-    const panelAgent = this.bus.panelAgent();
     return teamsAgg.agentTasksForGroup(this.bus.store, groupId)
       .map(row => ({
         owner_id: row.owner_id,
         group_id: row.group_id,
-        owner_kind: panelAgent && row.owner_id === panelAgent.id ? 'panel_agent' : 'member',
+        owner_kind: this.taskOwnerKind(groupId, row.owner_id),
         tasks: JSON.parse(row.tasks),
         updated: row.updated,
       }));
   }
   /** 面板的三段投影:当前计划、仍有子任务挂靠的历史计划、未挂靠的成员任务。 */
   agentTasksPlanView(groupId) {
-    const panelAgent = this.bus.panelAgent();
-    const ownerKind = id => (panelAgent && id === panelAgent.id ? 'panel_agent' : 'member');
+    const ownerKind = id => this.taskOwnerKind(groupId, id);
     const current = this.currentPlan(groupId);
     const memberTasks = [];
     for (const row of teamsAgg.agentTasksForGroup(this.bus.store, groupId)) {
@@ -397,6 +395,11 @@ export class GroupLifecycle {
       memberTasks,
       cancelledSteps,
     };
+  }
+  taskOwnerKind(groupId, ownerId) {
+    const controller = this.bus.teamController(groupId);
+    if (controller.id === ownerId) return controller.kind;
+    return 'member';
   }
   isFrozenSnapshot(groupId, ownerId, tasks) {
     const row = this.bus.store.get(

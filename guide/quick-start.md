@@ -50,6 +50,20 @@ npm run desktop
 
 团队成员创建时会调用模型进行能力自述，后续聊天、协作和摘要也会产生对应宿主的模型消耗。首次需求未确认送达时，使用原页面的重试入口，不必重新建群。
 
+## 从现有 Agent 无头接入
+
+如果主要入口是你已经打开的 Codex、Claude Code 或其他兼容 MCP 的 Agent，可以先登记外部主控连接：
+
+```bash
+npm start -- connect --data /你的框架数据目录 \
+  --host codex --client codex-main --principal 本机用户 \
+  --workspace /允许团队使用的项目目录
+```
+
+把输出中的 `mcp.agent_team` 配置写入宿主 MCP 设置，并让宿主读取 `skills/agent-team/`。新会话应先调用 `control_protocol`，再用 `control_teams`、`team_create` 和 `team_send` 协作。当前成员回复通过持久 `control_inbox` 领取，不要求打开面板；详见[无头协作控制面](headless-control-plane.md)。
+
+已知宿主会自动安装/更新 Skill。其他宿主使用 `--skill-root` 指定技能目录；只登记连接时可加 `--no-install-skill`。顶层 Codex 会话会自动绑定当前 thread，并用 `exec resume` 重新注入 Agent Team MCP 来拉醒有空闲投递的会话；Codex multi-agent 子会话自动保持 pull-only。
+
 ## 关闭、继续与升级
 
 - **关闭桌面窗口或网页**：服务和正在进行的工作仍会继续。关闭窗口只是隐藏到托盘；再次打开启动入口，会复用已运行的服务。

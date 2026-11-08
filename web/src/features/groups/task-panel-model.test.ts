@@ -77,4 +77,27 @@ describe('task panel model', () => {
     expect(buildTaskPanelModel({ view: empty, members, panelAgent }).empty).toBe(true);
     expect(countTaskStates(empty)).toEqual({ doing: 0, finished: 0 });
   });
+
+  it('resolves an external controller owner name from actors', () => {
+    const externalView: AgentTasksView = {
+      currentPlan: {
+        plan_id: 'plan-ext',
+        group_id: 'g',
+        owner_id: 'principal-1',
+        owner_kind: 'external_agent',
+        revision: 1,
+        steps: [{ id: 'ext-step', text: '外部计划', state: 'doing' }],
+      },
+      historicalPlans: [],
+      memberTasks: [],
+      cancelledSteps: [],
+    };
+    const model = buildTaskPanelModel({
+      view: externalView,
+      members,
+      panelAgent: null,
+      actors: [{ id: 'principal-1', name: 'Codex 主控' }],
+    });
+    expect(model.current?.ownerName).toBe('Codex 主控');
+  });
 });

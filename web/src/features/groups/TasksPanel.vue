@@ -12,12 +12,14 @@ const props = defineProps<{
   view: AgentTasksView;
   members: Member[];
   panelAgent: PanelAgent | null;
+  actors?: Array<{ id: string; name: string }>;
 }>();
 
 const model = computed(() => buildTaskPanelModel({
   view: props.view,
   members: props.members,
   panelAgent: props.panelAgent,
+  actors: props.actors,
 }));
 
 const stateMeta = {

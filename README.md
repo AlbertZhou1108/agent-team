@@ -2,7 +2,7 @@
 
 **在本机组织多个 AI 助手，一起讨论、分工和完成工作。**
 
-把需求交给主 Agent，让不同助手负责策划、执行和审阅。在桌面窗口或浏览器里看进展、回答问题、查找讨论，把工作留在自己的工作文件夹中。
+把需求交给主 Agent，让不同助手负责策划、执行和审阅。你可以通过桌面窗口、浏览器，或直接从已接入的 CLI Agent 使用 MCP 协作，把工作留在自己的工作文件夹中。
 
 [下载 v0.2.0](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.2.0) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
 
@@ -77,7 +77,7 @@ Agent Team 接入本机已有的 **Codex、Claude Code 和 DSH**。可以使用�
 ## 开始使用
 
 1. **准备一个 AI 工具**：安装并配置 Codex、Claude Code 或 DSH 中的至少一种，登录与额度由该工具管理。
-2. **下载并启动**：在 [Releases](https://github.com/AlbertZhou1108/agent-team/releases) 下载对应安装包，解压后打开启动入口，浏览器会打开本地面板。
+2. **选择入口**：在 [Releases](https://github.com/AlbertZhou1108/agent-team/releases) 下载安装包并打开面板；也可以从源码运行 `agent-team connect`，把 Agent Team MCP 接入现有宿主，无头使用协作能力。
 3. **选择可用工具，开始聊天**：检测只检查通信，不发送模型消息。需要协作时，创建团队并指定工作文件夹与访问范围。
 
 ![首次引导中的工具可用状态](assets/readme/01-connect.png)
@@ -93,7 +93,7 @@ Agent Team 接入本机已有的 **Codex、Claude Code 和 DSH**。可以使用�
 | 代码实现与检查 | 在明确工作目录和权限后，分配实现、测试与审阅职责 |
 | 日常咨询 | 先用私人助手交流，需要时再组织团队 |
 
-Agent Team 是**本机、单用户的 B/S 应用**：浏览器提供界面，本地服务保存框架记录，宿主负责模型执行。模型请求可能访问外部服务，并正常消耗对应账号的额度。它不是完全离线工具，也不提供多人账号体系。
+Agent Team 是**本机、单用户的多 Agent 协作控制面**：本地服务保存框架记录，宿主负责模型执行；面板和外部 MCP 是并行入口。模型请求可能访问外部服务，并正常消耗对应账号的额度。它不是完全离线工具，也不提供多人账号体系。
 
 选择访问范围、核对实际产物，并在需要时停止服务。框架不会替你配置宿主账号；页面显示“可用”也不保证下一次模型调用成功。[完整能力边界与安全说明 →](guide/limitations.md)
 
@@ -107,5 +107,6 @@ Agent Team 是**本机、单用户的 B/S 应用**：浏览器提供界面，本
 | [技术架构](guide/architecture.md) | 通信模型、会话、存储与调度 |
 | [CLI 使用](guide/cli.md) | 命令行入口、创建团队与独立服务 |
 | [宿主适配](guide/host-adapters.md) | 宿主配置、通信检测与适配器扩展 |
+| [无头协作控制面](guide/headless-control-plane.md) | 外部主控、MCP、能力边界与无面板协作 |
 | [开发与构建](guide/development.md) | 源码运行、测试、构建与发行包 |
 | [图片说明](assets/readme/README.md) | 实机截图来源与概念插画生成提示词 |

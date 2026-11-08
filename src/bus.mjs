@@ -25,16 +25,19 @@ import { TurnExecutor } from './turn-executor.mjs';
 import { ToolDispatch } from './tool-dispatch.mjs';
 import { ArchiveSnapshots } from './archive-snapshots.mjs';
 import { Notes } from './notes.mjs';
+import { ControlPlane } from './control-plane.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
+import * as externalAgg from './aggregates/external-control.mjs';
 import * as panelAgg from './aggregates/panel.mjs';
 import * as settingsAgg from './aggregates/settings.mjs';
 
 export { interactionView } from './interactions.mjs';
 
 export class Bus extends EventEmitter {
-  constructor({ directory, hosts }) {
+  constructor({ directory, hosts, externalWake, controlSocketPath = null }) {
     super();
     this.store = new Store(directory);
+    this.controlSocketPath = controlSocketPath;
     this.panelBootSeq = panelAgg.bootSeq(this.store);
     this.panelBootId = randomUUID();
 
@@ -67,6 +70,7 @@ export class Bus extends EventEmitter {
     this.turnExecutor = new TurnExecutor(this);
     this.archiveSnapshots = new ArchiveSnapshots(this);
     this.notes = new Notes(this);
+    this.controlPlane = new ControlPlane(this, externalWake ? { wake: externalWake } : {});
     // 旧任务列表没有 step id;把当前控制者的列表提升为当前任期计划,只做一次。
     this.lifecycle.migrateLegacyPlans();
   }
@@ -145,6 +149,11 @@ export class Bus extends EventEmitter {
   teamController(groupId) {
     const group = this.store.group(groupId);
     const assignment = teamsAgg.controllerAssignment(this.store, groupId);
+    if (assignment?.controller_kind === 'external_agent' && assignment.state === 'active') {
+      const principal = externalAgg.principal(this.store, assignment.controller_id);
+      if (!principal) throw new Error('团队 active controller 指向不存在的外部主控');
+      return { kind: 'external_agent', id: principal.id, name: principal.name, principal, assignment };
+    }
     if (assignment?.controller_kind === 'panel_agent' && assignment.state === 'active') {
       const agent = panelAgg.controllerAgent(this.store, assignment.controller_id);
       if (!agent) throw new Error('团队 active controller 指向不存在的 Panel Agent');
@@ -428,6 +437,9 @@ export class Bus extends EventEmitter {
   retry(...args) { return this.dispatch.retry(...args); }
   pruneHistory(...args) { return this.store.pruneHistory(...args); }
   resetSession(...args) { return this.dispatch.resetSession(...args); }
+  controlTools(...args) { return this.controlPlane.tools(...args); }
+  controlTool(...args) { return this.controlPlane.tool(...args); }
+  enqueueExternalMessage(...args) { return this.controlPlane.enqueueIncomingMessage(...args); }
 
   telemetryConversation(groupId, memberId, peerId, options = {}) {
     return this.telemetry.conversation(groupId, memberId, peerId, options);

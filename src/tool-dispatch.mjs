@@ -126,6 +126,15 @@ export class ToolDispatch {
       assertAskCard(args);
       if (!origin) throw new Error('互动卡只能在执行回合内发出');
       this.bus.collaboration.requireCommunication(groupId);
+      const controller = this.bus.teamController(groupId);
+      if (controller.kind === 'external_agent') {
+        const payload = askCardPayload(args);
+        return this.bus.controlPlane.requestDecision({
+          groupId,
+          memberId: member.id,
+          payload,
+        });
+      }
       if (member.role !== 'lead') this.bus.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
       // 卡片是唯一展示面:锚点消息只为答复 reply_to 与群记录存在,面板不渲染它的正文。
       const payload = askCardPayload(args);

@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Team"
-  short_description: "查询本地团队、组织成员协作与审阅，处理投递异常"
-  default_prompt: "使用 $agent-team，确认当前入口、团队和实际权限，读取真实消息后推进协作或回答我的问题。"
+  short_description: "通过面板或 MCP 无头控制本地多 Agent 团队协作"
+  default_prompt: "使用 $agent-team，先确认当前入口与协议能力，再读取真实消息和权限后推进协作。"

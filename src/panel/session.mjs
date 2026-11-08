@@ -31,10 +31,9 @@ export function panelTeamRelation(bus, groupId) {
 export function panelTeamViews(bus) {
   bus.ensurePanelBindings();
   const panelAgent = bus.panelAgent();
-  if (!panelAgent) return [];
   return panelAgg.activeGroups(bus.store).map(group => ({
     ...group,
-    relation: panelAgg.bindingRelation(bus.store, panelAgent.id, group.id),
+    relation: panelAgent ? panelAgg.bindingRelation(bus.store, panelAgent.id, group.id) : null,
     controller: bus.teamController(group.id),
   }));
 }

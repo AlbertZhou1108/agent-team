@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 16;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -68,7 +68,14 @@ export class Store {
       CREATE UNIQUE INDEX IF NOT EXISTS panel_private_session ON panel_sessions(panel_agent_id) WHERE context='private';
       CREATE UNIQUE INDEX IF NOT EXISTS panel_coordination_session ON panel_sessions(panel_agent_id,group_id) WHERE context='coordination';
       CREATE TABLE IF NOT EXISTS panel_team_bindings(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,relation TEXT NOT NULL CHECK(relation IN ('observer','main')),created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(panel_agent_id,group_id));
-      CREATE TABLE IF NOT EXISTS team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent')),controller_id TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent','external_agent')),controller_id TEXT NOT NULL,controller_binding_id TEXT,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,command TEXT,wake_config TEXT,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,probed_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
+      CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
+      CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),wake_state TEXT NOT NULL DEFAULT 'pending' CHECK(wake_state IN ('pending','sending','sent','unsupported','error')),wake_error TEXT,wake_updated TEXT,payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
+      CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);
+      CREATE TABLE IF NOT EXISTS external_decisions(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,requester_member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,controller_principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,request_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled')),answer TEXT,answered_by_binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,created TEXT NOT NULL,answered TEXT);
+      CREATE INDEX IF NOT EXISTS external_decisions_pending ON external_decisions(group_id,state,created);
       CREATE TABLE IF NOT EXISTS panel_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),text TEXT NOT NULL,active_team_id TEXT,created TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES panel_turns(id) ON DELETE SET NULL,kind TEXT NOT NULL DEFAULT 'update' CHECK(kind IN ('update','continuation')),text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
       CREATE TABLE IF NOT EXISTS panel_turns(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,group_id TEXT,active_team_id TEXT,state TEXT NOT NULL,created TEXT NOT NULL,ended TEXT);
@@ -209,6 +216,11 @@ export class Store {
     if (fromVersion < 9) this.migrateV9();
     if (fromVersion < 10) this.migrateV10();
     if (fromVersion < 11) this.migrateV11();
+    if (fromVersion < 12) this.migrateV12();
+    if (fromVersion < 13) this.migrateV13();
+    if (fromVersion < 14) this.migrateV14();
+    if (fromVersion < 15) this.migrateV15();
+    if (fromVersion < 16) this.migrateV16();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -369,6 +381,66 @@ export class Store {
       const columns = new Set(this.all('PRAGMA table_info(agent_tasks)').map(column => column.name));
       if (columns.size && !columns.has('revision')) this.db.exec('ALTER TABLE agent_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
     });
+  }
+
+  // v12:外部主控身份、连接能力与团队控制权。外部主控不是成员也不是 Panel Agent;
+  // 一个 principal 可拥有多个宿主 client binding，但每个团队仍只有一条主控 assignment。
+  migrateV12() {
+    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,probed_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
+        CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
+        CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
+        CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);`);
+      if (!hasTable('team_lead_controllers')) return;
+      const sql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='team_lead_controllers'")?.sql ?? '';
+      if (sql.includes("'external_agent'")) return;
+      this.db.exec(`ALTER TABLE team_lead_controllers RENAME TO team_lead_controllers_v11;
+        CREATE TABLE team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent','external_agent')),controller_id TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
+        INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated)
+          SELECT group_id,controller_kind,controller_id,state,original_lead_id,revision,updated FROM team_lead_controllers_v11;
+        DROP TABLE team_lead_controllers_v11;`);
+    });
+  }
+
+  // v13:无头决策请求。面板互动卡仍是客户端投影；外部主控使用独立事实表，
+  // 请求归属团队和外部 principal，答复必须由当前主控显式写回。
+  migrateV13() {
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS external_decisions(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,requester_member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,controller_principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,request_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled')),answer TEXT,answered_by_binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,created TEXT NOT NULL,answered TEXT);
+        CREATE INDEX IF NOT EXISTS external_decisions_pending ON external_decisions(group_id,state,created);`);
+    });
+  }
+
+  // v14:团队 active controller 还要落到具体 client binding，而不只是 principal。
+  // 同一用户身份可以有多会话，但一个团队只允许一个 binding 获得写席位。
+  migrateV14() {
+    if (!this.all('PRAGMA table_info(team_lead_controllers)').some(column => column.name === 'controller_binding_id')) {
+      this.db.exec('ALTER TABLE team_lead_controllers ADD COLUMN controller_binding_id TEXT');
+    }
+  }
+
+  // v15:外部主控主动唤醒。binding 可保存固定宿主命令；投递记录分别跟踪
+  // “唤醒是否尝试”和“客户端是否领取”，不能把 wake_sent 当成 delivered。
+  migrateV15() {
+    this.transaction(() => {
+      if (!this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'command')) {
+        this.db.exec('ALTER TABLE external_client_bindings ADD COLUMN command TEXT');
+      }
+      const columns = new Set(this.all('PRAGMA table_info(external_deliveries)').map(column => column.name));
+      if (!columns.has('wake_state')) this.db.exec("ALTER TABLE external_deliveries ADD COLUMN wake_state TEXT NOT NULL DEFAULT 'unsupported'");
+      if (!columns.has('wake_error')) this.db.exec('ALTER TABLE external_deliveries ADD COLUMN wake_error TEXT');
+      if (!columns.has('wake_updated')) this.db.exec('ALTER TABLE external_deliveries ADD COLUMN wake_updated TEXT');
+    });
+  }
+
+  // v16:Codex 主动唤醒使用 exec resume 时必须重新注入 MCP server 参数。
+  // wake_config 只保存该 binding 自己的 shim 启动配置，不通过控制工具暴露。
+  migrateV16() {
+    if (!this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'wake_config')) {
+      this.db.exec('ALTER TABLE external_client_bindings ADD COLUMN wake_config TEXT');
+    }
   }
 
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。
@@ -650,12 +722,17 @@ export class Store {
       const row = this.get('SELECT * FROM panel_agents WHERE id=?', id);
       return row ? { ...row, kind: 'panel_agent' } : null;
     }
+    if (kind === 'external_agent') {
+      const row = this.get('SELECT * FROM external_principals WHERE id=?', id);
+      return row ? { ...row, kind: 'external_agent' } : null;
+    }
     return null;
   }
   actors() {
     const members = this.all('SELECT * FROM members WHERE removed IS NULL ORDER BY rowid').map(row => ({ ...row, kind: 'member' }));
     const panelAgent = this.panelAgent();
-    return panelAgent ? [...members, { ...panelAgent, kind: 'panel_agent' }] : members;
+    const external = this.all('SELECT * FROM external_principals ORDER BY created').map(row => ({ ...row, kind: 'external_agent' }));
+    return [...members, ...(panelAgent ? [{ ...panelAgent, kind: 'panel_agent' }] : []), ...external];
   }
   // 会话列表投影:两种 owner 统一形状；Panel 只有 coordination 会话，私聊不进入团队列表。
   conversationsForGroup(groupId, { includePrivate = false } = {}) {
@@ -736,6 +813,7 @@ export class Store {
       AND (
         EXISTS(SELECT 1 FROM members r WHERE r.id=m.recipient AND r.removed IS NULL)
         OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='panel_agent' AND c.controller_id=m.recipient AND c.state='active')
+        OR EXISTS(SELECT 1 FROM team_lead_controllers c WHERE c.group_id=m.group_id AND c.controller_kind='external_agent' AND c.controller_id=m.recipient AND c.state='active')
       ) ORDER BY m.seq`);
   }
   // 历史保留:删除 cutoff 之前且已可安全丢弃的数据。
@@ -747,6 +825,8 @@ export class Store {
       const messages = this.run(`DELETE FROM messages WHERE created < ? AND awaiting=0
         AND NOT EXISTS(SELECT 1 FROM attached a JOIN outbox o ON o.id=a.outbox_id WHERE a.message_id=messages.id AND o.accepted IS NULL)
         AND NOT EXISTS(SELECT 1 FROM interactions i WHERE i.message_id=messages.id AND i.state='pending')
+        AND NOT EXISTS(SELECT 1 FROM external_deliveries d WHERE d.message_id=messages.id AND d.state='pending')
+        AND NOT EXISTS(SELECT 1 FROM external_decisions d WHERE d.request_message_id=messages.id AND d.state='pending')
         AND NOT EXISTS(SELECT 1 FROM turn_inputs ti JOIN turns t ON t.id=ti.turn_id WHERE ti.message_id=messages.id AND t.state IN ('running','unknown'))`, cutoff);
       const turns = this.run("DELETE FROM turns WHERE created < ? AND state NOT IN ('running','unknown')", cutoff);
       const history = this.run('DELETE FROM history WHERE created < ? AND (turn_id IS NULL OR turn_id NOT IN (SELECT id FROM turns))', cutoff);

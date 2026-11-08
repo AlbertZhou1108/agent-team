@@ -5,7 +5,7 @@ description: 使用本地 Agent Team 框架启动或连接团队、查询消息�
 
 # Agent Team
 
-Agent Team 提供本机消息总线与浏览器面板。分工、进度与结果判断通过真实消息组织；框架负责路由、调度、宿主接入与投递安全。
+Agent Team 提供本机多 Agent 消息总线和协作控制面。外部宿主可以通过 stdio MCP 直接参与，不需要打开面板；第一方客户端是并行入口。分工、进度与结果判断通过真实消息组织，框架负责路由、调度、宿主接入与投递安全。
 
 ## 识别入口
 
@@ -13,7 +13,8 @@ Agent Team 提供本机消息总线与浏览器面板。分工、进度与结果
 
 | 当前入口 | 使用方式 | 按需读取 |
 | --- | --- | --- |
-| 外部 Agent，尚未连接团队 | 用公开 CLI 或面板定位、启动与查询；安装 Skill 不等于建立连接 | [启动与用户操作](references/user-guide.md) |
+| 已连接外部主控（存在 `control_*` 工具） | 会话开始先调用 `control_protocol`；用 `control_inbox` 领取成员回复；所有团队工具显式传 `teamId` | [外部主控](references/external-controller.md) |
+| 外部 Agent，尚未连接团队 | 用 `agent-team connect` 登记 binding 并安装宿主 MCP 配置；安装 Skill 不等于建立连接 | [启动与用户操作](references/user-guide.md) |
 | Panel Agent 私人会话 | 查询团队、按明确需求建群、转交请求；接管与交还经互动卡确认 | [会话与消息读取](references/conversation-agent.md) |
 | 普通主成员 private | 咨询和查询；共享指令走 `/direct` 或团队页面 | [会话与消息读取](references/conversation-agent.md) |
 | 主 Agent coordination | 分工、处理汇报、组织核验与向用户说明结果 | [主 Agent 协作](references/lead-workflow.md) |
@@ -31,6 +32,7 @@ Agent Team 提供本机消息总线与浏览器面板。分工、进度与结果
 - `send` 返回编号证明消息记录成功，不能证明对方已执行。核对实际回复、当前文件和验证依据后再报告结果；宿主最终文本不会自动成为成员群汇报。
 - 需要对方答复或确认时，`send` 设置 `expects_reply=true`；答复请求时把 `reply_to` 设为原消息 ID。普通汇报、通知不要设置；工作台的“清理”只隐藏条目，不删除消息或互动卡。
 - 等待团队新消息时结束当前回合，由框架唤醒。框架内成员使用团队通信工具，不另建宿主原生子 Agent 或阻塞等待调度。
+- 外部主控能力由连接实测决定。当前通过持久 `control_inbox` 领取积压事件；如果宿主能在空闲时注入新回合，应按连接能力调用该收件箱，而不是假设所有宿主都会自动唤醒。
 - 共享工作目录没有文件锁。并行修改前明确文件归属；修改后审阅对应的当前版本。任务面板仅同步任务，不作为权限或验收门禁。
 
 同一 Skill 可供不同 Agent 工具读取；它不安装宿主、不配置账号，也不保证受限宿主会自动加载技能。工具缺失时使用当前入口的公开能力，说明限制，不能通过内部凭据、直接改库或切换身份绕过。

@@ -31,7 +31,7 @@ const props = defineProps<{
   loading?: boolean;
   hasNextPage?: boolean;
   fetchingNextPage?: boolean;
-  controller?: { kind: 'member' | 'panel_agent'; id: string; name: string } | null;
+  controller?: { kind: 'member' | 'panel_agent' | 'external_agent'; id: string; name: string } | null;
 }>();
 
 const expandedRecords = ref(new Set<string>());

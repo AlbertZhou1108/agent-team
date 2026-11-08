@@ -13,7 +13,15 @@ A permanent role identity bound to one host session set. Names stay reserved aft
 _Avoid_: 用户(用户是群外的真人入口)
 
 **Main Agent / 主 Agent**:
-The member (or Panel Agent) that receives every formal report in the group's coordination session and coordinates work in ordinary messages.
+The current controller that receives formal reports and coordinates work in ordinary messages. It may be a lead member, the Panel Agent, or an external controller principal; one team has one active controller binding at a time.
+
+**External controller / 外部主控**:
+A team controller owned by the user's existing host session rather than by the Agent Team host runner. It is not a member and not the Panel Agent; one principal may manage multiple teams.
+_Avoid_: 外部成员、桌面助手
+
+**Client binding / 客户端绑定**:
+One revocable host connection of an external controller principal. It records the host, session identity, declared/probed capabilities and credential digest. Multiple bindings may share a principal, but only the active binding can hold a team's controller seat.
+_Avoid_: 团队成员、Panel 会话
 
 **Coordination session / 调度会话**:
 The single serialized context where all member reports to the Main Agent are delivered.
@@ -26,6 +34,14 @@ The single context record behind both a member's endpoints and a Panel Agent ses
 
 **Message**:
 A record from one sender to one recipient (`send` wakes the recipient, `note` merges into the recipient's next formal input, `system` is framework notice). Message numbers are stable identities.
+
+**External delivery / 外部投递**:
+A durable event addressed to an external controller. The active binding claims it through `control_inbox`; claiming means the client accepted the input, not that the host completed business work.
+_Avoid_: 已回复、已处理
+
+**Decision request / 决策请求**:
+A structured request created when a headless-team member needs a user decision. It belongs to the team and external principal; the controller relays the user's answer and wakes the original member. The client card is only one possible presentation.
+_Avoid_: 互动卡、授权门禁
 
 **Turn / 回合**:
 One framework-driven host run attempt, recorded separately from message numbers and host sessions. Member and Panel turns share one record shape and one state machine (`running / unknown / completed / failed / cancelled / stopped`).

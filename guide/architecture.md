@@ -31,6 +31,16 @@ flowchart LR
 
 框架负责消息路由、回合调度、投递安全与宿主接入。分工、审阅充分性和结果是否可接受，由 Agent 的消息与用户判断组织，没有框架级强制业务流程。
 
+## 无头外部主控
+
+外部宿主通过固定 stdio MCP shim 连接本机 daemon。一个外部 principal 可以有多个 client binding，并同时控制多个团队；每个团队仍只有一个 active controller session。
+
+外部主控不是成员，也不是 Panel Agent。团队消息的 sender 指向 principal；成员回复进入 `external_deliveries`，外部主控通过 `control_inbox` 领取。成员 `ask` 在无头团队中写入 `external_decisions`，主控答复后以 user-origin 消息送回原成员。
+
+能力由适配器声明和连接实测的交集决定。成为主控至少需要稳定 session 身份、消息投递、运行状态和回合终态观察。团队权限不得超过主控当前宿主权限、注册工作区、团队策略和成员宿主能力的交集。
+
+详见[无头协作控制面](headless-control-plane.md)。
+
 ## 私人助手与团队
 
 私人助手是一条全局私人会话，可以观察多个团队的共享记录。它与各团队的协调会话分开：私人发起的请求经 `team_request_submit` 转交，团队通过 `team_receipt_publish` 返回来源引用回执。直接团队对话不自动复制到私人历史；团队来源通知不自动唤醒私人模型。
@@ -64,6 +74,7 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | --- | --- |
 | 启动、服务与 IPC | [launcher.mjs](../src/launcher.mjs)、[server.mjs](../src/server.mjs)、[rpc.mjs](../src/rpc.mjs) |
 | 消息与调度 | [bus.mjs](../src/bus.mjs)、[message-dispatch.mjs](../src/message-dispatch.mjs) |
+| 外部主控与能力契约 | [control-plane.mjs](../src/control-plane.mjs)、[control-capabilities.mjs](../src/control-capabilities.mjs) |
 | 存储 | [store.mjs](../src/store.mjs) |
 | 私人会话、请求与回执 | [panel-sessions.mjs](../src/panel-sessions.mjs)、[team-requests.mjs](../src/team-requests.mjs) |
 | 随心记（笔记与提示词） | [notes.mjs](../src/notes.mjs)、[notes-prompt.mjs](../src/notes-prompt.mjs) |

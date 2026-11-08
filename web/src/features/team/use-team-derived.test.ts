@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import type { Group, HistoryRow, Member, MessageRow, SessionEndpoint, TurnSummary } from '@/shared/api/raw-types';
+import type {
+  Group,
+  HistoryRow,
+  Member,
+  MessageRow,
+  PanelTeamView,
+  SessionEndpoint,
+  TurnSummary,
+} from '@/shared/api/raw-types';
 import type { TeamQueries, TeamQueriesOptions } from './use-team-queries';
 import { useTeamDerived } from './use-team-derived';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
@@ -61,7 +69,7 @@ function makeQueries() {
       members,
       actors: [],
       panelAgent: null,
-      panelTeams: [],
+      panelTeams: [] as PanelTeamView[],
       modelPolicy: undefined,
       modelPolicyDefaults: undefined,
     }),
@@ -146,6 +154,22 @@ describe('team derived projections', () => {
     expect(derived.currentController.value).toEqual({ id: 'm1', name: '甲', kind: 'member' });
     expect(derived.pausedMemberIds.value.size).toBe(0);
     expect(derived.sidebarGroupId.value).toBe('g1');
+  });
+
+  it('uses an external principal as the team controller without a Panel Agent', () => {
+    const queries = makeQueries();
+    queries.overview.value.panelTeams = [{
+      ...groups[0],
+      relation: null,
+      controller: { kind: 'external_agent', id: 'principal-1', name: '外部主控' },
+    }];
+    const derived = derivedOf(makeOptions(), queries);
+    expect(derived.currentControllerId.value).toBe('principal-1');
+    expect(derived.currentController.value).toEqual({
+      kind: 'external_agent',
+      id: 'principal-1',
+      name: '外部主控',
+    });
   });
 
   it('switches to the Panel route projection for conversation, receipts and sidebar', () => {
