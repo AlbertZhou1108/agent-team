@@ -245,8 +245,12 @@ export function claimDeliveries(store, { principalId, bindingId, limit, now }) {
     );
     for (const row of rows) {
       store.run(
-        "UPDATE external_deliveries SET state='delivered',binding_id=?,delivered=? WHERE id=? AND state='pending'",
-        bindingId, now, row.id,
+        `UPDATE external_deliveries
+         SET state='delivered',binding_id=?,delivered=?,
+             wake_state=CASE WHEN wake_state='pending' THEN 'sent' ELSE wake_state END,
+             wake_updated=CASE WHEN wake_state='pending' THEN ? ELSE wake_updated END
+         WHERE id=? AND state='pending'`,
+        bindingId, now, now, row.id,
       );
       store.run('UPDATE messages SET awaiting=0 WHERE id=?', row.message_id);
     }
