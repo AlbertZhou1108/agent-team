@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -222,6 +222,7 @@ export class Store {
     if (fromVersion < 15) this.migrateV15();
     if (fromVersion < 16) this.migrateV16();
     if (fromVersion < 17) this.migrateV17();
+    if (fromVersion < 18) this.migrateV18();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -465,6 +466,38 @@ export class Store {
       ensureColumn('members', 'capabilities', "TEXT NOT NULL DEFAULT '[]'");
       ensureColumn('members', 'capability_reason', 'TEXT');
       ensureColumn('messages', 'required_capabilities', "TEXT NOT NULL DEFAULT '[]'");
+    });
+  }
+
+  // v18:读水位。只存「某个会话看到第几号」这一个数字,不给每条消息打已读标记。
+  // 私聊副本用 receipt_id 标明它只是主控回执的展示副本,未读只能算群里那条。
+  // 既有消息一律视为已读:水位从当前最新编号起步,升级后不会立刻涌出历史未读。
+  migrateV18() {
+    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS read_watermarks(
+        scope TEXT NOT NULL CHECK(scope IN ('group','panel')),
+        scope_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        updated TEXT NOT NULL,
+        PRIMARY KEY(scope,scope_id));`);
+      if (!hasTable('panel_messages')) return;
+      if (!this.all('PRAGMA table_info(panel_messages)').some(column => column.name === 'receipt_id')) {
+        this.db.exec('ALTER TABLE panel_messages ADD COLUMN receipt_id TEXT');
+      }
+      this.run(
+        `INSERT OR IGNORE INTO read_watermarks(scope,scope_id,seq,updated)
+         SELECT 'group',g.id,COALESCE((SELECT MAX(seq) FROM messages m WHERE m.group_id=g.id),0),? FROM groups g`,
+        now,
+      );
+      this.run(
+        `INSERT OR IGNORE INTO read_watermarks(scope,scope_id,seq,updated)
+         SELECT 'panel',p.panel_agent_id || ':' || COALESCE(NULLIF(p.active_team_id,''),'__global__'),MAX(p.seq),?
+         FROM panel_messages p WHERE p.context='private'
+         GROUP BY p.panel_agent_id,COALESCE(NULLIF(p.active_team_id,''),'__global__')`,
+        now,
+      );
     });
   }
 

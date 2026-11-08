@@ -152,6 +152,27 @@ test('a v11 database gains external controller identities, controller kind and b
   store.close();
 });
 
+test('a v17 database gains read watermarks and treats existing history as read', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run(
+    "INSERT INTO messages(id,group_id,sender,recipient,kind,text,created) VALUES('m1','g1','lead','user','send','历史消息',?)",
+    NOW,
+  );
+  store.run('DROP TABLE read_watermarks');
+  store.run('ALTER TABLE panel_messages DROP COLUMN receipt_id');
+  store.setSchemaVersion(17);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.all('PRAGMA table_info(panel_messages)').some(column => column.name === 'receipt_id'));
+  const baseline = store.get("SELECT seq FROM read_watermarks WHERE scope='group' AND scope_id='g1'");
+  assert.equal(baseline.seq, store.get('SELECT MAX(seq) AS seq FROM messages').seq);
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);
