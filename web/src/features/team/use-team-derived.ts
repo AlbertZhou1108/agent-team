@@ -1,7 +1,6 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { toast } from 'vue-sonner';
-import { usePanelAgentStore } from '@/stores/panel-agent';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
 import {
@@ -22,7 +21,6 @@ export function useTeamDerived(
   queries: TeamQueries,
 ) {
   const route = useRoute();
-  const panelAgentState = usePanelAgentStore();
   const preferences = usePreferencesStore();
   const directiveState = useTeamDirectiveStore();
   const { groupId, selectedSessionId, activeTab, contextPanel } = options;
@@ -53,12 +51,6 @@ export function useTeamDerived(
         ? [{ receipts: queries.unreadQuery.data.value.receipts }]
         : [],
   );
-  const agentUnreadCount = computed(
-    () =>
-      panelAgentState.unreadForContext(panelMessages.value, '') +
-      panelAgentState.unreadReceipts(receiptRequests.value),
-  );
-
   const currentControllerId = computed(
     () =>
       queries.overview.value?.panelTeams.find(
@@ -277,7 +269,6 @@ export function useTeamDerived(
     group,
     panelMessages,
     receiptRequests,
-    agentUnreadCount,
     currentControllerId,
     currentController,
     sidebarGroupId,

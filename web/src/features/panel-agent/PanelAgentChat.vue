@@ -26,6 +26,7 @@ import PanelAgentComposer from './PanelAgentComposer.vue';
 import TeamRequestCard from './TeamRequestCard.vue';
 import { usePanelAgentStore } from '@/stores/panel-agent';
 import { reuseMessageViews, toPanelMessageViews, toPanelStreamViews } from '@/features/messages/adapters';
+import { useReadMarker } from '@/features/messages/read-marker';
 import type { MessageView } from '@/shared/models/view-types';
 import type { AvailableHost, PanelAgentForm, PanelTeam } from './types';
 import type { ComposerAttachment } from '@/components/ai-elements/MessageComposer.vue';
@@ -64,6 +65,20 @@ const emit = defineEmits<{
 
 const globalContextKey = '__global__';
 const state = usePanelAgentStore();
+// 滚到底时按团队分别记账：看团队 A 的私聊不会推进团队 B 的水位。
+// 「全部团队」视图里经过的每个团队各自记到它最后一条。
+const markRead = useReadMarker();
+function markPanelRead() {
+  if (showHistory.value) return;
+  const current = (activeTeamId.value || '') as string;
+  const buckets = new Map<string, number>();
+  for (const message of props.messages) {
+    const bucket = message.active_team_id || globalContextKey;
+    if (current && bucket !== current) continue;
+    buckets.set(bucket, Math.max(buckets.get(bucket) ?? 0, message.seq));
+  }
+  for (const [bucket, seq] of buckets) void markRead('panel', `${props.agent.id}:${bucket}`, seq);
+}
 const route=useRoute();
 watch(()=>route.query.history,value=>{state.historyVisible=value==='1';},{immediate:true});
 const showHistory = computed({ get: () => state.historyVisible, set: value => { state.historyVisible = value; } });
@@ -139,6 +154,7 @@ const suggestions = [
     selected-pair=""
     :reset-key="showHistory ? 'history' : globalContextKey"
     :aria-label="'Panel Agent 私人会话'"
+    :on-reach-bottom="markPanelRead"
   >
     <template #leading><div class="agent-mark agent-mark-small"><Bot /></div></template>
     <template #actions>

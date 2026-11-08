@@ -5,12 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Disclosure } from '@/components/ui/disclosure';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyDescription } from '@/components/ui/empty';
@@ -24,11 +18,13 @@ import { useWorkbenchPage } from './use-workbench-page';
  * 查询 / 待办合并与过滤 / 清理动作 / 摘要流状态全部在 useWorkbenchPage。
  */
 const {
-  query, data, filter, entries, emptyText, selectedLabel, sourceLabel, confirmClean,
-  cleaning, cleanError, cleanDescription, cleanEntries, workbenchOpen,
-  confirmCleanActivity, cleaningActivity, cleanActivityError,
-  cleanRecentActivity, activityTab, error, live, summarizing, summaryStale,
-  summaryText, summaryPhase, elapsed, privateBusy, statusLabels, summarize,
+  query, data, pending, inbox, inboxTotal, stale, staleLabel, emptyText,
+  confirmClean, cleaning, cleanError, cleanDescription, cleanEntries,
+  confirmCleanStale, cleaningStale, cleanStaleError, cleanStaleDescription,
+  cleanStale, workbenchOpen, confirmCleanActivity, cleaningActivity,
+  cleanActivityError, cleanRecentActivity, activityTab, error, live,
+  summarizing, summaryStale, summaryText, summaryPhase, elapsed, privateBusy,
+  statusLabels, summarize,
 } = useWorkbenchPage();
 </script>
 
@@ -50,68 +46,40 @@ const {
       <Card size="compact" class="home-card min-w-0">
         <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle
-            >待处理
-            <Badge variant="secondary">{{ entries.length }}</Badge></CardTitle
+            >未读
+            <Badge variant="secondary">{{ inboxTotal }}</Badge></CardTitle
           >
-          <div class="flex min-w-0 items-center gap-2">
-            <Select v-model="filter">
-              <SelectTrigger class="w-36" aria-label="选择待处理范围"
-                ><span data-slot="select-value" class="min-w-0 truncate">{{
-                  selectedLabel
-                }}</span></SelectTrigger
-              >
-              <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="interaction"
-                  >待你处理</SelectItem
-                >
-                <SelectItem value="user"
-                  >等待回复</SelectItem
-                >
-                <SelectItem value="agent"
-                  >Agent 等待</SelectItem
-                >
-              </SelectContent>
-            </Select>
-            <WorkbenchCleanButton
-              :disabled="!entries.length"
-              :busy="cleaning"
-              label="清理当前列表"
-              description="从工作台隐藏当前列表（不删除消息）"
-              @click="cleanError = ''; confirmClean = true"
-            />
-          </div>
+          <WorkbenchCleanButton
+            :disabled="!pending.length"
+            :busy="cleaning"
+            label="清理待处理卡片"
+            description="从工作台隐藏待处理卡片（未读不受影响）"
+            @click="cleanError = ''; confirmClean = true"
+          />
         </CardHeader>
         <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
-          <Empty v-if="!entries.length"
+          <Empty v-if="!inbox.length"
             ><EmptyDescription>{{ emptyText }}</EmptyDescription></Empty
           >
           <div v-else class="flex flex-col gap-2">
             <Button
-              v-for="item in entries"
-              :key="`${item.source}:${item.id}`"
+              v-for="row in inbox"
+              :key="row.key"
               as-child
               variant="ghost"
               class="h-auto justify-start"
-              ><RouterLink :to="item.path"
+              ><RouterLink :to="row.path"
                 ><span class="flex min-w-0 flex-col gap-1"
                   ><span class="flex flex-wrap items-center gap-2"
-                    ><Badge variant="outline">{{ sourceLabel[item.source] }}</Badge
-                    ><span class="text-xs text-muted-foreground"
-                      >{{ item.groupName
-                      }}<template v-if="item.source === 'agent'">
-                        · {{ item.senderName }} → {{ item.recipientName }}</template
-                      ><template v-else-if="item.source === 'user'">
-                        · {{ item.recipientName }}</template
-                      ></span
+                    ><span class="text-sm font-medium">{{ row.groupName }}</span
+                    ><Badge v-if="row.unread" variant="default"
+                      >{{ row.unread }} 条未读</Badge
+                    ><Badge v-if="row.cards" variant="outline"
+                      >待处理 {{ row.cards }}</Badge
                     ></span
                   ><span
                     class="line-clamp-2 whitespace-normal break-all text-left"
-                    >{{ item.title }}</span
-                  ><span
-                    v-if="item.source !== 'interaction'"
-                    class="text-xs text-muted-foreground"
-                    >已等待 {{ elapsed(item.created) }}</span
+                    >{{ row.cardTitle ?? `${row.unread} 条未读消息` }}</span
                   ></span
                 ></RouterLink
               ></Button
@@ -120,7 +88,7 @@ const {
         </CardContent>
         <ConfirmDialog
           :open="confirmClean"
-          title="清理当前待处理项？"
+          title="清理待处理卡片？"
           :description="cleanDescription"
           confirm-text="清理"
           destructive
@@ -195,6 +163,65 @@ const {
                 </TabsContent>
               </CardContent>
             </Tabs><ConfirmDialog :open="confirmCleanActivity" title="清理最近执行？" :description="`将从工作台隐藏当前最近执行的 ${data?.recent.length ?? 0} 项；执行记录仍保留。`" confirm-text="清理" destructive :busy="cleaningActivity" :error="cleanActivityError" @cancel="confirmCleanActivity = false" @confirm="cleanRecentActivity" />
+            <!-- 没回音不是未读：你发出后没回复的指令、Agent 之间的等待，只做审计。 -->
+            <div class="flex flex-col gap-2 border-t px-4 py-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-sm font-medium"
+                  >没回音
+                  <Badge variant="secondary">{{ stale.length }}</Badge></span
+                >
+                <WorkbenchCleanButton
+                  :disabled="!stale.length"
+                  :busy="cleaningStale"
+                  label="清理没回音"
+                  description="从工作台隐藏没回音的记录（不删除消息）"
+                  @click="cleanStaleError = ''; confirmCleanStale = true"
+                />
+              </div>
+              <Empty v-if="!stale.length"
+                ><EmptyDescription>没有等待回复的记录</EmptyDescription></Empty
+              >
+              <div v-else class="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                <Button
+                  v-for="item in stale"
+                  :key="`${item.source}:${item.id}`"
+                  as-child
+                  variant="ghost"
+                  class="h-auto justify-start"
+                  ><RouterLink :to="item.path"
+                    ><span class="flex min-w-0 flex-col gap-1"
+                      ><span class="flex flex-wrap items-center gap-2"
+                        ><Badge variant="outline">{{ staleLabel[item.source] }}</Badge
+                        ><span class="text-xs text-muted-foreground"
+                          >{{ item.groupName
+                          }}<template v-if="item.source === 'agent'">
+                            · {{ item.senderName }} → {{ item.recipientName }}</template
+                          ><template v-else>
+                            · {{ item.recipientName }}</template
+                          ></span
+                        ></span
+                      ><span
+                        class="line-clamp-2 whitespace-normal break-all text-left"
+                        >{{ item.title }}</span
+                      ><span class="text-xs text-muted-foreground"
+                        >已等待 {{ elapsed(item.created) }}</span
+                      ></span
+                    ></RouterLink
+                  ></Button
+                >
+              </div>
+              <ConfirmDialog
+                :open="confirmCleanStale"
+                title="清理没回音的记录？"
+                :description="cleanStaleDescription"
+                confirm-text="清理"
+                destructive
+                :busy="cleaningStale"
+                :error="cleanStaleError"
+                @cancel="confirmCleanStale = false"
+                @confirm="cleanStale"
+              />
+            </div>
           </Card>
         </div>
     <Card size="compact" class="home-card min-w-0">

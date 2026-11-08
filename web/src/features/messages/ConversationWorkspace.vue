@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import MessageFeed from './MessageFeed.vue';
 import type { MessageFeedProps } from './message-feed-types';
+import { provideReachBottom } from './read-marker';
 
 const props = withDefaults(defineProps<MessageFeedProps & {
   heading: string;
@@ -14,13 +15,17 @@ const props = withDefaults(defineProps<MessageFeedProps & {
   error?: string;
   retryable?: boolean;
   readonly?: boolean;
+  /** 最后一条消息进入视口时调用，用于推进读水位。 */
+  onReachBottom?: () => void;
 }>(), { groupSystemMessages: true, traceable: true, markdown: true, readonly: false });
+// 滚动容器不知道自己在哪个会话里，由工作区把记账回调传下去。
+provideReachBottom(() => props.onReachBottom?.());
 const references=ref<MessageReference[]>([]);
 provide(referenceContext,{items:references,enabled:computed(()=>!props.readonly),add(item){if(!references.value.some(x=>x.id===item.id))references.value.push(item);}});
 watch(()=>[props.resetKey,props.selectedPair,props.heading],()=>{references.value=[];});
 const emit = defineEmits<{ loadMore: []; retry: [] }>();
 const feedProps = computed(() => {
-  const { heading, description, error, retryable, readonly, ...feed } = props;
+  const { heading, description, error, retryable, readonly, onReachBottom, ...feed } = props;
   return feed;
 });
 </script>

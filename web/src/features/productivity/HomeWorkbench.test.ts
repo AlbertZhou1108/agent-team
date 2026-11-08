@@ -66,8 +66,8 @@ describe('home workbench', () => {
     expect(html).toContain('data-slot="tabs"');
     expect((html.match(/data-slot="tabs-trigger"/g) ?? []).length).toBe(2);
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}运行活动/);
-    expect(html).toContain('待处理');
-    expect(html).toContain('清理当前列表');
+    expect(html).toContain('未读');
+    expect(html).toContain('清理待处理卡片');
     expect(html).toMatch(/data-slot="tabs-trigger"[\s\S]{0,1500}最近执行/);
     // 卡头统一:标题与分段控件同处一行 card-header,不再让控件独占卡内宽度。
     expect(html).toMatch(/data-slot="card-header"[\s\S]{0,400}执行活动[\s\S]{0,400}data-slot="tabs-list"/);
@@ -107,11 +107,15 @@ describe('home workbench', () => {
     expect(html).toContain('已等待');
   });
 
-  it('renders all three sources in the unified pending list', async () => {
+  it('renders unread and pending cards in the same conversation row', async () => {
     holder.ref.value = {
       pending: [
-        { id: 'i1', kind: 'interaction', title: '确认部署？', groupName: 'team', created: new Date().toISOString(), path: '/groups/g?interaction=i1' },
+        { id: 'i1', kind: 'interaction', title: '确认部署？', groupName: 'team', conversation: 'group:g', created: new Date().toISOString(), path: '/groups/g?interaction=i1' },
       ],
+      unread: [
+        { id: 'group:g', scope: 'group', scopeId: 'g', conversation: 'group:g', title: 'team', groupName: 'team', count: 2, latest: new Date().toISOString(), latestSeq: 5, path: '/groups/g' },
+      ],
+      unreadTotal: 2,
       waiting: [
         { id: 'w1', title: '整理发布说明', groupName: 'team', recipientName: 'lead', recipientKind: 'member', created: new Date().toISOString(), path: '/groups/g?message=w1' },
       ],
@@ -125,13 +129,17 @@ describe('home workbench', () => {
       summaryRequest: null,
     };
     const html = await renderWithRouter();
-    expect(html).toContain('等待答复');
+    // 一行一个会话：未读条数与待处理卡数并排，徽标数字能逐行对上账。
+    expect(html).toContain('2 条未读');
+    expect(html).toContain('待处理 1');
+    expect(html).toContain('确认部署？');
+    // 没回音的两类在执行活动卡里，只做审计。
+    expect(html).toContain('没回音');
     expect(html).toContain('你的指令');
     expect(html).toContain('Agent 请求');
     expect(html).toContain('one → two');
-    expect(html).toContain('全部');
-    expect(html).not.toContain('全部 (3)');
-    expect(html).toContain('清理当前列表');
+    expect(html).toContain('清理待处理卡片');
+    expect(html).toContain('清理没回音');
   });
 
   it('renders caller actions in the workbench header action area', async () => {
@@ -173,11 +181,12 @@ describe('home workbench page SSR smoke', () => {
   it('renders empty states for pending items, running activity and the summary hint', async () => {
     holder.ref.value = emptyWorkbench;
     const html = await renderWithRouter();
-    expect(html).toContain('暂无待处理事项');
+    expect(html).toContain('没有未读');
+    expect(html).toContain('没有等待回复的记录');
     expect(html).toContain('暂无运行中的成员');
     expect(html).toContain('点击刷新图标，汇总全部团队的近期进展。');
     // 没有待办时清理按钮禁用。
-    expect(html).toContain('清理当前列表');
+    expect(html).toContain('清理待处理卡片');
     expect(html).not.toContain('aria-label="进展摘要内容"');
   });
 

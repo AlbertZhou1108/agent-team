@@ -7,6 +7,7 @@ import { ArrowDown } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { prefersReducedMotion } from '@/shared/motion';
+import { canMarkRead, injectReachBottom } from '@/features/messages/read-marker';
 
 const props = withDefaults(
   defineProps<{
@@ -49,6 +50,15 @@ const hasNewMessages = ref(false);
 let observer: ResizeObserver | undefined;
 
 const route = useRoute();
+// 滚到会话底部时通知外层记「读到第几号」。容器只知道位置，不知道是哪个会话。
+const reachBottom = injectReachBottom();
+function notifyReachBottom() {
+  if (atBottom.value) reachBottom?.();
+}
+function onPageVisible() {
+  if (canMarkRead()) notifyReachBottom();
+}
+
 let revealedInteraction: unknown;
 // 定位纪元:锚点滚动每执行一次自增;翻页补偿用它发现"等待期间定位已接管"。
 let revealSequence = 0;
@@ -136,6 +146,8 @@ watch(
     } else {
       updatePosition();
     }
+    // 停在底部时新消息到达也算读过：通知内部会再判一次是否真的在底部。
+    notifyReachBottom();
   },
   { flush: 'pre' },
 );
@@ -154,6 +166,9 @@ onMounted(() => {
   scrollToBottom();
   void revealLinkedInteraction();
   measureBars();
+  notifyReachBottom();
+  window.addEventListener('focus', onPageVisible);
+  document.addEventListener('visibilitychange', onPageVisible);
   observer = new ResizeObserver(() => {
     measureBars();
     void revealLinkedInteraction();
@@ -167,7 +182,11 @@ onMounted(() => {
   if (header) observer.observe(header);
 });
 
-onBeforeUnmount(() => observer?.disconnect());
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  window.removeEventListener('focus', onPageVisible);
+  document.removeEventListener('visibilitychange', onPageVisible);
+});
 
 defineExpose({ scrollToBottom });
 </script>

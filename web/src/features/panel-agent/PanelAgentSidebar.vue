@@ -2,14 +2,13 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed, nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { usePanelAgentStore } from '@/stores/panel-agent';
 import { useUiStore } from '@/stores/ui';
+import { useUnreadIndex } from '@/features/productivity/use-unread-index';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import type { PanelMessage, TeamRequest, PanelAgentState } from '@/shared/api/raw-types';
 import {
   ArrowUpRight,
   Bell,
-  CheckCheck,
   CircleAlert,
   ListX,
   MoreHorizontal,
@@ -54,10 +53,10 @@ const props = defineProps<{
   unknown: PanelUnknownTurn[];
 }>();
 const router = useRouter();
-const panelState = usePanelAgentStore();
 const ui = useUiStore();
-const unread = (teamId: string) => panelState.unreadForContext(props.messages, teamId);
-const hasUnread = computed(() => unread('') > 0 || panelState.unreadReceipts(props.requests) > 0);
+const unreadIndex = useUnreadIndex();
+// 未读以服务端水位为准：侧栏只读投影，不再自己维护已读游标。
+const unread = (teamId: string) => unreadIndex.panelByTeam.value.get(teamId || '') ?? 0;
 const teamsOpen = ref(false);
 const notificationsOpen = ref(false);
 const teamsHeading = ref<HTMLElement | null>(null);
@@ -127,16 +126,6 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
     <div ref="splitContainer" class="panel-side-scroll flex min-h-0 flex-1 flex-col overflow-hidden px-4">
     <Disclosure :heading-level="2" v-model:open="teamsOpen" class="split-section" :style="{ flex: teamsOpen ? `${notificationsOpen ? teamsShare : 1} 1 0%` : '0 0 auto' }">
 <template #summary><span ref="teamsHeading" tabindex="-1" class="flex items-center gap-2"><Users />团队关系</span><Badge>{{ teams.length }}</Badge></template>
-<template #actions><Tooltip>
-            <TooltipTrigger as-child>
-              <span class="inline-flex" :tabindex="hasUnread ? undefined : 0" :aria-label="hasUnread ? undefined : '全部已读，当前没有未读消息'">
-                <Button variant="ghost" size="icon-sm" :disabled="!hasUnread" aria-label="全部已读" @click="panelState.markAllPanelRead(messages.filter(message => message.active_team_id == null)); panelState.syncReceiptReads(requests, true)">
-                  <CheckCheck />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>将全局私人会话和请求回执标为已读</TooltipContent>
-          </Tooltip></template>
 <div class="flex min-h-0 flex-1 flex-col gap-4">
         <ScrollArea
           class="w-full min-h-0"

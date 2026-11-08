@@ -79,7 +79,6 @@ const DERIVED_KEYS = [
   'runningMemberIds',
   'panelMessages',
   'receiptRequests',
-  'agentUnreadCount',
   'messageViews',
   'turnSummaries',
   'unaffiliatedEvents',

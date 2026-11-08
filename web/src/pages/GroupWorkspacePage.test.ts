@@ -25,9 +25,17 @@ vi.mock('@/features/team/use-team-stream', async () => {
   const { ref } = await import('vue');
   return { useTeamStream: () => ({ streaming: ref({}), activeStreams: ref([]) }) };
 });
-vi.mock('@/features/panel-agent/use-read-sync', async () => {
+vi.mock('@/features/messages/read-marker', async () => ({
+  useReadMarker: () => async () => {},
+  provideReachBottom: () => {},
+  injectReachBottom: () => null,
+  canMarkRead: () => false,
+}));
+vi.mock('@/features/productivity/use-unread-index', async () => {
   const { ref } = await import('vue');
-  return { useReadSync: () => ({ pageVisible: ref(true) }) };
+  return {
+    useUnreadIndex: () => ({ panelTotal: ref(2), panelByTeam: ref(new Map()) }),
+  };
 });
 
 vi.mock('@/app/layouts/GroupSidebar.vue', async () => {

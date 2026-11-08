@@ -130,6 +130,10 @@ export const api = {
   homeSummary(signal?: AbortSignal) { return request<RuntimeEndpoint[]>('/api/home-summary', signal); },
   tasks(group: string, signal?: AbortSignal) { return request<AgentTasksView>(query('/api/agent-tasks', { group }), signal); },
   unread(signal?: AbortSignal) { return request<UnreadProjection>('/api/panel-agent/unread', signal); },
+  /** 记录「某个会话看到第几号」；服务端只允许前进。 */
+  advanceRead(body: { scope: 'group' | 'panel'; scopeId: string; seq: number }) {
+    return mutate<{ scope: string; scopeId: string; seq: number }>('/api/read', body);
+  },
   dismissWorkbench(items: Array<{ category: 'interaction' | 'waiting:user' | 'waiting:agent' | 'activity:recent' | 'panel:update'; id: string }>) {
     return mutate<{ dismissed: number }>('/api/workbench/dismiss', { items });
   },

@@ -184,8 +184,6 @@ describe('team derived projections', () => {
     expect(derived.sidebarGroupId.value).toBeUndefined();
     expect(derived.panelMessages.value[0]?.active_team_id).toBeNull();
     expect(derived.receiptRequests.value).toHaveLength(1);
-    // 未读回执 1 条（消息游标尚未初始化，不计未读消息）。
-    expect(derived.agentUnreadCount.value).toBe(1);
   });
 
   it('merges accepted directive rows into sorted message views and reuses unchanged views', () => {

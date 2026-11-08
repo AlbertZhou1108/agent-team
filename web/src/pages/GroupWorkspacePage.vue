@@ -26,7 +26,8 @@ import {
   teamConversationSession,
 } from '@/features/messages/conversation-navigation';
 import { useSidebarResize } from '@/features/layout/use-sidebar-resize';
-import { useReadSync } from '@/features/panel-agent/use-read-sync';
+import { useReadMarker } from '@/features/messages/read-marker';
+import { useUnreadIndex } from '@/features/productivity/use-unread-index';
 import { useTeamResources } from '@/features/team/use-team-resources';
 import { useTeamStream } from '@/features/team/use-team-stream';
 import type { ContextPanel } from '@/features/team/types';
@@ -75,7 +76,7 @@ const {
   currentController, pausedMemberIds, currentMembers, currentEndpoints,
   currentSessionBindings, selectedEndpoint, selectedPair,
   conversationTitle, endpointHosts,
-  runningMemberIds, agentUnreadCount,
+  runningMemberIds,
   panelMessages, receiptRequests, messagesQuery, directivesQuery,
   interactionsQuery, messageViews, turnSummaries, unaffiliatedEvents,
   turnsQuery, inspectorHasNextPage, inspectorFetchingNextPage,
@@ -98,13 +99,16 @@ const readTeamStreamViews = () => toStreamMessageViews(
   currentControllerId.value,
 );
 
-useReadSync({
-  messages: panelMessages,
-  receipts: receiptRequests,
-  panelRoute: isPanelAgentRoute,
-  messageViews,
-  selectedPair,
-});
+// 最后一条消息进入视口时记「群会话读到第几号」。窗口不可见时记账函数会自己跳过。
+const markRead = useReadMarker();
+const unreadIndex = useUnreadIndex();
+// 侧栏红点只认服务端未读投影，前端不再自己维护已读游标。
+const agentUnreadCount = computed(() => unreadIndex.panelTotal.value);
+function markGroupRead() {
+  if (!groupId.value || !messageViews.value.length) return;
+  const seq = Math.max(...messageViews.value.map((message) => message.seq));
+  void markRead('group', groupId.value, seq);
+}
 
 const { resizing, beginResize, moveResize, endResize, keyboardResize } = useSidebarResize();
 
@@ -313,6 +317,7 @@ function onMemberModelSaved() {
           retryable
           @retry="refreshResources(); messagesQuery.refetch()"
           @load-more="messagesQuery.fetchNextPage()"
+          :on-reach-bottom="markGroupRead"
         >
           <template #heading-meta>
             <Badge v-if="currentController" variant="outline">{{ currentController.kind === 'panel_agent' ? 'Panel Agent 主控' : currentController.name === '主 Agent' ? '主 Agent' : currentController.name + ' · 主 Agent' }}</Badge>

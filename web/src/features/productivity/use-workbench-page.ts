@@ -30,9 +30,24 @@ export type Workbench = {
     kind: string;
     title: string;
     groupName: string;
+    conversation: string;
     created: string;
     path: string;
   }[];
+  /** 未读：一个会话一行。群消息与面板私聊各自一套编号。 */
+  unread: {
+    id: string;
+    scope: 'group' | 'panel';
+    scopeId: string;
+    conversation: string;
+    title: string;
+    groupName: string;
+    count: number;
+    latest: string;
+    latestSeq: number;
+    path: string;
+  }[];
+  unreadTotal: number;
   waiting: {
     id: string;
     title: string;
@@ -60,10 +75,22 @@ export type Workbench = {
   summaryRequest: { id: string; created: string } | null;
 };
 
-export type EntrySource = 'interaction' | 'user' | 'agent';
-export type WorkbenchEntry = {
+/** 未读卡的一行：一个会话，同时挂未读条数与待处理卡数。 */
+export type InboxRow = {
+  key: string;
+  title: string;
+  groupName: string;
+  path: string;
+  unread: number;
+  cards: number;
+  cardTitle?: string;
+  created: string;
+};
+
+/** 「没回音」的一行：等待回复的指令，或 Agent 之间的等待。 */
+export type StaleEntry = {
   id: string;
-  source: EntrySource;
+  source: 'user' | 'agent';
   title: string;
   groupName: string;
   created: string;
@@ -90,72 +117,67 @@ export function useWorkbenchPage() {
   );
   const waiting = computed(() => data.value?.waiting ?? []);
   const agentWaiting = computed(() => data.value?.agentWaiting ?? []);
-  const filter = ref<'all' | EntrySource>('all');
-  const total = computed(
-    () => pending.value.length + waiting.value.length + agentWaiting.value.length,
+  // 未读卡：一个会话一行，把「未读条数」和「待处理卡数」并到同一行，
+  // 这样徽标显示的数字（卡片数 + 未读条数）在列表里能逐行对上账。
+  const inbox = computed<InboxRow[]>(() => {
+    const rows = new Map<string, InboxRow>();
+    for (const item of data.value?.unread ?? []) {
+      rows.set(item.conversation, {
+        key: item.conversation,
+        title: item.title,
+        groupName: item.groupName,
+        path: item.path,
+        unread: item.count,
+        cards: 0,
+        created: item.latest,
+      });
+    }
+    for (const item of pending.value) {
+      const row = rows.get(item.conversation);
+      if (row) {
+        row.cards += 1;
+        row.cardTitle ??= item.title;
+        if (item.created > row.created) row.created = item.created;
+      } else {
+        rows.set(item.conversation, {
+          key: item.conversation,
+          title: item.groupName,
+          groupName: item.groupName,
+          path: item.path,
+          unread: 0,
+          cards: 1,
+          cardTitle: item.title,
+          created: item.created,
+        });
+      }
+    }
+    return [...rows.values()].sort((a, b) => b.created.localeCompare(a.created));
+  });
+  const inboxTotal = computed(() => (data.value?.unreadTotal ?? 0) + pending.value.length);
+  // 「没回音」不是未读：你发出去还没回复的指令、以及 Agent 之间的等待，
+  // 都归到执行活动那一侧，只做审计，不点亮徽标。
+  const stale = computed<StaleEntry[]>(() => [
+    ...waiting.value.map((item) => ({ ...item, source: 'user' as const })),
+    ...agentWaiting.value.map((item) => ({ ...item, source: 'agent' as const })),
+  ]);
+  const staleLabel: Record<StaleEntry['source'], string> = { user: '你的指令', agent: 'Agent 请求' };
+  const emptyText = computed(() =>
+    query.isPending.value ? '正在加载…' : '没有未读',
   );
-  const entries = computed<WorkbenchEntry[]>(() => {
-    const all: WorkbenchEntry[] = [
-      ...pending.value.map((item) => ({ ...item, source: 'interaction' as const })),
-      ...waiting.value.map((item) => ({ ...item, source: 'user' as const })),
-      ...agentWaiting.value.map((item) => ({ ...item, source: 'agent' as const })),
-    ];
-    return filter.value === 'all'
-      ? all
-      : all.filter((item) => item.source === filter.value);
-  });
-  const emptyText = computed(() => {
-    if (query.isPending.value) return '正在加载…';
-    if (filter.value === 'interaction') return '暂无待你处理的互动卡';
-    if (filter.value === 'user') return '暂无等待 Agent 回复的指令';
-    if (filter.value === 'agent') return '暂无 Agent 之间的等待';
-    return '暂无待处理事项';
-  });
-  const selectedLabel = computed(() => {
-    if (filter.value === 'all') return '全部';
-    if (filter.value === 'interaction') return '待你处理';
-    if (filter.value === 'user') return '等待回复';
-    return 'Agent 等待';
-  });
-  const sourceLabel: Record<EntrySource, string> = {
-    interaction: '等待答复',
-    user: '你的指令',
-    agent: 'Agent 请求',
-  };
 
   const confirmClean = ref(false);
   const cleaning = ref(false);
   const cleanError = ref('');
-  const cleanDescription = computed(() => {
-    const scope =
-      filter.value === 'all'
-        ? '当前列表'
-        : filter.value === 'interaction'
-          ? '待你处理'
-          : filter.value === 'user'
-            ? '等待回复'
-            : 'Agent 等待';
-    const count = entries.value.length;
-    const interactionHint = entries.value.some((item) => item.source === 'interaction')
-      ? '\n互动卡仍保持待处理，可在团队会话中继续处理。'
-      : '';
-    return `将从工作台隐藏${scope}的 ${count} 项；消息记录不会删除。${interactionHint}`;
-  });
+  const cleanDescription = computed(
+    () => `将从工作台隐藏 ${pending.value.length} 张待处理卡片；未读消息不受影响，读过后会自动消失。`,
+  );
   async function cleanEntries() {
-    if (!entries.value.length || cleaning.value) return;
+    if (!pending.value.length || cleaning.value) return;
     cleaning.value = true;
     cleanError.value = '';
     try {
       await api.dismissWorkbench(
-        entries.value.map((item) => ({
-          category:
-            item.source === 'interaction'
-              ? 'interaction'
-              : item.source === 'user'
-                ? 'waiting:user'
-                : 'waiting:agent',
-          id: item.id,
-        })),
+        pending.value.map((item) => ({ category: 'interaction' as const, id: item.id })),
       );
       confirmClean.value = false;
       await query.refetch();
@@ -163,6 +185,32 @@ export function useWorkbenchPage() {
       cleanError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
     } finally {
       cleaning.value = false;
+    }
+  }
+
+  const confirmCleanStale = ref(false);
+  const cleaningStale = ref(false);
+  const cleanStaleError = ref('');
+  const cleanStaleDescription = computed(
+    () => `将从工作台隐藏 ${stale.value.length} 项没回音的记录；消息记录不会删除。`,
+  );
+  async function cleanStale() {
+    if (!stale.value.length || cleaningStale.value) return;
+    cleaningStale.value = true;
+    cleanStaleError.value = '';
+    try {
+      await api.dismissWorkbench(
+        stale.value.map((item) => ({
+          category: item.source === 'user' ? ('waiting:user' as const) : ('waiting:agent' as const),
+          id: item.id,
+        })),
+      );
+      confirmCleanStale.value = false;
+      await query.refetch();
+    } catch (error) {
+      cleanStaleError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
+    } finally {
+      cleaningStale.value = false;
     }
   }
 
@@ -301,9 +349,10 @@ export function useWorkbenchPage() {
   }
 
   return {
-    query, data, pending, waiting, agentWaiting, filter, total, entries,
-    emptyText, selectedLabel, sourceLabel, confirmClean, cleaning, cleanError,
-    cleanDescription, cleanEntries, workbenchOpen, confirmCleanActivity,
+    query, data, pending, waiting, agentWaiting, inbox, inboxTotal, stale, staleLabel,
+    emptyText, confirmClean, cleaning, cleanError, cleanDescription, cleanEntries,
+    confirmCleanStale, cleaningStale, cleanStaleError, cleanStaleDescription, cleanStale,
+    workbenchOpen, confirmCleanActivity,
     cleaningActivity, cleanActivityError, cleanRecentActivity, activityTab,
     generating, error, live, summarizing, summaryStale, summaryText,
     summaryPhase, elapsed, privateBusy, statusLabels, summarize,

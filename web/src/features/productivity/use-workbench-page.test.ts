@@ -53,6 +53,7 @@ const entry = (id: string, kind: string, title: string) => ({
   kind,
   title,
   groupName: 'team',
+  conversation: 'group:g',
   created: '2026-01-01T00:00:00Z',
   path: `/groups/g?message=${id}`,
 });
@@ -80,6 +81,8 @@ const agentWaitingEntry = (id: string, title: string) => ({
 function workbenchData(overrides: Record<string, unknown> = {}) {
   return {
     pending: [entry('i1', 'interaction', '确认部署？')],
+    unread: [],
+    unreadTotal: 0,
     waiting: [waitingEntry('w1', '整理发布说明')],
     agentWaiting: [agentWaitingEntry('a1', '请确认方案')],
     running: [],
@@ -104,46 +107,68 @@ beforeEach(() => {
 });
 
 describe('workbench page state', () => {
-  it('merges the three pending sources and filters/labels them consistently', async () => {
-    await mount();
-    expect(page.entries.value.map((item) => item.source)).toEqual([
-      'interaction',
-      'user',
-      'agent',
-    ]);
-    expect(page.total.value).toBe(3);
-    expect(page.selectedLabel.value).toBe('全部');
-    expect(page.sourceLabel).toEqual({
-      interaction: '等待答复',
-      user: '你的指令',
-      agent: 'Agent 请求',
+  it('merges unread rows and pending cards into one row per conversation', async () => {
+    holder.data.value = workbenchData({
+      unread: [
+        {
+          id: 'group:g',
+          scope: 'group',
+          scopeId: 'g',
+          conversation: 'group:g',
+          title: 'team',
+          groupName: 'team',
+          count: 4,
+          latest: '2026-01-02T00:00:00Z',
+          latestSeq: 9,
+          path: '/groups/g',
+        },
+      ],
+      unreadTotal: 4,
     });
-    page.filter.value = 'user';
-    expect(page.entries.value.map((item) => item.id)).toEqual(['w1']);
-    expect(page.selectedLabel.value).toBe('等待回复');
-    expect(page.emptyText.value).toBe('暂无等待 Agent 回复的指令');
-    // 空态文案随筛选变化。
-    holder.data.value = workbenchData({ pending: [], waiting: [], agentWaiting: [] });
-    page.filter.value = 'all';
-    expect(page.emptyText.value).toBe('暂无待处理事项');
-    page.filter.value = 'interaction';
-    expect(page.emptyText.value).toBe('暂无待你处理的互动卡');
+    await mount();
+    expect(page.inbox.value).toHaveLength(1);
+    expect(page.inbox.value[0]).toMatchObject({
+      key: 'group:g',
+      unread: 4,
+      cards: 1,
+      cardTitle: '确认部署？',
+    });
+    // 徽标数 = 待办卡片 + 未读条数，列表里能逐行对上账。
+    expect(page.inboxTotal.value).toBe(5);
+    expect(page.emptyText.value).toBe('没有未读');
   });
 
-  it('cleans the current filtered list with the mapped dismissal categories', async () => {
+  it('keeps a conversation that only has pending cards', async () => {
     await mount();
-    expect(page.cleanDescription.value).toContain('将从工作台隐藏当前列表的 3 项');
-    expect(page.cleanDescription.value).toContain('互动卡仍保持待处理');
+    expect(page.inbox.value).toHaveLength(1);
+    expect(page.inbox.value[0]).toMatchObject({ key: 'group:g', unread: 0, cards: 1 });
+    expect(page.inboxTotal.value).toBe(1);
+  });
+
+  it('cleans pending cards only and leaves unread alone', async () => {
+    await mount();
+    expect(page.cleanDescription.value).toContain('1 张待处理卡片');
+    expect(page.cleanDescription.value).toContain('未读消息不受影响');
     await page.cleanEntries();
     expect(holder.api.dismissWorkbench).toHaveBeenCalledTimes(1);
     expect(holder.api.dismissWorkbench).toHaveBeenCalledWith([
       { category: 'interaction', id: 'i1' },
-      { category: 'waiting:user', id: 'w1' },
-      { category: 'waiting:agent', id: 'a1' },
     ]);
     expect(holder.refetch).toHaveBeenCalledTimes(1);
     expect(page.cleaning.value).toBe(false);
     expect(page.confirmClean.value).toBe(false);
+  });
+
+  it('keeps stale directives in their own list with their own dismissal categories', async () => {
+    await mount();
+    expect(page.stale.value.map((item) => item.source)).toEqual(['user', 'agent']);
+    await page.cleanStale();
+    expect(holder.api.dismissWorkbench).toHaveBeenCalledWith([
+      { category: 'waiting:user', id: 'w1' },
+      { category: 'waiting:agent', id: 'a1' },
+    ]);
+    expect(page.cleaningStale.value).toBe(false);
+    expect(page.confirmCleanStale.value).toBe(false);
   });
 
   it('cleans recent activity separately from pending entries', async () => {
