@@ -44,7 +44,7 @@ export function advance(store, { scope, scopeId, seq }) {
  * @param {any} store
  */
 export function unreadGroups(store) {
-  return store.all(`SELECT m.group_id AS scopeId,COUNT(*) AS count,MAX(m.seq) AS latest
+  return store.all(`SELECT m.group_id AS scopeId,COUNT(*) AS count,MAX(m.seq) AS latestSeq,MAX(m.created) AS latest
     FROM messages m JOIN groups g ON g.id=m.group_id
     LEFT JOIN read_watermarks w ON w.scope='group' AND w.scope_id=m.group_id
     WHERE (g.state IS NULL OR g.state!='archived')
@@ -60,7 +60,7 @@ export function unreadGroups(store) {
  * @param {any} store @param {string} panelAgentId
  */
 export function unreadPanel(store, panelAgentId) {
-  return store.all(`SELECT COALESCE(NULLIF(p.active_team_id,''),'${GLOBAL_TEAM}') AS teamId,COUNT(*) AS count,MAX(p.seq) AS latest
+  return store.all(`SELECT COALESCE(NULLIF(p.active_team_id,''),'${GLOBAL_TEAM}') AS teamId,COUNT(*) AS count,MAX(p.seq) AS latestSeq,MAX(p.created) AS latest
     FROM panel_messages p
     LEFT JOIN read_watermarks w ON w.scope='panel' AND w.scope_id=? || ':' || COALESCE(NULLIF(p.active_team_id,''),'${GLOBAL_TEAM}')
     WHERE p.panel_agent_id=? AND p.context='private' AND p.role IN ('assistant','system')

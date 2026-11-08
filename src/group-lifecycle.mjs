@@ -5,6 +5,7 @@ import { roleNameKey } from './collaboration.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
+import * as readState from './aggregates/read-state.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -644,6 +645,10 @@ export class GroupLifecycle {
   }
   restoreGroup(groupId) {
     const group = this.bus.setGroupState(groupId, 'open');
+    // 归档本身就表示「这段时间不看」:恢复时把水位推到最后一条,不补课。
+    readState.resetGroupToCurrent(this.bus.store, groupId);
+    const agent = this.bus.panelAgent();
+    if (agent) readState.resetPanelTeamToCurrent(this.bus.store, agent.id, groupId);
     setImmediate(() => this.bus.pump());
     return group;
   }

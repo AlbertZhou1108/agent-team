@@ -1,4 +1,5 @@
 // Read-only projections for navigation and the home workbench.
+import * as readState from './aggregates/read-state.mjs';
 export function searchWorkspace(bus, params) {
   const q = String(params.get('q') ?? '')
     .trim()
@@ -95,6 +96,8 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
       kind: 'interaction',
       title: JSON.parse(i.payload).text,
       groupName: names.get(i.group_id) ?? 'Panel Agent',
+      // 与未读行合并展示时用同一个键：一个会话一行。
+      conversation: i.group_id ? `group:${i.group_id}` : `panel:${readState.GLOBAL_TEAM}`,
       created: i.created,
       path:
         i.group_id && !i.panel_message_id
@@ -204,12 +207,47 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     ORDER BY request.seq DESC,reply.seq DESC LIMIT 1`,
     agentId,
   );
+  // 未读：一个会话一行。群消息与面板私聊各自一套编号，分开取再合并。
+  // 卡片锚点、回执副本、已删除团队的消息都由聚合层排除，不在这里重复判断。
+  const unread = [
+    ...readState.unreadGroups(s).map((row) => ({
+      id: `group:${row.scopeId}`,
+      scope: 'group',
+      scopeId: row.scopeId,
+      conversation: `group:${row.scopeId}`,
+      title: names.get(row.scopeId) ?? '团队',
+      groupName: names.get(row.scopeId) ?? '团队',
+      count: row.count,
+      latest: row.latest,
+      latestSeq: row.latestSeq,
+      path: `/groups/${encodeURIComponent(row.scopeId)}`,
+    })),
+    ...(agentId
+      ? readState.unreadPanel(s, agentId).map((row) => {
+          const teamId = row.teamId === readState.GLOBAL_TEAM ? null : row.teamId;
+          return {
+            id: `panel:${row.teamId}`,
+            scope: 'panel',
+            scopeId: readState.panelScopeId(agentId, teamId),
+            conversation: `panel:${row.teamId}`,
+            title: (teamId && names.get(teamId)) || 'Panel Agent',
+            groupName: (teamId && names.get(teamId)) || 'Panel Agent',
+            count: row.count,
+            latest: row.latest,
+            latestSeq: row.latestSeq,
+            path: '/agent',
+          };
+        })
+      : []),
+  ].sort((a, b) => String(b.latest ?? '').localeCompare(String(a.latest ?? '')));
   return {
     pending,
     waiting,
     agentWaiting,
     running,
     recent,
+    unread,
+    unreadTotal: unread.reduce((sum, row) => sum + row.count, 0),
     panelReady: Boolean(bus.panelAgent()),
     summary: summaryReply ?? null,
     summaryRequest: summaryRequest
