@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -221,6 +221,7 @@ export class Store {
     if (fromVersion < 14) this.migrateV14();
     if (fromVersion < 15) this.migrateV15();
     if (fromVersion < 16) this.migrateV16();
+    if (fromVersion < 17) this.migrateV17();
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -441,6 +442,30 @@ export class Store {
     if (!this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'wake_config')) {
       this.db.exec('ALTER TABLE external_client_bindings ADD COLUMN wake_config TEXT');
     }
+  }
+
+  // v17:主动唤醒验证、pull-only 接受与成员有效能力。旧 binding 默认未验证；
+  // 成员能力在首次快照时由宿主适配器重新计算，不把旧群策略误当成已验证能力。
+  migrateV17() {
+    const ensureColumn = (table, name, definition) => {
+      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    this.transaction(() => {
+      ensureColumn('external_client_bindings', 'wake_state', "TEXT NOT NULL DEFAULT 'unverified'");
+      ensureColumn('external_client_bindings', 'wake_mode', 'TEXT');
+      ensureColumn('external_client_bindings', 'wake_reason', 'TEXT');
+      ensureColumn('external_client_bindings', 'wake_fingerprint', 'TEXT');
+      ensureColumn('external_client_bindings', 'wake_verified_at', 'TEXT');
+      ensureColumn('external_client_bindings', 'wake_attempts', 'INTEGER NOT NULL DEFAULT 0');
+      ensureColumn('external_client_bindings', 'wake_next_attempt', 'TEXT');
+      ensureColumn('external_client_bindings', 'pull_only_accepted', 'TEXT');
+      ensureColumn('members', 'effective_policy', 'TEXT');
+      ensureColumn('members', 'capabilities', "TEXT NOT NULL DEFAULT '[]'");
+      ensureColumn('members', 'capability_reason', 'TEXT');
+      ensureColumn('messages', 'required_capabilities', "TEXT NOT NULL DEFAULT '[]'");
+    });
   }
 
   // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。

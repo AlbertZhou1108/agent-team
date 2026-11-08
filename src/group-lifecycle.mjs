@@ -507,7 +507,7 @@ export class GroupLifecycle {
       });
       for (const person of people) {
         const memberId = randomUUID();
-        const selection = this.bus.defaultModelSelection(person.host);
+        const selection = person.selection ?? this.bus.defaultModelSelection(person.host);
         teamsAgg.insertMember(this.bus.store, {
           id: memberId,
           groupId: id,

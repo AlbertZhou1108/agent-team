@@ -78,6 +78,26 @@ export function createClaudeHost({
         defaultModel: models.find(item => item.isDefault)?.id ?? null });
     },
     telemetryCapabilities: claudeCapabilities(),
+    executionCapabilities({ mode, allowShell }) {
+      if (mode === 'communication') {
+        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
+      }
+      if (mode === 'read-only') {
+        return { effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取' };
+      }
+      if (process.platform === 'win32') {
+        return {
+          effectivePolicy: 'read-only',
+          capabilities: ['file.read'],
+          reason: 'Claude Code 在当前 Windows 会话无法保证工作区写边界',
+        };
+      }
+      return {
+        effectivePolicy: 'workspace-write',
+        capabilities: ['file.read', 'file.write', 'filesystem.boundary', ...(allowShell ? ['shell.exec'] : [])],
+        reason: allowShell ? null : '未启用 shell；仍允许受限文件编辑',
+      };
+    },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
         ? { supported: true }

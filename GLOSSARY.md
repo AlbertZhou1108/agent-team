@@ -39,6 +39,38 @@ A record from one sender to one recipient (`send` wakes the recipient, `note` me
 A durable event addressed to an external controller. The active binding claims it through `control_inbox`; claiming means the client accepted the input, not that the host completed business work.
 _Avoid_: 已回复、已处理
 
+**Active wake / 主动唤醒**:
+An attempt to make an idle external controller host start a turn in its bound session. Active wake does not itself claim an External delivery.
+_Avoid_: 外部投递、消息送达
+
+**Wake state / 唤醒状态**:
+The lifecycle of an Active wake: queued, started, failed, or unsupported. `claimed` belongs to External delivery, not Active wake.
+_Avoid_: 投递状态、运行状态
+
+**Pull-only / 仅拉取**:
+A Client binding that receives External deliveries only when it calls `control_inbox`; it has no verified Active wake.
+_Avoid_: 不支持投递
+
+**Pull-only acceptance / 接受仅拉取**:
+An explicit, auditable decision to use a Client binding through Pull-only for its existing and future teams until wake verification succeeds again. It grants no new permission.
+_Avoid_: 自动降级、主动唤醒成功
+
+**Verified active wake / 已验证主动唤醒**:
+An Active wake capability only after a real wake has reached `started`; configuration existence alone does not verify it.
+_Avoid_: 已配置主动唤醒
+
+**Wake environment fingerprint / 唤醒环境指纹**:
+The adapter-owned set of environment facts that determine whether a Verified active wake is still valid. A fingerprint change requires verification again; ordinary team changes do not.
+_Avoid_: 团队配置指纹、服务版本
+
+**Headless readiness / 无头就绪**:
+The condition in which a headless team may receive work because its external controller has Verified active wake. A team that has not reached this condition is provisioning, not ready.
+_Avoid_: 团队已创建、连接已配置
+
+**Headless member model selection / 无头成员模型配置**:
+Model and reasoning-effort selection made through the external control plane without panel UI; the selected values must come from the host's live catalog and never fall back silently.
+_Avoid_: 面板模型设置、用户私有配置
+
 **Decision request / 决策请求**:
 A structured request created when a headless-team member needs a user decision. It belongs to the team and external principal; the controller relays the user's answer and wakes the original member. The client card is only one possible presentation.
 _Avoid_: 互动卡、授权门禁
@@ -50,7 +82,23 @@ One framework-driven host run attempt, recorded separately from message numbers 
 Optional plain text supplied at group creation and injected into every turn's context. It is context, not an authorization gate.
 
 **Group policy / 群执行策略**:
-`communication | read-only | workspace-write`, chosen at creation; ordinary member pair conversations run under it; ordinary member coordination/profile/private contexts always use communication. Panel Agent private access is configured separately. Maps to the two logical domains `communication` and `project`.
+`communication | read-only | workspace-write`, chosen at creation; ordinary member pair conversations run under it; ordinary member coordination/profile/private contexts always use communication. `workspace-write` permits file changes only inside the team workspace, independently of whether shell tools are enabled; a host that cannot enforce that boundary cannot claim the policy. Panel Agent private access is configured separately.
+
+**Member execution policy / 成员有效策略**:
+The policy actually available to one member after the Group policy ceiling is intersected with that member's host capability. It records the requested ceiling, effective mode, concrete capabilities, and reason for any safe downgrade.
+_Avoid_: 群策略、宿主默认权限
+
+**Work dispatch / 派发工作**:
+A formal `team_send` that may start a member turn. It may declare required capabilities; an incompatible dispatch is rejected before a work request is recorded.
+_Avoid_: 普通留言、所有团队消息
+
+**Capability degradation / 能力降级**:
+A persistent loss of previously available capability, such as workspace writes or a configured model. New incompatible work stops for that member, while existing work and the rest of the team continue; the framework never substitutes a fallback model or wider permission.
+_Avoid_: 模型切换、权限恢复
+
+**Capability escalation / 能力提升**:
+An explicit user or controller action that increases a member's effective capability. A member's request may describe the need but never grants the escalation; changing to a stronger model is not a capability escalation.
+_Avoid_: 成员自提权、模型升级
 
 **Unknown runtime / 待核实运行**:
 A turn whose outcome could not be verified (crash, restart). It blocks further delivery until the user resolves it. A delivery-safety state, not a business completion state.

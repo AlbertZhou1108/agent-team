@@ -7,8 +7,10 @@ web/dist/
 # 本地调研/过程材料，不入库
 research/
 
-# Agent 产出的开发过程文档，不入库
-docs/
+# Agent 产出的开发过程文档不入库；架构决策记录例外。
+docs/*
+!docs/adr/
+!docs/adr/**
 
 # 本机技能文件，由 skills-lock.json 管理，不入库
 .agents/

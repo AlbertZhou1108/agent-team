@@ -10,7 +10,7 @@
 
 ## 领取工作
 
-调用 `control_inbox` 领取成员回复和需要用户处理的事件。只有持有对应团队 active 写入席位的 binding 能领取该团队的投递；领取是持久、幂等的，同一投递不会再次返回。顶层 Codex 连接可从宿主环境或外围启动器取得可恢复 thread，并通过 `codex exec resume` 重新注入 Agent Team MCP 后唤醒积压会话；唤醒消息只要求调用 `control_inbox`。Codex multi-agent 子会话不能由父级恢复，必须保持 pull-only，除非外围启动器明确绑定可恢复 session。其他没有主动注入能力的宿主退化为下次活动时拉取，不能声称成员消息已经即时送达。
+调用 `control_inbox` 领取成员回复和需要用户处理的事件。只有持有对应团队 active 写入席位的 binding 能领取该团队的投递；领取是持久、幂等的，同一投递不会再次返回。Codex 主动唤醒通过 app-server 队列进入原线程，只有观察到真实回合开始才算 ready；随后仍需调用 `control_inbox`。Codex multi-agent 子会话不能由父级恢复，必须保持 pull-only，除非外围启动器明确绑定可恢复 session。其他没有主动注入能力的宿主退化为下次活动时拉取，不能声称成员消息已经即时送达。
 
 `control_teams` 只返回当前 principal 控制的团队。`team_snapshot`、`team_members` 和 `team_read` 用于读取；读取正文时必须沿用返回的 `messageId`、`hash`、`offset` 和 `bodyLimit`，不要根据消息编号猜测内容。
 
@@ -18,9 +18,21 @@
 
 `team_create` 的工作目录必须位于连接时登记的 `workspaceRoots` 内。默认使用 `read-only`；需要写入时显式选择策略，且不能超过当前绑定返回的 `policies`。成员格式为 `名称=宿主`。
 
+成员也可以传结构化对象：`{name, host, model, reasoningEffort}`。模型与思考强度从宿主实时目录校验；无效选择直接失败。后续用 `team_member_model` 调整普通成员。
+
 `team_send` 会唤醒成员；`team_note` 不唤醒，随下一次正式输入交付。请求协助、审阅或确认时设置 `expectsReply=true`。`team_tasks_set` 只整体替换当前主控自己的计划。
 
 外部主控通过团队获得的权限不能超过其当前宿主权限、注册工作区、团队策略和成员宿主能力的交集。尝试越权必须报告具体限制，不能静默换用更高权限。
+
+需要特定能力时，在 `team_send.requiredCapabilities` 中显式声明，例如 `file.read`、`file.write`、`filesystem.boundary`、`shell.exec`。框架按成员有效策略拒绝不兼容派单，不从自然语言推断能力要求。
+
+## 主动唤醒
+
+Codex Client binding 创建团队后处于 `provisioning`。调用 `control_wake_test` 验证真实 app-server 队列唤醒；只有观察到回合开始后 binding 才进入 `ready`，`team_send` 才允许派发工作。
+
+验证失败或环境指纹变化时保留团队与消息，但停止新派单。用户可调用 `control_accept_pull_only` 显式接受该 binding 现有和后续团队的 Pull-only；重测成功后自动恢复 ready。
+
+`control_status.wake` 区分 `unverified | provisioning | ready | degraded | unsupported`。唤醒与领取仍是两个事实：`queued/started` 不表示消息已被 `control_inbox` 领取。
 
 ## 用户决策
 

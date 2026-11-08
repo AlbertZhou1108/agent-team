@@ -141,6 +141,9 @@ test('a v11 database gains external controller identities, controller kind and b
   );
   assert.ok(store.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'command'));
   assert.ok(store.all('PRAGMA table_info(external_deliveries)').some(column => column.name === 'wake_state'));
+  assert.ok(store.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'wake_state'));
+  assert.ok(store.all('PRAGMA table_info(members)').some(column => column.name === 'effective_policy'));
+  assert.ok(store.all('PRAGMA table_info(messages)').some(column => column.name === 'required_capabilities'));
   store.run(
     "INSERT INTO external_principals(id,name,created,updated) VALUES('p1','user',?,?)",
     NOW, NOW,

@@ -10,6 +10,7 @@ export const CONTROL_PROTOCOL_VERSION = 1;
 export const CONTROL_CAPABILITIES = Object.freeze({
   sessionIdentity: 'session.identity',
   messageDelivery: 'session.deliver',
+  sessionWake: 'session.wake',
   statusObservation: 'session.status',
   turnObservation: 'turn.observe',
   userElicitation: 'user.elicit',

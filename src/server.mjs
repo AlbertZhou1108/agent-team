@@ -109,7 +109,13 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
             socket.once('close', () => { void close(); });
           } else { const value = await handleRpc(bus, request); socket.end(JSON.stringify({ result: value }) + '\n'); }
         }
-        catch (error) { socket.end(JSON.stringify({ error: error.message }) + '\n'); }
+        catch (error) {
+          socket.end(JSON.stringify({
+            error: error.message,
+            ...(error.code ? { code: error.code } : {}),
+            ...(error.details ? { details: error.details } : {}),
+          }) + '\n');
+        }
       });
     });
     await new Promise((resolve, reject) => { ipc.once('error', reject); ipc.listen(socketPath, resolve); });

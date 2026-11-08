@@ -205,7 +205,16 @@ export class MessageDispatch {
     const group = this.bus.store.group(member.group_id);
     const host = this.bus.hosts.get(member.host);
     if (!host) throw new Error(`宿主未配置: ${member.host}`);
-    const policy = this.bus.collaboration.policy(endpoint);
+    const requestedPolicy = this.bus.collaboration.policy(endpoint);
+    const effectiveMode = requestedPolicy.mode === 'communication'
+      ? 'communication'
+      : (member.effective_policy ?? requestedPolicy.mode);
+    const policy = {
+      ...requestedPolicy,
+      mode: effectiveMode,
+      allowShell: effectiveMode === 'workspace-write' && requestedPolicy.allowShell === true,
+      requestedMode: requestedPolicy.mode,
+    };
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) throw new Error('宿主会话域无效');

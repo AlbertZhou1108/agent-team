@@ -10,7 +10,7 @@ import { startServer, socketFor } from './server.mjs';
 import { rpc, serveMcp, serveControlMcp } from './rpc.mjs';
 import { Store } from './store.mjs';
 import { createExternalIdentity } from './control-plane.mjs';
-import { CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
+import { CONTROL_CAPABILITIES, CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
 import { nodeRunner } from './runtime.mjs';
 import { defaultSkillTarget, installSkill } from './skill-install.mjs';
 
@@ -88,7 +88,10 @@ async function main() {
     if (!host || !client) throw new Error('connect 需要 --host 与 --client');
     const capabilityIds = values.capabilities
       ? values.capabilities.split(',').map(item => item.trim()).filter(Boolean)
-      : [...CONTROLLER_REQUIRED_CAPABILITIES];
+      : [
+          ...CONTROLLER_REQUIRED_CAPABILITIES,
+          ...(host === 'codex' ? [CONTROL_CAPABILITIES.sessionWake] : []),
+        ];
     const required = new Set(CONTROLLER_REQUIRED_CAPABILITIES);
     if ([...required].some(capability => !capabilityIds.includes(capability))) {
       throw new Error(`外部主控至少需要能力: ${[...required].join(', ')}`);

@@ -109,6 +109,22 @@ export function clearSessionsForPanelAgent(store, panelAgentId, { privateOnly = 
     : store.run('UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE panel_agent_id=?', now, panelAgentId);
 }
 
+/** Execution-policy/tool changes invalidate every conversation owned by a member. */
+export function clearSessionsForMember(store, memberId) {
+  const now = new Date().toISOString();
+  return store.transaction(() => {
+    store.run(
+      'DELETE FROM conversation_session_meta WHERE conversation_id IN (SELECT id FROM conversations WHERE member_id=?)',
+      memberId,
+    );
+    return store.run(
+      'UPDATE conversations SET session=NULL,policy_signature=NULL,updated=? WHERE member_id=?',
+      now,
+      memberId,
+    );
+  });
+}
+
 // --- 上下文格式(schema_version / format_*;information 的存储边界) ----------
 // 「上下文格式」的版本选择与兼容策略仍由 information 决定,但事实行在
 // conversation_session_meta;这里只提供纯存取,避免 information 直写绑定表。

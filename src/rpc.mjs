@@ -16,7 +16,15 @@ export function rpc(socketPath, request, timeout = 960000) {
       if (receivedBytes > 4 * 1024 * 1024) return socket.destroy(new Error('响应过大，请分页读取'));
       if (!buffer.includes('\n')) return;
       answered = true;
-      try { const result = JSON.parse(buffer.split('\n')[0]); result.error ? reject(new Error(result.error)) : resolve(result.result); }
+      try {
+        const result = JSON.parse(buffer.split('\n')[0]);
+        if (result.error) {
+          const error = new Error(result.error);
+          if (result.code) error.code = result.code;
+          if (result.details) error.details = result.details;
+          reject(error);
+        } else resolve(result.result);
+      }
       catch (error) { reject(error); }
       socket.end();
     });
@@ -42,7 +50,12 @@ export async function serveMcp(socketPath, endpoint, key, turnId) {
         try {
           const value = await rpc(socketPath, { op: 'tool', endpoint, key, turnId, name: request.params?.name, args: request.params?.arguments ?? {} });
           result = { content: [{ type: 'text', text: JSON.stringify(value) }], isError: false };
-        } catch (error) { result = { content: [{ type: 'text', text: error.message }], isError: true }; }
+        } catch (error) {
+          result = {
+            content: [{ type: 'text', text: error.code ? JSON.stringify({ code: error.code, message: error.message, details: error.details ?? null }) : error.message }],
+            isError: true,
+          };
+        }
       } else return output({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Unsupported method' } });
       output({ jsonrpc: '2.0', id: request.id, result });
     } catch (error) { if (request && 'id' in request) output({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: error.message } }); }
@@ -98,7 +111,10 @@ export async function serveControlMcp(socketPath, bindingId, key) {
           });
           result = { content: [{ type: 'text', text: JSON.stringify(value) }], isError: false };
         } catch (error) {
-          result = { content: [{ type: 'text', text: error.message }], isError: true };
+          result = {
+            content: [{ type: 'text', text: error.code ? JSON.stringify({ code: error.code, message: error.message, details: error.details ?? null }) : error.message }],
+            isError: true,
+          };
         }
       } else {
         return output({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Unsupported method' } });

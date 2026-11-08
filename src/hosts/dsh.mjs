@@ -71,6 +71,19 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       });
     },
     telemetryCapabilities: dshCapabilities(),
+    executionCapabilities({ mode, allowShell }) {
+      if (mode === 'communication') {
+        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
+      }
+      if (mode === 'read-only') {
+        return { effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取' };
+      }
+      return {
+        effectivePolicy: 'workspace-write',
+        capabilities: ['file.read', 'file.write', 'filesystem.boundary', ...(allowShell ? ['shell.exec'] : [])],
+        reason: allowShell ? null : '未启用 shell；仍允许受限文件编辑',
+      };
+    },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
         ? { supported: true }

@@ -96,6 +96,45 @@ export function setBindingWakeConfig(store, id, config, now = new Date().toISOSt
   );
 }
 
+export function setBindingWakeState(store, id, {
+  state,
+  mode = null,
+  reason = null,
+  fingerprint = null,
+  verifiedAt = null,
+  attempts = null,
+  nextAttempt = null,
+  now = new Date().toISOString(),
+}) {
+  if (!['unverified', 'provisioning', 'ready', 'degraded', 'unsupported'].includes(state)) {
+    throw new Error(`未知唤醒状态: ${state}`);
+  }
+  return store.run(
+    `UPDATE external_client_bindings
+     SET wake_state=?,wake_mode=?,wake_reason=?,wake_fingerprint=COALESCE(?,wake_fingerprint),
+         wake_verified_at=COALESCE(?,wake_verified_at),wake_attempts=COALESCE(?,wake_attempts),
+         wake_next_attempt=?,updated=?
+     WHERE id=?`,
+    state, mode, reason, fingerprint, verifiedAt, attempts, nextAttempt, now, id,
+  );
+}
+
+export function acceptPullOnly(store, id, now = new Date().toISOString()) {
+  return store.run(
+    `UPDATE external_client_bindings
+     SET pull_only_accepted=?,wake_state='degraded',wake_reason='用户已接受仅拉取模式',updated=?
+     WHERE id=?`,
+    now, now, id,
+  );
+}
+
+export function clearPullOnly(store, id, now = new Date().toISOString()) {
+  return store.run(
+    'UPDATE external_client_bindings SET pull_only_accepted=NULL,updated=? WHERE id=?',
+    now, id,
+  );
+}
+
 export function controlledTeams(store, principalId) {
   return store.all(
     `SELECT g.id,g.name,g.workspace,g.charter,g.policy,g.allow_shell,g.created,g.state,
@@ -226,6 +265,15 @@ export function claimDeliveries(store, { principalId, bindingId, limit, now }) {
 }
 
 export function deliveryStatus(store, principalId) {
+  const wakeCounts = Object.fromEntries(
+    ['pending', 'sending', 'sent', 'unsupported', 'error'].map(state => [
+      state,
+      store.get(
+        'SELECT count(*) AS count FROM external_deliveries WHERE principal_id=? AND wake_state=?',
+        principalId, state,
+      ).count,
+    ]),
+  );
   return {
     pending: store.get(
       "SELECT count(*) AS count FROM external_deliveries WHERE principal_id=? AND state='pending'",
@@ -235,15 +283,12 @@ export function deliveryStatus(store, principalId) {
       "SELECT count(*) AS count FROM external_deliveries WHERE principal_id=? AND state='error'",
       principalId,
     ).count,
-    wake: Object.fromEntries(
-      ['pending', 'sending', 'sent', 'unsupported', 'error'].map(state => [
-        state,
-        store.get(
-          'SELECT count(*) AS count FROM external_deliveries WHERE principal_id=? AND wake_state=?',
-          principalId, state,
-        ).count,
-      ]),
-    ),
+    wake: {
+      ...wakeCounts,
+      queued: wakeCounts.sending,
+      started: wakeCounts.sent,
+      failed: wakeCounts.error,
+    },
   };
 }
 

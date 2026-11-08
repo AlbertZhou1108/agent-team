@@ -44,7 +44,9 @@
 - 流式文本、工具调用、错误、取消、进程树收尾与不确定运行。
 - 请求策略的支持判断与实际宿主配置记录，不支持时明确拒绝。
 - 可选的模型目录、能力与遥测上报，以及独立通信检测。
+- 可选的 `executionCapabilities`：声明指定群策略和 shell 配置下真实可用的文件读取、工作区写入、shell 与路径边界能力。未声明路径边界时不能把成员标成可写。
+- 可选的主动唤醒 driver：提供环境指纹与对现有会话的真实注入能力。未注册 driver 的宿主保持显式 pull-only。
 
-主要入口：[codex.mjs](../src/hosts/codex.mjs)、[cli-hosts.mjs](../src/hosts/cli-hosts.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
+主要入口：[codex.mjs](../src/hosts/codex.mjs)、[codex-wake.mjs](../src/hosts/codex-wake.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[cli-hosts.mjs](../src/hosts/cli-hosts.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
 
 模型目录可由 CLI 查询；页面设置中的全局模型策略用于新建角色的默认模型说明，不会追溯改写所有已有角色。事件视图只呈现适配器实际观察到的内容，不等同于宿主原生完整历史。

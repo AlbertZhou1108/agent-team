@@ -41,6 +41,7 @@
  * @property {() => void | Promise<void>} [close]
  * @property {(options: object) => { supported: boolean, reason?: string }} [supportsPanelAccess]
  * @property {(options: object) => { supported: boolean, reason?: string }} [supportsPolicy]
+ * @property {(options: { mode: string, allowShell: boolean, workspace: string }) => { effectivePolicy: string, capabilities: string[], reason?: string | null }} [executionCapabilities]
  * @property {() => Promise<object>} [listModels]
  * @property {() => object} [telemetryCapabilities]
  * @property {(args: SessionKeyArgs) => string} [sessionKey]

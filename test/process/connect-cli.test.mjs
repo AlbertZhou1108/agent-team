@@ -28,6 +28,7 @@ test('connect installs the Skill, prints MCP config and rotates the same binding
   ];
   const first = JSON.parse((await run(process.execPath, args)).stdout);
   assert.equal(first.binding.name, 'main');
+  assert.ok(first.capabilities.capabilities.includes('session.wake'));
   assert.equal(first.mcp.agent_team.env.AGENT_TEAM_CONTROL_PROTOCOL, '1');
   assert.equal(first.skill.current, true);
   assert.equal(readFileSync(join(skill, 'SKILL.md'), 'utf8').startsWith('---'), true);

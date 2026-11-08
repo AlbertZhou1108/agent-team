@@ -14,6 +14,10 @@
 - 成员回复进入持久外部收件箱；`control_inbox` 领取后不会重复投递。
 - 顶层 Codex 会话可通过相同的 `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 自动绑定，或由外围启动器从 `thread.started` 调用 `bind_client_session`。Codex multi-agent 子会话的两值不同，不能由父级恢复，因此自动降级为 pull-only；显式 `AGENT_TEAM_HOST_SESSION` 可声明可恢复 session，`AGENT_TEAM_DISABLE_ACTIVE_WAKE=1` 可禁止自动绑定并清理旧 session，外围启动器后续显式绑定仍可恢复唤醒。MCP shim 保存可重建的唤醒配置，有积压事件时用 `codex exec resume` 重新注入 Agent Team MCP；唤醒后仍需调用 `control_inbox`。
 - 成员 `ask` 在外部主控团队中转为 pending decision request；主控答复以 user-origin 消息唤醒原成员。
+- Codex 主动唤醒使用 app-server 的 `thread/queue/add`；空闲线程会自动开始，只有收到真实 `turn/started` 才把 Client binding 标为 ready。
+- 无头团队创建后先处于 provisioning；主动唤醒未验证时拒绝工作派单。用户可以显式接受 binding 级 Pull-only，重测成功后恢复。
+- 无头成员模型可在 `team_create` 中以结构化成员指定，也可用 `team_member_model` 显式调整；两者都使用实时模型目录。
+- 群策略是能力上限，成员有效策略与宿主能力取交集。`team_send.requiredCapabilities` 在写消息前拒绝能力不匹配的派单。
 - 服务重启后保留 binding、pending delivery 和 decision。
 - 控制协议不兼容时只暴露只读工具，写操作明确失败。
 - `connect` 会为已知宿主安装或更新 Skill；重复连接轮换凭据，并把旧 Skill 目录保留为同级备份。
@@ -21,7 +25,7 @@
 
 尚未完成：
 
-- 通用宿主主动注入适配器。目前只有 Codex 声明了带 MCP 重建配置的 `exec resume` 唤醒驱动；其他宿主保持持久收件箱拉取，除非其适配器补上正式注入能力。
+- 通用宿主主动注入适配器。目前只有 Codex 注册了 app-server wake driver；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
 - 多主控交接、远程连接和完整原生 TUI。
 
 ## 产品边界
@@ -91,7 +95,7 @@ Agent Team 的核心是宿主无关、无头优先的多 Agent 协作控制面�
 - `note` 不唤醒，随下一次正式输入交付。
 - 主控离线时消息持久排队；成员完成安全收尾，不自动启动替代主控。
 - 异步控制事件复用普通 `deliver(envelope)`；宿主原生通知是可选增强。
-- 主动唤醒与领取分离：`wake_state=sent` 只表示唤醒回合已成功执行，`control_inbox` 领取后才表示客户端接受了输入。
+- 主动唤醒与领取分离：`queued/started` 只表示宿主接受了唤醒并开始回合，`control_inbox` 领取后才表示客户端接受了输入。
 - 同步工具错误通过 MCP `isError` 返回；只有无法附着到工具调用的异步异常才作为控制事件主动投递。
 
 ## 用户交互
@@ -129,11 +133,11 @@ Agent Team 的核心是宿主无关、无头优先的多 Agent 协作控制面�
 - 凭据按 client binding 限权、可撤销；不能因为能启动 MCP 命令就获得所有团队。
 - 局域网、远程和云连接属于远期方向，不进入下一阶段硬目标。
 
-## 当前开放边界（2026-11-08）
+## 当前开放边界（2026-11-09）
 
-- 控制协议版本为 `1`，持久化 schema 为 `16`。旧库逐级迁移；较新 schema 不能被旧程序打开，发布说明必须注明。
+- 控制协议版本为 `1`，持久化 schema 为 `17`。旧库逐级迁移；较新 schema 不能被旧程序打开，发布说明必须注明。
 - 对外主控、外部投递、decision、能力交集、workspace 路径边界、协议降级、双 binding 单写席位和归档暂停已有契约测试；其中前五项另用真实 Claude/DSH/MCP 环境复验。
-- 顶层 Codex 的主动唤醒已验证；Codex multi-agent 子会话只能 pull-only，其他宿主当前也默认 pull-only，除非外围启动器明确绑定可恢复 session。
+- Codex 主动唤醒具备 provisioning/ready/degraded/unsupported 状态和真实回合启动证据；Codex multi-agent 子会话只能 pull-only，其他宿主当前也默认 pull-only，直到各自实现 wake driver。
 - 主动唤醒回合使用 Codex `read-only` sandbox；只为 `agent_team` MCP server 设置工具自动批准，不绕过宿主文件系统 sandbox。
 - 服务重启后的 pending delivery 和 binding 已有契约覆盖，尚未把“真实团队在重启后继续处理”纳入本轮发布硬门禁。
 - 当前只支持严格本机连接。远程部署、多主控同时写同一团队、完整原生 TUI 嵌入、所有宿主桌面产品适配、Panel Agent 与外部主控完全对等、强制隔离托管成员原生 session 不进入当前版本。

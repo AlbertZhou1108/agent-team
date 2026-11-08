@@ -69,7 +69,7 @@ function setup(t, { externalWake, capabilities = Object.values(CONTROL_CAPABILIT
     },
   });
   const call = async (name, args = {}) => bus.controlTool(identity.binding.id, identity.key, name, args);
-  return { bus, directory, identity, call, wakeCalls };
+  return { bus, directory, identity, call, wakeCalls, host };
 }
 
 test('external controller creates and reads a cross-host shaped team without a panel session', async t => {
@@ -121,6 +121,7 @@ test('external controller creates and reads a cross-host shaped team without a p
   assert.equal(projected.controller.kind, 'external_agent');
   assert.equal(projected.controller.name, identity.principal.name);
 
+  await call('control_wake_test');
   const sent = await call('team_send', {
     teamId: created.team.id,
     to: '成员',
@@ -131,11 +132,12 @@ test('external controller creates and reads a cross-host shaped team without a p
     async () => (await call('control_status')).delivery.pending === 1,
     'member reply was not queued for the external controller',
   );
-  await until(() => wakeCalls.length === 1, 'external wake was not attempted');
+  await until(() => wakeCalls.length === 2, 'external wake was not attempted');
   assert.equal((await call('control_status')).delivery.wake.sent, 1);
+  assert.equal((await call('control_status')).delivery.wake.started, 1);
   bus.pump();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(wakeCalls.length, 1, 'the same pending delivery must not wake twice');
+  assert.equal(wakeCalls.length, 2, 'the same pending delivery must not wake twice');
   const inbox = await call('control_inbox', { limit: 20 });
   assert.equal(inbox.deliveries.length, 1);
   assert.equal(inbox.deliveries[0].payload.teamId, created.team.id);
@@ -143,10 +145,255 @@ test('external controller creates and reads a cross-host shaped team without a p
   assert.equal(inbox.deliveries[0].payload.message.awaiting, 0);
   assert.deepEqual(await call('control_inbox', { limit: 20 }).then(value => value.deliveries), []);
   assert.equal((await call('control_status')).delivery.pending, 0);
-  assert.equal(wakeCalls.length, 1);
-  assert.equal(wakeCalls[0].binding.host, 'codex');
-  assert.equal(wakeCalls[0].options.count, 1);
+  assert.equal(wakeCalls.length, 2);
+  assert.equal(wakeCalls[1].binding.host, 'codex');
+  assert.equal(wakeCalls[1].options.count, 1);
+  assert.deepEqual((await call('control_status')).wake, {
+    state: 'ready',
+    mode: 'codex',
+    reason: null,
+  });
   assert.equal((await call('team_archive', { teamId: created.team.id })).team.state, 'archived');
+});
+
+test('active wake is advertised but remains unverified before a real wake starts', async t => {
+  const { identity, call } = setup(t);
+  const protocol = await call('control_protocol');
+  assert.ok(protocol.capabilities.capabilities.includes(CONTROL_CAPABILITIES.sessionWake));
+  const status = await call('control_status');
+  assert.deepEqual(status.wake, {
+    state: 'unverified',
+    mode: 'codex',
+    reason: '尚未通过真实主动唤醒验证',
+  });
+  assert.equal(status.binding.host, 'codex');
+  assert.equal(status.binding.id, identity.binding.id);
+});
+
+test('headless work is gated until wake verification or binding pull-only acceptance', async t => {
+  const { bus, directory, call, identity } = setup(t, {
+    externalWake: async () => ({ supported: true, state: 'started', mode: 'codex' }),
+  });
+  const created = await call('team_create', {
+    name: '门禁团队',
+    workspace: directory,
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  assert.equal(created.headless.state, 'provisioning');
+  assert.equal((await call('team_snapshot', { teamId: created.team.id })).headless.state, 'provisioning');
+  let blocked;
+  await assert.rejects(
+    async () => {
+      try {
+        await call('team_send', {
+          teamId: created.team.id,
+          to: '成员',
+          text: '现在开始工作。',
+        });
+      } catch (error) {
+        blocked = error;
+        throw error;
+      }
+    },
+    /headless_not_ready/,
+  );
+  assert.equal(blocked.code, 'headless_not_ready');
+  assert.equal(blocked.details.wake.state, 'provisioning');
+  const verified = await call('control_wake_test');
+  assert.deepEqual(verified.wake, { state: 'ready', mode: 'codex', reason: null });
+  const sent = await call('team_send', {
+    teamId: created.team.id,
+    to: '成员',
+    text: '验证后开始工作。',
+  });
+  assert.ok(sent.messageId);
+
+  const fallbackIdentity = createExternalIdentity(bus.store, {
+    principalName: '仅拉取用户',
+    bindingName: '仅拉取会话',
+    host: 'codex',
+    session: 'thread-fallback',
+    declared: {
+      capabilities: Object.values(CONTROL_CAPABILITIES),
+      workspaceRoots: [directory],
+      policies: ['read-only'],
+    },
+    probed: {
+      capabilities: Object.values(CONTROL_CAPABILITIES),
+      workspaceRoots: [directory],
+      policies: ['read-only'],
+    },
+  });
+  const fallbackCall = (name, args = {}) =>
+    bus.controlTool(fallbackIdentity.binding.id, fallbackIdentity.key, name, args);
+  const fallbackTeam = await fallbackCall('team_create', {
+    name: '拉取团队',
+    workspace: directory,
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  const accepted = await fallbackCall('control_accept_pull_only');
+  assert.equal(accepted.wake.state, 'degraded');
+  const fallbackSent = await fallbackCall('team_send', {
+    teamId: fallbackTeam.team.id,
+    to: '成员',
+    text: '仅拉取路径。',
+  });
+  assert.ok(fallbackSent.messageId);
+  assert.notEqual(identity.binding.id, fallbackIdentity.binding.id);
+});
+
+test('headless controller configures member models through the live catalog', async t => {
+  const { host, call, directory } = setup(t, {
+    externalWake: async () => ({ supported: true, state: 'started', mode: 'codex' }),
+  });
+  host.listModels = async () => ({
+    version: 1,
+    host: 'fake',
+    source: 'test',
+    defaultModel: 'fast',
+    reasoningEfforts: [],
+    models: [
+      {
+        key: 'fast',
+        id: 'fast',
+        label: 'Fast',
+        reasoningEfforts: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
+        defaultReasoningEffort: 'high',
+        isDefault: true,
+      },
+      {
+        key: 'deep',
+        id: 'deep',
+        label: 'Deep',
+        reasoningEfforts: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
+        defaultReasoningEffort: 'high',
+        isDefault: false,
+      },
+    ],
+  });
+  const created = await call('team_create', {
+    name: '模型配置团队',
+    workspace: directory,
+    members: [{
+      name: '成员',
+      host: 'fake',
+      model: 'deep',
+      reasoningEffort: 'low',
+    }],
+    policy: 'read-only',
+  });
+  let snapshot = await call('team_snapshot', { teamId: created.team.id });
+  assert.equal(snapshot.members[0].model, 'deep');
+  assert.equal(snapshot.members[0].reasoning_effort, 'low');
+  await call('team_member_model', {
+    teamId: created.team.id,
+    member: '成员',
+    model: 'fast',
+    reasoningEffort: 'high',
+  });
+  snapshot = await call('team_snapshot', { teamId: created.team.id });
+  assert.equal(snapshot.members[0].model, 'fast');
+  assert.equal(snapshot.members[0].reasoning_effort, 'high');
+  await assert.rejects(
+    () => call('team_member_model', {
+      teamId: created.team.id,
+      member: '成员',
+      model: 'missing',
+      reasoningEffort: 'low',
+    }),
+    /不在该成员宿主目录/,
+  );
+});
+
+test('team creation retries a transient live model catalog failure', async t => {
+  const { host, call, directory } = setup(t, {
+    externalWake: async () => ({ supported: true, state: 'started', mode: 'codex' }),
+  });
+  const catalog = {
+    version: 1,
+    host: 'fake',
+    source: 'test',
+    defaultModel: 'fast',
+    reasoningEfforts: [],
+    models: [{
+      key: 'fast',
+      id: 'fast',
+      label: 'Fast',
+      reasoningEfforts: [{ id: 'low', label: 'Low' }],
+      defaultReasoningEffort: 'low',
+      isDefault: true,
+    }],
+  };
+  let attempts = 0;
+  host.listModels = async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('无法确认检测进程已停止');
+    return catalog;
+  };
+  const created = await call('team_create', {
+    name: '目录重试团队',
+    workspace: directory,
+    members: [{ name: '成员', host: 'fake', model: 'fast', reasoningEffort: 'low' }],
+    policy: 'read-only',
+  });
+  assert.equal(attempts, 2);
+  const snapshot = await call('team_snapshot', { teamId: created.team.id });
+  assert.equal(snapshot.members[0].model, 'fast');
+});
+
+test('workspace-write is a ceiling and dispatch rejects missing member capabilities', async t => {
+  const { host, call, directory } = setup(t, {
+    externalWake: async () => ({ supported: true, state: 'started', mode: 'codex' }),
+  });
+  host.executionCapabilities = async ({ mode }) => mode !== 'communication'
+    ? {
+        effectivePolicy: 'read-only',
+        capabilities: ['file.read'],
+        reason: '宿主无法保证工作区写边界',
+      }
+    : { effectivePolicy: 'communication', capabilities: [], reason: '仅通信' };
+  const created = await call('team_create', {
+    name: '有效策略团队',
+    workspace: directory,
+    members: [{ name: '成员', host: 'fake' }],
+    policy: 'workspace-write',
+  });
+  await call('control_wake_test');
+  const snapshot = await call('team_snapshot', { teamId: created.team.id });
+  assert.deepEqual(snapshot.members[0].executionPolicy, {
+    requested: 'workspace-write',
+    effective: 'read-only',
+    capabilities: ['file.read'],
+    reason: '宿主无法保证工作区写边界',
+  });
+  let capabilityError;
+  await assert.rejects(
+    async () => {
+      try {
+        await call('team_send', {
+          teamId: created.team.id,
+          to: '成员',
+          text: '请修改文件。',
+          requiredCapabilities: ['file.write', 'filesystem.boundary'],
+        });
+      } catch (error) {
+        capabilityError = error;
+        throw error;
+      }
+    },
+    /capability_required/,
+  );
+  assert.equal(capabilityError.code, 'capability_required');
+  assert.deepEqual(capabilityError.details.missingCapabilities, ['file.write', 'filesystem.boundary']);
+  const sent = await call('team_send', {
+    teamId: created.team.id,
+    to: '成员',
+    text: '请阅读文件。',
+    requiredCapabilities: ['file.read'],
+  });
+  assert.ok(sent.messageId);
 });
 
 test('external binding rejects bad keys, foreign teams and workspaces outside its roots', async t => {
@@ -333,6 +580,7 @@ test('member ask tool routes through the external controller without a panel car
     policy: 'read-only',
   });
   await until(() => bus.running.size === 0, 'member profile turns did not settle');
+  await call('control_wake_test');
   await call('team_send', {
     teamId: created.team.id,
     to: '成员',
@@ -445,22 +693,64 @@ test('unsupported active wake stays pending and is visible in control status', a
     policy: 'read-only',
   });
   await until(() => bus.running.size === 0, 'member profile turns did not settle');
+  const failed = await call('control_wake_test');
+  assert.equal(failed.wake.state, 'unsupported');
+  await call('control_accept_pull_only');
   await call('team_send', {
     teamId: created.team.id,
     to: '成员',
     text: '请回复。',
   });
   await untilAsync(
-    async () => (await call('control_status')).delivery.wake.unsupported === 1,
-    'unsupported wake was not recorded',
+    async () => (await call('control_status')).delivery.pending === 1,
+    'pull-only delivery was not retained',
   );
   const status = await call('control_status');
   assert.equal(status.delivery.pending, 1);
-  assert.equal(status.delivery.wake.unsupported, 1);
+  assert.equal(status.wake.state, 'degraded');
+  assert.equal(status.delivery.wake.pending, 1);
   await bus.controlTool(identity.binding.id, identity.key, 'control_protocol', {}, 1, 'new-thread');
+  const recovered = await call('control_wake_test');
+  assert.equal(recovered.wake.state, 'ready');
   await untilAsync(
     async () => (await call('control_status')).delivery.wake.sent === 1,
-    'session discovery did not retry the unsupported wake',
+    'wake recovery did not retry the unsupported delivery',
   );
   assert.equal((await call('control_inbox')).deliveries.length, 1);
+});
+
+test('active wake is serialized for one controller session', async t => {
+  let active = 0;
+  let maximum = 0;
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const { call, directory } = setup(t, {
+    externalWake: async (_binding, options) => {
+      if (options.verification) return { supported: true, state: 'started' };
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await blocked;
+      active -= 1;
+      return { supported: true, state: 'started' };
+    },
+  });
+  const created = await call('team_create', {
+    name: '串行唤醒团队',
+    workspace: directory,
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  await call('control_wake_test');
+  maximum = 0;
+  await call('team_send', { teamId: created.team.id, to: '成员', text: '第一项' });
+  await untilAsync(() => active === 1, 'first wake did not start');
+  await call('team_send', { teamId: created.team.id, to: '成员', text: '第二项' });
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(maximum, 1);
+  release();
+  let claimed = 0;
+  await untilAsync(async () => {
+    claimed += (await call('control_inbox', { limit: 100 })).deliveries.length;
+    return claimed === 2;
+  }, 'serialized wakes did not settle');
 });

@@ -263,6 +263,30 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         ? { supported: true }
         : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要群策略允许沙箱命令' };
     },
+    executionCapabilities({ mode, allowShell }) {
+      if (mode === 'communication') {
+        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
+      }
+      if (!allowShell) {
+        return {
+          effectivePolicy: 'communication',
+          capabilities: [],
+          reason: 'Codex 项目操作依赖沙箱命令，当前群未启用 shell',
+        };
+      }
+      if (mode === 'read-only') {
+        return {
+          effectivePolicy: 'read-only',
+          capabilities: ['file.read', 'shell.exec'],
+          reason: '群策略只允许读取，shell 运行在只读沙箱',
+        };
+      }
+      return {
+        effectivePolicy: 'workspace-write',
+        capabilities: ['file.read', 'file.write', 'filesystem.boundary', 'shell.exec'],
+        reason: null,
+      };
+    },
     supportsPanelAccess() {
       return { supported: true };
     },
