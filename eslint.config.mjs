@@ -7,7 +7,7 @@ export default [
   },
   {
     // 后端与工具脚本:高价值错误规则,不做风格约束;前端不在本计划范围。
-    files: ['src/**/*.mjs', 'test/**/*.mjs', 'scripts/*.mjs', 'electron/**/*.mjs'],
+    files: ['src/**/*.mjs', 'scripts/*.mjs', 'electron/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
@@ -36,7 +36,7 @@ export default [
   },
   {
     // 测试代码:require-atomic-updates 对测试轮询写法误报率高,仅对 src 启用。
-    files: ['test/**/*.mjs'],
+    files: ['src/tests/**/*.mjs'],
     rules: {
       'require-atomic-updates': 'off',
     },

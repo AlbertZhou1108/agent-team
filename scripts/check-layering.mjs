@@ -2,7 +2,7 @@
 /**
  * 分层检查（P1-4 起，P3-3 收紧为 ratchet）：
  *
- *  规则 A（ratchet，阻断新增违规）：test/contract/** 的断言不得直接读存储行
+ *  规则 A（ratchet，阻断新增违规）：src/tests/contract/** 的断言不得直接读存储行
  *    （`store.get/all/run`）。contract 层测试只能断言公共入口的返回值/可观察行为，
  *    直接读表会把内部表结构钉进对外契约。
  *    - 存量违规记录在 `scripts/layering-baseline.json`（按文件计数）；
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const webSrcDir = join(repoRoot, 'web/src');
 const webTestsDir = join(repoRoot, 'web/tests');
-const contractDir = join(repoRoot, 'test/contract');
+const contractDir = join(repoRoot, 'src/tests/contract');
 const baselinePath = join(repoRoot, 'scripts/layering-baseline.json');
 const updateBaseline = process.argv.includes('--update-baseline');
 
@@ -93,7 +93,7 @@ function readBaseline() {
 
 function writeBaseline(result) {
   const payload = {
-    note: 'check-layering 规则 A 存量基线：test/contract 断言直读 store 行的按文件计数。'
+    note: 'check-layering 规则 A 存量基线：src/tests/contract 断言直读 store 行的按文件计数。'
       + '迁移后运行 node scripts/check-layering.mjs --update-baseline 下调；只允许下降，新增由检查阻断。',
     total: result.total,
     files: Object.fromEntries(
@@ -107,7 +107,7 @@ function reportRuleA(result, baseline) {
   if (!baseline) return false;
   const allowedFiles = baseline.files ?? {};
   const allowedTotal = Object.values(allowedFiles).reduce((sum, count) => sum + count, 0);
-  const label = '[layering] 规则 A（ratchet）：test/contract 断言不得直接读 store 行';
+  const label = '[layering] 规则 A（ratchet）：src/tests/contract 断言不得直接读 store 行';
 
   if (!result.total) {
     console.log(`${label} — 通过（0 处；基线 ${allowedTotal} 处，可用 --update-baseline 同步）`);

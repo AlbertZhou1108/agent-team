@@ -3,7 +3,7 @@
  * Electron 启动冒烟：用隔离的数据目录拉起桌面壳，等待面板加载成功后退出。
  *
  * 覆盖「主进程 + preload + 服务拉起 + 窗口 loadURL」这条真实启动路径；
- * 只验证启动可达，不做交互断言（交互由 test/contract/desktop-helpers.test.mjs 覆盖）。
+ * 只验证启动可达，不做交互断言（交互由 src/tests/unit/desktop-helpers.test.mjs 覆盖）。
  * 因为是 GUI 冒烟，默认不进 CI，按发布/桌面改动手动执行：npm run desktop:smoke
  */
 import { spawn } from 'node:child_process';

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 后端覆盖率（P3-2）：Node 内建 test coverage，只统计 `src/**` 产品代码。
+ * 后端覆盖率（P3-2）：Node 内建 test coverage，只统计 `src/**` 产品代码（排除 src/tests/）。
  *
  * 设计约定：
  * - 只产出报告，不设阈值、不阻断 `npm test`；需要门禁时再单独加 `--test-coverage-*` 阈值。
@@ -13,11 +13,13 @@ const args = [
   '--disable-warning=ExperimentalWarning',
   '--experimental-test-coverage',
   '--test-coverage-include=src/**',
+  '--test-coverage-exclude=src/tests/**',
   '--test',
   // Node 22 的 --test 自己展开 glob；不经过 shell，三平台一致。
-  'test/contract/*.test.mjs',
-  'test/internal/*.test.mjs',
-  'test/process/*.test.mjs',
+  'src/tests/unit/*.test.mjs',
+  'src/tests/contract/*.test.mjs',
+  'src/tests/internal/*.test.mjs',
+  'src/tests/process/*.test.mjs',
 ];
 
 const result = spawnSync(process.execPath, args, { stdio: 'inherit' });

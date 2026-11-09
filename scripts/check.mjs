@@ -18,7 +18,7 @@ function check(directory) {
     }
   }
 }
-for (const directory of ['src', 'web', 'test', 'scripts', 'electron']) check(directory);
+for (const directory of ['src', 'web', 'scripts', 'electron']) check(directory);
 console.log('Syntax checks passed');
 
 /** 去掉注释但保留行号：块注释里的换行原样留下，其余字符换成空格。 */

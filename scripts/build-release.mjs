@@ -32,7 +32,12 @@ chmodSync(join(application, 'runtime', nodeName), 0o755);
 const nodeLicense = [resolve(dirname(process.execPath), '../LICENSE'), join(dirname(process.execPath), 'LICENSE')].find(path => existsSync(path));
 if (!nodeLicense) throw new Error('未找到当前 Node 的 LICENSE，请使用包含许可证的完整 Node 发行环境构建');
 cpSync(nodeLicense, join(application, 'runtime', 'LICENSE'));
-cpSync(join(repo, 'src'), join(application, 'src'), { recursive: true });
+const isTestTree = (path) => relative(join(repo, 'src'), path).split(sep)[0] === 'tests';
+cpSync(join(repo, 'src'), join(application, 'src'), {
+  recursive: true,
+  // 测试集中在 src/tests/，不得进入发布产物或参与运行时依赖收集。
+  filter: (source) => !isTestTree(source),
+});
 cpSync(join(repo, 'web/dist'), join(application, 'web/dist'), { recursive: true });
 writeFileSync(join(application, 'package.json'), JSON.stringify({ name: 'agent-team-local', private: true, type: 'module', version }, null, 2));
 const dependencies = {};
@@ -54,6 +59,7 @@ const roots = new Set();
 function imports(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
+    if (isTestTree(path)) continue;
     if (entry.isDirectory()) imports(path);
     else if (path.endsWith('.mjs')) for (const match of readFileSync(path, 'utf8').matchAll(/\bfrom\s+['"]([^.'"][^'"]+)['"]/g)) {
       const spec = match[1];

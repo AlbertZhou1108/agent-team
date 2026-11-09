@@ -39,8 +39,8 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 | `src/` | Node ESM 后端，宿主适配器在 `src/hosts/` |
 | `web/` | Vue 3、TypeScript、Vite 前端，npm workspace |
 | `electron/` | 开发态桌面窗口：启动器、主进程、托盘、preload |
-| `test/` | `node:test` 后端测试 |
-| `web/tests/` | Vitest 前端测试（统一目录，`support/` 放共用辅助） |
+| `src/tests/` | `node:test` 后端测试，按 `unit/` `contract/` `internal/` `process/` 分层，`support/` 放共用辅助 |
+| `web/tests/` | Vitest 前端测试，按 `web/src/` 模块结构分目录，`support/` 放共用辅助 |
 | `scripts/` | 门禁、发行构建与手动真宿主验证工具 |
 | `guide/` | 正式使用与技术文档 |
 | `assets/readme/` | 产品介绍使用的插画和实机截图 |
