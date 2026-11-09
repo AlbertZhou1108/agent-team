@@ -17,7 +17,6 @@ import {
   BUILTIN_PRESET_ID,
   normalizeModelPolicy,
 } from '../model-policy.mjs';
-import { memberModelSummary } from '../model-policy.mjs';
 import { Interactions } from '../interactions.mjs';
 import { Attachments } from '../attachments.mjs';
 import { PanelSessions } from '../panel-sessions.mjs';
@@ -31,6 +30,7 @@ import * as externalAgg from '../aggregates/external-control.mjs';
 import * as panelAgg from '../aggregates/panel.mjs';
 import * as settingsAgg from '../aggregates/settings.mjs';
 import { Maintenance } from './maintenance.mjs';
+import { ModelCatalog } from './model-catalog.mjs';
 
 export { interactionView } from '../interactions.mjs';
 
@@ -56,10 +56,6 @@ export class Bus extends EventEmitter {
     this.running = new Map();
     this.deletingGroups = new Set();
     this.closing = false;
-    this.modelCatalogCache = null;
-    this.hostCatalogs = new Map();
-    this.hostCatalogPending = new Map();
-    this.hostCatalogControllers = new Map();
     this.toolStreams = new ToolStreams(this);
     this.interactions = new Interactions(this);
     this.attachments = new Attachments(this);
@@ -73,6 +69,7 @@ export class Bus extends EventEmitter {
     this.notes = new Notes(this);
     this.controlPlane = new ControlPlane(this, externalWake ? { wake: externalWake } : {});
     this.maintenance = new Maintenance(this);
+    this.models = new ModelCatalog(this);
     // 旧任务列表没有 step id;把当前控制者的列表提升为当前任期计划,只做一次。
     this.lifecycle.migrateLegacyPlans();
   }
@@ -115,38 +112,7 @@ export class Bus extends EventEmitter {
     const support = host?.supportsPolicy?.({ member, policy }) ?? { supported: true };
     if (support === false || support.supported === false) throw new Error(`${member.name}（${member.host}）不支持${policy.mode}${policy.allowShell ? ' + 命令' : ''}：${support.reason ?? '宿主能力不足'}`);
   }
-  async modelCatalog({ refresh = false, host: selectedHost } = {}) {
-    if (selectedHost) this.requireHost(selectedHost);
-    const names = selectedHost ? [selectedHost] : [...this.hosts.keys()];
-    const cached = names.every(name => !refresh && this.hostCatalogs.has(name) && Date.now() - this.hostCatalogs.get(name).created < 30000);
-    const hosts = await Promise.all(names.map(async hostName => {
-      const previous = this.hostCatalogs.get(hostName);
-      if (!refresh && previous && Date.now() - previous.created < 30000) return previous.value;
-      if (!this.hostCatalogPending.has(hostName)) {
-        const pending = (async () => {
-          const host = this.hosts.get(hostName);
-          let timer;
-          const controller = new AbortController();
-          this.hostCatalogControllers.set(hostName, controller);
-          try {
-            if (!host.listModels) throw new Error('宿主适配器未提供模型目录');
-            const catalog = await Promise.race([
-              Promise.resolve().then(() => host.listModels({ signal: controller.signal })),
-              new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('模型目录探测超时')); }, 25000); }),
-            ]);
-            return { host: hostName, ok: true, catalog };
-          } catch (error) { return { host: hostName, ok: false, error: error.message }; }
-          finally { clearTimeout(timer); this.hostCatalogControllers.delete(hostName); }
-        })().then(value => { this.hostCatalogs.set(hostName, { created: Date.now(), value }); return value; })
-          .finally(() => this.hostCatalogPending.delete(hostName));
-        this.hostCatalogPending.set(hostName, pending);
-      }
-      return this.hostCatalogPending.get(hostName);
-    }));
-    const value = { version: 1, generatedAt: new Date().toISOString(), hosts };
-    this.modelCatalogCache = { created: Date.now(), value: { ...value, hosts: [...this.hostCatalogs.values()].map(entry => entry.value) } };
-    return { ...value, cached };
-  }
+  async modelCatalog(...args) { return this.models.list(...args); }
   teamController(groupId) {
     const group = this.store.group(groupId);
     const assignment = teamsAgg.controllerAssignment(this.store, groupId);
@@ -352,46 +318,10 @@ export class Bus extends EventEmitter {
   attachmentPrepare(...args) { return this.attachments.prepare(...args); }
   attachmentDescribeMessage(...args) { return this.attachments.describeMessage(...args); }
   attachmentCleanup(...args) { return this.attachments.cleanup(...args); }
-  defaultModelSelection(hostName) {
-    const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
-    if (!cached) return null;
-    const catalog = cached.catalog;
-    const model = catalog.models.find(item => item.key === catalog.defaultModel)
-      ?? catalog.models.find(item => item.isDefault)
-      ?? catalog.models[0];
-    if (!model) return null;
-    return {
-      model_provider: model.provider ?? null,
-      model: model.id,
-      reasoning_effort: model.defaultReasoningEffort ?? null,
-    };
-  }
-  async validateMemberModelSelection(member, { model_provider, model, reasoning_effort } = {}) {
-    if (model === undefined || model === null || String(model).trim() === '') return null;
-    const catalog = await this.modelCatalog({ refresh: true, host: member.host });
-    const hostCatalog = catalog.hosts.find(item => item.host === member.host && item.ok && item.catalog);
-    if (!hostCatalog) throw new Error(`宿主 ${member.host} 没有可用模型目录`);
-    const provider = typeof model_provider === 'string' && model_provider.trim() ? model_provider.trim() : null;
-    const selected = hostCatalog.catalog.models.find(item => item.id === model && (!provider || item.provider === provider));
-    if (!selected) throw new Error('选择的模型不在该成员宿主目录中');
-    const supported = selected.reasoningEfforts.length ? selected.reasoningEfforts : hostCatalog.catalog.reasoningEfforts;
-    const effort = reasoning_effort ?? selected.defaultReasoningEffort;
-    if (!effort || (supported.length && !supported.some(item => item.id === effort))) throw new Error('模型思考强度不受支持');
-    return { model_provider: selected.provider ?? provider ?? null, model: selected.id, reasoning_effort: effort };
-  }
-  // 互动卡执行器走同步应用:卡创建时已完成目录校验,这里只落库;
-  // 若目录此后变化,由成员下一回合的宿主错误暴露,可再次调整。
-  applyMemberModel(groupId, memberId, selection) {
-    const member = this.resolveMember(groupId, memberId);
-    teamsAgg.updateMemberModel(this.store, member.id, selection);
-    this.notify(groupId, member.id, `你的模型配置已调整为 ${memberModelSummary(selection)}`);
-    return this.store.member(member.id);
-  }
-  async setMemberModel(groupId, memberId, selection) {
-    const member = this.resolveMember(groupId, memberId);
-    const validated = await this.validateMemberModelSelection(member, selection);
-    return this.applyMemberModel(groupId, member.id, validated);
-  }
+  defaultModelSelection(...args) { return this.models.defaultSelection(...args); }
+  validateMemberModelSelection(...args) { return this.models.validate(...args); }
+  applyMemberModel(...args) { return this.models.apply(...args); }
+  setMemberModel(...args) { return this.models.set(...args); }
   // 任务面板:模型自述当前任务,整体替换自己的列表;无阻塞语义,进度由模型控制。
   rules(...args) { return this.toolDispatch.rules(...args); }
   introduce(...args) { return this.toolDispatch.introduce(...args); }
@@ -442,12 +372,12 @@ export class Bus extends EventEmitter {
     this.closing = true;
     // 先停表：定时器若在 store 关闭后触发会拿到已关闭的连接。
     this.maintenance.stop();
-    for (const controller of this.hostCatalogControllers.values()) controller.abort(new Error('服务正在停止'));
+    this.models.abort();
     await Promise.allSettled([...this.hosts.values()].map(host => host.cancelProbe?.()));
     await this.stopWhere(() => true);
     await Promise.allSettled([...this.archiveSnapshots.pending.values()]);
     await Promise.allSettled([...this.hosts.values()].map(host => host.close?.()));
-    await Promise.allSettled([...this.hostCatalogPending.values()]);
+    await this.models.settled();
     // 停止所有回合后缓冲里可能还有尾段增量,必须在关闭数据库前落盘。
     this.events.close();
     this.store.close();
