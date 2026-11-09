@@ -32,6 +32,16 @@ export function stubSsrBrowser() {
   // setup 期可能排帧（如流层），SSR 不执行渲染帧；给同步 no-op 即可。
   vi.stubGlobal('requestAnimationFrame', () => 0);
   vi.stubGlobal('cancelAnimationFrame', () => {});
+  // 主题相关代码会读 prefers-color-scheme；SSR 没有 window，给个恒定浅色的替身。
+  vi.stubGlobal('window', {
+    matchMedia: () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    }),
+  });
 }
 
 export async function renderPage(component: Component, path: string) {
