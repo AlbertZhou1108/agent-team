@@ -12,7 +12,6 @@ export const queryKeys = {
   attachmentSettings: ['attachment-settings'] as const,
   panelState: ['panel-agent', 'state'] as const,
   panelInteractions: ['interactions', 'panel'] as const,
-  unread: ['panel-agent', 'unread'] as const,
   collaboration: (id: string | undefined) => ['collaboration', id] as const,
   charter: (id: string | undefined) => ['charter', id] as const,
   messages: (id: string | undefined, endpoint: string | null = null) => ['messages', id, endpoint] as const,

@@ -102,8 +102,6 @@ const {
         <PanelAgentSidebar
           v-model="activeTeamId"
           :teams="panel.teams"
-          :messages="panel.conversation"
-          :requests="panel.requests ?? []"
           :notifications="panel.notifications ?? []"
           :clearing-notifications="clearingNotifications"
           :pending-interactions="panel.teamPendingInteractions ?? {}"

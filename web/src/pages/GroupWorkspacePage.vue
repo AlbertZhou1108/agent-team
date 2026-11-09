@@ -77,7 +77,7 @@ const {
   currentSessionBindings, selectedEndpoint, selectedPair,
   conversationTitle, endpointHosts,
   runningMemberIds,
-  panelMessages, receiptRequests, messagesQuery, directivesQuery,
+  messagesQuery, directivesQuery,
   interactionsQuery, messageViews, turnSummaries, unaffiliatedEvents,
   turnsQuery, inspectorHasNextPage, inspectorFetchingNextPage,
   inspectorError, contextError, retryContext, loadInspectorMore, notesTool,

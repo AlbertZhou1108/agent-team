@@ -15,8 +15,8 @@ export function panelScopeId(panelAgentId, teamId) {
   return `${panelAgentId}:${teamId || GLOBAL_TEAM}`;
 }
 
-/** 当前水位；没有记录视为 0（全部未读）。 @param {any} store */
-export function watermark(store, scope, scopeId) {
+/** 当前水位；没有记录视为 0（全部未读）。只在本模块内使用。 @param {any} store */
+function watermark(store, scope, scopeId) {
   return store.get('SELECT seq FROM read_watermarks WHERE scope=? AND scope_id=?', scope, scopeId)?.seq ?? 0;
 }
 

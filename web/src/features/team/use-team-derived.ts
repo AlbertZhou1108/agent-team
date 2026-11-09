@@ -36,21 +36,6 @@ export function useTeamDerived(
   const group = computed(() =>
     groups.value.find((item) => item.id === groupId.value),
   );
-  const panelMessages = computed(() =>
-    isPanelAgentRoute.value
-      ? (queries.panelAgentQuery.data.value?.conversation.map((row) => ({
-          ...row,
-          active_team_id: null,
-        })) ?? [])
-      : (queries.unreadQuery.data.value?.messages ?? []),
-  );
-  const receiptRequests = computed(() =>
-    isPanelAgentRoute.value
-      ? (queries.panelAgentQuery.data.value?.requests ?? [])
-      : queries.unreadQuery.data.value
-        ? [{ receipts: queries.unreadQuery.data.value.receipts }]
-        : [],
-  );
   const currentControllerId = computed(
     () =>
       queries.overview.value?.panelTeams.find(
@@ -267,8 +252,6 @@ export function useTeamDerived(
     groups,
     archivedGroups,
     group,
-    panelMessages,
-    receiptRequests,
     currentControllerId,
     currentController,
     sidebarGroupId,

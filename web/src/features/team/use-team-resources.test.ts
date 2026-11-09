@@ -77,8 +77,6 @@ const DERIVED_KEYS = [
   'conversationTitle',
   'endpointHosts',
   'runningMemberIds',
-  'panelMessages',
-  'receiptRequests',
   'messageViews',
   'turnSummaries',
   'unaffiliatedEvents',

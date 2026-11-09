@@ -94,12 +94,6 @@ export function useTeamQueries(options: TeamQueriesOptions) {
     false,
   );
   const panelAgentQuery = usePanelAgentQuery(() => route.name === 'panel-agent');
-  const unreadQuery = useResourceQuery(
-    queryKeys.unread,
-    api.unread,
-    () => route.name !== 'panel-agent',
-    QUERY_POLLING.slow,
-  );
   const runtimeQuery = useResourceQuery(
     () => queryKeys.resource(groupId.value, 'runtime'),
     (signal) => api.runtime(groupId.value, signal),
@@ -261,7 +255,6 @@ export function useTeamQueries(options: TeamQueriesOptions) {
     runtimeQuery,
     detailQuery,
     panelAgentQuery,
-    unreadQuery,
     messagesQuery,
     turnsQuery,
     directivesQuery,

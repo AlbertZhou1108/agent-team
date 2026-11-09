@@ -7,7 +7,7 @@ import { QUERY_POLLING } from '@/features/queries';
  * 与工作台页共用 ['workbench'] 这个 query key，同一时刻只会有一条在跑。
  */
 
-export type UnreadRow = {
+type UnreadRow = {
   id: string;
   scope: 'group' | 'panel';
   scopeId: string;
@@ -42,5 +42,5 @@ export function useUnreadIndex() {
   const panelTotal = computed(() =>
     [...panelByTeam.value.values()].reduce((sum, count) => sum + count, 0),
   );
-  return { query, panelByTeam, panelTotal };
+  return { panelByTeam, panelTotal };
 }

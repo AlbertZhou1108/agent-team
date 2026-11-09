@@ -140,7 +140,7 @@ describe('team query orchestration', () => {
   it('keeps every query key and polling interval on the QUERY_POLLING budget buckets', () => {
     useTeamQueries(options());
     const calls = Object.fromEntries(q.resourceCalls.map((call) => [call.key, call]));
-    expect(Object.keys(calls)).toHaveLength(12);
+    expect(Object.keys(calls)).toHaveLength(11);
     expect(calls[key('group', 'g1', 'sessions')]?.interval).toBe(5000);
     expect(calls[key('group', 'g1', 'tasks')]?.interval).toBe(10000);
     expect(calls[key('groups', 'archived')]?.interval).toBe(10000);
@@ -149,7 +149,6 @@ describe('team query orchestration', () => {
     expect(calls[key('group', 'g1', 'detail')]?.interval).toBe(10000);
     expect(calls[key('model-policy')]?.interval).toBe(10000);
     expect(calls[key('model-policy-defaults')]?.interval).toBe(false);
-    expect(calls[key('panel-agent', 'unread')]?.interval).toBe(5000);
     expect(calls[key('group', 'g1', 'runtime')]?.interval).toBe(2000);
     expect(calls[key('home-summary')]?.interval).toBe(5000);
     // session query 在选中会话前处于 disabled 且使用 ambient 间隔。

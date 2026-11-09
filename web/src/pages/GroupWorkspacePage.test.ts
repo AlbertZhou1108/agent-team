@@ -189,8 +189,6 @@ function makeResources(overrides: Record<string, unknown> = {}) {
     endpointHosts: ref({}),
     runningMemberIds: ref(new Set<string>()),
     agentUnreadCount: ref(2),
-    panelMessages: ref([]),
-    receiptRequests: ref([]),
     messagesQuery: {
       rows: ref([]),
       isPending: ref(false),

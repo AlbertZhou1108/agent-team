@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { useUnreadIndex } from '@/features/productivity/use-unread-index';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
-import type { PanelMessage, TeamRequest, PanelAgentState } from '@/shared/api/raw-types';
+import type { PanelAgentState } from '@/shared/api/raw-types';
 import {
   ArrowUpRight,
   Bell,
@@ -44,8 +44,6 @@ import type {
 
 const props = defineProps<{
   teams: PanelTeam[];
-  messages: PanelMessage[];
-  requests: TeamRequest[];
   notifications: NonNullable<PanelAgentState['notifications']>;
   /** 清理请求进行中:按钮置灰,避免重复提交。 */
   clearingNotifications?: boolean;

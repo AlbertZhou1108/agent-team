@@ -182,8 +182,6 @@ describe('team derived projections', () => {
     const derived = derivedOf(makeOptions(), queries);
     expect(derived.isPanelAgentRoute.value).toBe(true);
     expect(derived.sidebarGroupId.value).toBeUndefined();
-    expect(derived.panelMessages.value[0]?.active_team_id).toBeNull();
-    expect(derived.receiptRequests.value).toHaveLength(1);
   });
 
   it('merges accepted directive rows into sorted message views and reuses unchanged views', () => {

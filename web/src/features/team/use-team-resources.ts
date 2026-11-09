@@ -49,8 +49,6 @@ export function useTeamResources(options: TeamResourcesOptions) {
     endpointHosts: derived.endpointHosts,
     runningMemberIds: derived.runningMemberIds,
     // 消息
-    panelMessages: derived.panelMessages,
-    receiptRequests: derived.receiptRequests,
     messagesQuery: queries.messagesQuery,
     directivesQuery: queries.directivesQuery,
     interactionsQuery: queries.interactionsQuery,
