@@ -76,8 +76,9 @@ if (broken.length) {
 }
 console.log(`Import checks passed (${files.length} 个文件，${specifiers} 个相对导入)`);
 
-// 文档里的源码链接：文件搬家/改名后，guide 与 skills 里的 `../src/x.mjs` 会静默失效。
-const docs = ['README.md'];
+// 文档里的本地链接：文件搬家/改名后，README/DESIGN/guide/skills 里的相对路径会静默失效。
+// 不只查 .mjs：设置页从 SettingsDialog.vue 改成 SettingsPage.vue 时，旧链接就曾漏过 .mjs 版门禁。
+const docs = ['README.md', 'DESIGN.md'].filter((name) => existsSync(name));
 for (const name of readdirSync('guide')) if (name.endsWith('.md')) docs.push(`guide/${name}`);
 (function walkDocs(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -89,9 +90,12 @@ for (const name of readdirSync('guide')) if (name.endsWith('.md')) docs.push(`gu
 const deadLinks = [];
 let links = 0;
 for (const doc of docs) {
-  for (const match of readFileSync(doc, 'utf8').matchAll(/\]\(([^)\s]+\.mjs)\)/g)) {
+  for (const match of readFileSync(doc, 'utf8').matchAll(/\]\(([^)\s]+)\)/g)) {
+    // 锚点属于同一文件；外部 URL 与协议链接不由本地文件系统校验。
+    const target = match[1].split('#')[0];
+    if (!target || /^(https?:|mailto:|data:|\/\/)/.test(target)) continue;
     links += 1;
-    if (!existsSync(resolve(dirname(doc), match[1]))) deadLinks.push(`${doc} → ${match[1]}`);
+    if (!existsSync(resolve(dirname(doc), target))) deadLinks.push(`${doc} → ${match[1]}`);
   }
 }
 if (deadLinks.length) {

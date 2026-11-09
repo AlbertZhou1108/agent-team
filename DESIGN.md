@@ -120,7 +120,7 @@ Agent Team 是用于组织团队协作、推进任务和理解执行过程的工
 | [application.ts](web/src/theme/application.ts)、[apply.ts](web/src/theme/apply.ts) | 统一外观应用入口；解析设计预设及组件五维配置，同时应用明暗、主题、材质、动效、密度与阅读 |
 | [motion.ts](web/src/shared/motion.ts) | 共享减少动效判断；JS 侧动效决策的唯一同源依据 |
 | [globals.css](web/src/styles/globals.css) | 全局语义映射、布局、排版与当前动效规则；新增共享样式仍在此收敛 |
-| [SettingsDialog.vue](web/src/features/settings/SettingsDialog.vue) | 当前设置入口；已提供设计预设、各维度调整与真实组件样例 |
+| [SettingsPage.vue](web/src/features/settings/SettingsPage.vue)、[tabs/](web/src/features/settings/tabs/) | 当前设置入口；页面只负责分区导航与入参转发，外观/通用/工具/模型策略/团队管理五个分区各自落在 `tabs/` 下的独立组件 |
 
 不直接给现有主题上传格式追加材质、动效等必填键。当前上传校验拒绝未知变量，修改契约必须显式设计版本与迁移。现有主题 radius 继续兼容；组件圆角与按压触感由共享材质配置决定，不通过预设的样式或行为差量改写，也不直接移除旧主题字段。
 
