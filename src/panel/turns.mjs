@@ -1,7 +1,7 @@
 // Panel 回合域:私聊/协作回合执行、私聊请求幂等、停止与待核实运行恢复、
 // 私聊互动答复的持久投递。接收 bus;面板表访问走 aggregates/panel.mjs。
 import { randomUUID, createHash } from 'node:crypto';
-import { panelToolsFor } from '../panel-tools.mjs';
+import { panelToolsFor } from '../tools/panel.mjs';
 import { attachmentError } from '../attachments.mjs';
 import * as messagesAgg from '../aggregates/messages.mjs';
 import * as turnsAgg from '../aggregates/turns.mjs';

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../../src/bus.mjs';
-import { panelToolsFor, validatePanelTool } from '../../src/panel-tools.mjs';
+import { panelToolsFor, validatePanelTool } from '../../src/tools/panel.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
 
 const _tick = () => new Promise(resolve => setImmediate(resolve));

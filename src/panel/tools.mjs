@@ -1,9 +1,9 @@
 // Panel 工具:工具调用的鉴权/事件记账入口(panelTool)与实际工具分发(executePanelTool)。
 // 接收 bus;面板表访问走聚合,其余域沿用 store 方法与 bus 既有入口。
 import { randomUUID } from 'node:crypto';
-import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from '../tool-ops.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from '../tools/ops.mjs';
 import { memberModelSummary } from '../model-policy.mjs';
-import { validatePanelTool } from '../panel-tools.mjs';
+import { validatePanelTool } from '../tools/panel.mjs';
 import * as messagesAgg from '../aggregates/messages.mjs';
 import * as turnsAgg from '../aggregates/turns.mjs';
 import * as conversationsAgg from '../aggregates/conversations.mjs';

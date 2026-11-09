@@ -1,4 +1,4 @@
-import { streamMessageToolName, partialJsonString } from './message-stream.mjs';
+import { streamMessageToolName, partialJsonString } from '../message-stream.mjs';
 
 /** @typedef {Record<string, any>} StreamScope */
 /** @typedef {{ streams: Map<string, any>, scope: StreamScope }} ToolStreamRun */

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { toolsFor } from './tools.mjs';
+import { toolsFor } from './tools/registry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 import { legacyGroupDeliveryPrompt, legacyPanelDeliveryPrompt } from './prompts.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';

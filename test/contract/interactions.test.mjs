@@ -8,7 +8,7 @@ import { startServer } from '../../src/server.mjs';
 import { Bus } from '../../src/bus.mjs';
 import { Store } from '../../src/store.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
-import { validateTool } from '../../src/tools.mjs';
+import { validateTool } from '../../src/tools/registry.mjs';
 
 async function until(fn) { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 5)); } throw Error('timeout'); }
 

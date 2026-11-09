@@ -1,12 +1,12 @@
 // 工具分派:成员工具入口、规则/入群自述、工具执行与结果测量。
 // 从 Bus 抽出后,执行逻辑不再挤在总线门面里;Bus 只保留同名转发方法。
 import { randomUUID } from 'node:crypto';
-import { validateTool } from './tools.mjs';
-import { memberModelSummary } from './model-policy.mjs';
-import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './tool-ops.mjs';
-import { memberRules, legacyMemberRules, profileIntro } from './prompts.mjs';
-import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
-import * as teamsAgg from './aggregates/teams.mjs';
+import { validateTool } from './registry.mjs';
+import { memberModelSummary } from '../model-policy.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './ops.mjs';
+import { memberRules, legacyMemberRules, profileIntro } from '../prompts.mjs';
+import { CONTEXT_SCHEMA_VERSION } from '../information.mjs';
+import * as teamsAgg from '../aggregates/teams.mjs';
 
 export class ToolDispatch {
   constructor(bus) {

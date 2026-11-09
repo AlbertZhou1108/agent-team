@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../../src/server.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
-import { validateTool } from '../../src/tools.mjs';
+import { validateTool } from '../../src/tools/registry.mjs';
 
 async function until(fn) { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 5)); } throw Error('timeout'); }
 async function waitFor(fn) { for (let i = 0; i < 300; i++) { const value = fn(); if (value) return value; await new Promise(r => setTimeout(r, 5)); } throw Error('timeout'); }

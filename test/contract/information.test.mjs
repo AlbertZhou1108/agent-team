@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../../src/bus.mjs';
 import { createCodexHost } from '../../src/hosts/codex.mjs';
-import { toolsFor } from '../../src/tools.mjs';
-import { panelToolsFor } from '../../src/panel-tools.mjs';
+import { toolsFor } from '../../src/tools/registry.mjs';
+import { panelToolsFor } from '../../src/tools/panel.mjs';
 import {
   byteSize,
   CONTEXT_SCHEMA_VERSION,

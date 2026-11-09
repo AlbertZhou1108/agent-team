@@ -16,9 +16,9 @@ import * as externalAgg from './aggregates/external-control.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
-import { appendRoutedMessage, assertReplyTarget, readSharedMessages } from './tool-ops.mjs';
+import { appendRoutedMessage, assertReplyTarget, readSharedMessages } from './tools/ops.mjs';
 import { roleNameKey } from './collaboration.mjs';
-import { validateToolValue } from './tool-schema.mjs';
+import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
 

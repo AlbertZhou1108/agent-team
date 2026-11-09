@@ -1,5 +1,5 @@
-import { validateToolValue } from './tool-schema.mjs';
-import { askInputProperties } from './tool-ops.mjs';
+import { validateToolValue } from './schema.mjs';
+import { askInputProperties } from './ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };

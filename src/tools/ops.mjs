@@ -1,6 +1,6 @@
 // 工具操作共享核心:成员工具(bus.executeTool)与 Panel 工具(panel.executePanelTool)
 // 的重合逻辑收口在此,执行器只保留工具名分发与执行者差异(权限门禁、目标解析、锚点)。
-import * as messagesAgg from './aggregates/messages.mjs';
+import * as messagesAgg from '../aggregates/messages.mjs';
 
 /** 回复指向校验:只能回复发给自己、期待答复的 send,且答复对象必须是原请求发送者。 */
 export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
