@@ -4,7 +4,7 @@
 
 把需求交给主 Agent，让不同助手负责策划、执行和审阅。你可以通过桌面窗口、浏览器，或直接从已接入的 CLI Agent 使用 MCP 协作，把工作留在自己的工作文件夹中。
 
-[下载 v0.2.0](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.2.0) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
+[下载 v0.4.1](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.4.1) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
 
 项目正在从浏览器入口逐渐收敛到桌面窗口：开发态可用 `npm run desktop` 打开独立窗口，见[开发与构建](guide/development.md)；当前可下载的发行包仍通过浏览器使用。
 
@@ -82,7 +82,7 @@ Agent Team 接入本机已有的 **Codex、Claude Code 和 DSH**。可以使用�
 
 ![首次引导中的工具可用状态](assets/readme/01-connect.png)
 
-**v0.2.0 提供 macOS Apple Silicon（arm64）安装包**，自带运行环境，无需自行安装 Node 或构建前端。包尚未签名、公证。Windows、Linux 当前可[从源码运行](guide/development.md)。详细步骤、数据备份和升级方式见[快速开始](guide/quick-start.md)。
+**v0.4.1 提供 macOS Apple Silicon（arm64）、Windows x64 与 Linux x64 发行包**，各自附 SHA-256 校验文件，自带运行环境，无需自行安装 Node 或构建前端。包均未签名、未公证，安装时的系统安全提示需要手动放行。详细步骤、数据备份和升级方式见[快速开始](guide/quick-start.md)。
 
 ## 适合什么工作
 
