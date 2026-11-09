@@ -75,3 +75,28 @@ if (broken.length) {
   process.exit(1);
 }
 console.log(`Import checks passed (${files.length} 个文件，${specifiers} 个相对导入)`);
+
+// 文档里的源码链接：文件搬家/改名后，guide 与 skills 里的 `../src/x.mjs` 会静默失效。
+const docs = ['README.md'];
+for (const name of readdirSync('guide')) if (name.endsWith('.md')) docs.push(`guide/${name}`);
+(function walkDocs(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) walkDocs(path);
+    else if (path.endsWith('.md')) docs.push(path);
+  }
+})('skills');
+const deadLinks = [];
+let links = 0;
+for (const doc of docs) {
+  for (const match of readFileSync(doc, 'utf8').matchAll(/\]\(([^)\s]+\.mjs)\)/g)) {
+    links += 1;
+    if (!existsSync(resolve(dirname(doc), match[1]))) deadLinks.push(`${doc} → ${match[1]}`);
+  }
+}
+if (deadLinks.length) {
+  console.error(`[docs] ${deadLinks.length} 个源码链接指向不存在的文件：`);
+  for (const item of deadLinks.slice(0, 20)) console.error(`  ${item}`);
+  process.exit(1);
+}
+console.log(`Doc link checks passed (${docs.length} 篇文档，${links} 个源码链接)`);
