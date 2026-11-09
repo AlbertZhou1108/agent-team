@@ -164,7 +164,7 @@ async function fixture(t) {
 }
 
 test('manager-conversation separates member and manager sides, covers input and output involvement, and keeps shared batches whole', async t => {
-  const { bus, group, one, two, addPanelTurn, addMemberPairTurn } = await fixture(t);
+  const { bus, group, lead, one, two, addPanelTurn, addMemberPairTurn } = await fixture(t);
   const memberTurn = addMemberPairTurn({ startedAt: '2026-10-23T10:00:00.000Z', inputTokens: 111 });
   const inputTurn = addPanelTurn({ startedAt: '2026-10-23T10:00:10.000Z', inputs: [{ sender: one.id }], outputs: [], inputTokens: 200 });
   const outputOnlyTurn = addPanelTurn({ startedAt: '2026-10-23T10:00:20.000Z', inputs: [], outputs: [{ recipient: one.id, kind: 'note' }], inputTokens: 300 });
@@ -220,6 +220,9 @@ test('manager-conversation separates member and manager sides, covers input and 
 
   assert.ok(response.managerSide.physicalSessions.length >= 1);
   assert.equal(response.managerSide.physicalSessions[0].consumption.inputTokensTotal.value, 200 + 300 + 400 + 500 + 600);
+  // Session 累计包含与本成员无关的回合,involvementTotals 只累计相关回合。
+  assert.ok(response.managerSide.physicalSessions[0].consumption.inputTokensTotal.value
+    > response.managerSide.involvementTotals.inputTokensTotal.value);
   assert.equal(response.managerSide.contextReference.model, null);
   assert.equal(response.managerSide.contextReference.lastRequestInputRatio.value, null);
   assert.equal(response.managerSide.contextReference.lastRequestInputRatio.quality, 'unknown');
@@ -241,6 +244,28 @@ test('manager-conversation separates member and manager sides, covers input and 
   const existing = bus.telemetryMembers(group.id);
   assert.equal(existing.readOnly, true);
   assert.ok(existing.members.every(member => !('outgoingMessages' in member) && !('involvement' in member)));
+
+  // 完全没有观察值时,两侧 totals 仍是固定形状的空值(不缺字段、不补零)。
+  const empty = bus.telemetryManagerConversation(group.id, lead.id);
+  assert.equal(empty.memberSide.batchCount, 0);
+  assert.equal(empty.managerSide.batchCount, 0);
+  for (const totals of [empty.memberSide.totals, empty.managerSide.involvementTotals]) {
+    assert.equal(Object.keys(totals).length, 9);
+    for (const metricValue of Object.values(totals)) {
+      assert.equal(metricValue.value, null);
+      assert.equal(metricValue.quality, 'unknown');
+      assert.ok(metricValue.missingReason);
+    }
+  }
+  assert.deepEqual(empty.memberSide.physicalSessions, []);
+  assert.deepEqual(empty.managerSide.physicalSessions, []);
+  assert.ok(empty.memberSide.coverage.reasons.includes('no_observations'));
+  assert.ok(empty.managerSide.coverage.reasons.includes('no_observations'));
+  assert.equal(empty.memberSide.contextReference.model, null);
+  assert.equal(empty.managerSide.contextReference.model, null);
+  assert.deepEqual(empty.batches, []);
+  assert.equal(empty.nextCursor, null);
+  assert.throws(() => bus.telemetryManagerConversation(group.id, 'missing-member'), error => error.status === 404);
 });
 
 test('manager-conversation paginates with a stable key-set cursor and validates parameters', async t => {
@@ -287,6 +312,17 @@ test('manager-conversation paginates with a stable key-set cursor and validates 
   });
   assert.ok(ranged.batches.length > 0);
   assert.ok(ranged.batches.every(batch => batch.startedAt >= '2026-10-23T11:00:03.000Z' && batch.startedAt < '2026-10-23T11:00:05.000Z'));
+
+  // 窗口完全落在数据之后时,成员侧与管理侧都必须精确为空。
+  const outside = bus.telemetryManagerConversation(group.id, one.id, {
+    from: '2026-10-23T13:00:00.000Z',
+    to: '2026-10-23T14:00:00.000Z',
+    limit: 100,
+  });
+  assert.equal(outside.memberSide.batchCount, 0);
+  assert.equal(outside.managerSide.batchCount, 0);
+  assert.deepEqual(outside.summary.managerBatchIds, []);
+  assert.deepEqual(outside.batches, []);
 });
 
 test('manager-conversation keeps partial usage non-zero-filled and duplicate observations update one batch', async t => {
@@ -345,6 +381,9 @@ test('manager-conversation HTTP route is read-only JSON and preserves existing e
   assert.match(response.headers.get('content-type'), /application\/json/);
   const body = await response.json();
   assert.equal(body.readOnly, true);
+  assert.equal(body.manager.kind, 'panel_agent');
+  assert.equal(body.managerSide.batchCount, 1);
+  assert.equal(body.managerSide.involvementTotals.inputTokensTotal.value, 100);
   assert.equal(body.batches.some(batch => batch.batchId === `batch:${turnId}`), true);
   assert.ok(!JSON.stringify(body).includes('SECRET_BODY_'));
 
@@ -356,6 +395,12 @@ test('manager-conversation HTTP route is read-only JSON and preserves existing e
   assert.equal(missingGroup.status, 400);
   const unknownMember = await fetch(`${server.url}api/telemetry/manager-conversation?group=${group.id}&member=missing-member`);
   assert.equal(unknownMember.status, 404);
+  assert.match(unknownMember.headers.get('content-type'), /application\/json/);
+  assert.equal(typeof (await unknownMember.json()).error, 'string');
+  const badLimit = await fetch(`${server.url}api/telemetry/manager-conversation?group=${group.id}&member=${one.id}&limit=0`);
+  assert.equal(badLimit.status, 400);
+  assert.match(badLimit.headers.get('content-type'), /application\/json/);
+  assert.equal(typeof (await badLimit.json()).error, 'string');
 
   const existing = bus.telemetryMembers(group.id);
   assert.equal(existing.readOnly, true);

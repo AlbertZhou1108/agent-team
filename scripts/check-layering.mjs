@@ -10,7 +10,7 @@
  *    - 迁移完成后运行 `node scripts/check-layering.mjs --update-baseline` 下调基线；
  *    - 设 `LAYERING_STRICT_A=1` 可忽略基线、任何存量都阻断（最终目标）。
  *
- *  规则 B（严格阻断）：web/src/** 不得 import `electron/` 或根目录 `src/`。
+ *  规则 B（严格阻断）：web/src/** 与 web/tests/** 不得 import `electron/` 或根目录 `src/`。
  *    前端必须保持纯 Web：桌面原生能力只能经 preload 以可选注入方式提供
  *    （`globalThis.agentTeam?.xxx?.()`），不能反向依赖桌面壳或后端工程。
  *
@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const webSrcDir = join(repoRoot, 'web/src');
+const webTestsDir = join(repoRoot, 'web/tests');
 const contractDir = join(repoRoot, 'test/contract');
 const baselinePath = join(repoRoot, 'scripts/layering-baseline.json');
 const updateBaseline = process.argv.includes('--update-baseline');
@@ -192,31 +193,35 @@ function lineOf(source, index) {
 function scanWebImports() {
   const violations = [];
   let scanned = 0;
-  walk(webSrcDir, (path) => {
-    if (!SOURCE_FILE.test(path)) return;
-    scanned += 1;
-    const source = readFileSync(path, 'utf8');
-    for (const pattern of IMPORT_PATTERNS) {
-      pattern.lastIndex = 0;
-      let match;
-      while ((match = pattern.exec(source))) {
-        const reason = importViolation(match[1], path);
-        if (!reason) continue;
-        violations.push({
-          file: relativeToRoot(path),
-          line: lineOf(source, match.index),
-          specifier: match[1],
-          reason,
-        });
+  // 前端测试统一在 web/tests/，与 web/src/ 同样受纯 Web 红线约束。
+  for (const directory of [webSrcDir, webTestsDir]) {
+    if (!existsSync(directory)) continue;
+    walk(directory, (path) => {
+      if (!SOURCE_FILE.test(path)) return;
+      scanned += 1;
+      const source = readFileSync(path, 'utf8');
+      for (const pattern of IMPORT_PATTERNS) {
+        pattern.lastIndex = 0;
+        let match;
+        while ((match = pattern.exec(source))) {
+          const reason = importViolation(match[1], path);
+          if (!reason) continue;
+          violations.push({
+            file: relativeToRoot(path),
+            line: lineOf(source, match.index),
+            specifier: match[1],
+            reason,
+          });
+        }
       }
-    }
-  });
+    });
+  }
   return { violations, scanned };
 }
 
 function reportRuleB() {
   const { violations, scanned } = scanWebImports();
-  const label = '[layering] 规则 B（阻断）：web/src 不得 import electron/ 或根目录 src/';
+  const label = '[layering] 规则 B（阻断）：web/src 与 web/tests 不得 import electron/ 或根目录 src/';
   if (!violations.length) {
     console.log(`${label} — 通过（扫描 ${scanned} 个文件，0 处违规）`);
     return [];
@@ -247,7 +252,7 @@ const ruleBViolations = reportRuleB();
 const strictA = process.env.LAYERING_STRICT_A === '1';
 
 if (ruleBViolations.length) {
-  console.error('[layering] 失败：web/src 违反纯 Web 红线。');
+  console.error('[layering] 失败：web/src 或 web/tests 违反纯 Web 红线。');
   process.exitCode = 1;
 } else if (strictA && result.total) {
   console.error('[layering] 失败：规则 A 已按 LAYERING_STRICT_A=1 忽略基线、全量阻断。');

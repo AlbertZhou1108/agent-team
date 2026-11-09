@@ -91,6 +91,17 @@ test('消息进入 attached 后 awaiting 清零,isAttached 与待投递守卫随
   assert.equal(messages.deliveryStateForMessage(store, message.id).accepted != null, true);
 });
 
+test('用户发给成员的指令同样保持 awaiting,直到进入投递队列才清零', t => {
+  const { store } = fixture(t);
+  const conversation = conversations.forMember(store, 'm1', 'coordination');
+  const directive = messages.append(store, 'g', 'user', 'm1', 'send', 'do it');
+  assert.equal(directive.awaiting, 1);
+  assert.deepEqual(messages.pending(store).map(message => message.id), [directive.id]);
+  assert.ok(messages.prepareDelivery(store, conversation, directive));
+  assert.equal(messages.byId(store, directive.id).awaiting, 0);
+  assert.equal(messages.pending(store).length, 0);
+});
+
 test('clearAwaitingForRecipient 让被移除成员的消息退出 pending 扫描', t => {
   const { store } = fixture(t);
   const message = messages.append(store, 'g', 'm2', 'm1', 'send', 'no longer needed');
