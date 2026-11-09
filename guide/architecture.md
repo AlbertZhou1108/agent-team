@@ -73,7 +73,7 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | 内容 | 入口 |
 | --- | --- |
 | 启动、服务与 IPC | [launcher.mjs](../src/launcher.mjs)、[server.mjs](../src/server.mjs)、[rpc.mjs](../src/rpc.mjs) |
-| 消息与调度 | [bus/index.mjs](../src/bus/index.mjs)、[message-dispatch.mjs](../src/message-dispatch.mjs) |
+| 消息与调度 | [bus.mjs](../src/bus.mjs)、[message-dispatch.mjs](../src/message-dispatch.mjs) |
 | 门面拆分 | [bus/model-catalog.mjs](../src/bus/model-catalog.mjs)（宿主模型目录探测）、[bus/app-settings.mjs](../src/bus/app-settings.mjs)（模型策略预设 / 主题包 / 附件设置）、[bus/maintenance.mjs](../src/bus/maintenance.mjs)（附件与历史保留定时器） |
 | 外部主控与能力契约 | [control-plane.mjs](../src/control-plane.mjs)、[control-capabilities.mjs](../src/control-capabilities.mjs) |
 | 存储 | [store.mjs](../src/store.mjs) |
@@ -81,7 +81,7 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | 随心记（笔记与提示词） | [notes.mjs](../src/notes.mjs)、[notes-prompt.mjs](../src/notes-prompt.mjs) |
 | 前端设计基线 | [DESIGN.md](../DESIGN.md) |
 
-`src/bus.mjs` 现在只是一行再导出，实现已搬进 `src/bus/`。`Bus` 类本身是**门面**：约 95 条一行转发（`panelAgent`、`members`、`executeTool` …）为的是让一千多处 `bus.xxx(` 调用点不必关心协作者怎么拆。新增能力时优先落在对应协作者上，门面只补一条同名转发，不要把业务逻辑写回门面。
+`src/bus.mjs` 是门面，实现拆在 `src/bus/`，与 `panel-sessions.mjs` + `panel/`、`telemetry.mjs` + `telemetry/` 同构。`Bus` 类本身是**门面**：约 95 条一行转发（`panelAgent`、`members`、`executeTool` …）为的是让一千多处 `bus.xxx(` 调用点不必关心协作者怎么拆。新增能力时优先落在对应协作者上，门面只补一条同名转发，不要把业务逻辑写回门面。
 
 
 团队删除复用 `GroupLifecycle.deleteGroup`：执行期间通过内存互斥阻止同团队的新回合，等待完整回合收尾后，以事务清理数据库记录（含没有外键的协调消息、工作台隐藏记录及遥测会话代数）。Panel 私人消息保留并解除团队引用。归档快照和摘要随团队级联删除；项目工作目录及宿主原生历史保留。面板永久删除入口只接受归档团队；旧 CLI/Agent 入口保持原有适用范围。数据库提交后的框架缓存清理失败单独返回警告，不伪报团队删除失败。
