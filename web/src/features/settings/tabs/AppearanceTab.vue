@@ -3,7 +3,7 @@ import { Disclosure } from '@/components/ui/disclosure';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { ChevronLeft, ChevronRight, Monitor, Moon, Sun, Trash, Upload } from '@lucide/vue';
+import { ChevronLeft, ChevronRight, Monitor, Moon, Sun, Trash2, Upload } from '@lucide/vue';
 import AppearanceSample from '../AppearanceSample.vue';
 import { usePreferencesStore, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';

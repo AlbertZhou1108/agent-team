@@ -57,7 +57,15 @@ describe('settings page', () => {
     ['policy', '当前规则'],
     ['teams', '归档团队'],
   ])('deep link ?section=%s renders that panel', async (section, marker) => {
-    const { html } = await render(SettingsPage, `/settings?section=${section}`);
-    expect(html).toContain(marker);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { html } = await render(SettingsPage, `/settings?section=${section}`);
+      expect(html).toContain(marker);
+      // 拆标签组件时最容易漏搬图标导入；vue-tsc 不检查模板里的组件名，
+      // 只有运行时的「Failed to resolve component」会暴露这种回归。
+      expect(warn.mock.calls.flat().join('\n')).not.toMatch(/Failed to resolve component/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
