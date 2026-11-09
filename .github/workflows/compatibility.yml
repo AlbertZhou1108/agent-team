@@ -22,7 +22,7 @@ jobs:
       # 打包预检:只校验输入与平台信息,不写文件;关闭「发布脚本只有本地能跑」的盲区。
       - run: node scripts/build-release.mjs --dry-run
       - run: npm test
-      # 覆盖率:不阻断测试,只在 ubuntu 产出报告(基线见 docs/phase3-coverage-baseline.md)。
+      # 覆盖率:不阻断测试,只在 ubuntu 产出报告。
       - if: matrix.os == 'ubuntu-latest'
         run: npm run coverage
 
