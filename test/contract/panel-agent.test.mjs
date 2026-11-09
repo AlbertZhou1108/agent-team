@@ -604,14 +604,12 @@ test('service restart separates all private history from current messages and pa
  for(let i=0;i<205;i++) bus.store.panelAppend(state.agent.id,'private','assistant','old '+i,i%2?'legacy-team':null);
  const hosts=bus.hosts;await bus.close();bus=new Bus({directory,hosts});
  assert.equal(bus.panelBrowserState().conversation.length,0);
- assert.deepEqual(bus.queryUnread(true).messages,[]);
  const first=bus.panelMessagePage({history:true});const second=bus.panelMessagePage({history:true,before:first.nextBefore});
  assert.equal(first.messages.length,200);assert.equal(second.messages.length,5);assert.equal(second.nextBefore,null);
  assert.ok(second.messages.at(-1).seq<first.messages[0].seq);
  bus.store.panelAppend(state.agent.id,'private','assistant','new');
  assert.equal(bus.panelBrowserState().conversation[0].text,'new');
  assert.equal(bus.panelMessagePage().messages.length,1);
- assert.equal(bus.queryUnread(true).messages.length,1);
  assert.equal(bus.panelMessagePage({history:true}).messages.length,200);
 });
 

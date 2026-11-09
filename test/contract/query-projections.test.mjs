@@ -22,7 +22,6 @@ test('query projections isolate teams and never compute list model histories', a
   const endpoint = server.bus.store.endpoint(lead.id, 'coordination');
   assert.equal((await get(`/api/session?group=${group.id}&endpoint=${endpoint.id}`)).id, endpoint.id);
   assert.equal((await fetch(base + `/api/session?group=${other.id}&endpoint=${endpoint.id}`)).status, 404);
-  assert.deepEqual(await get('/api/panel-agent/unread'), { messages: [], receipts: [] });
   assert.equal((await get('/api/groups')).length, 2);
   assert.ok((await get('/api/directory')).members.length >= 4);
   assert.equal((await get(`/api/group?group=${group.id}`)).controller.kind, 'member');

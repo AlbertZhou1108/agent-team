@@ -100,13 +100,15 @@ export class BusQueries {
     return [...this.bus.running.values()].filter(({ endpoint }) => endpoint.context !== 'private' && (!groupId || endpoint.group_id === groupId))
       .map(({ endpoint }) => ({ id: endpoint.id, group_id: endpoint.group_id, member_id: endpoint.member_id }));
   }
-  queryUnread(current = false) {
+  // 私聊未读窗口：最近 200 条，只带归属信息不带正文。
+  // 「本次启动之后的消息」由 panel/state.mjs 用 bootSeq 过滤，不在这里重复一套。
+  queryUnread() {
     const agent = this.bus.panelAgent();
     if (!agent) return { messages: [], receipts: [] };
-    const messages = this.bus.store.all("SELECT seq,role,active_team_id FROM (SELECT seq,role,active_team_id FROM panel_messages WHERE panel_agent_id=? AND context='private'" + (current ? ' AND seq>?' : '') + ' ORDER BY seq DESC LIMIT 200) ORDER BY seq', agent.id, ...(current ? [this.bus.panelBootSeq] : []));
-    const receipts = this.bus.store.all('SELECT r.id,r.text,r.source_message_ids FROM team_request_receipts r JOIN team_requests q ON q.id=r.request_id WHERE q.panel_agent_id=?' + (current ? " AND r.seq>? AND q.group_id IN (SELECT id FROM groups WHERE state IS NULL OR state!='archived')" : '') + ' ORDER BY r.seq', agent.id, ...(current ? [this.bus.panelBootReceiptSeq] : []))
+    const messages = this.bus.store.all("SELECT seq,role,active_team_id FROM (SELECT seq,role,active_team_id FROM panel_messages WHERE panel_agent_id=? AND context='private' ORDER BY seq DESC LIMIT 200) ORDER BY seq", agent.id);
+    const receipts = this.bus.store.all('SELECT r.id,r.text,r.source_message_ids FROM team_request_receipts r JOIN team_requests q ON q.id=r.request_id WHERE q.panel_agent_id=? ORDER BY r.seq', agent.id)
       .map(row => { const sourceMessageIds = JSON.parse(row.source_message_ids); return { id: row.id, sourceMessageIds, isSourceCopy: sourceMessageIds.some(id => this.bus.store.get('SELECT text FROM messages WHERE id=?', id)?.text === row.text) }; });
-    return { messages: current ? messages.map(row => ({ ...row, active_team_id: null })) : messages, receipts };
+    return { messages, receipts };
   }
   snapshot(groupId) {
     this.bus.ensurePanelBindings();
