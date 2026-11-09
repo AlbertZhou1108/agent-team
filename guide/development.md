@@ -55,8 +55,6 @@ npm test
 npm run build
 ```
 
-完整的测试分层、Agent 必须遵守的测试流程、按改动类型选层与 CI/CD 门禁矩阵见 [测试体系与 Agent 测试流程](testing.md)；该文件是测试规范的唯一权威来源。
-
 `check` 包含语法、设计治理、双端类型与后端 ESLint。CI 在 Ubuntu、macOS、Windows 上执行 check、build、test。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
 
 真实宿主验收另行手动执行，会使用宿主认证和模型额度：
