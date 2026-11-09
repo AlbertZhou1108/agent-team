@@ -27,7 +27,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import {
@@ -68,8 +68,6 @@ import { queryKeys, invalidateWorkspaceResources } from '@/features/query-keys';
 import { BUILTIN_TOOLS, TOOL_SLOT_LABELS } from '@/tools';
 
 const props = defineProps<{
-  open: boolean;
-  embedded?: boolean;
   policy?: ModelPolicy;
   defaults?: ModelPolicyDefaults;
   archivedTeams?: Group[];
@@ -351,7 +349,6 @@ async function save() {
     );
     emit('saved', policy);
     rememberModeDraft();
-    if (!props.embedded) emit('close');
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -363,7 +360,6 @@ async function save() {
 const presetsQuery = useQuery({
   queryKey: ['model-policy-presets'],
   queryFn: ({ signal }) => api.modelPolicyPresets(signal),
-  enabled: computed(() => props.open || Boolean(props.embedded)),
 });
 const presets = computed(() => presetsQuery.data.value ?? []);
 // 内置默认规则作为固定首行:用户配置的基线始终可见可选;内置不可改,想调整就创建为自己的配置。
@@ -513,56 +509,23 @@ function presetDate(value: string) {
 }
 
 watch(
-  () => [
-    props.open,
-    props.embedded,
-    props.policy?.mode,
-    props.policy?.rules,
-    props.defaults,
-  ],
-  () => {
-    if (props.open || props.embedded) reset();
-  },
+  () => [props.policy?.mode, props.policy?.rules, props.defaults],
+  () => reset(),
   { immediate: true },
 );
 </script>
 
 <template>
-  <Dialog
-    :open="open && !embedded"
-    @update:open="
-      (value) => {
-        if (!value) emit('close');
-      }
-    "
-  >
-    <div :class="embedded ? 'settings-page' : undefined">
-      <component
-        :is="embedded ? Card : DialogContent"
-        :data-surface="embedded ? 'context-panel' : 'overlay'"
-        v-if="open || embedded"
-        :class="
-          embedded
-            ? 'settings-page-panel'
-            : 'max-h-[calc(100vh-2rem)] overflow-y-auto'
-        "
-      >
-        <CardHeader class="flex shrink-0 flex-row items-center">
-          <Button
-            v-if="embedded"
-            variant="ghost"
-            size="icon"
-            title="返回"
-            aria-label="返回"
-            @click="emit('close')"
-          >
-            <ArrowLeft />
-          </Button>
-          <div class="min-w-0 flex-1">
-            <h1 v-if="embedded" class="text-2xl font-semibold tracking-tight">设置</h1>
-            <DialogTitle v-else>设置</DialogTitle>
-          </div>
-        </CardHeader>
+  <div class="settings-page">
+    <Card data-surface="context-panel" class="settings-page-panel">
+      <CardHeader class="flex shrink-0 flex-row items-center">
+        <Button variant="ghost" size="icon" title="返回" aria-label="返回" @click="emit('close')">
+          <ArrowLeft />
+        </Button>
+        <div class="min-w-0 flex-1">
+          <h1 class="text-2xl font-semibold tracking-tight">设置</h1>
+        </div>
+      </CardHeader>
 
           <CardContent class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain">
           <Tabs v-model="activeTab" class="flex min-h-0 flex-col gap-6">
@@ -819,8 +782,8 @@ watch(
           </TabsContent>
 
           <TabsContent value="general" class="flex flex-col gap-6">
-            <HostStatuses :active="open || Boolean(embedded)" />
-            <LocalService v-if="open || embedded" />
+            <HostStatuses active />
+            <LocalService />
 
           <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">
@@ -1097,9 +1060,9 @@ watch(
           </section>
           </TabsContent>
           </Tabs>
-        </CardContent>
-      </component>
-    </div>
+      </CardContent>
+    </Card>
+  </div>
     <Dialog
       :open="creatingPreset"
       @update:open="(value) => { if (!value) creatingPreset = false; }"
@@ -1246,5 +1209,4 @@ watch(
       @confirm="confirmDeleteTheme"
       @cancel="deletingTheme = null"
     />
-  </Dialog>
 </template>

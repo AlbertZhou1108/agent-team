@@ -5,7 +5,7 @@ import { useMediaQuery } from '@vueuse/core';
 import { toast } from 'vue-sonner';
 import { PanelRightOpen } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
-import SettingsDialog from '@/features/settings/SettingsDialog.vue';
+import SettingsPage from '@/features/settings/SettingsPage.vue';
 import CreateTeam from '@/features/groups/CreateTeam.vue';
 import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
@@ -260,10 +260,8 @@ function onMemberModelSaved() {
       @keydown="keyboardResize($event, 'left')"
     />
     <main class="min-w-0 p-3 sm:p-4 xl:pl-0">
-      <SettingsDialog
+      <SettingsPage
         v-if="isSettingsRoute"
-        :open="true"
-        embedded
         :policy="currentModelPolicy"
         :defaults="modelPolicyDefaults"
         :archived-teams="archivedGroups"

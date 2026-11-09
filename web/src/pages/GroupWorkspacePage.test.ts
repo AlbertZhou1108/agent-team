@@ -55,16 +55,14 @@ vi.mock('@/app/layouts/GroupSidebar.vue', async () => {
     }),
   };
 });
-vi.mock('@/features/settings/SettingsDialog.vue', async () => {
+vi.mock('@/features/settings/SettingsPage.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return {
     default: defineComponent({
-      props: { open: Boolean, embedded: Boolean, policy: Object, defaults: Object, archivedTeams: Array },
+      props: { policy: Object, defaults: Object, archivedTeams: Array },
       setup: (props) => () =>
         h('section', {
-          'data-testid': 'settings-dialog',
-          'data-open': String(props.open),
-          'data-embedded': props.embedded ? 'on' : 'off',
+          'data-testid': 'settings-page',
           'data-archived': String(props.archivedTeams?.length ?? 0),
         }),
     }),
@@ -304,10 +302,9 @@ describe('group workspace page SSR smoke', () => {
     expect(html).not.toContain('data-testid="notes-page"');
   });
 
-  it('renders the embedded settings dialog on the settings route', async () => {
+  it('renders the settings page on the settings route', async () => {
     const { html } = await render('/settings', { isSettingsRoute: ref(true) });
-    expect(html).toContain('data-testid="settings-dialog"');
-    expect(html).toContain('data-embedded="on"');
+    expect(html).toContain('data-testid="settings-page"');
     expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-settings-active="true"/);
   });
 });
