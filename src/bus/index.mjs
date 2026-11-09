@@ -30,6 +30,7 @@ import * as teamsAgg from '../aggregates/teams.mjs';
 import * as externalAgg from '../aggregates/external-control.mjs';
 import * as panelAgg from '../aggregates/panel.mjs';
 import * as settingsAgg from '../aggregates/settings.mjs';
+import { Maintenance } from './maintenance.mjs';
 
 export { interactionView } from '../interactions.mjs';
 
@@ -71,6 +72,7 @@ export class Bus extends EventEmitter {
     this.archiveSnapshots = new ArchiveSnapshots(this);
     this.notes = new Notes(this);
     this.controlPlane = new ControlPlane(this, externalWake ? { wake: externalWake } : {});
+    this.maintenance = new Maintenance(this);
     // 旧任务列表没有 step id;把当前控制者的列表提升为当前任期计划,只做一次。
     this.lifecycle.migrateLegacyPlans();
   }
@@ -87,8 +89,7 @@ export class Bus extends EventEmitter {
   discardToolStreamRun(turnId, type = 'cancelled', error = null) { this.toolStreams.discardToolStreamRun(turnId, type, error); }
   start() {
     this.teamDirectives.recoverOutputs();
-    this.startAttachmentCleanup();
-    this.startRetentionCleanup();
+    this.maintenance.start();
     this.pump();
   }
   requireHost(host) { if (!this.hosts.has(host)) throw new Error(`宿主未配置: ${host}`); }
@@ -351,36 +352,6 @@ export class Bus extends EventEmitter {
   attachmentPrepare(...args) { return this.attachments.prepare(...args); }
   attachmentDescribeMessage(...args) { return this.attachments.describeMessage(...args); }
   attachmentCleanup(...args) { return this.attachments.cleanup(...args); }
-  startAttachmentCleanup() {
-    // best-effort:启动清一次(.part 全清),之后每小时一次;失败只记录,不影响通信启动。
-    try {
-      this.attachments.cleanup(new Date(), { partMaxAgeMs: 0 });
-    } catch (error) {
-      console.error('[attachments] 启动清理失败:', error.message);
-    }
-    this.attachmentCleanupTimer = setInterval(() => {
-      try {
-        this.attachments.cleanup(new Date());
-      } catch (error) {
-        console.error('[attachments] 定期清理失败:', error.message);
-      }
-    }, 60 * 60 * 1000);
-    this.attachmentCleanupTimer.unref();
-  }
-  // 历史保留:启动 1 分钟后跑一次,之后每 6 小时;异步启动,不阻塞服务。
-  startRetentionCleanup() {
-    const run = () => {
-      try {
-        this.store.pruneHistory({ retentionDays: 30 });
-      } catch (error) {
-        if (!this.closing) console.error('[retention] 历史清理失败:', error.message);
-      }
-    };
-    this.retentionTimer = setTimeout(run, 60 * 1000);
-    this.retentionTimer.unref?.();
-    this.retentionInterval = setInterval(run, 6 * 60 * 60 * 1000);
-    this.retentionInterval.unref?.();
-  }
   defaultModelSelection(hostName) {
     const cached = this.modelCatalogCache?.value.hosts.find(item => item.host === hostName && item.ok);
     if (!cached) return null;
@@ -469,18 +440,8 @@ export class Bus extends EventEmitter {
   // 但侧栏需要的团队/成员列表并不随团队变化,单独提供以免整棵侧栏闪一次空态。
   async close() {
     this.closing = true;
-    if (this.attachmentCleanupTimer) {
-      clearInterval(this.attachmentCleanupTimer);
-      this.attachmentCleanupTimer = null;
-    }
-    if (this.retentionTimer) {
-      clearTimeout(this.retentionTimer);
-      this.retentionTimer = null;
-    }
-    if (this.retentionInterval) {
-      clearInterval(this.retentionInterval);
-      this.retentionInterval = null;
-    }
+    // 先停表：定时器若在 store 关闭后触发会拿到已关闭的连接。
+    this.maintenance.stop();
     for (const controller of this.hostCatalogControllers.values()) controller.abort(new Error('服务正在停止'));
     await Promise.allSettled([...this.hosts.values()].map(host => host.cancelProbe?.()));
     await this.stopWhere(() => true);
