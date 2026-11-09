@@ -145,7 +145,7 @@ npm run test:web → EXIT 0，65 文件 / 382 用例全过，约 97s
 
 - **G0 是唯一无条件闸门**，其余按第 4.2 节的改动类型选层；提交前必须全绿的是「本次改动应选的层」，不是每次穷举全量。
 - **覆盖率永不设阈值**，只作为观察数据。理由：本项目大量契约测试用 SSR 冒烟与假宿主，行覆盖率与行为可信度不成正比；设阈值会诱导 Agent 写凑数断言。
-- **flaky 不降级、不忽略**。已知 `information.test.mjs` 的 MCP capture、`attachments.test.mjs` 的临时目录清理、`test/process/subprocess.test.mjs` 的后代进程 pid 读取偶发不稳（2026-11-09 全量并发下出现 1 次 `assert.ok(descendant > 0)` 失败，单文件连跑 5 次全过，判定为并发资源竞态，非本次迁移引入，已登记 P3 待修）。正确处理是**修复竞态**，或在 `npm test` 显式加 `--test-concurrency=2` 并登记原因。禁止「连跑 3 次取一次绿」「降级为条件闸门」「标 skip 了事」；偶发失败必须在交付记录里如实写明，不得隐藏后声称「一次全绿」。
+- **flaky 不降级、不忽略**。已知 `information.test.mjs` 的 MCP capture、`attachments.test.mjs` 的临时目录清理偶发不稳，待修。`test/process/subprocess.test.mjs` 的后代进程 pid 读取竞态**已于 2026-11-09 修复**：宿主脚本等 `'spawn'` 再输出 pid、`'error'` 写 stderr；父侧按完整行读取并校验 `/^\d+$/`、收集 stderr 作为失败现场；`process.kill(pid, 0)` 改为 `until` 有界等待，容忍僵尸态回收。根因是用例把首个 stdout chunk 当成完整 pid（`Number('undefined')` 得 `NaN`），断言在 `stopHost` 之前失败，与产品实现及 `node:test` 框架无关；并发只是放大了竞态。正确处理是**修复竞态**；`--test-concurrency=2` 只能缓解，不得当作修复。禁止「连跑 3 次取一次绿」「降级为条件闸门」「标 skip 了事」；偶发失败必须在交付记录里如实写明，不得隐藏后声称「一次全绿」。
 - **迁移链、崩溃恢复、win32 平台分支三类用例无条件保留**，不参与任何精简讨论。
 
 ### 3.1 单一入口（设计，待落地）
@@ -367,7 +367,6 @@ jobs:
 
 - 按第 2.2 节把 `scripts/` 里的手动验收脚本归入 `scripts/acceptance/`；`docs/` 与 `work/` 的一次性脚本保持不入库，由负责人决定是否清理（**不得自动删除用户运行数据**）。
 - 前端 65 个 worker 启动占 86% 时间，评估 `isolate: false` 或合并纯函数用例，目标把 G3 压到 30s 内。
-- 修 `test/process/subprocess.test.mjs` 的 pid 读取竞态：等后代进程 `'spawn'` 事件后再输出 pid、父侧按完整行解析（当前只取第一个 stdout chunk 就断言）；或显式加 `--test-concurrency=2` 并登记原因。
 - 规则 A 存量 33 处逐步迁移到公共入口断言，全部清零后设 `LAYERING_STRICT_A=1` 转为全量阻断（由负责人决定，Agent 不得自行开启）。
 
 ### 验收标准
