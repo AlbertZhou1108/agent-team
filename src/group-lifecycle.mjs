@@ -654,6 +654,9 @@ export class GroupLifecycle {
   }
   directive(groupId, text) {
     this.bus.collaboration.requireCommunication(groupId);
+    // 与 teamDirectives.submit 同一口径：把非法输入挡在业务层,
+    // 否则会以「SQLite 参数绑定失败」这种存储层报错暴露出来。
+    if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('指令须为 1–48000 字符');
     const controller = this.bus.teamController(groupId);
     const message = messagesAgg.append(this.bus.store, groupId, 'user', controller.id, 'send', text);
     queueMicrotask(() => this.bus.pump()); return { messageId: message.id };

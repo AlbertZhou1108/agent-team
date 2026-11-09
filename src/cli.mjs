@@ -3,7 +3,7 @@ import { version } from './version.mjs';
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { startServer, socketFor } from './server.mjs';
@@ -31,6 +31,13 @@ export function parseMembers(text = '') {
     if (!name || !host || extra.length) throw new Error('成员格式：名称=宿主，用逗号分隔');
     return { name, host };
   }) : [];
+}
+/**
+ * `direct` 的文本：位置参数优先（帮助里写的就是 `direct 文本`），
+ * 兼容历史上的 `--text` 写法。缺省返回空串，由业务层统一报「指令须为 1–48000 字符」。
+ */
+export function directText(positionals, values) {
+  return String(positionals[1] ?? values.text ?? '').trim();
 }
 async function main() {
   const { values, positionals } = parseArgs({ options, allowPositionals: true });
@@ -178,7 +185,7 @@ async function main() {
     else if (command === 'chat') return interactive(socketPath, values.group);
     else if (command === 'members') request = { op: 'members', group: values.group };
     else if (command === 'state') request = { op: 'collaboration', group: values.group };
-    else if (command === 'direct') request = { op: 'directive', group: values.group, text: values.text };
+    else if (command === 'direct') request = { op: 'directive', group: values.group, text: directText(positionals, values) };
     else if (command === 'archive' || command === 'restore') request = { op: command, group: values.group };
     else if (command === 'resolve-runtime') request = { op: 'resolve_runtime', group: values.group, turn: values.turn, reason: values.reason };
     else if (command === 'reset-session') request = { op: 'reset_session', endpoint: values.endpoint, reason: values.reason };
@@ -249,4 +256,7 @@ async function interactive(socketPath, initialGroup, existing) {
   } finally { if (!existing) readline.close(); }
 }
 
-main().catch(error => { stderr.write(`agent-team: ${error.message}\n`); process.exitCode = 1; });
+// 直接执行与 import 分开：测试要导入 parseMembers / directText，不能顺手把 CLI 跑起来。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => { stderr.write(`agent-team: ${error.message}\n`); process.exitCode = 1; });
+}
