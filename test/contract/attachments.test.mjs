@@ -336,7 +336,11 @@ test('bind and cleanup serialize: a cleaned attachment cannot be sent, a bound o
   bus.attachmentCleanup(new Date());
   const stillReadable = bus.attachmentRead(agentId, winner.id);
   assert.equal(stillReadable.name, 'w.txt', '已绑定记录不被清理');
-  stillReadable.stream.destroy();
+  // 读完再进入下一步：既证明文件内容还在，也保证 fd 已释放。
+  // 只 destroy() 不等 close 的话，open 还在队列里，测试结束删临时目录会撞成 ENOENT。
+  const chunks = [];
+  for await (const chunk of stillReadable.stream) chunks.push(chunk);
+  assert.equal(Buffer.concat(chunks).toString(), 'winner', '已绑定附件仍可读取');
 
   // 先清理后绑定:不能发送一个已经被清理的附件。
   const loser = await bus.attachmentUpload(agentId, textBuffer('loser'), { name: 'l.txt' });
