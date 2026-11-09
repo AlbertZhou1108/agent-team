@@ -1,36 +1,14 @@
 import { computed } from 'vue';
-import { useQuery } from '@tanstack/vue-query';
-import { QUERY_POLLING } from '@/features/queries';
+import { useWorkbenchQuery } from './workbench-query';
 
 /**
- * 未读索引：把工作台投影里的 unread 行按团队摊平，供侧栏红点与面板标题使用。
- * 与工作台页共用 ['workbench'] 这个 query key，同一时刻只会有一条在跑。
+ * 未读索引：把工作台投影里的 unread 行按团队摊平，供侧栏红点与页面计数使用。
+ *
+ * 不自己发请求 —— 数据来自 workbench-query.ts 的同一个查询实例。
+ * 同一个 query key 挂两个 fetcher 时，行为会随挂载顺序变化，所以这里只读。
  */
-
-type UnreadRow = {
-  id: string;
-  scope: 'group' | 'panel';
-  scopeId: string;
-  conversation: string;
-  title: string;
-  groupName: string;
-  count: number;
-  latest: string;
-  latestSeq: number;
-  path: string;
-};
-
 export function useUnreadIndex() {
-  const query = useQuery({
-    queryKey: ['workbench'],
-    queryFn: async ({ signal }) => {
-      const response = await fetch('/api/workbench', { signal });
-      if (!response.ok) throw Error('工作台加载失败');
-      return response.json() as Promise<{ unread: UnreadRow[]; unreadTotal: number }>;
-    },
-    refetchInterval: QUERY_POLLING.slow,
-    refetchOnWindowFocus: false,
-  });
+  const query = useWorkbenchQuery();
   const panelByTeam = computed(() => {
     const counts = new Map<string, number>();
     for (const row of query.data.value?.unread ?? []) {

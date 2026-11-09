@@ -1,79 +1,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useQuery, useQueryClient } from '@tanstack/vue-query';
-import { QUERY_POLLING } from '@/features/queries';
+import { useQueryClient } from '@tanstack/vue-query';
 import { usePanelStream } from '@/features/panel-agent/panel-stream-store';
 import type { PanelStreamEvent } from '@/features/streams/panel-reducer';
 import { api } from '@/shared/api/client';
+import { useWorkbenchQuery, type Workbench } from './workbench-query';
 
 /**
  * 工作台页的视图状态 / 查询 / 动作（从 HomeWorkbench.vue 纯搬迁）。
  *
  * 组件只保留模板与接线：本 composable 持有 /api/workbench 查询、三类待办合并
  * 与过滤、清理动作、执行活动 tab、进展摘要流订阅与生成动作，以及秒级时钟。
- * 查询 key / 轮询间隔 / 失效语义保持原样（轮询预算来自 QUERY_POLLING）。
+ * 查询本身在 workbench-query.ts：工作台与侧栏共用同一个 key 与 fetcher。
  */
-
-export type Activity = {
-  id: string;
-  name: string;
-  groupName: string;
-  created: string;
-  ended?: string;
-  queued?: number;
-  state?: string;
-  path: string;
-};
-
-export type Workbench = {
-  pending: {
-    id: string;
-    kind: string;
-    title: string;
-    groupName: string;
-    conversation: string;
-    created: string;
-    path: string;
-  }[];
-  /** 未读：一个会话一行。群消息与面板私聊各自一套编号。 */
-  unread: {
-    id: string;
-    scope: 'group' | 'panel';
-    scopeId: string;
-    conversation: string;
-    title: string;
-    groupName: string;
-    count: number;
-    latest: string;
-    latestSeq: number;
-    path: string;
-  }[];
-  unreadTotal: number;
-  waiting: {
-    id: string;
-    title: string;
-    groupName: string;
-    recipientName: string;
-    recipientKind: string;
-    created: string;
-    path: string;
-  }[];
-  agentWaiting: {
-    id: string;
-    title: string;
-    groupName: string;
-    senderName: string;
-    senderKind: string;
-    recipientName: string;
-    recipientKind: string;
-    created: string;
-    path: string;
-  }[];
-  running: Activity[];
-  recent: Activity[];
-  panelReady: boolean;
-  summary: { id: string; text: string; created: string } | null;
-  summaryRequest: { id: string; created: string } | null;
-};
 
 /** 未读卡的一行：一个会话，同时挂未读条数与待处理卡数。 */
 export type InboxRow = {
@@ -101,16 +39,7 @@ export type StaleEntry = {
 
 export function useWorkbenchPage() {
   const client = useQueryClient();
-  const query = useQuery({
-    queryKey: ['workbench'],
-    queryFn: async ({ signal }) => {
-      const response = await fetch('/api/workbench', { signal });
-      if (!response.ok) throw Error('工作台加载失败');
-      return response.json() as Promise<Workbench>;
-    },
-    refetchInterval: QUERY_POLLING.slow,
-    refetchOnWindowFocus: false,
-  });
+  const query = useWorkbenchQuery();
   const data = computed(() => query.data.value);
   const pending = computed(() =>
     (data.value?.pending ?? []).filter((item) => item.kind === 'interaction'),

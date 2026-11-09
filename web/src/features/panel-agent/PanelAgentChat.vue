@@ -66,7 +66,9 @@ const emit = defineEmits<{
 const globalContextKey = '__global__';
 const state = usePanelAgentStore();
 // 滚到底时按团队分别记账：看团队 A 的私聊不会推进团队 B 的水位。
-// 「全部团队」视图里经过的每个团队各自记到它最后一条。
+// 「全部团队」视图里经过的每个团队各自记到它最后一条 —— 这里是从已加载的消息里分桶，
+// 分页只加载最近一页时，更早出现过的团队不会被推进。方向是安全的（只会少算已读，
+// 不会多算），有意如此：看过的那一段才算读过，不要改成「一次推所有桶」。
 const markRead = useReadMarker();
 function markPanelRead() {
   if (showHistory.value) return;
