@@ -25,14 +25,14 @@ npm run desktop
 
 ### 发行包（当前仍通过浏览器使用）
 
-在 [Releases](https://github.com/AlbertZhou1108/agent-team/releases) 下载与你的系统匹配的包。v0.4.1 提供 **macOS Apple Silicon / arm64**、**Windows x64** 与 **Linux x64** 包，各自附 SHA-256 校验文件。
+在 [Releases](https://github.com/AlbertZhou1108/agent-team/releases) 下载与你的系统匹配的包。v0.5.0 提供 **macOS Apple Silicon / arm64**、**Windows x64** 与 **Linux x64** 包，各自附 SHA-256 校验文件。
 
 1. 解压下载文件。
 2. 打开目录中的启动入口：macOS 为 `Agent Team.app`，Windows 为 `.cmd`，Linux 为 `.sh`。它只启动本地服务并打开浏览器，所有操作仍在网页中完成。
 3. 在首次引导中选择一个显示“可用”的工具，点击“使用”。
 4. 保留明确的默认模型，或展开“调整模型与名称”选择，再点击“开始聊天”。
 
-安装包自带框架所需的 Node 环境，使用它无需自行构建前端。v0.4.1 的包均未签名、未公证；系统的安装与安全提示仍适用，不需要关闭系统安全机制。
+安装包自带框架所需的 Node 环境，使用它无需自行构建前端。v0.5.0 的包均未签名、未公证；系统的安装与安全提示仍适用，不需要关闭系统安全机制。v0.5.0 的数据目录 schema 升级到 v18：升级前请先停止运行中的服务，首次启动会自动完成迁移；旧版本无法打开新 schema 的数据目录。
 
 ![首次打开时选择可用 AI 工具](../assets/readme/01-connect.png)
 
