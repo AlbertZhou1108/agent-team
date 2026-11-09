@@ -1,6 +1,6 @@
 import { version } from './version.mjs';
-import { matchRoute } from './http-route-access.mjs';
-import { apiRoutes } from './http-api-routes.mjs';
+import { matchRoute } from './http/access.mjs';
+import { apiRoutes } from './http/routes.mjs';
 import net from 'node:net';
 import { observeResponsiveness } from './responsiveness.mjs';
 import http from 'node:http';

@@ -1,10 +1,10 @@
-import { openResultFile } from './result-files.mjs';
-import { searchWorkspace, homeWorkbench, dismissWorkbench } from './productivity.mjs';
-import { advanceReadState } from './read-state.mjs';
-import { telemetryOverview } from './telemetry-overview.mjs';
-import { chooseDirectory } from './directory-picker.mjs';
-import { interactionView } from './bus.mjs';
-import { attachmentError, ATTACHMENT_IMAGE_TYPES } from './attachments.mjs';
+import { openResultFile } from './files.mjs';
+import { searchWorkspace, homeWorkbench, dismissWorkbench } from '../productivity.mjs';
+import { advanceReadState } from '../read-state.mjs';
+import { telemetryOverview } from '../telemetry-overview.mjs';
+import { chooseDirectory } from './directory.mjs';
+import { interactionView } from '../bus.mjs';
+import { attachmentError, ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
 // Each declaration owns matching, allowed methods, archived access and dispatch.
 
 // 消息列表统一带上产出它的回合:一个回合可以产出多条消息,前端据此让行内
