@@ -40,7 +40,7 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 | `web/` | Vue 3、TypeScript、Vite 前端，npm workspace |
 | `electron/` | 开发态桌面窗口：启动器、主进程、托盘、preload |
 | `test/` | `node:test` 后端测试 |
-| `web/src/**/*.test.ts` | Vitest 前端测试 |
+| `web/tests/` | Vitest 前端测试（统一目录，`support/` 放共用辅助） |
 | `scripts/` | 门禁、发行构建与手动真宿主验证工具 |
 | `guide/` | 正式使用与技术文档 |
 | `assets/readme/` | 产品介绍使用的插画和实机截图 |
@@ -54,6 +54,8 @@ npm run check
 npm test
 npm run build
 ```
+
+完整的测试分层、Agent 必须遵守的测试流程、按改动类型选层与 CI/CD 门禁矩阵见 [测试体系与 Agent 测试流程](testing.md)；该文件是测试规范的唯一权威来源。
 
 `check` 包含语法、设计治理、双端类型与后端 ESLint。CI 在 Ubuntu、macOS、Windows 上执行 check、build、test。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
 
