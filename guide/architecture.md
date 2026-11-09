@@ -75,6 +75,8 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | 启动、服务与 IPC | [launcher.mjs](../src/launcher.mjs)、[server.mjs](../src/server.mjs)、[rpc.mjs](../src/rpc.mjs) |
 | 消息与调度 | [bus.mjs](../src/bus.mjs)、[message-dispatch.mjs](../src/message-dispatch.mjs) |
 | 门面拆分 | [bus/model-catalog.mjs](../src/bus/model-catalog.mjs)（宿主模型目录探测）、[bus/app-settings.mjs](../src/bus/app-settings.mjs)（模型策略预设 / 主题包 / 附件设置）、[bus/maintenance.mjs](../src/bus/maintenance.mjs)（附件与历史保留定时器） |
+| 工具面 | [tools/registry.mjs](../src/tools/registry.mjs)（成员/面板工具注册表）、[tools/dispatch.mjs](../src/tools/dispatch.mjs)、[tools/ops.mjs](../src/tools/ops.mjs)、[tools/schema.mjs](../src/tools/schema.mjs)、[tools/panel.mjs](../src/tools/panel.mjs) |
+| HTTP 边界 | [http/routes.mjs](../src/http/routes.mjs)（路由表）、[http/access.mjs](../src/http/access.mjs)、[http/directory.mjs](../src/http/directory.mjs)、[http/files.mjs](../src/http/files.mjs) |
 | 外部主控与能力契约 | [control-plane.mjs](../src/control-plane.mjs)、[control-capabilities.mjs](../src/control-capabilities.mjs) |
 | 存储 | [store.mjs](../src/store.mjs) |
 | 私人会话、请求与回执 | [panel-sessions.mjs](../src/panel-sessions.mjs)、[team-requests.mjs](../src/team-requests.mjs) |
