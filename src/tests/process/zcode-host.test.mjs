@@ -66,6 +66,12 @@ createInterface({ input: process.stdin }).on('line', line => {
     send({ id: row.id, result: {} });
   } else if (row.method === 'session/subscribe') {
     send({ id: row.id, result: { eventSeq: 0, events: [] } });
+  } else if (row.method === 'mcp/list') {
+    send({ id: row.id, result: { statuses: { agent_team: { status: 'connected', transport: 'stdio', toolCount: 5, workspaceTrust: { declarationDigest: 'a'.repeat(64), trusted: false, configuredEnabled: true } } } } });
+  } else if (row.method === 'workspace/mcp/trust') {
+    assert.equal(row.params.serverName, 'agent_team');
+    assert.equal(row.params.trusted, true);
+    send({ id: row.id, result: { accepted: true } });
   } else if (row.method === 'session/send') {
     assert.ok(row.params.content.includes('团队规则'), 'instructions must precede the prompt');
     assert.ok(row.params.content.includes('当前输入'), 'prompt must be labeled');
