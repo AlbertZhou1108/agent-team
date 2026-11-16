@@ -16,6 +16,7 @@
 - 成员 `ask` 在外部主控团队中转为 pending decision request；主控答复以 user-origin 消息唤醒原成员。
 - Codex 主动唤醒使用 app-server 的 `thread/queue/add`；空闲线程会自动开始，只有收到真实 `turn/started` 才把 Client binding 标为 ready。
 - ZCode 主动唤醒使用 ZCode Protocol（`zcode.cjs app-server --stdio`）的 `session/resume` + `session/send`，订阅事件流并等待真实 `turn.started`/`turn.completed`。ZCode 的 MCP 子进程不注入会话 id，主控会话在会话内执行 `agent-team connect --host zcode --session "$ZCODE_SESSION_ID"` 绑定（bash 子进程带该变量）。无头协议会话里权限审批无人可点，适配层按允许类选项自动放行；工具边界仍由群策略与框架负责。`AGENT_TEAM_ZCODE_HOME` 可把唤醒实例的 ZCode 数据目录重定向到隔离环境（真宿主验收用）。
+- DSH 主动唤醒无需常驻服务：headless profile 的 `--session-id` 会采用已持久化会话续聊（未知 id 报错、会话 cwd 必须与原会话一致），每唤醒一个进程、退出即回合结束；agent_team MCP server 经唤醒 overlay 注入，无需用户配置。主控会话在会话内执行 `agent-team connect --host dsh --session "$DSH_SESSION_ID"` 绑定，且**必须建在团队工作目录内**（resume 强校验 cwd）。DSH 的 MCP 子进程会擦除 `DSH_*` 变量，绑定的会话 id 不会回写。DSH headless 一次性回合禁用凭据服务，API key 须从启动环境注入（真宿主验收脚本从本机 credentials 存储读取）。技能走 `~/.agents/skills` 共享入口（DSH 五级技能发现覆盖 user-agents；`~/.dsh/skills/agent-team` 已被自带实验插件占用，勿做副本安装）。
 - 无头团队创建后先处于 provisioning；主动唤醒未验证时拒绝工作派单。用户可以显式接受 binding 级 Pull-only，重测成功后恢复。
 - 无头成员模型可在 `team_create` 中以结构化成员指定，也可用 `team_member_model` 显式调整；两者都使用实时模型目录。
 - 群策略是能力上限，成员有效策略与宿主能力取交集。`team_send.requiredCapabilities` 在写消息前拒绝能力不匹配的派单。
@@ -24,10 +25,11 @@
 - `connect` 会为已知宿主安装或更新 Skill；重复连接轮换凭据，并把旧 Skill 目录保留为同级备份。
 - 2026-11-08 已完成一次真实 Codex ↔ Claude Code 验收：Codex 创建团队并派单，Claude 回复进入收件箱，Codex thread 被 resume 唤醒，`control_inbox` 消费回复并写回验收任务。
 - 2026-11-17 已完成一次真实 ZCode 双角色验收（`scripts/verify-zcode-host.mjs`，全隔离临时目录）：ZCode 主控创建团队并派单，Claude 回复进入收件箱，ZCode 会话被 `session/resume` 唤醒并领取回复、写回验收任务；ZCode 成员宿主在独立数据目录中执行指令并回复。
+- 2026-11-17 已完成一次真实 DSH 双角色验收（`scripts/verify-dsh-host.mjs`）：DSH 主控经 headless resume 建团队、派单、被唤醒后领取回复并写回任务；DSH 成员宿主执行指令并回复。
 
 尚未完成：
 
-- 其余宿主（DSH 等）的主动注入适配器：目前 Codex 与 ZCode 注册了 app-server wake driver；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
+- 其余宿主（Claude Code 等）的主动注入适配器：目前 Codex、ZCode、DSH 注册了主动唤醒驱动；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
 - 多主控交接、远程连接和完整原生 TUI。
 
 ## 产品边界
