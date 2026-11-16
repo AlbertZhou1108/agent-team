@@ -69,3 +69,28 @@ test('connect for zcode declares session.wake and reuses the shared skill direct
     store.close();
   }
 });
+
+test('connect for dsh declares session.wake and reuses the shared skill directory', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'agent-team-connect-dsh-'));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const data = join(root, 'data');
+  const output = JSON.parse((await run(process.execPath, [
+    cli,
+    'connect',
+    '--data', data,
+    '--host', 'dsh',
+    '--client', 'main',
+    '--principal', 'user',
+    '--workspace', root,
+  ])).stdout);
+  assert.ok(output.capabilities.capabilities.includes('session.wake'));
+  assert.equal(output.skill.targetDir, join(homedir(), '.agents', 'skills', 'agent-team'));
+  assert.notEqual(output.skill.changed, true, 'shared skill directory must never be replaced by an install copy');
+  assert.equal(output.mcp.agent_team.env.AGENT_TEAM_CONTROL_PROTOCOL, '1');
+  const store = new Store(data);
+  try {
+    assert.equal(store.get("SELECT host FROM external_client_bindings WHERE name='main'").host, 'dsh');
+  } finally {
+    store.close();
+  }
+});

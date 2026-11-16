@@ -32,6 +32,8 @@ test('control host session supports explicit wakeable sessions and a wake disabl
   assert.equal(controlHostContext({ AGENT_TEAM_DISABLE_ACTIVE_WAKE: '1' }).clearExistingSession, true);
   assert.equal(controlHostSession({ CLAUDE_SESSION_ID: 'claude-thread' }), 'claude-thread');
   assert.equal(controlHostSession({ ZCODE_SESSION_ID: 'sess-zcode' }), 'sess-zcode');
+  assert.equal(controlHostSession({ DSH_SESSION_ID: 'session-dsh' }), 'session-dsh');
+  assert.equal(controlHostSession({ ZCODE_SESSION_ID: 'sess-zcode', DSH_SESSION_ID: 'session-dsh' }), 'sess-zcode');
   assert.equal(controlHostSession({ CODEX_SESSION_ID: 'codex-first', ZCODE_SESSION_ID: 'sess-zcode' }), 'codex-first');
   assert.equal(controlHostSession({}), null);
 });

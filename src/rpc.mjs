@@ -145,7 +145,7 @@ export function controlHostContext(env = process.env) {
     return { session: null, clearExistingSession: true };
   }
   return {
-    session: codexThread || codexSession || env.ZCODE_SESSION_ID?.trim() || env.CLAUDE_SESSION_ID?.trim() || null,
+    session: codexThread || codexSession || env.ZCODE_SESSION_ID?.trim() || env.DSH_SESSION_ID?.trim() || env.CLAUDE_SESSION_ID?.trim() || null,
     clearExistingSession: false,
   };
 }

@@ -45,12 +45,14 @@ export function defaultSkillTarget(host, home = homedir()) {
 }
 
 /**
- * 直接读取共享技能目录（~/.agents/skills）的宿主，如 ZCode。
+ * 直接读取共享技能目录（~/.agents/skills）的宿主，如 ZCode 与 DSH。
  * 这类宿主不安装副本：目标目录通常是指向维护源的符号链接，
  * installSkill 的 rename 替换会把链接变成实体目录、破坏多宿主共享。
+ * DSH 另有五级技能发现（user-agents 覆盖 ~/.agents/skills），
+ * 且 ~/.dsh/skills/agent-team 已被其自带实验插件占用，不做副本安装。
  */
 export function sharedSkillTarget(host, home = homedir()) {
-  if (host === 'zcode') return join(home, '.agents', 'skills', 'agent-team');
+  if (host === 'zcode' || host === 'dsh') return join(home, '.agents', 'skills', 'agent-team');
   return null;
 }
 

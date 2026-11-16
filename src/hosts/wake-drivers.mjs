@@ -1,4 +1,5 @@
 import { codexWakeFingerprint, wakeCodexAppServer } from './codex-wake.mjs';
+import { dshWakeFingerprint, wakeDshSession } from './dsh-wake.mjs';
 import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode-wake.mjs';
 
 const drivers = new Map([
@@ -9,6 +10,15 @@ const drivers = new Map([
     },
     wake(args) {
       return wakeCodexAppServer(args);
+    },
+  }],
+  ['dsh', {
+    id: 'dsh-headless-resume',
+    fingerprint({ command, threadId, mcpConfig }) {
+      return dshWakeFingerprint({ command, threadId, mcpConfig });
+    },
+    wake(args) {
+      return wakeDshSession(args);
     },
   }],
   ['zcode', {
