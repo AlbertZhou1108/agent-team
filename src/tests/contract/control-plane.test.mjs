@@ -17,7 +17,7 @@ async function untilAsync(fn, message = 'condition timed out', budgetMs = 5000) 
   }
 }
 
-function setup(t, { externalWake, capabilities = Object.values(CONTROL_CAPABILITIES) } = {}) {
+function setup(t, { externalWake, capabilities = Object.values(CONTROL_CAPABILITIES), controllerHost = 'codex', controllerSession = 'thread-test' } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'agent-team-control-'));
   const wakeCalls = [];
   const host = fakeHost({
@@ -55,8 +55,8 @@ function setup(t, { externalWake, capabilities = Object.values(CONTROL_CAPABILIT
   const identity = createExternalIdentity(bus.store, {
     principalName: '测试用户',
     bindingName: '主控会话',
-    host: 'codex',
-    session: 'thread-test',
+    host: controllerHost,
+    session: controllerSession,
     declared: {
       capabilities,
       workspaceRoots: [directory],
@@ -753,4 +753,30 @@ test('active wake is serialized for one controller session', async t => {
     claimed += (await call('control_inbox', { limit: 100 })).deliveries.length;
     return claimed === 2;
   }, 'serialized wakes did not settle');
+});
+
+test('zcode controller reaches wake ready and receives the member reply', async t => {
+  const { call, wakeCalls, directory } = setup(t, { controllerHost: 'zcode', controllerSession: 'sess-zcode-1' });
+  const tools = await call('control_protocol');
+  assert.ok(tools.capabilities.capabilities.includes(CONTROL_CAPABILITIES.sessionWake));
+  const verified = await call('control_wake_test');
+  assert.equal(verified.wake.state, 'ready');
+  assert.equal(verified.wake.mode, 'zcode');
+  const created = await call('team_create', {
+    name: 'ZCode 无头团队',
+    workspace: directory,
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  assert.equal(created.headless.state, 'ready');
+  await call('team_send', { teamId: created.team.id, to: '成员', text: '请确认收到。' });
+  await untilAsync(
+    async () => (await call('control_status')).delivery.pending === 1,
+    'member reply was not queued for the zcode controller',
+  );
+  await until(() => wakeCalls.length === 2, 'external wake was not attempted for zcode');
+  assert.equal(wakeCalls[1].binding.host, 'zcode');
+  const inbox = await call('control_inbox', { limit: 20 });
+  assert.equal(inbox.deliveries.length, 1);
+  assert.equal(inbox.deliveries[0].payload.message.text, '成员已经收到。');
 });

@@ -35,9 +35,9 @@ export function externalWakePlan(binding, { teamName, count, workspace, verifica
   try { wakeConfig = binding.wake_config ? JSON.parse(binding.wake_config) : null; }
   catch { wakeConfig = null; }
   if (!wakeConfig?.command || !Array.isArray(wakeConfig.args)) {
-    return { supported: false, reason: 'Codex binding 缺少 MCP 唤醒配置；请先在宿主内调用 control_protocol' };
+    return { supported: false, reason: `${binding.host} binding 缺少 MCP 唤醒配置；请先在宿主内调用 control_protocol` };
   }
-  const command = binding.command || 'codex';
+  const command = binding.command || binding.host;
   return {
     supported: true,
     driver: driver.id,
@@ -59,7 +59,7 @@ export async function deliverExternalWake(binding, options, { wake = null } = {}
     return {
       supported: true,
       state: 'failed',
-      mode: 'codex',
+      mode: binding.host,
       reason: '主动唤醒环境已变化，需要重新执行验证',
       fingerprint: plan.fingerprint,
     };

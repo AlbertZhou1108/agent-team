@@ -44,6 +44,16 @@ export function defaultSkillTarget(host, home = homedir()) {
   return null;
 }
 
+/**
+ * 直接读取共享技能目录（~/.agents/skills）的宿主，如 ZCode。
+ * 这类宿主不安装副本：目标目录通常是指向维护源的符号链接，
+ * installSkill 的 rename 替换会把链接变成实体目录、破坏多宿主共享。
+ */
+export function sharedSkillTarget(host, home = homedir()) {
+  if (host === 'zcode') return join(home, '.agents', 'skills', 'agent-team');
+  return null;
+}
+
 export function readSkillManifest(targetDir) {
   try {
     return JSON.parse(readFileSync(join(targetDir, MANIFEST), 'utf8'));

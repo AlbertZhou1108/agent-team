@@ -130,6 +130,8 @@ export async function serveControlMcp(socketPath, bindingId, key) {
  * MCP 子进程会继承宿主环境。顶层 Codex 的 THREAD_ID 与 SESSION_ID 相同，
  * 但 multi-agent 子会话的 THREAD_ID 是父级不可恢复的子 thread；这种环境只能
  * 走 pull-only，直到外围启动器通过 bind_client_session 明确绑定可恢复会话。
+ * ZCode 的 MCP 子进程不注入 ZCODE_SESSION_ID；主控会话经 connect --session
+ * 显式绑定，bash 子进程里的该变量可作为兜底。
  */
 export function controlHostContext(env = process.env) {
   if (env.AGENT_TEAM_DISABLE_ACTIVE_WAKE === '1') {
@@ -143,7 +145,7 @@ export function controlHostContext(env = process.env) {
     return { session: null, clearExistingSession: true };
   }
   return {
-    session: codexThread || codexSession || env.CLAUDE_SESSION_ID?.trim() || null,
+    session: codexThread || codexSession || env.ZCODE_SESSION_ID?.trim() || env.CLAUDE_SESSION_ID?.trim() || null,
     clearExistingSession: false,
   };
 }

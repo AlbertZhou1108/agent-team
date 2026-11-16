@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { version } from './version.mjs';
 import { parseArgs } from 'node:util';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
@@ -12,7 +12,8 @@ import { Store } from './store.mjs';
 import { createExternalIdentity } from './control-plane.mjs';
 import { CONTROL_CAPABILITIES, CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
 import { nodeRunner } from './runtime.mjs';
-import { defaultSkillTarget, installSkill } from './skill-install.mjs';
+import { defaultSkillTarget, sharedSkillTarget, installSkill } from './skill-install.mjs';
+import { wakeDriverFor } from './hosts/wake-drivers.mjs';
 
 const options = {
   data: { type: 'string', default: 'work/local' }, port: { type: 'string', default: '0' },
@@ -97,7 +98,7 @@ async function main() {
       ? values.capabilities.split(',').map(item => item.trim()).filter(Boolean)
       : [
           ...CONTROLLER_REQUIRED_CAPABILITIES,
-          ...(host === 'codex' ? [CONTROL_CAPABILITIES.sessionWake] : []),
+          ...(wakeDriverFor(host) ? [CONTROL_CAPABILITIES.sessionWake] : []),
         ];
     const required = new Set(CONTROLLER_REQUIRED_CAPABILITIES);
     if ([...required].some(capability => !capabilityIds.includes(capability))) {
@@ -108,6 +109,7 @@ async function main() {
       let installedSkill = null;
       if (!values['no-install-skill']) {
         const targetDir = values['skill-root'] || defaultSkillTarget(host);
+        const sharedDir = targetDir ? null : sharedSkillTarget(host);
         if (targetDir) {
           installedSkill = installSkill({
             sourceDir: fileURLToPath(new URL('../skills/agent-team', import.meta.url)),
@@ -115,6 +117,22 @@ async function main() {
             version,
             protocolVersion: CONTROL_PROTOCOL_VERSION,
           });
+        } else if (sharedDir) {
+          // 宿主直接读取共享技能目录（如 ZCode 读 ~/.agents/skills）；安装副本反而会破坏共享链接。
+          installedSkill = existsSync(sharedDir)
+            ? {
+                installed: true,
+                current: true,
+                changed: false,
+                targetDir: sharedDir,
+                reason: '宿主直接读取共享技能目录，无需安装副本',
+              }
+            : {
+                installed: false,
+                current: false,
+                targetDir: sharedDir,
+                reason: '共享技能目录不存在；请按 guide/development.md 建立符号链接，或用 --skill-root 指定副本目录',
+              };
         } else {
           installedSkill = {
             installed: false,

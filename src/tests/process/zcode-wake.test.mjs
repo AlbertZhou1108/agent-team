@@ -1,0 +1,118 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { resolveZcodeLaunch, wakeZcodeAppServer } from '../../hosts/zcode-wake.mjs';
+
+function fixture(t, source) {
+  const directory = mkdtempSync(join(tmpdir(), 'zcode-wake-'));
+  const file = join(directory, 'fixture.mjs');
+  writeFileSync(file, `#!/usr/bin/env node\n${source}`);
+  chmodSync(file, 0o700);
+  const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
+  if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  return command;
+}
+
+const APP_SERVER_STUB = `
+import { createInterface } from 'node:readline';
+import assert from 'node:assert/strict';
+const argv = process.argv.slice(2);
+assert.deepEqual(argv.slice(0, 2), ['app-server', '--stdio']);
+if (argv.includes('--cwd')) assert.equal(argv[argv.indexOf('--cwd') + 1], process.env.STUB_EXPECT_CWD ?? argv[argv.indexOf('--cwd') + 1]);
+let acked = false;
+console.log(JSON.stringify({ method: 'startup/storagePath', params: { path: '/tmp/stub-db.sqlite' } }));
+createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  const send = value => console.log(JSON.stringify(value));
+  if (row.method === 'startup/storagePathReady') {
+    acked = true;
+    send({ method: 'startup/storageState', params: { sequence: 1 } });
+    return;
+  }
+  if (row.method?.startsWith('startup/')) return;
+  if (row.id && row.method === 'session/requestRuntimePreferences') {
+    send({ id: row.id, result: { nativeSearchEnhancementsEnabled: false } });
+    return;
+  }
+  if (!acked) {
+    if ('id' in row) send({ id: row.id, error: { message: '启动握手未完成' } });
+    return;
+  }
+  if (row.method === 'session/resume') {
+    assert.equal(row.params.sessionId, 'sess-1');
+    send({ id: row.id, result: { messages: [] } });
+    send({ method: 'session/event', params: { sessionId: 'sess-1', type: 'session.updated', payload: {} } });
+  } else if (row.method === 'session/subscribe') {
+    assert.equal(row.params.sessionId, 'sess-1');
+    send({ id: row.id, result: { eventSeq: 0, events: [] } });
+  } else if (row.method === 'session/send') {
+    assert.equal(row.params.sessionId, 'sess-1');
+    assert.equal(row.params.content, '请领取 Agent Team 事件');
+    send({ id: row.id, result: { accepted: true, sessionId: 'sess-1', stateRevision: 1 } });
+    send({ method: 'session/event', params: { sessionId: 'sess-1', turnId: 'turn-9', type: 'turn.started', payload: { input: row.params.content } } });
+    send({ method: 'session/event', params: { sessionId: 'sess-1', turnId: 'turn-9', type: 'turn.completed', payload: { response: 'ok' } } });
+  } else if ('id' in row) send({ id: row.id, error: { message: 'unexpected ' + row.method } });
+});
+`;
+
+test('ZCode active wake resumes the session, injects content and waits for the turn', async t => {
+  const command = fixture(t, APP_SERVER_STUB);
+  const result = await wakeZcodeAppServer({
+    command,
+    sessionId: 'sess-1',
+    text: '请领取 Agent Team 事件',
+    cwd: process.cwd(),
+    mcpConfig: {
+      command: process.execPath,
+      args: ['/tmp/agent-team.mjs', 'mcp'],
+      env: { AGENT_TEAM_CLIENT_KEY: 'redacted' },
+    },
+  });
+  assert.equal(result.supported, true);
+  assert.equal(result.state, 'started');
+  assert.equal(result.mode, 'zcode');
+  assert.equal(result.sessionId, 'sess-1');
+  assert.equal(result.turnId, 'turn-9');
+  assert.match(result.fingerprint, /^[0-9a-f]{64}$/);
+});
+
+test('ZCode active wake surfaces resume failures instead of hanging', async t => {
+  const command = fixture(t, `
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  const send = value => console.log(JSON.stringify(value));
+  if (row.method === 'startup/storagePathReady') { send({ method: 'startup/storageState', params: { sequence: 1 } }); return; }
+  if (row.method?.startsWith('startup/')) return;
+  if (row.method === 'session/resume') send({ id: row.id, error: { message: 'session not found: sess-404' } });
+  else if ('id' in row) send({ id: row.id, result: {} });
+});
+console.log(JSON.stringify({ method: 'startup/storagePath', params: { path: '/tmp/stub-db.sqlite' } }));
+`);
+  await assert.rejects(
+    () => wakeZcodeAppServer({ command, sessionId: 'sess-404', text: '唤醒' }),
+    /session not found/,
+  );
+});
+
+test('ZCode launch resolution prefers the env override and existing commands', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'zcode-launch-'));
+  t.after(() => {
+    delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  const entry = join(directory, 'zcode-entry.mjs');
+  writeFileSync(entry, 'process.exit(0);\n');
+  process.env.AGENT_TEAM_ZCODE_COMMAND = entry;
+  const override = resolveZcodeLaunch({ command: 'zcode', cwd: directory });
+  assert.equal(override.command, entry);
+  assert.deepEqual(override.args, ['app-server', '--stdio', '--cwd', directory]);
+  assert.deepEqual(override.env, {});
+  delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+  const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
+  assert.equal(direct.command, entry);
+  assert.deepEqual(direct.args, ['app-server', '--stdio', '--cwd', directory]);
+});

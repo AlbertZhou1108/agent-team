@@ -21,13 +21,14 @@ import { roleNameKey } from './collaboration.mjs';
 import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
+import { wakeDriverFor } from './hosts/wake-drivers.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
   '所有团队操作都必须显式传 teamId；不要根据隐式当前团队猜测。',
   'send 会唤醒接收方，note 不唤醒。消息进入外部主控时使用 control_inbox 领取。',
   '外部主控只能访问自己控制的团队；权限不得高于当前绑定声明的 workspaceRoots 和 policies。',
-  'Codex controller 必须通过 control_wake_test 的真实唤醒后才能派发工作；也可以显式接受 binding 级 Pull-only。',
+  '支持主动唤醒的宿主必须先通过 control_wake_test 的真实唤醒才能派发工作；也可以显式接受 binding 级 Pull-only。',
   '成员模型由 team_create 或 team_member_model 按宿主实时目录选择，不静默回退。',
   'Group policy 是上限；成员有效策略与宿主能力取交集。team_send 可用 requiredCapabilities 阻止不兼容派单。',
   '需要用户决定时，向当前主控发 decision_request；由主控询问用户后通过 decision_answer 回复。',
@@ -36,51 +37,51 @@ const CONTROL_GUIDE = [
 
 function wakeStatus(binding) {
   if (!binding.session) {
-    return { state: 'unsupported', mode: null, reason: '尚未发现可恢复的宿主 session' };
+    return { state: 'unsupported', mode: binding.wake_mode ?? binding.host, reason: '尚未发现可恢复的宿主 session' };
   }
   if (binding.pull_only_accepted) {
     return {
       state: 'degraded',
-      mode: binding.wake_mode ?? 'codex',
+      mode: binding.wake_mode ?? binding.host,
       reason: binding.wake_reason ?? '用户已接受仅拉取模式',
     };
   }
   if (!bindingCapabilities(binding).capabilities.includes(CONTROL_CAPABILITIES.sessionWake)) {
     return { state: 'unsupported', mode: null, reason: '客户端未声明 session.wake，使用仅拉取模式' };
   }
-  if (binding.host !== 'codex') {
-    return { state: 'unsupported', mode: null, reason: `宿主 ${binding.host} 尚未实现主动唤醒` };
+  if (!wakeDriverFor(binding.host)) {
+    return { state: 'unsupported', mode: binding.wake_mode ?? binding.host, reason: `宿主 ${binding.host} 尚未实现主动唤醒` };
   }
   if (binding.wake_state === 'ready') {
-    return { state: 'ready', mode: binding.wake_mode ?? 'codex', reason: null };
+    return { state: 'ready', mode: binding.wake_mode ?? binding.host, reason: null };
   }
   if (binding.wake_state === 'degraded') {
     return {
       state: 'degraded',
-      mode: binding.wake_mode ?? 'codex',
+      mode: binding.wake_mode ?? binding.host,
       reason: binding.wake_reason ?? '主动唤醒当前不可用',
     };
   }
   if (binding.wake_state === 'provisioning') {
     return {
       state: 'provisioning',
-      mode: binding.wake_mode ?? 'codex',
+      mode: binding.wake_mode ?? binding.host,
       reason: binding.wake_reason ?? '正在验证主动唤醒',
     };
   }
   if (binding.wake_state === 'unsupported') {
     return {
       state: 'unsupported',
-      mode: binding.wake_mode ?? 'codex',
+      mode: binding.wake_mode ?? binding.host,
       reason: binding.wake_reason ?? '宿主不支持主动唤醒',
     };
   }
   if (!binding.wake_config) {
-    return { state: 'unverified', mode: 'codex', reason: '尚未建立主动唤醒配置' };
+    return { state: 'unverified', mode: binding.host, reason: '尚未建立主动唤醒配置' };
   }
   return {
     state: 'unverified',
-    mode: binding.wake_mode ?? 'codex',
+    mode: binding.wake_mode ?? binding.host,
     reason: binding.wake_reason ?? '尚未通过真实主动唤醒验证',
   };
 }
@@ -295,7 +296,7 @@ export class ControlPlane {
     };
     if (name === 'control_wake_test') {
       if (!binding.session) throw new Error('没有可恢复的宿主 session');
-      if (binding.host !== 'codex') throw new Error(`宿主 ${binding.host} 尚未实现主动唤醒`);
+      if (!wakeDriverFor(binding.host)) throw new Error(`宿主 ${binding.host} 尚未实现主动唤醒`);
       if (!capabilities.capabilities.includes(CONTROL_CAPABILITIES.sessionWake)) {
         throw new Error('当前连接未声明 session.wake');
       }
