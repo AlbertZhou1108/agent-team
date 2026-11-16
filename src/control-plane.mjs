@@ -307,10 +307,13 @@ export class ControlPlane {
       });
       let result;
       try {
+        // 唤醒验证要对齐宿主会话的真实 cwd（DSH 会话采用强校验工作目录），
+        // 取当前主控所控团队的 workspace 作为验证环境。
         result = await this.wake(binding, {
           teamName: 'Agent Team 主动唤醒验证',
           count: 0,
           verification: true,
+          workspace: externalAgg.controlledTeams(this.bus.store, binding.principal_id)[0]?.workspace,
         });
       } catch (error) {
         result = { supported: true, state: 'failed', reason: error.message };

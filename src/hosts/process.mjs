@@ -29,8 +29,10 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
   writeFileSync(claude, JSON.stringify({ mcpServers: { agent_team: config } }), { mode: 0o600 });
   const overlay = [{ insert: [{ id: 'agent-team-mcp', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'agent_team', transport: 'stdio', ...config, failOnStartupError: true, reconnect: { enabled: false } } }] }];
   if (execution) {
+    // dsh ≥0.2.2-rc.1 移除了 tools.mode（"Removed. Mount a native or PTC tool
+    // executor instead."），原生执行器由 base 默认挂载；再传 native 会使整个
+    // tools 行校验失败，连带 agent-loop 等必需插件不激活（no agent factory）。
     overlay.push(
-      { id: 'tools', config: { mode: 'native' } },
       { id: 'session-persistence-jsonl', config: { root: resolve(directory, 'host-sessions', 'dsh') } },
       { id: 'storage-json', config: { root: resolve(directory, 'host-storage', 'dsh') } },
       { id: 'sandbox-policy', config: { mode: sandboxMode(execution.mode), workspaceRoot: execution.workspace } },
