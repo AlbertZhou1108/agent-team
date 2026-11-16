@@ -11,7 +11,7 @@ import { useMessageTraceQuery } from '@/features/messages/trace-query';
 import type { TurnStatus } from '@/shared/models/view-types';
 import TraceStepCard from './TraceStepCard.vue';
 
-type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
+type Host = 'codex' | 'claude' | 'dsh' | 'zcode' | 'unknown';
 
 /**
  * 展开后的行内轨迹面板:只负责渲染,开合归消息头里的时钟按钮(见 MessageFeed)。

@@ -6,6 +6,7 @@
 import { createCodexHost } from './codex.mjs';
 import { createClaudeHost } from './claude.mjs';
 import { createDshHost } from './dsh.mjs';
+import { createZcodeHost } from './zcode.mjs';
 
 /**
  * 宿主适配器契约。
@@ -22,6 +23,7 @@ export const HOST_FACTORIES = new Map([
   ['codex', createCodexHost],
   ['claude', createClaudeHost],
   ['dsh', createDshHost],
+  ['zcode', createZcodeHost],
 ]);
 
 /** 未显式提供 hosts 配置时的默认注册。 */
@@ -29,6 +31,7 @@ export const DEFAULT_HOST_SPECS = Object.freeze({
   codex: Object.freeze({ adapter: 'codex' }),
   claude: Object.freeze({ adapter: 'claude' }),
   dsh: Object.freeze({ adapter: 'dsh' }),
+  zcode: Object.freeze({ adapter: 'zcode' }),
 });
 
 /**

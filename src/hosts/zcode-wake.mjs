@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
-import { spawnHost, stopHost } from './subprocess.mjs';
+import { createZcodeProtocol } from './zcode-protocol.mjs';
 
 /**
  * ZCode 主动唤醒驱动：通过 `zcode.cjs app-server --stdio` 的 ZCode Protocol
@@ -76,77 +75,21 @@ export async function wakeZcodeAppServer({
 }) {
   if (!sessionId) return { supported: false, reason: '缺少 controller session' };
   if (!text?.trim()) throw new Error('主动唤醒正文为空');
-  const child = spawnHost(command, args ?? zcodeLaunchArgs(cwd), {
-    env: { ...process.env, ...env },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  child.stdin.on('error', () => {});
-  let stderr = '';
-  let nextId = 0;
   let wakeTurnId = null;
   let started;
   let completed;
-  let ready;
   const startedPromise = new Promise((resolve, reject) => { started = { resolve, reject }; });
   const completedPromise = new Promise((resolve, reject) => { completed = { resolve, reject }; });
   // 提前失败（如 resume 报错）后另一侧 promise 不再有人消费，挂空 catch 避免 unhandledRejection。
   startedPromise.catch(() => {});
   completedPromise.catch(() => {});
-  const readyPromise = new Promise(resolve => { ready = resolve; });
-  const pending = new Map();
-  const timer = setTimeout(() => {
-    const error = new Error('ZCode 主动唤醒超时');
-    for (const entry of pending.values()) entry.reject(error);
-    started.reject(error);
-    completed.reject(error);
-    ready();
-  }, timeout);
-  const send = value => child.stdin.write(JSON.stringify(value) + '\n');
-  const fingerprint = zcodeWakeFingerprint({ command, threadId: sessionId, mcpConfig });
-  const request = (method, params) => new Promise((resolve, reject) => {
-    const id = ++nextId;
-    pending.set(id, { resolve, reject });
-    send({ id, method, params });
-  });
-  child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); });
-  child.on('error', error => { ready(); started.reject(error); });
-  child.on('exit', (code, signal) => {
-    const error = new Error(`ZCode app-server 退出 (${code ?? signal})：${stderr.trim()}`);
-    for (const entry of pending.values()) entry.reject(error);
-    pending.clear();
-    ready();
-    started.reject(error);
-    completed.reject(error);
-  });
-  createInterface({ input: child.stdout }).on('line', line => {
-    let row;
-    try {
-      row = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (row.id && !row.method) {
-      const entry = pending.get(row.id);
-      if (!entry) return;
-      pending.delete(row.id);
-      if (row.error) entry.reject(new Error(row.error.message));
-      else entry.resolve(row.result);
-      return;
-    }
-    if (row.method === 'startup/storagePath') {
-      send({ method: 'startup/storagePathReady' });
-      return;
-    }
-    if (row.method?.startsWith('startup/')) {
-      ready();
-      return;
-    }
-    // 服务端反向请求（requestRuntimePreferences 等）：回最小合法结果。
-    if (row.id && row.method) {
-      send({ id: row.id, result: { nativeSearchEnhancementsEnabled: false } });
-      return;
-    }
-    if (row.method === 'session/event' && row.params?.sessionId === sessionId) {
+  const protocol = createZcodeProtocol({
+    command,
+    args: args ?? zcodeLaunchArgs(cwd),
+    env,
+    onRequest: () => ({ nativeSearchEnhancementsEnabled: false }),
+    onNotification(row) {
+      if (row.method !== 'session/event' || row.params?.sessionId !== sessionId) return;
       if (row.params.type === 'turn.started' && wakeTurnId == null) {
         wakeTurnId = row.params.turnId ?? null;
         started.resolve(wakeTurnId);
@@ -156,13 +99,19 @@ export async function wakeZcodeAppServer({
         && (row.params.turnId == null || row.params.turnId === wakeTurnId)) {
         completed.resolve(row.params.turnId ?? wakeTurnId);
       }
-    }
+    },
   });
+  const timer = setTimeout(() => {
+    const error = new Error('ZCode 主动唤醒超时');
+    started.reject(error);
+    completed.reject(error);
+  }, timeout);
+  const fingerprint = zcodeWakeFingerprint({ command, threadId: sessionId, mcpConfig });
   try {
-    await readyPromise;
-    await request('session/resume', { sessionId });
-    await request('session/subscribe', { sessionId, deliveryKind: 'desktop-continuous' });
-    const accepted = await request('session/send', { sessionId, content: text });
+    await protocol.ready;
+    await protocol.request('session/resume', { sessionId });
+    await protocol.request('session/subscribe', { sessionId, deliveryKind: 'desktop-continuous' });
+    const accepted = await protocol.request('session/send', { sessionId, content: text });
     if (accepted?.accepted === false) {
       return {
         supported: true,
@@ -185,6 +134,6 @@ export async function wakeZcodeAppServer({
     };
   } finally {
     clearTimeout(timer);
-    await stopHost(child).catch(() => {});
+    await protocol.stop();
   }
 }

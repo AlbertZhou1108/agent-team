@@ -16,7 +16,7 @@ function tempDir(t) {
 
 test('builtin host factories and default specs stay in sync', () => {
   const names = [...HOST_FACTORIES.keys()].sort();
-  assert.deepEqual(names, ['claude', 'codex', 'dsh']);
+  assert.deepEqual(names, ['claude', 'codex', 'dsh', 'zcode']);
   assert.deepEqual(Object.keys(DEFAULT_HOST_SPECS).sort(), names);
   for (const [name, factory] of HOST_FACTORIES) {
     assert.equal(typeof factory, 'function');

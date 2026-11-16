@@ -3,6 +3,7 @@ import { capabilities } from './capability-contract.mjs';
 import { codexCapabilities } from './hosts/codex.mjs';
 import { claudeCapabilities } from './hosts/claude.mjs';
 import { dshCapabilities } from './hosts/dsh.mjs';
+import { zcodeCapabilities } from './hosts/zcode.mjs';
 
 export { METRIC_KEYS, CONTEXT_KEYS, UNIFIED_FIELDS, capability } from './capability-contract.mjs';
 
@@ -10,6 +11,7 @@ const capabilityBuilders = {
   codex: codexCapabilities,
   claude: claudeCapabilities,
   dsh: dshCapabilities,
+  zcode: zcodeCapabilities,
 };
 
 export function telemetryCapabilitiesFor(host) {

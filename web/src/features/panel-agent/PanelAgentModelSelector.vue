@@ -30,7 +30,7 @@ const view = ref<'panel' | 'provider'>('panel');
 // 记住已提交档位,避免拖动过程中重复提交同一档。
 const committedEffort = ref<string | null>(null);
 
-const hostLabels: Record<string, string> = { dsh: 'DeepSeek', claude: 'Claude', codex: 'Codex' };
+const hostLabels: Record<string, string> = { dsh: 'DeepSeek', claude: 'Claude', codex: 'Codex', zcode: 'ZCode' };
 const hostLabel = (host: string) => hostLabels[host] ?? host;
 
 const selectedHost = computed(() =>

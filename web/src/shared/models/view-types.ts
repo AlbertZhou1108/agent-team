@@ -14,7 +14,7 @@ export type StepKind =
 export type StepStatus = 'running' | 'success' | 'error' | 'unknown';
 export type TurnStatus = 'running' | 'completed' | 'error' | 'cancelled' | 'stopped' | 'unknown';
 /** 执行者宿主:决定按哪套 schema 解释事件。 */
-export type Host = 'codex' | 'claude' | 'dsh' | 'unknown';
+export type Host = 'codex' | 'claude' | 'dsh' | 'zcode' | 'unknown';
 
 export interface TraceStep {
   id: string;

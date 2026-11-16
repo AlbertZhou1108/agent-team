@@ -45,7 +45,7 @@ const hosts = computed(() => (statuses.data.value ?? []).map(host => ({
   ...host,
   ...(installations.dataUpdatedAt.value >= statuses.dataUpdatedAt.value ? installations.data.value?.find(item => item.name === host.name) : {}),
 })));
-const labels: Record<string, string> = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH' };
+const labels: Record<string, string> = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', zcode: 'ZCode' };
 const phases = { checking: '检查安装条件（1/3）', installing: '执行安装（2/3）', verifying: '确认安装结果（3/3）', completed: '安装完成', failed: '安装失败' };
 const busy = (host: HostStatus) => pending.value.includes(host.name) || host.installing;
 function message(error: unknown) {
@@ -74,7 +74,7 @@ async function install(host: HostStatus) {
         <h3 id="host-status-title" class="text-sm font-semibold">适配器状态</h3>
         <HelpPopover title="适配器状态">
           <p>检测范围：运行服务的机器上，能否通过适配器与宿主通信；检测不会发送模型消息。</p>
-          <p>安装方式：Codex、DSH 使用 npm 全局安装；Claude Code 使用官方安装脚本。</p>
+          <p>安装方式：Codex、DSH 使用 npm 全局安装；Claude Code 使用官方安装脚本；ZCode 随桌面应用分发，不可自动安装。</p>
           <p>后续配置：登录、API Key 和模型配置需在对应 CLI 中完成，已安装不代表已完成配置。</p>
         </HelpPopover>
       </div>
