@@ -5,6 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from '../../hosts/index.mjs';
+import { HOST_DEFINITIONS } from '../../hosts/definitions.mjs';
+import { wakeDriverFor } from '../../hosts/wake-drivers.mjs';
 import { telemetryCapabilitiesFor, UNIFIED_FIELDS } from '../../telemetry-capabilities.mjs';
 import { loadHosts } from '../../server.mjs';
 
@@ -58,4 +60,28 @@ test('an external host module is loaded through config and validated by the cont
   const badConfig = join(directory, 'hosts-bad.json');
   writeFileSync(badConfig, JSON.stringify({ hosts: { fake: { adapter: 'fake', module: badModule } } }));
   await assert.rejects(loadHosts({ directory, socketPath: join(directory, 'bus.sock'), configFile: badConfig }), /缺少 run 接口/);
+});
+
+test('host definitions stay in sync with every derived registry', () => {
+  assert.deepEqual([...HOST_DEFINITIONS.keys()].sort(), [...HOST_FACTORIES.keys()].sort());
+  for (const [name, definition] of HOST_DEFINITIONS) {
+    assert.equal(typeof definition.factory, 'function', `${name} factory`);
+    assert.equal(typeof definition.telemetryCapabilities, 'function', `${name} telemetry builder`);
+    if (definition.wake) {
+      assert.equal(typeof definition.wake.id, 'string', `${name} wake id`);
+      assert.equal(typeof definition.wake.fingerprint, 'function', `${name} wake fingerprint`);
+      assert.equal(typeof definition.wake.wake, 'function', `${name} wake driver`);
+    }
+    if (definition.skill) {
+      assert.ok(['copy', 'shared'].includes(definition.skill.mode), `${name} skill mode`);
+      assert.equal(typeof definition.skill.dir, 'function', `${name} skill dir`);
+    }
+    if (definition.discoverControllerSession) {
+      assert.equal(typeof definition.discoverControllerSession, 'function', `${name} session discovery`);
+    }
+  }
+  for (const name of ['codex', 'dsh', 'zcode']) {
+    assert.ok(wakeDriverFor(name), `${name} must expose an active wake driver`);
+  }
+  assert.equal(wakeDriverFor('claude'), null, 'claude stays pull-only until a wake driver lands');
 });

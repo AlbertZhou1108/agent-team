@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
+import { HOST_DEFINITIONS } from './hosts/definitions.mjs';
 
 const MANIFEST = '.agent-team-skill.json';
 
@@ -38,10 +39,10 @@ export function skillContentHash(sourceDir) {
   return hash.digest('hex');
 }
 
+/** 技能安装目标按宿主收敛在 definitions.mjs：copy 安装副本，shared 读共享目录。 */
 export function defaultSkillTarget(host, home = homedir()) {
-  if (host === 'codex') return join(home, '.codex', 'skills', 'agent-team');
-  if (host === 'claude') return join(home, '.claude', 'skills', 'agent-team');
-  return null;
+  const skill = HOST_DEFINITIONS.get(host)?.skill;
+  return skill?.mode === 'copy' ? skill.dir(home) : null;
 }
 
 /**
@@ -52,8 +53,8 @@ export function defaultSkillTarget(host, home = homedir()) {
  * 且 ~/.dsh/skills/agent-team 已被其自带实验插件占用，不做副本安装。
  */
 export function sharedSkillTarget(host, home = homedir()) {
-  if (host === 'zcode' || host === 'dsh') return join(home, '.agents', 'skills', 'agent-team');
-  return null;
+  const skill = HOST_DEFINITIONS.get(host)?.skill;
+  return skill?.mode === 'shared' ? skill.dir(home) : null;
 }
 
 export function readSkillManifest(targetDir) {

@@ -1,38 +1,18 @@
 // 宿主适配器的显式契约与注册表。
 //
-// 新增宿主:在本文件加一个工厂 import 与注册项;遥测能力声明在
-// telemetry-capabilities.mjs 的 capabilityBuilders 加一个 builder。
+// 宿主的全部注册事实按宿主收敛在 definitions.mjs 的 HOST_DEFINITIONS 里；
+// 本文件只派生成员侧注册表。新增宿主：改 definitions.mjs，遥测能力、
+// 主控唤醒驱动、技能目录、主控会话发现随之生效。
 // 调用方(server.mjs)只依赖这里的注册表,不再各自维护工厂 Map。
-import { createCodexHost } from './codex.mjs';
-import { createClaudeHost } from './claude.mjs';
-import { createDshHost } from './dsh.mjs';
-import { createZcodeHost } from './zcode.mjs';
-
-/**
- * 宿主适配器契约。
- * @typedef {Object} HostAdapter
- * @property {(context: object) => Promise<object>} run 必需:执行一个回合。
- * @property {(options?: object) => object} [connectionStatus] 可选:连接/登录状态。
- * @property {(input: object) => string} [sessionKey] 可选:宿主会话域。
- * @property {(input: object) => object} [supportsPolicy] 可选:策略能力。
- * @property {(input: object) => object} [capabilities] 可选:遥测能力声明。
- */
+import { HOST_DEFINITIONS } from './definitions.mjs';
 
 /** 内置宿主:friendly name -> 工厂。 */
-export const HOST_FACTORIES = new Map([
-  ['codex', createCodexHost],
-  ['claude', createClaudeHost],
-  ['dsh', createDshHost],
-  ['zcode', createZcodeHost],
-]);
+export const HOST_FACTORIES = new Map([...HOST_DEFINITIONS].map(([name, definition]) => [name, definition.factory]));
 
 /** 未显式提供 hosts 配置时的默认注册。 */
-export const DEFAULT_HOST_SPECS = Object.freeze({
-  codex: Object.freeze({ adapter: 'codex' }),
-  claude: Object.freeze({ adapter: 'claude' }),
-  dsh: Object.freeze({ adapter: 'dsh' }),
-  zcode: Object.freeze({ adapter: 'zcode' }),
-});
+export const DEFAULT_HOST_SPECS = Object.freeze(
+  Object.fromEntries([...HOST_DEFINITIONS].map(([name]) => [name, Object.freeze({ adapter: name })])),
+);
 
 /**
  * 校验宿主适配器是否满足契约。run 是唯一必需方法;其余可选方法只要声明就必须是函数,

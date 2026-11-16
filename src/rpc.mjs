@@ -1,4 +1,5 @@
 import { version } from './version.mjs';
+import { HOST_DEFINITIONS } from './hosts/definitions.mjs';
 import net from 'node:net';
 import { createInterface } from 'node:readline';
 
@@ -127,11 +128,9 @@ export async function serveControlMcp(socketPath, bindingId, key) {
 }
 
 /**
- * MCP 子进程会继承宿主环境。顶层 Codex 的 THREAD_ID 与 SESSION_ID 相同，
- * 但 multi-agent 子会话的 THREAD_ID 是父级不可恢复的子 thread；这种环境只能
- * 走 pull-only，直到外围启动器通过 bind_client_session 明确绑定可恢复会话。
- * ZCode 的 MCP 子进程不注入 ZCODE_SESSION_ID；主控会话经 connect --session
- * 显式绑定，bash 子进程里的该变量可作为兜底。
+ * 主控会话发现按宿主收敛在 hosts/definitions.mjs（discoverControllerSession），
+ * 按定义顺序探测：Codex 最先，保留 multi-agent 子会话的降级语义。
+ * MCP 子进程会继承宿主环境；外围启动器也可通过 bind_client_session 明确绑定。
  */
 export function controlHostContext(env = process.env) {
   if (env.AGENT_TEAM_DISABLE_ACTIVE_WAKE === '1') {
@@ -139,13 +138,12 @@ export function controlHostContext(env = process.env) {
   }
   const explicit = env.AGENT_TEAM_HOST_SESSION?.trim();
   if (explicit) return { session: explicit, clearExistingSession: false };
-  const codexThread = env.CODEX_THREAD_ID?.trim();
-  const codexSession = env.CODEX_SESSION_ID?.trim();
-  if (codexThread && codexSession && codexThread !== codexSession) {
-    return { session: null, clearExistingSession: true };
+  for (const definition of HOST_DEFINITIONS.values()) {
+    const verdict = definition.discoverControllerSession?.(env);
+    if (verdict) return verdict;
   }
   return {
-    session: codexThread || codexSession || env.ZCODE_SESSION_ID?.trim() || env.DSH_SESSION_ID?.trim() || env.CLAUDE_SESSION_ID?.trim() || null,
+    session: null,
     clearExistingSession: false,
   };
 }
