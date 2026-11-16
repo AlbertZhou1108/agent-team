@@ -6,7 +6,7 @@ import { executionPolicy, policyObservation } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
 import { telemetryObservation } from '../observation.mjs';
-import { createZcodeProtocol } from './zcode-protocol.mjs';
+import { createZcodeProtocol, headlessInteractionReply } from './zcode-protocol.mjs';
 import { resolveZcodeLaunch } from './zcode-wake.mjs';
 
 const ZCODE_EFFORTS = new Set(['disabled', 'low', 'high', 'max']);
@@ -124,6 +124,28 @@ async function zcodeModelCatalog(launch, home, options = {}) {
     });
   } finally {
     await protocol.stop();
+  }
+}
+
+/**
+ * 对 agent_team MCP server 做 workspace 级授信：无头协议会话里没人点审批，
+ * 未授信 server 的工具调用会被权限系统拒绝（Permission request failed）。
+ * 授信状态持久于 workspace；已授信则跳过。
+ */
+async function trustAgentTeamServer(protocol, workspace) {
+  const listed = await protocol.request('mcp/list', { workspace }, { timeout: 30000 });
+  const server = listed?.statuses?.agent_team;
+  if (!server) throw new Error('ZCode 会话未加载 agent_team MCP server；请检查 endpoint 配置');
+  const trust = server.workspaceTrust;
+  if (!trust?.declarationDigest || trust.trusted === true) return;
+  const result = await protocol.request('workspace/mcp/trust', {
+    workspace,
+    serverName: 'agent_team',
+    declarationDigest: trust.declarationDigest,
+    trusted: true,
+  }, { timeout: 30000 });
+  if (result?.accepted === false) {
+    throw new Error(`agent_team MCP server 授信失败: ${result.reasonCode ?? 'unknown'}`);
   }
 }
 
@@ -278,7 +300,7 @@ export function createZcodeHost({
         command: launch.command,
         args: launch.args,
         env: { ...launch.env, HOME: home },
-        onRequest: () => ({ nativeSearchEnhancementsEnabled: false }),
+        onRequest: headlessInteractionReply,
         onNotification(row) {
           if (row.method !== 'session/event' || row.params?.sessionId !== sessionId) return;
           const { type, payload, timestamp, turnId: eventTurnId } = row.params;
@@ -339,6 +361,7 @@ export function createZcodeHost({
         if (selectedModel || selectedEffort) {
           onSelection?.({ model: selectedModel ?? null, reasoning_effort: selectedEffort ?? null });
         }
+        await trustAgentTeamServer(protocol, { workspacePath: workspace, workspaceKey: workspace });
         await protocol.request('session/subscribe', { sessionId, deliveryKind: 'desktop-continuous' }, { timeout: 30000 });
         const content = instructions ? `${instructions}\n\n当前输入：\n${prompt}` : prompt;
         const accepted = await protocol.request('session/send', { sessionId, content }, { timeout: 60000 });

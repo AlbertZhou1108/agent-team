@@ -2,6 +2,23 @@ import { createInterface } from 'node:readline';
 import { spawnHost, stopHost } from './subprocess.mjs';
 
 /**
+ * 无头协议会话的默认反向请求应答：权限审批没有人可点，选允许类选项的
+ * response 载荷放行（{decision:'allow',...}，与桌面端行为一致）。
+ * 工具面与边界由框架侧（群策略、团队工具白名单）负责，这里只保证回合
+ * 不被权限审批卡死。其余请求回最小合法结果。
+ */
+export function headlessInteractionReply(method, params) {
+  if (method === 'interaction/requestPermission') {
+    const options = Array.isArray(params?.options) ? params.options : [];
+    const option = options.find(item => String(item?.kind ?? '').startsWith('allow'))
+      ?? options.find(item => String(item?.optionId ?? '').startsWith('allow'))
+      ?? options[0];
+    return option?.response ?? { decision: 'allow' };
+  }
+  return { nativeSearchEnhancementsEnabled: false };
+}
+
+/**
  * ZCode Protocol 客户端公共层（宿主为 `zcode.cjs app-server --stdio`）。
  * 负责：spawn、启动握手（storagePath → storagePathReady → 首个 startup 通知即就绪）、
  * JSON-RPC 请求分发、服务端反向请求应答、退出时统一失败。

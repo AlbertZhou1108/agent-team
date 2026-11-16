@@ -4,7 +4,7 @@
 
 ## 内置接入
 
-框架接入 Codex CLI/app-server、Claude Code CLI、DSH CLI。宿主负责账号、认证、模型服务配置与额度；框架提供团队通信工具、回合上下文和请求策略，不代配宿主。
+框架接入 Codex CLI/app-server、Claude Code CLI、DSH CLI 与 ZCode（桌面应用内置 CLI）。宿主负责账号、认证、模型服务配置与额度；框架提供团队通信工具、回合上下文和请求策略，不代配宿主。
 
 通过 `--hosts /路径/hosts.json` 指定框架配置，例如：
 
@@ -12,6 +12,7 @@
 {
   "hosts": {
     "codex": { "adapter": "codex" },
+    "zcode": { "adapter": "zcode" },
     "writer": { "adapter": "claude" },
     "dsh": { "adapter": "dsh" }
   }
@@ -47,6 +48,6 @@
 - 可选的 `executionCapabilities`：声明指定群策略和 shell 配置下真实可用的文件读取、工作区写入、shell 与路径边界能力。未声明路径边界时不能把成员标成可写。
 - 可选的主动唤醒 driver：提供环境指纹与对现有会话的真实注入能力。未注册 driver 的宿主保持显式 pull-only。
 
-主要入口：[codex.mjs](../src/hosts/codex.mjs)、[codex-wake.mjs](../src/hosts/codex-wake.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[cli-hosts.mjs](../src/hosts/cli-hosts.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
+主要入口：[codex.mjs](../src/hosts/codex.mjs)、[codex-wake.mjs](../src/hosts/codex-wake.mjs)、[zcode.mjs](../src/hosts/zcode.mjs)、[zcode-wake.mjs](../src/hosts/zcode-wake.mjs)、[zcode-protocol.mjs](../src/hosts/zcode-protocol.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[cli-hosts.mjs](../src/hosts/cli-hosts.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
 
 模型目录可由 CLI 查询；页面设置中的全局模型策略用于新建角色的默认模型说明，不会追溯改写所有已有角色。事件视图只呈现适配器实际观察到的内容，不等同于宿主原生完整历史。

@@ -1,5 +1,5 @@
 import { codexWakeFingerprint, wakeCodexAppServer } from './codex-wake.mjs';
-import { resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode-wake.mjs';
+import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode-wake.mjs';
 
 const drivers = new Map([
   ['codex', {
@@ -20,6 +20,7 @@ const drivers = new Map([
       const launch = resolveZcodeLaunch({ command: args.command, cwd: args.cwd });
       return wakeZcodeAppServer({
         ...launch,
+        env: applyZcodeHome(launch.env),
         sessionId: args.threadId,
         text: args.text,
         cwd: args.cwd,

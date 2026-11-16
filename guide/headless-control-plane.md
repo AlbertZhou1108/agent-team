@@ -15,6 +15,7 @@
 - 顶层 Codex 会话可通过相同的 `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 自动绑定，或由外围启动器从 `thread.started` 调用 `bind_client_session`。Codex multi-agent 子会话的两值不同，不能由父级恢复，因此自动降级为 pull-only；显式 `AGENT_TEAM_HOST_SESSION` 可声明可恢复 session，`AGENT_TEAM_DISABLE_ACTIVE_WAKE=1` 可禁止自动绑定并清理旧 session，外围启动器后续显式绑定仍可恢复唤醒。MCP shim 保存可重建的唤醒配置，有积压事件时用 `codex exec resume` 重新注入 Agent Team MCP；唤醒后仍需调用 `control_inbox`。
 - 成员 `ask` 在外部主控团队中转为 pending decision request；主控答复以 user-origin 消息唤醒原成员。
 - Codex 主动唤醒使用 app-server 的 `thread/queue/add`；空闲线程会自动开始，只有收到真实 `turn/started` 才把 Client binding 标为 ready。
+- ZCode 主动唤醒使用 ZCode Protocol（`zcode.cjs app-server --stdio`）的 `session/resume` + `session/send`，订阅事件流并等待真实 `turn.started`/`turn.completed`。ZCode 的 MCP 子进程不注入会话 id，主控会话在会话内执行 `agent-team connect --host zcode --session "$ZCODE_SESSION_ID"` 绑定（bash 子进程带该变量）。无头协议会话里权限审批无人可点，适配层按允许类选项自动放行；工具边界仍由群策略与框架负责。`AGENT_TEAM_ZCODE_HOME` 可把唤醒实例的 ZCode 数据目录重定向到隔离环境（真宿主验收用）。
 - 无头团队创建后先处于 provisioning；主动唤醒未验证时拒绝工作派单。用户可以显式接受 binding 级 Pull-only，重测成功后恢复。
 - 无头成员模型可在 `team_create` 中以结构化成员指定，也可用 `team_member_model` 显式调整；两者都使用实时模型目录。
 - 群策略是能力上限，成员有效策略与宿主能力取交集。`team_send.requiredCapabilities` 在写消息前拒绝能力不匹配的派单。
@@ -22,10 +23,11 @@
 - 控制协议不兼容时只暴露只读工具，写操作明确失败。
 - `connect` 会为已知宿主安装或更新 Skill；重复连接轮换凭据，并把旧 Skill 目录保留为同级备份。
 - 2026-11-08 已完成一次真实 Codex ↔ Claude Code 验收：Codex 创建团队并派单，Claude 回复进入收件箱，Codex thread 被 resume 唤醒，`control_inbox` 消费回复并写回验收任务。
+- 2026-11-17 已完成一次真实 ZCode 双角色验收（`scripts/verify-zcode-host.mjs`，全隔离临时目录）：ZCode 主控创建团队并派单，Claude 回复进入收件箱，ZCode 会话被 `session/resume` 唤醒并领取回复、写回验收任务；ZCode 成员宿主在独立数据目录中执行指令并回复。
 
 尚未完成：
 
-- 通用宿主主动注入适配器。目前只有 Codex 注册了 app-server wake driver；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
+- 其余宿主（DSH 等）的主动注入适配器：目前 Codex 与 ZCode 注册了 app-server wake driver；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
 - 多主控交接、远程连接和完整原生 TUI。
 
 ## 产品边界

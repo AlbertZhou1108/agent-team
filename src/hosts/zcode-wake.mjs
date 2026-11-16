@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createZcodeProtocol } from './zcode-protocol.mjs';
+import { createZcodeProtocol, headlessInteractionReply } from './zcode-protocol.mjs';
 
 /**
  * ZCode 主动唤醒驱动：通过 `zcode.cjs app-server --stdio` 的 ZCode Protocol
@@ -12,7 +12,7 @@ import { createZcodeProtocol } from './zcode-protocol.mjs';
  * 否则会被服务端启动状态机拒绝。
  */
 
-export function zcodeWakeFingerprint({ command, threadId, mcpConfig, home = process.env.HOME }) {
+export function zcodeWakeFingerprint({ command, threadId, mcpConfig, home = process.env.AGENT_TEAM_ZCODE_HOME ?? process.env.HOME }) {
   const hash = createHash('sha256');
   hash.update(JSON.stringify({
     command,
@@ -35,8 +35,10 @@ export function zcodeWakeFingerprint({ command, threadId, mcpConfig, home = proc
 
 /**
  * 解析 ZCode 启动命令，返回 { command, args, env }：
- * - AGENT_TEAM_ZCODE_COMMAND / ZCODE_AGENT_SERVER_COMMAND 显式覆盖（后者是 ZCode 官方通道）；
- * - binding.command 指向真实可执行文件时直接使用；
+ * - AGENT_TEAM_ZCODE_COMMAND / ZCODE_AGENT_SERVER_COMMAND 显式覆盖（后者是 ZCode 官方通道，
+ *   须是可直接执行 protocol 参数的命令）；
+ * - binding.command 指向真实可执行文件时直接使用；macOS 桌面壳是 Electron 二进制，
+ *   识别后改为以 node 方式执行包内入口脚本；
  * - 最后按平台探测桌面 app 安装位置；找不到则抛错并说明可用出口。
  */
 export function resolveZcodeLaunch({ command, cwd } = {}) {
@@ -44,6 +46,15 @@ export function resolveZcodeLaunch({ command, cwd } = {}) {
   const override = process.env.AGENT_TEAM_ZCODE_COMMAND?.trim() || process.env.ZCODE_AGENT_SERVER_COMMAND?.trim();
   if (override) return { command: override, args: protocol, env: {} };
   if (command && command !== 'zcode' && existsSync(command)) {
+    const macApp = process.platform === 'darwin'
+      ? /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(command)
+      : null;
+    if (macApp) {
+      const entry = join(macApp[1], 'Contents', 'Resources', 'glm', 'zcode.cjs');
+      if (existsSync(entry)) {
+        return { command, args: [entry, ...protocol], env: { ELECTRON_RUN_AS_NODE: '1' } };
+      }
+    }
     return { command, args: protocol, env: {} };
   }
   if (process.platform === 'darwin') {
@@ -57,6 +68,12 @@ export function resolveZcodeLaunch({ command, cwd } = {}) {
     '未找到 ZCode 桌面安装；请用 agent-team connect --command 指定 ZCode 可执行文件，'
     + '或设置 AGENT_TEAM_ZCODE_COMMAND 环境变量',
   );
+}
+
+/** AGENT_TEAM_ZCODE_HOME 把唤醒实例的 ZCode 数据目录重定向到隔离环境（验收用）。 */
+export function applyZcodeHome(env) {
+  const home = process.env.AGENT_TEAM_ZCODE_HOME?.trim();
+  return home ? { ...env, HOME: home } : env;
 }
 
 function zcodeLaunchArgs(cwd) {
@@ -87,7 +104,7 @@ export async function wakeZcodeAppServer({
     command,
     args: args ?? zcodeLaunchArgs(cwd),
     env,
-    onRequest: () => ({ nativeSearchEnhancementsEnabled: false }),
+    onRequest: headlessInteractionReply,
     onNotification(row) {
       if (row.method !== 'session/event' || row.params?.sessionId !== sessionId) return;
       if (row.params.type === 'turn.started' && wakeTurnId == null) {
