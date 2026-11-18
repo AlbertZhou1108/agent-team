@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createZcodeProtocol, headlessInteractionReply } from './zcode-protocol.mjs';
 
@@ -33,36 +33,95 @@ export function zcodeWakeFingerprint({ command, threadId, mcpConfig, home = proc
   return hash.digest('hex');
 }
 
+/** 桌面 app 内的固定相对路径。抽出来便于布局探测与测试。 */
+export function zcodeAppPaths(appRoot) {
+  return {
+    electron: join(appRoot, 'Contents', 'MacOS', 'ZCode'),
+    entry: join(appRoot, 'Contents', 'Resources', 'glm', 'zcode.cjs'),
+    runtime: join(appRoot, 'Contents', 'Resources', 'glm', 'node-runtime'),
+    legacyProvider: join(appRoot, 'Contents', 'Resources', 'glm', 'provider', 'zcode-builtin.json'),
+    modernProvider: join(appRoot, 'Contents', 'Resources', 'config', 'provider', 'zcode-builtin.json'),
+  };
+}
+
+/**
+ * 探测桌面 app 的 provider 配置布局，兼容 ZCode 版本升级导致的目录迁移：
+ * - legacy：配置在入口旁 `glm/provider/`，Electron 方式可直接启动；
+ * - modern：配置迁到 `Resources/config/provider/`，Electron 以 ELECTRON_RUN_AS_NODE
+ *   方式启动时 cjs 按旧路径找不到配置，需复制入口+配置到兼容目录后用系统 node 启动。
+ * 返回 'legacy' | 'modern' | null（入口不存在）。
+ */
+export function detectZcodeLayout(appRoot) {
+  const paths = zcodeAppPaths(appRoot);
+  if (!existsSync(paths.entry)) return null;
+  if (existsSync(paths.legacyProvider)) return 'legacy';
+  if (existsSync(paths.modernProvider)) return 'modern';
+  return 'legacy'; // 没有可识别配置时保留旧行为，由 cjs/宿主自行处理。
+}
+
+/**
+ * 为 modern 布局准备兼容启动目录：复制入口 cjs 与 provider 配置到按 appRoot
+ * 哈希命名的稳定目录，并把 node-runtime 软链过去。目录稳定 + 存在即跳过，
+ * 保证多次唤醒幂等、不重复复制。返回可直接交给系统 node 的入口路径。
+ */
+export function prepareZcodeEntry(appRoot) {
+  const paths = zcodeAppPaths(appRoot);
+  const digest = createHash('sha256').update(appRoot).digest('hex').slice(0, 16);
+  // 测试可通过该环境变量把兼容目录重定向到隔离位置。
+  const root = process.env.AGENT_TEAM_ZCODE_COMPAT_DIR?.trim() || join(tmpdir(), `agent-team-zcode-compat-${digest}`);
+  const entryDir = join(root, 'glm');
+  const entry = join(entryDir, 'zcode.cjs');
+  const config = join(entryDir, 'provider', 'zcode-builtin.json');
+  mkdirSync(join(entryDir, 'provider'), { recursive: true, mode: 0o700 });
+  if (!existsSync(entry) || statSync(entry).size !== statSync(paths.entry).size) copyFileSync(paths.entry, entry);
+  const provider = existsSync(paths.legacyProvider) ? paths.legacyProvider : paths.modernProvider;
+  if (existsSync(provider) && (!existsSync(config) || statSync(config).size !== statSync(provider).size)) {
+    copyFileSync(provider, config);
+  }
+  if (existsSync(paths.runtime)) {
+    const link = join(entryDir, 'node-runtime');
+    if (!existsSync(link)) {
+      try { symlinkSync(paths.runtime, link, 'dir'); } catch { /* 并发下已创建 */ }
+    }
+  }
+  return entry;
+}
+
 /**
  * 解析 ZCode 启动命令，返回 { command, args, env }：
  * - AGENT_TEAM_ZCODE_COMMAND / ZCODE_AGENT_SERVER_COMMAND 显式覆盖（后者是 ZCode 官方通道，
  *   须是可直接执行 protocol 参数的命令）；
  * - binding.command 指向真实可执行文件时直接使用；macOS 桌面壳是 Electron 二进制，
- *   识别后改为以 node 方式执行包内入口脚本；
+ *   识别后按 provider 配置布局选择启动方式（见 detectZcodeLayout）；
  * - 最后按平台探测桌面 app 安装位置；找不到则抛错并说明可用出口。
  */
 export function resolveZcodeLaunch({ command, cwd } = {}) {
   const protocol = cwd ? ['app-server', '--stdio', '--cwd', cwd] : ['app-server', '--stdio'];
   const override = process.env.AGENT_TEAM_ZCODE_COMMAND?.trim() || process.env.ZCODE_AGENT_SERVER_COMMAND?.trim();
   if (override) return { command: override, args: protocol, env: {} };
+  const desktopLaunch = appRoot => {
+    const layout = detectZcodeLayout(appRoot);
+    if (layout === null) return null;
+    if (layout === 'modern') {
+      // 新版配置迁移 + Electron 启动约束：用系统 node 跑兼容目录里的入口。
+      return { command: process.execPath, args: [prepareZcodeEntry(appRoot), ...protocol], env: {} };
+    }
+    const paths = zcodeAppPaths(appRoot);
+    return { command: paths.electron, args: [paths.entry, ...protocol], env: { ELECTRON_RUN_AS_NODE: '1' } };
+  };
   if (command && command !== 'zcode' && existsSync(command)) {
     const macApp = process.platform === 'darwin'
       ? /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(command)
       : null;
     if (macApp) {
-      const entry = join(macApp[1], 'Contents', 'Resources', 'glm', 'zcode.cjs');
-      if (existsSync(entry)) {
-        return { command, args: [entry, ...protocol], env: { ELECTRON_RUN_AS_NODE: '1' } };
-      }
+      const launch = desktopLaunch(macApp[1]);
+      if (launch) return launch;
     }
     return { command, args: protocol, env: {} };
   }
   if (process.platform === 'darwin') {
-    const electron = '/Applications/ZCode.app/Contents/MacOS/ZCode';
-    const entry = '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs';
-    if (existsSync(electron) && existsSync(entry)) {
-      return { command: electron, args: [entry, ...protocol], env: { ELECTRON_RUN_AS_NODE: '1' } };
-    }
+    const launch = desktopLaunch('/Applications/ZCode.app');
+    if (launch) return launch;
   }
   throw new Error(
     '未找到 ZCode 桌面安装；请用 agent-team connect --command 指定 ZCode 可执行文件，'

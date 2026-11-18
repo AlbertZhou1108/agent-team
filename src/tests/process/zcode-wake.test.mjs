@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveZcodeLaunch, wakeZcodeAppServer } from '../../hosts/zcode-wake.mjs';
+import { resolveZcodeLaunch, wakeZcodeAppServer, detectZcodeLayout, prepareZcodeEntry, zcodeAppPaths } from '../../hosts/zcode-wake.mjs';
 
 function fixture(t, source) {
   const directory = mkdtempSync(join(tmpdir(), 'zcode-wake-'));
@@ -115,4 +115,77 @@ test('ZCode launch resolution prefers the env override and existing commands', t
   const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
   assert.equal(direct.command, entry);
   assert.deepEqual(direct.args, ['app-server', '--stdio', '--cwd', directory]);
+});
+
+/** 构造假 app 目录：entry 用可执行 stub，provider 配置按布局放到 legacy 或 modern 位置。 */
+function fakeApp(t, layout) {
+  const root = mkdtempSync(join(tmpdir(), 'zcode-app-'));
+  const app = join(root, 'ZCode.app');
+  const paths = zcodeAppPaths(app);
+  mkdirSync(join(paths.entry, '..'), { recursive: true });
+  mkdirSync(join(paths.electron, '..'), { recursive: true });
+  writeFileSync(paths.electron, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  writeFileSync(paths.entry, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({method:"startup/storagePath",params:{path:"/tmp/x"}})+"\\n");\n', { mode: 0o700 });
+  const provider = layout === 'modern' ? paths.modernProvider : paths.legacyProvider;
+  mkdirSync(join(provider, '..'), { recursive: true });
+  writeFileSync(provider, '{}');
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  return app;
+}
+
+test('ZCode detects legacy and modern provider layouts', t => {
+  assert.equal(detectZcodeLayout(fakeApp(t, 'legacy')), 'legacy');
+  assert.equal(detectZcodeLayout(fakeApp(t, 'modern')), 'modern');
+  const empty = mkdtempSync(join(tmpdir(), 'zcode-empty-'));
+  t.after(() => rmSync(empty, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  assert.equal(detectZcodeLayout(empty), null);
+});
+
+test('ZCode legacy layout keeps the Electron launch unchanged', t => {
+  const app = fakeApp(t, 'legacy');
+  delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+  delete process.env.ZCODE_AGENT_SERVER_COMMAND;
+  t.after(() => { delete process.env.AGENT_TEAM_ZCODE_COMMAND; });
+  const launch = resolveZcodeLaunch({ command: join(app, 'Contents', 'MacOS', 'ZCode'), cwd: process.cwd() });
+  assert.equal(launch.command, join(app, 'Contents', 'MacOS', 'ZCode'));
+  assert.deepEqual(launch.args, [zcodeAppPaths(app).entry, 'app-server', '--stdio', '--cwd', process.cwd()]);
+  assert.deepEqual(launch.env, { ELECTRON_RUN_AS_NODE: '1' });
+});
+
+test('ZCode modern layout uses a prepared copy launched by system node', t => {
+  const app = fakeApp(t, 'modern');
+  delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+  delete process.env.ZCODE_AGENT_SERVER_COMMAND;
+  const compat = mkdtempSync(join(tmpdir(), 'zcode-compat-'));
+  process.env.AGENT_TEAM_ZCODE_COMPAT_DIR = compat;
+  t.after(() => {
+    delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+    delete process.env.ZCODE_AGENT_SERVER_COMMAND;
+    delete process.env.AGENT_TEAM_ZCODE_COMPAT_DIR;
+    rmSync(compat, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  const launch = resolveZcodeLaunch({ command: join(app, 'Contents', 'MacOS', 'ZCode') });
+  assert.equal(launch.command, process.execPath);
+  assert.deepEqual(launch.args.slice(1), ['app-server', '--stdio']);
+  const copiedEntry = launch.args[0];
+  assert.ok(copiedEntry.startsWith(compat));
+  assert.ok(existsSync(copiedEntry));
+  assert.ok(existsSync(join(compat, 'glm', 'provider', 'zcode-builtin.json')));
+  // 幂等：再次解析复用同一入口，不重复复制。
+  assert.equal(resolveZcodeLaunch({ command: join(app, 'Contents', 'MacOS', 'ZCode') }).args[0], copiedEntry);
+});
+
+test('prepareZcodeEntry is idempotent and migrates provider config', t => {
+  const app = fakeApp(t, 'modern');
+  const compat = mkdtempSync(join(tmpdir(), 'zcode-compat-'));
+  process.env.AGENT_TEAM_ZCODE_COMPAT_DIR = compat;
+  t.after(() => {
+    delete process.env.AGENT_TEAM_ZCODE_COMPAT_DIR;
+    rmSync(compat, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+  const first = prepareZcodeEntry(app);
+  const config = join(compat, 'glm', 'provider', 'zcode-builtin.json');
+  assert.ok(existsSync(first));
+  assert.deepEqual(JSON.parse(readFileSync(config, 'utf8')), {});
+  assert.equal(prepareZcodeEntry(app), first);
 });
