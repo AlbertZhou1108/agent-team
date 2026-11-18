@@ -6,10 +6,11 @@ import { connectionProbe, exchange } from './probe.mjs';
 import { writeMcpFiles, runJsonProcess } from './process.mjs';
 import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
 import { modelCatalog } from './catalog.mjs';
+import { dshProcessEnv } from './dsh-credentials.mjs';
 import { telemetryObservation } from '../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
 
-export async function runDshCatalogProbe(command, directory, { signal } = {}) {
+export async function runDshCatalogProbe(command, directory, { signal, env } = {}) {
   const { mkdtempSync, rmSync } = await import('node:fs');
   const patchDirectory = join(directory, 'model-catalog');
   mkdirSync(patchDirectory, { recursive: true, mode: 0o700 });
@@ -24,7 +25,7 @@ export async function runDshCatalogProbe(command, directory, { signal } = {}) {
   ]), { mode: 0o600 });
   try {
     return await exchange(command, ['--profile', 'headless', '--patch', patchPath], {
-      cwd: probeDirectory, signal, waitForExit: true,
+      cwd: probeDirectory, signal, waitForExit: true, env: env ?? dshProcessEnv(),
       receive(line) {
         const prefix = 'AGENT_TEAM_DSH_MODEL_CATALOG ';
         if (!line.startsWith(prefix)) return;
@@ -114,7 +115,7 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       let text, end, streamedText = '';
       const turnStarts = new Map();
       const emittedTurnTiming = new Set();
-      await runJsonProcess(command, args, { ...context, onRow(row) {
+      await runJsonProcess(command, args, { ...context, env: dshProcessEnv(), onRow(row) {
         const delta = row.type === 'framework.text.delta'
           ? row.text
           : row.type === 'assistant_delta'

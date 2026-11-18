@@ -62,10 +62,10 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
   return { claude, dsh };
 }
 
-export function runJsonProcess(command, args, { workspace, signal, onEvent, onRow }) {
+export function runJsonProcess(command, args, { workspace, signal, onEvent, onRow, env }) {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error('回合已中断'));
-    const child = spawn(command, args, { cwd: workspace, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { cwd: workspace, detached: true, stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env } : {}) });
     let stderr = '', failure, bytes = 0, stopping;
     const kill = () => {
       stopping ??= stopHost(child).catch(error => { failure = error; reject(error); });
