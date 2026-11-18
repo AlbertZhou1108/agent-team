@@ -23,7 +23,7 @@ const holder = vi.hoisted(() => ({
   },
   interactionsQuery: {} as { data: { value: unknown[] } },
   api: {
-    modelCatalog: vi.fn(async () => ({ hosts: [] })),
+    modelCatalog: vi.fn(async (): Promise<{ hosts: Array<Record<string, unknown>> }> => ({ hosts: [] })),
     updatePanelAgent: vi.fn(async () => {}),
     createPanelAgent: vi.fn(async () => {}),
     takeoverTeam: vi.fn(async () => {}),
@@ -187,6 +187,23 @@ describe('panel agent page state', () => {
     page.cancelEdit();
     expect(page.editing.value).toBe(false);
     expect(page.actionError.value).toBe('');
+  });
+
+  it('loads the full host catalog so the supplier switch stays available for a configured agent', async () => {
+    const catalog = {
+      hosts: [
+        { host: 'codex', ok: true, catalog: { models: [{ key: 'codex/gpt-5', id: 'gpt-5', label: 'GPT-5', provider: 'openai', reasoningEfforts: [], defaultModel: 'codex/gpt-5' }], defaultModel: 'codex/gpt-5', reasoningEfforts: [] } },
+        { host: 'dsh', ok: true, catalog: { models: [{ key: 'dsh/ds', id: 'ds', label: 'DS', provider: 'deepseek', reasoningEfforts: [], defaultModel: 'dsh/ds' }], defaultModel: 'dsh/ds', reasoningEfforts: [] } },
+      ],
+    };
+    holder.api.modelCatalog.mockImplementation(async () => catalog);
+    holder.panelQuery.data.value = panelState();
+    await mount();
+    // 必须不带 host，否则后端只返回当前 agent 的宿主，供应商切换按钮会因仅一个宿主被禁用。
+    expect(holder.api.modelCatalog).toHaveBeenCalledWith(false);
+    const callArgs = holder.api.modelCatalog.mock.calls[0];
+    expect(callArgs).toHaveLength(1);
+    expect(page.availableHosts.value.map((item: { host: string }) => item.host)).toEqual(['codex', 'dsh']);
   });
 
   it('ignores model updates that would not change the agent configuration', async () => {

@@ -178,7 +178,9 @@ export function usePanelAgentPage() {
     catalogLoading.value = true;
     catalogError.value = '';
     try {
-      catalog.value = await api.modelCatalog(force, undefined, panel.value?.agent?.host || form.value.host || undefined);
+      // 设置页要支持切换供应商，必须加载全部宿主目录；按当前 agent 的 host 过滤会
+      // 只剩一个宿主，导致供应商切换按钮因 hosts.length <= 1 被禁用。
+      catalog.value = await api.modelCatalog(force);
       if (!form.value.host && availableHosts.value[0]) {
         selectDefaultModel(availableHosts.value[0]);
       }
