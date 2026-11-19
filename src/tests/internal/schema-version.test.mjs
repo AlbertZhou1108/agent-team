@@ -228,6 +228,42 @@ test('a v20 database gains desktop disable controls and bundle version', t => {
   store.close();
 });
 
+test('a v21 database gains the activation binding kind without changing existing bindings', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO external_principals(id,name,created,updated) VALUES('p1','本机用户',?,?)", NOW, NOW);
+  store.run(
+    `INSERT INTO external_client_bindings(id,principal_id,name,host,key_hash,session,declared_capabilities,status,created,updated)
+     VALUES('b1','p1','CLI 会话','codex','hash','thread-1','[]','active',?,?)`,
+    NOW, NOW,
+  );
+  store.db.exec('ALTER TABLE external_client_bindings DROP COLUMN binding_kind');
+  store.setSchemaVersion(21);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  // 存量 binding 保留且按默认值成为会话连接。
+  const row = store.get('SELECT binding_kind,session FROM external_client_bindings WHERE id=?', 'b1');
+  assert.equal(row.binding_kind, 'conversation');
+  assert.equal(row.session, 'thread-1');
+  // 激活连接可以落库并受 CHECK 约束保护。
+  store.run(
+    `INSERT INTO external_client_bindings(id,principal_id,name,host,key_hash,declared_capabilities,surface,binding_kind,status,created,updated)
+     VALUES('b2','p1','Codex Desktop 接入','codex','hash2','[]','desktop','activation','active',?,?)`,
+    NOW, NOW,
+  );
+  assert.throws(
+    () => store.run(
+      `INSERT INTO external_client_bindings(id,principal_id,name,host,key_hash,declared_capabilities,binding_kind,status,created,updated)
+       VALUES('b3','p1','坏连接','codex','hash3','[]','weird','active',?,?)`,
+      NOW, NOW,
+    ),
+    /CHECK/,
+  );
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

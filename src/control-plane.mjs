@@ -146,11 +146,13 @@ export function createExternalIdentity(store, {
   declared,
   surface = 'cli',
   appId = null,
+  bindingKind = 'conversation',
 } = {}) {
   if (typeof principalName !== 'string' || !principalName.trim()) throw new Error('principalName 无效');
   if (typeof bindingName !== 'string' || !bindingName.trim()) throw new Error('bindingName 无效');
   if (typeof host !== 'string' || !host.trim()) throw new Error('host 无效');
   if (!['cli', 'desktop'].includes(surface)) throw new Error(`未知的连接 surface: ${surface}`);
+  if (!['conversation', 'activation'].includes(bindingKind)) throw new Error(`未知的连接类型: ${bindingKind}`);
   const declaredCapabilities = assertControllerCapabilities(declared ?? {});
   const now = new Date().toISOString();
   return store.transaction(() => {
@@ -171,6 +173,7 @@ export function createExternalIdentity(store, {
         declaredCapabilities,
         appId,
         surface,
+        bindingKind,
         updated: now,
       });
     } else {
@@ -185,6 +188,7 @@ export function createExternalIdentity(store, {
         declaredCapabilities,
         appId,
         surface,
+        bindingKind,
         created: now,
       });
     }
@@ -205,17 +209,50 @@ export class ControlPlane {
     this.wakeInFlight = new Set();
   }
 
+  /**
+   * 激活连接解析:桌面宿主配置里只能放一条全局 MCP 凭据,激活连接按宿主上报的
+   * 会话身份(如 CODEX_THREAD_ID)解析或创建真正的会话连接。一个桌面会话一个
+   * binding,互相隔离;激活连接本身永不持有团队席位,也永不进入工具调用。
+   */
+  resolveActivationBinding(activation, hostSession) {
+    const threadId = typeof hostSession === 'string' ? hostSession.trim() : '';
+    if (!threadId) throw new Error('桌面激活连接需要宿主会话身份(如 CODEX_THREAD_ID);请在桌面会话内调用');
+    const name = `${activation.name}·${threadId}`;
+    const existing = externalAgg.bindingByName(this.bus.store, activation.principal_id, name);
+    if (existing) {
+      if (existing.binding_kind !== 'conversation') throw new Error('激活连接解析到了非会话连接');
+      return existing;
+    }
+    const principal = externalAgg.principal(this.bus.store, activation.principal_id);
+    const { binding } = createExternalIdentity(this.bus.store, {
+      principalName: principal?.name,
+      bindingName: name,
+      host: activation.host,
+      session: threadId,
+      declared: JSON.parse(activation.declared_capabilities),
+      surface: 'desktop',
+      appId: activation.app_id,
+    });
+    return binding;
+  }
+
   authenticate(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
     if (typeof bindingId !== 'string' || typeof key !== 'string' || !bindingId || !key) {
       throw new Error('缺少外部主控连接凭据');
     }
-    const row = externalAgg.binding(this.bus.store, bindingId);
-    if (!row || row.status !== 'active' || row.key_hash !== keyHash(key)) throw new Error('外部主控连接凭据无效');
+    const presented = externalAgg.binding(this.bus.store, bindingId);
+    if (!presented || presented.status !== 'active' || presented.key_hash !== keyHash(key)) throw new Error('外部主控连接凭据无效');
+    const row = presented.binding_kind === 'activation'
+      ? this.resolveActivationBinding(presented, hostSession)
+      : presented;
     const capabilities = bindingCapabilities(row);
     assertControllerCapabilities(capabilities);
     externalAgg.touchBinding(this.bus.store, row.id);
     if (this.bus.controlSocketPath) {
       const runner = nodeRunner();
+      // 唤醒子进程携带的是「本次连接呈现的凭据」:CLI 场景即会话连接本身;
+      // 桌面激活场景即激活连接——子进程在恢复的线程里运行,会重新上报宿主
+      // 会话身份并解析回正确的会话连接(其 key 从不落明文)。
       const wakeConfig = {
         command: runner.command,
         args: [
@@ -223,7 +260,7 @@ export class ControlPlane {
           fileURLToPath(new URL('./cli.mjs', import.meta.url)),
           'mcp',
           '--socket', this.bus.controlSocketPath,
-          '--client', row.id,
+          '--client', presented.id,
         ],
         env: {
           ...runner.env,

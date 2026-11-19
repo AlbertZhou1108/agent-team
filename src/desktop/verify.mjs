@@ -27,6 +27,7 @@ export async function verifyDesktopApplication(store, kind, {
   definitions = DESKTOP_DEFINITIONS,
   context = desktopDetectionContext(),
   readBundleVersion = undefined,
+  socketPath = null,
   timeoutMs = 120_000,
   now = new Date().toISOString(),
 } = {}) {
@@ -75,10 +76,12 @@ export async function verifyDesktopApplication(store, kind, {
   const watchdog = setTimeout(() => { timedOut = true; stopAll(children); }, timeoutMs);
   watchdog.unref?.();
   const checkContext = {
+    store,
     workspace,
     detection: detected,
     definition,
     timeoutMs,
+    socketPath: socketPath ?? null,
     spawnTracked: (command, args, options = {}) => {
       const child = spawnHost(command, args, options);
       children.add(child);

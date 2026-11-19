@@ -55,7 +55,7 @@ export function codexCapabilities() {
   });
 }
 
-export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
+export function createCodexHost({ command = 'codex', model, reasoningEffort, env = {} }) {
   const lifecycle = createCliLifecycle('codex', command, value => { command = value; });
   let child, init, nextId = 0, stderr = '', serverNames = [];
   const pending = new Map(), active = new Map(), ended = new Map(), waits = new Map();
@@ -221,7 +221,9 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
   async function ready() {
     if (init) return init;
     init = (async () => {
-      child = spawn(command, ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      // env 允许宿主规格注入引擎环境(如桌面引擎的 CODEX_HOME=框架私有目录),
+      // 与进程自身环境合并,宿主认证与账号仍由引擎自己管理。
+      child = spawn(command, ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
       child.stdin.on('error', () => {});
       child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-2000); });
       child.on('error', fail);

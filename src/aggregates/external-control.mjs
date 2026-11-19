@@ -46,14 +46,14 @@ export function bindingByName(store, principalId, name) {
 
 export function insertBinding(store, {
   id, principalId, name, host, command = null, keyHash, session = null,
-  declaredCapabilities, appId = null, surface = 'cli', created, updated = created,
+  declaredCapabilities, appId = null, surface = 'cli', bindingKind = 'conversation', created, updated = created,
 }) {
   return store.run(
     `INSERT INTO external_client_bindings(
-       id,principal_id,name,host,command,key_hash,session,declared_capabilities,app_id,surface,status,created,updated
-     ) VALUES(?,?,?,?,?,?,?,?,?,?,'active',?,?)`,
+       id,principal_id,name,host,command,key_hash,session,declared_capabilities,app_id,surface,binding_kind,status,created,updated
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'active',?,?)`,
     id, principalId, name, host, command, keyHash, session,
-    JSON.stringify(declaredCapabilities), appId, surface,
+    JSON.stringify(declaredCapabilities), appId, surface, bindingKind,
     created, updated,
   );
 }
@@ -82,14 +82,15 @@ export function disableBinding(store, id, now = new Date().toISOString()) {
 }
 
 export function rotateBinding(store, id, {
-  host, command, keyHash, session, declaredCapabilities, appId = null, surface = 'cli', updated,
+  host, command, keyHash, session, declaredCapabilities, appId = null, surface = 'cli',
+  bindingKind = 'conversation', updated,
 }) {
   return store.run(
     `UPDATE external_client_bindings
-     SET host=?,command=?,key_hash=?,session=?,declared_capabilities=?,app_id=?,surface=?,wake_config=NULL,status='active',updated=?
+     SET host=?,command=?,key_hash=?,session=?,declared_capabilities=?,app_id=?,surface=?,binding_kind=?,wake_config=NULL,status='active',updated=?
      WHERE id=?`,
     host, command, keyHash, session,
-    JSON.stringify(declaredCapabilities), appId, surface,
+    JSON.stringify(declaredCapabilities), appId, surface, bindingKind,
     updated, id,
   );
 }

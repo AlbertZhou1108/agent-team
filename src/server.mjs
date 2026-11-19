@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
-import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication } from './desktop/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration } from './desktop/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -244,7 +244,11 @@ export async function handleRpc(bus, request) {
     await detectDesktopApplications(bus.store);
     return desktopApplicationStatus(bus.store);
   }
-  if (request.op === 'desktop_verify') return verifyDesktopApplication(bus.store, request.kind, { confirmed: request.confirmed === true });
+  if (request.op === 'desktop_verify') return verifyDesktopApplication(bus.store, request.kind, { confirmed: request.confirmed === true, socketPath: bus.controlSocketPath });
+  if (request.op === 'desktop_install') {
+    if (request.kind !== 'codex') throw new Error(`暂不支持安装桌面集成: ${request.kind}`);
+    return installCodexDesktopIntegration(bus.store, { socketPath: bus.controlSocketPath });
+  }
   if (request.op === 'desktop_disable') return disableDesktopApplication(bus.store, request.kind, { reason: request.reason ?? null });
   if (request.op === 'desktop_enable') return enableDesktopApplication(bus.store, request.kind);
   if (request.op === 'desktop_remove') return removeDesktopApplication(bus.store, request.kind);

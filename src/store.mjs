@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -226,7 +226,8 @@ export class Store {
     if (fromVersion < 19) this.migrateV19();
     if (fromVersion < 20) this.migrateV20();
     if (fromVersion < 21) this.migrateV21();
-  }
+    if (fromVersion < 22) this.migrateV22();
+}
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
   // 旧库该列与 declared_capabilities 内容一致，删除不丢信息。
@@ -325,6 +326,19 @@ export class Store {
       ensureColumn('desktop_applications', 'user_disabled', 'INTEGER NOT NULL DEFAULT 0');
       ensureColumn('desktop_applications', 'disabled_reason', 'TEXT');
       ensureColumn('desktop_applications', 'bundle_version', 'TEXT');
+    });
+  }
+
+  // v22:主控连接分「会话」与「激活」两种。桌面集成在宿主配置里只能放一条全局
+  // MCP 条目(凭据无法按会话分发),把宿主会话坍缩成一个 binding 正是交接文档
+  // 列出的头号风险。激活连接只做凭据:携带安装级 key,按宿主上报的会话身份
+  // (如 CODEX_THREAD_ID)解析或创建真正的会话连接;自己永不持有团队席位。
+  migrateV22() {
+    this.transaction(() => {
+      const hasKind = this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'binding_kind');
+      if (!hasKind) {
+        this.db.exec("ALTER TABLE external_client_bindings ADD COLUMN binding_kind TEXT NOT NULL DEFAULT 'conversation' CHECK(binding_kind IN ('conversation','activation'))");
+      }
     });
   }
 
