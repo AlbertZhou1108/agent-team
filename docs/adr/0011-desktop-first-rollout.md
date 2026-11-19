@@ -1,0 +1,13 @@
+# Desktop is the primary client path
+
+Status: accepted
+
+The normal user path is an installed Desktop-ready application plus Agent Team. The existing CLI member path remains available for developers, automation, and special environments, but it is transitional and will be documented as deprecated as the desktop path matures. Desktop discovery is automatic and all-or-nothing: an application is listed as ready only after both its controller connection and Bundled execution engine pass verification. Before the first background member use, the product explicitly states that the application's account and quota may be consumed while its window is closed.
+
+Readiness requires a real check, not configuration presence. During registration, after explicit confirmation that the checks may consume a small amount of model quota, Agent Team verifies that a desktop controller conversation can call Agent Team tools and that the Bundled execution engine can complete a short task. The product exposes one application-level result: available or unavailable, with diagnostic details on demand. Pull-only remains an available mode and is not a transitional half-state.
+
+An available application can supply members before any Desktop controller conversation has been activated in it; controller activation begins only when the user invokes Agent Team in a conversation. Verification artifacts must not pollute normal host chat history. A failed check reports its cause and can be retried; a later removal, incompatible upgrade, or engine regression makes the application unavailable while preserving existing teams and records.
+
+Closing a desktop window and quitting its process are different states. Window closure does not by itself stop a Bundled execution engine, and a verified engine may continue framework-owned member work in the background. Whether Agent Team may launch the bundled engine after the desktop process has fully quit is verified per product and per version; the application details report the actual condition, such as “member execution requires the desktop app to stay running.” Active wake still never launches a closed controller application.
+
+If a previously ready application is removed, upgraded incompatibly, or loses its execution engine, its integration becomes unavailable, new controller and member work for that surface stop, and existing teams and records remain intact. Recovery requires a fresh complete verification. The first release promises verified macOS support for Codex, DSH, and Claude; other operating systems remain a long-term compatibility goal rather than a shipped claim.

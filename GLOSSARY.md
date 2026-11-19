@@ -15,6 +15,10 @@ _Avoid_: 用户(用户是群外的真人入口)
 **Main Agent / 主 Agent**:
 The current controller that receives formal reports and coordinates work in ordinary messages. It may be a lead member, the Panel Agent, or an external controller principal; one team has one active controller binding at a time.
 
+**Controller takeover / 接管主控**:
+An explicit transfer of a team's active controller seat to another controller conversation. The previous conversation becomes read-only, and the change is visible in team history.
+_Avoid_: 同时控制、自动切换主控
+
 **External controller / 外部主控**:
 A team controller owned by the user's existing host session rather than by the Agent Team host runner. It is not a member and not the Panel Agent; one principal may manage multiple teams.
 _Avoid_: 外部成员、桌面助手
@@ -22,6 +26,34 @@ _Avoid_: 外部成员、桌面助手
 **Client binding / 客户端绑定**:
 One revocable host connection of an external controller principal. It records the host, session identity, declared/probed capabilities and credential digest. Multiple bindings may share a principal, but only the active binding can hold a team's controller seat.
 _Avoid_: 团队成员、Panel 会话
+
+**Desktop controller / 桌面主控**:
+An External controller operated through a host's desktop application. It creates and directs teams but is never a Member, and it does not execute member work in its user-visible conversation.
+_Avoid_: 桌面成员、桌面执行器
+
+**Desktop controller conversation / 桌面主控会话**:
+One user-visible conversation in a desktop application that acts as an independent External controller. A single desktop installation may contain several unrelated Desktop controller conversations, each able to control different teams.
+_Avoid_: 桌面程序、窗口、成员会话
+
+**Controller workspace / 主控工作目录**:
+The current working directory of a Desktop controller conversation. Every team controlled by that conversation inherits this directory and follows later changes to it.
+_Avoid_: 固定团队目录、主控独立目录
+
+**Bundled execution engine / 内置执行引擎**:
+A member-capable host runtime supplied by the same desktop application installation. It may execute member turns only in framework-owned sessions separate from the Desktop controller conversation.
+_Avoid_: 桌面会话、用户当前聊天
+
+**Desktop-ready host / 桌面可用宿主**:
+A host family whose supported desktop installation provides both a Desktop controller connection and a usable Bundled execution engine. Missing either side makes that surface unavailable to the framework.
+_Avoid_: 只接 MCP、只装客户端
+
+**Agent Team activation / Agent Team 启用**:
+An explicit action in a Desktop controller conversation that starts using Agent Team by invoking its Skill or requesting Agent Team work. Installation alone never activates a controller conversation.
+_Avoid_: 安装完成、自动接管
+
+**Native multi-agent / 原生多智能体**:
+A host product's own subagents or team facilities. It is outside Agent Team coordination and does not become a Message or Member merely because the same desktop application is connected.
+_Avoid_: Agent Team、团队消息
 
 **Coordination session / 调度会话**:
 The single serialized context where all member reports to the Main Agent are delivered.
