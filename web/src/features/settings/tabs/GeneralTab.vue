@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import HostStatuses from '../HostStatuses.vue';
+import DesktopApplications from '../DesktopApplications.vue';
 import LocalService from '../LocalService.vue';
 import AttachmentSettings from '../AttachmentSettings.vue';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
@@ -11,6 +12,7 @@ const preferences = usePreferencesStore();
 
 <template>
             <HostStatuses active />
+            <DesktopApplications active />
             <LocalService />
 
           <section class="flex flex-col gap-3">

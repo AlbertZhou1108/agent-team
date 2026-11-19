@@ -994,6 +994,48 @@ export interface HostStatus {
   installation?: { phase: 'checking' | 'installing' | 'verifying' | 'completed' | 'failed'; reason?: string };
 }
 
+/** 桌面应用集成的用户可见结论:一行一个应用,诊断细节按检查项展开。 */
+export interface DesktopApplicationStatus {
+  kind: 'codex' | 'dsh' | 'claude';
+  label: string;
+  installed: boolean;
+  state: 'available' | 'pull-only' | 'unavailable';
+  reason: string | null;
+  applicationId: string | null;
+  installPath?: string | null;
+  bundleVersion?: string | null;
+  enginePath?: string | null;
+  engineVersion?: string | null;
+  verifiedAt?: string | null;
+  userDisabled?: boolean;
+  lifecycleNote?: string | null;
+  diagnostics?: { summary?: string; controller?: { ok?: boolean; reason?: string }; engine?: { ok?: boolean; reason?: string }; timedOut?: boolean } | null;
+}
+
+export interface DesktopVerifyResult {
+  verified: boolean;
+  needsConfirmation?: boolean;
+  cost?: string;
+  refused?: boolean;
+  reason?: string;
+  application?: DesktopApplicationStatus;
+}
+
+export interface DesktopInstallResult {
+  applicationId: string;
+  binding: { id: string; name: string; bindingKind: 'activation' | 'conversation'; surface: 'cli' | 'desktop'; host: string };
+  configPath?: string;
+  socketPath: string;
+  backupPath?: string | null;
+  manual?: boolean;
+  mcpConfig?: Record<string, unknown>;
+  limitations?: string[];
+  nextStep?: string;
+  replacedUserEntry?: boolean;
+  enginePath?: string | null;
+  engineVersion?: string | null;
+}
+
 export type UnreadMessage = Pick<PanelMessage, 'seq' | 'role' | 'active_team_id'>;
 export type UnreadReceipt = Pick<TeamRequestReceipt, 'id' | 'isSourceCopy' | 'sourceMessageIds'>;
 export interface UnreadProjection { messages: UnreadMessage[]; receipts: UnreadReceipt[] }

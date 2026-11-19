@@ -20,6 +20,7 @@ vi.mock('@tanstack/vue-query', async () => {
 
 // 这两个子组件各自依赖宿主/服务查询层，冒烟测试只关心设置页自身的结构。
 vi.mock('@/features/settings/HostStatuses.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'host-statuses') } }; });
+vi.mock('@/features/settings/DesktopApplications.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'desktop-applications') } }; });
 vi.mock('@/features/settings/LocalService.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'local-service') } }; });
 
 vi.mock('@/shared/api/client', () => ({

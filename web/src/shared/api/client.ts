@@ -2,6 +2,9 @@ import type { PanelMessagePage } from './raw-types';
 import type { RuntimeEndpoint, GroupDetail, SessionEndpoint, AgentTasksView } from './raw-types';
 import type {
   ArchiveSnapshot,
+  DesktopApplicationStatus,
+  DesktopInstallResult,
+  DesktopVerifyResult,
   AttachmentSettings,
   HostStatus,
   UploadedAttachment,
@@ -147,6 +150,14 @@ export const api = {
   hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
   hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
   installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },
+
+  desktopApplications(signal?: AbortSignal) { return request<DesktopApplicationStatus[]>('/api/desktop/applications', signal); },
+  desktopDetect() { return mutate<DesktopApplicationStatus[]>('/api/desktop/detect', {}); },
+  desktopVerify(kind: string, confirmed: boolean) { return mutate<DesktopVerifyResult>('/api/desktop/verify', { kind, confirmed }); },
+  desktopInstall(kind: string) { return mutate<DesktopInstallResult>('/api/desktop/install', { kind }); },
+  desktopDisable(kind: string, reason?: string) { return mutate<DesktopApplicationStatus>('/api/desktop/disable', { kind, reason }); },
+  desktopEnable(kind: string) { return mutate<DesktopApplicationStatus>('/api/desktop/enable', { kind }); },
+  desktopRemove(kind: string) { return mutate<DesktopApplicationStatus>('/api/desktop/remove', { kind }); },
   chooseDirectory() {
     return globalThis.agentTeam?.chooseDirectory?.()
       ?? mutate<{ path: string | null }>('/api/local/directory-picker', {});
