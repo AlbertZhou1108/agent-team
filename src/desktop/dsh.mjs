@@ -113,10 +113,13 @@ async function runDshHeadlessTurn({ enginePath, workspace, spawnTracked, timeout
       const child = spawnTracked(enginePath, ['headless', '--patch', patchFile, '--json', prompt], { cwd: workspace });
       let output = '';
       child.stdout?.on('data', chunk => { output = (output + chunk).slice(-4000); });
+      child.stderr?.on('data', chunk => { output = (output + chunk).slice(-4000); });
       child.on('close', code => {
         clearTimeout(timer);
-        if (code === 0) resolve(output);
-        else reject(new Error(`内嵌引擎退出 (${code})`));
+        if (code === 0) return resolve(output);
+        // --json 流的错误结论(final/exit 原因)是验证失败的真实原因,必须透传。
+        const failure = extractDshFailure(output);
+        reject(new Error(failure ?? `内嵌引擎退出 (${code})`));
       });
       child.on('error', error => {
         clearTimeout(timer);
@@ -126,6 +129,24 @@ async function runDshHeadlessTurn({ enginePath, workspace, spawnTracked, timeout
   } finally {
     rmSync(patchFile, { force: true, maxRetries: 3, retryDelay: 50 });
   }
+}
+
+/** 从 --json 流/错误输出里提取引擎的失败原因(如 MISSING_CREDENTIAL)。 */
+function extractDshFailure(output) {
+  if (!output) return null;
+  for (const line of output.split('\n').reverse()) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const row = JSON.parse(trimmed);
+      const reason = row?.reason ?? row?.error;
+      const message = typeof reason === 'object' ? reason?.error?.message ?? reason?.message : reason;
+      if (message) return String(message).slice(0, 400);
+    } catch {
+      if (trimmed.startsWith('dsh:')) return trimmed.slice(0, 400);
+    }
+  }
+  return null;
 }
 
 export function dshDesktopVerification() {

@@ -50,7 +50,9 @@ export const DESKTOP_DEFINITIONS = new Map([
   ['claude', {
     label: 'Claude',
     bundleCandidates: ({ applicationsRoot }) => [join(applicationsRoot, 'Claude.app')],
-    engineCandidates: ({ supportRoot }) => claudeEngineCandidates(supportRoot),
+    // 注意:claudeEngineCandidates 期望的是 Claude-3p/claude-code 根目录,
+    // 不是 Application Support 本身——传错根会静默扫不到引擎。
+    engineCandidates: ({ supportRoot }) => claudeEngineCandidates(join(supportRoot, 'Claude-3p', 'claude-code')),
     engineVersionArgs: ['--version'],
     lifecycleNote: '内嵌引擎由桌面应用下载到本地数据目录；未运行过应用时引擎不存在',
   }],

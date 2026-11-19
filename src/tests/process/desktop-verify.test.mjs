@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../../store.mjs';
-import { detectDesktopApplications, desktopDetectionContext, verifyDesktopApplication } from '../../desktop/index.mjs';
+import { DESKTOP_DEFINITIONS, detectDesktopApplications, desktopDetectionContext, verifyDesktopApplication } from '../../desktop/index.mjs';
 import * as externalAgg from '../../aggregates/external-control.mjs';
 
 function tempDir(t, prefix) {
@@ -245,4 +245,13 @@ test('a disabled application refuses verification until explicitly enabled again
   externalAgg.clearApplicationDisabled(store, row.id);
   assert.equal(externalAgg.application(store, row.id).verified_at, null);
   store.close();
+});
+
+test('the real desktop definitions carry top-level verification strategies for every kind', () => {
+  // 回归:验证执行器读定义表顶层的 verifyController/verifyEngine;挂载点一旦
+  // 断掉,面板的「验证」会退化成「验证策略尚未提供」而不是真实检查。
+  for (const [kind, definition] of DESKTOP_DEFINITIONS) {
+    assert.equal(typeof definition.verifyController, 'function', `${kind} 缺少 verifyController`);
+    assert.equal(typeof definition.verifyEngine, 'function', `${kind} 缺少 verifyEngine`);
+  }
 });

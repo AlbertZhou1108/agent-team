@@ -166,7 +166,12 @@ export function claudeDesktopVerification() {
             timeoutMs,
             args: ['-p', '--strict-mcp-config', '--mcp-config', mcpConfigFile, '--permission-mode', 'dontAsk', CONTROLLER_CHECK_PROMPT],
           });
-          return { ok: /version|1/.test(output), detail: '主控工具可调用' };
+          return {
+            ok: /version|1/.test(output),
+            detail: '主控工具可调用(应用级连接)',
+            // Claude 桌面没有已验证的同会话唤醒:引擎可用也保持 Pull-only(ADR 0011)。
+            wake: { available: false },
+          };
         } finally {
           rmSync(mcpConfigFile, { force: true, maxRetries: 3, retryDelay: 50 });
         }

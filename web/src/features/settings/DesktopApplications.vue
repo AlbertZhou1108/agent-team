@@ -148,6 +148,9 @@ const mcpConfigText = (kind: string) => JSON.stringify(installResult(kind)?.mcpC
             >
               {{ busy(item.kind) ? '验证中…' : confirming.includes(item.kind) ? '确认消耗额度并验证' : '验证' }}
             </Button>
+            <Button type="button" variant="outline" size="sm" :disabled="busy(item.kind)" @click="install(item)">
+              {{ busy(item.kind) ? '接入中…' : '重新接入' }}
+            </Button>
             <Button v-if="!item.userDisabled" type="button" variant="outline" size="sm" :disabled="busy(item.kind)" @click="disable(item)">停用</Button>
             <Button v-if="item.userDisabled" type="button" variant="outline" size="sm" :disabled="busy(item.kind)" @click="enable(item)">启用</Button>
             <Button type="button" variant="outline" size="sm" :disabled="busy(item.kind)" @click="remove(item)">移除登记</Button>

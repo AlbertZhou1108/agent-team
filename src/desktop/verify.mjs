@@ -83,7 +83,9 @@ export async function verifyDesktopApplication(store, kind, {
     timeoutMs,
     socketPath: socketPath ?? null,
     spawnTracked: (command, args, options = {}) => {
-      const child = spawnHost(command, args, options);
+      // stdin 必须显式 ignore:引擎的 exec 模式在 stdin 为挂起的管道时会一直
+      // 等待附加输入(实测 codex exec 卡死的原因);回合输入只走位置参数。
+      const child = spawnHost(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options });
       children.add(child);
       return child;
     },
