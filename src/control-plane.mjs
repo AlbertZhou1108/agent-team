@@ -227,11 +227,29 @@ export class ControlPlane {
       return this.resolveThreadBinding(activation, '应用级');
     }
     if (!threadId) {
+      // 桌面聊天宿主的 MCP 子进程不注入线程身份(实测 Codex Desktop 26.x):
+      // 回落到该激活连接最近绑定的会话,让 bind-session 后的后续调用可用;
+      // 一次都没有绑定时,报错引导会话内完成显式绑定。
+      const latest = this.latestBoundConversation(activation);
+      if (latest) return latest;
       throw new Error(identity === 'manual'
-        ? '该桌面宿主不会向 MCP 子进程注入会话身份;请用 bind-session 把桌面会话显式绑定到激活连接后再调用'
-        : '桌面激活连接需要宿主会话身份(如 CODEX_THREAD_ID);请在桌面会话内调用');
+        ? '该桌面宿主不会向 MCP 子进程注入会话身份;请在桌面会话内运行 bind-session 显式绑定后再调用'
+        : '桌面会话尚未绑定:请在桌面会话的 shell 里运行 agent-team bind-session(凭据见插件 mcp 配置)绑定当前线程后再调用工具');
     }
     return this.resolveThreadBinding(activation, threadId);
+  }
+
+  /** 激活连接最近绑定的会话连接(桌面聊天 MCP 子进程无线程身份时的回落目标)。 */
+  latestBoundConversation(activation) {
+    // 只回落到本激活连接解析出的会话(名字前缀限定),不同应用/不同接入不互相串。
+    return this.bus.store.get(
+      `SELECT * FROM external_client_bindings
+       WHERE principal_id=? AND binding_kind='conversation' AND session IS NOT NULL
+         AND name LIKE ? ESCAPE '\\'
+       ORDER BY updated DESC LIMIT 1`,
+      activation.principal_id,
+      activation.name.replace(/[\\%_]/g, c => `\\${c}`) + '%',
+    ) ?? null;
   }
 
   resolveThreadBinding(activation, identityKey) {

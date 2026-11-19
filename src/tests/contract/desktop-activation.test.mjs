@@ -85,9 +85,22 @@ test('one global desktop credential resolves a separate conversation binding per
   assert.equal(teamsA.teams[0].active, false);
 });
 
-test('activation credentials without a host thread identity are refused', async t => {
-  const { call } = setup(t);
-  await assert.rejects(() => call(null, 'control_status'), /需要宿主会话身份/);
+test('activation credentials without a host thread identity fall back to the latest bound conversation', async t => {
+  const { bus, call } = setup(t);
+  // 未绑定过任何会话:明确报错并给出 bind-session 指引。
+  await assert.rejects(() => call(null, 'control_status'), /bind-session/);
+  // 用带线程身份的调用建立会话连接后,无线程身份的调用回落到它(桌面聊天
+  // 的 MCP 子进程不注入线程身份,靠 bind-session 先行)。
+  await call('thread-fallback', 'team_create', {
+    name: '回落团队',
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  await until(() => bus.running.size === 0, 'profile turns did not settle');
+  const status = await call(null, 'control_status');
+  assert.match(status.binding.name, /thread-fallback/);
+  assert.equal(status.binding.id, (await call('thread-fallback', 'control_status')).binding.id);
+  assert.equal(status.controlledTeams, 1);
 });
 
 test('hosts without a session identity channel resolve per their declared channel', async t => {

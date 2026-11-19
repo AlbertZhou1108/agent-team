@@ -84,7 +84,9 @@ async function main() {
     if (values.client) return serveControlMcp(values.socket ?? socketFor(directory), values.client, process.env.AGENT_TEAM_CLIENT_KEY);
     return serveMcp(values.socket, values.endpoint, process.env.AGENT_TEAM_KEY, process.env.AGENT_TEAM_TURN);
   }
-  const socketPath = socketFor(directory);
+  // RPC 子命令统一尊重 --socket:桌面/外围场景的总线 socket 不一定从 --data 推导
+  // (如 dev 总线与默认数据目录不同),实测 bind-session 曾因此连错总线。
+  const socketPath = values.socket ?? socketFor(directory);
   const groupArgs = () => ({
     name: values.name,
     workspace: values.workspace,
