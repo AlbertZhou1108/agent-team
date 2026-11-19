@@ -16,7 +16,7 @@
 
 你不必先了解消息总线、命令行参数或适配器。打开 Agent Team，选择一个可用的 AI 工具，就能开始和私人助手聊天。需要多人配合时，再创建团队。
 
-Agent Team 接入本机已有的 **Codex、Claude Code 和 DSH**。可以使用一种工具，也可以让不同工具的成员加入同一个团队。
+当前源码可把本机已有的 **Codex、Claude Code、DSH 和 ZCode** 作为团队成员；**WorkBuddy** 可作为外部主控通过 MCP 接入，但不作为成员启动。可以使用一种工具，也可以让不同工具的成员加入同一个团队。
 
 ![私人助手帮助整理读书会需求](assets/readme/02-private-assistant.png)
 
@@ -76,13 +76,15 @@ Agent Team 接入本机已有的 **Codex、Claude Code 和 DSH**。可以使用�
 
 ## 开始使用
 
-1. **准备一个 AI 工具**：安装并配置 Codex、Claude Code 或 DSH 中的至少一种，登录与额度由该工具管理。
+1. **准备一个 AI 工具**：安装并配置 Codex、Claude Code、DSH 或 ZCode 中的至少一种，登录与额度由该工具管理。WorkBuddy 可作为外部主控接入，但不能作为团队成员启动。
 2. **选择入口**：在 [Releases](https://github.com/AlbertZhou1108/agent-team/releases) 下载安装包并打开面板；也可以从源码运行 `agent-team connect`，把 Agent Team MCP 接入现有宿主，无头使用协作能力。
 3. **选择可用工具，开始聊天**：检测只检查通信，不发送模型消息。需要协作时，创建团队并指定工作文件夹与访问范围。
 
 ![首次引导中的工具可用状态](assets/readme/01-connect.png)
 
 **v0.5.0 提供 macOS Apple Silicon（arm64）、Windows x64 与 Linux x64 发行包**，各自附 SHA-256 校验文件，自带运行环境，无需自行安装 Node 或构建前端。包均未签名、未公证，安装时的系统安全提示需要手动放行。v0.5.0 的数据目录 schema 升级到 v18，升级前请先停止服务。详细步骤、数据备份和升级方式见[快速开始](guide/quick-start.md)。
+
+**版本边界**：v0.5.0 发行包早于当前源码中的 ZCode 成员适配与 WorkBuddy 主控登记。需要使用这些宿主时，请从当前源码运行，或确认后续发行包已经包含相应适配。
 
 ## 适合什么工作
 

@@ -4,7 +4,9 @@
 
 ## 准备一个 AI 工具
 
-Agent Team 使用本机已有的 Codex、Claude Code 或 DSH。先按对应工具的说明安装，并完成它自己的登录、模型服务配置与额度准备；先接通一种即可，不必同时安装三个。
+当前源码可使用本机已有的 Codex、Claude Code、DSH 或 ZCode 作为团队成员。先按对应工具的说明安装，并完成它自己的登录、模型服务配置与额度准备；先接通一种即可，不必同时安装四种。WorkBuddy 可作为外部 MCP 主控接入，但不能作为团队成员启动。
+
+v0.5.0 发行包早于 ZCode 成员适配与 WorkBuddy 主控登记；使用这些宿主需要从当前源码运行，或等待包含相应适配的新发行包。各宿主的形态、角色与唤醒差异见[宿主配置与适配](host-adapters.md)。
 
 框架负责向这些工具提供团队通信和协作能力，不代管它们的账号。页面的“可用”表示当前适配器能够与宿主通信，不能保证下一次模型调用或账号额度正常。检测不会发送模型消息。
 
@@ -52,7 +54,7 @@ npm run desktop
 
 ## 从现有 Agent 无头接入
 
-如果主要入口是你已经打开的 Codex、Claude Code 或其他兼容 MCP 的 Agent，可以先登记外部主控连接：
+如果主要入口是你已经打开的 Codex、Claude Code、DSH、ZCode、WorkBuddy 或其他兼容 MCP 的 Agent，可以先登记外部主控连接：
 
 ```bash
 npm start -- connect --data /你的框架数据目录 \

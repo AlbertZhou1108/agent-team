@@ -15,10 +15,11 @@ flowchart LR
     C[CLI] <--> S
     S <--> D[(本机 SQLite)]
     S <--> A[宿主适配器]
-    A <--> H[Codex / Claude Code / DSH]
+    A <--> H[成员宿主：Codex / Claude Code / DSH / ZCode]
+    E[外部 MCP 主控：WorkBuddy 等] <--> S
 ```
 
-此图表达本机组成关系；宿主调用模型时可能访问外部服务，不意味着完全离线。
+此图表达本机组成关系；宿主调用模型时可能访问外部服务，不意味着完全离线。ZCode 是桌面应用携带的内置 CLI；WorkBuddy 是外部 MCP 主控，不作为成员工厂启动。项目自己的 Electron 桌面窗口只是第一方面板入口，不是模型宿主。
 
 ## 会话与消息
 
@@ -49,7 +50,7 @@ flowchart LR
 
 ## 权限与恢复
 
-群执行策略为 `communication | read-only | workspace-write`。私人会话另有只读、工作区写入与完全权限；团队调度仍只协调，不读写项目文件。逻辑域分 `communication` 与 `project`，物理会话由 Adapter 决定。Codex 分开使用沟通与项目 thread，Claude/DSH 可复用 session；每回合记录请求策略和实际配置。
+群执行策略为 `communication | read-only | workspace-write`。私人会话另有只读、工作区写入与完全权限；团队调度仍只协调，不读写项目文件。逻辑域分 `communication` 与 `project`，物理会话由 Adapter 决定。Codex 分开使用沟通与项目 thread，Claude、DSH、ZCode 可复用 session；每回合记录请求策略和实际配置。
 
 服务保留四项关键约束：
 

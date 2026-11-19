@@ -4,7 +4,19 @@
 
 ## 内置接入
 
-框架接入 Codex CLI/app-server、Claude Code CLI、DSH CLI 与 ZCode（桌面应用内置 CLI）。宿主的注册事实按宿主收敛在 [definitions.mjs](../src/hosts/definitions.mjs)：成员工厂、遥测能力声明、主动唤醒驱动、技能目录与主控会话发现一处声明，各注册表从它派生。宿主负责账号、认证、模型服务配置与额度；框架提供团队通信工具、回合上下文和请求策略，不代配宿主。
+当前有四个可启动的成员宿主，另有一个仅作为外部主控登记的桌面应用：
+
+| 宿主 | 实际形态 | 可用角色 | 主动唤醒 |
+| --- | --- | --- | --- |
+| Codex | Codex CLI 的 `app-server --stdio` | 主控、成员 | 支持 |
+| Claude Code | Claude Code CLI | 主控、成员 | 不支持，保持收件箱拉取 |
+| DSH | DSH CLI | 主控、成员 | 支持 |
+| ZCode | ZCode 桌面应用内置 CLI | 主控、成员 | 支持 |
+| WorkBuddy | 桌面应用，外部 MCP 客户端 | 仅主控 | 不支持 |
+
+前四者由成员工厂启动，能在群中担任角色并执行回合；WorkBuddy 没有成员工厂和唤醒驱动，框架不能启动或注入它，只能通过通用 MCP 主控通道参与。Codex、DSH、ZCode 注册了主动唤醒驱动；Claude Code 与 WorkBuddy 目前保持持久收件箱拉取。
+
+宿主的注册事实按宿主收敛在 [definitions.mjs](../src/hosts/definitions.mjs)：成员工厂、能力、遥测声明、主动唤醒驱动、技能目录与主控会话发现一处声明，各注册表从它派生。`session.spawn` 由是否存在成员工厂推导，`session.wake` 由是否存在唤醒驱动推导。宿主负责账号、认证、模型服务配置与额度；框架提供团队通信工具、回合上下文和请求策略，不代配宿主。
 
 通过 `--hosts /路径/hosts.json` 指定框架配置，例如：
 
@@ -19,7 +31,9 @@
 }
 ```
 
-别名是团队成员选择的宿主名称。`command` 可指定 CLI 绝对路径；Codex、Claude 可设置框架调用所用的 `model` 与 `reasoningEffort`。这些调用参数不是修改宿主账号配置。模型选择必须来自可用目录；不静默切换模型。没有覆盖思考强度时保留宿主行为。
+别名是团队成员选择的宿主名称。`command` 可指定 CLI 绝对路径；Codex、Claude Code、ZCode 可设置框架调用所用的 `model` 与 `reasoningEffort`。这些调用参数不是修改宿主账号配置。模型选择必须来自可用目录；不静默切换模型。没有覆盖思考强度时保留宿主行为。
+
+WorkBuddy 不属于可启动成员，因此不写入这份成员宿主配置；使用 `agent-team connect --host workbuddy` 登记外部主控连接。
 
 ## 安装检查与通信检测
 
@@ -31,7 +45,7 @@
 | `cancelProbe()` | 取消并收尾适配器拥有的检测进程 |
 | `listModels({ signal })` | 返回规范化模型目录，支持按宿主获取与缓存 |
 
-检测不发送模型消息。Codex 使用 app-server 初始化及目录；Claude 使用控制初始化协议；DSH 使用临时 overlay，并显式禁用任务执行器后读取目录。进程超时、取消、输出上限与清理集中在 [probe.mjs](../src/hosts/probe.mjs)。
+检测不发送模型消息。Codex 使用 app-server 初始化及目录；Claude 使用控制初始化协议；DSH 使用临时 overlay，并显式禁用任务执行器后读取目录；ZCode 完成 app-server 启动握手并列出会话。进程超时、取消、输出上限与清理集中在 [probe.mjs](../src/hosts/probe.mjs)。
 
 协议与宿主版本相关。检测成功不证明账号额度、线上推理或下一回合一定成功；实际宿主错误仍会反馈给用户，不自动登录、修改配置或重放业务消息。
 

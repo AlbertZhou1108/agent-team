@@ -29,7 +29,7 @@
 
 尚未完成：
 
-- 其余宿主（Claude Code 等）的主动注入适配器：目前 Codex、ZCode、DSH 注册了主动唤醒驱动；其他宿主保持持久收件箱拉取，直到其适配器实现正式注入能力。
+- 主动注入适配器：目前 Codex、ZCode、DSH 注册了主动唤醒驱动；Claude Code 与 WorkBuddy 保持持久收件箱拉取，直到其适配器实现正式注入能力。
 - 多主控交接、远程连接和完整原生 TUI。
 
 ## 产品边界
@@ -39,7 +39,7 @@ Agent Team 的核心是宿主无关、无头优先的多 Agent 协作控制面�
 - 外部宿主通过 MCP 和 Agent Team Skill 接入，不需要打开第一方客户端。当前可通过 `agent-team connect` 登记 binding 并取得 stdio MCP 配置。
 - 第一方客户端与外部宿主是并行入口。客户端可以提供更完整的观察和管理体验，但核心控制能力不能只存在于客户端。
 - Panel Agent 是第一方客户端的可选全局助手，不属于无头核心，也不是外部主控的统一抽象。
-- Codex、Claude Code、DSH 等都只是适配器实例，产品语义不得依赖某个宿主。
+- Codex、Claude Code、DSH、ZCode 都只是成员适配器实例；WorkBuddy 是仅主控的外部 MCP 登记。产品语义不得依赖某个宿主。
 
 ## 角色
 
@@ -137,12 +137,12 @@ Agent Team 的核心是宿主无关、无头优先的多 Agent 协作控制面�
 - 凭据按 client binding 限权、可撤销；不能因为能启动 MCP 命令就获得所有团队。
 - 局域网、远程和云连接属于远期方向，不进入下一阶段硬目标。
 
-## 当前开放边界（2026-11-09）
+## 当前开放边界（2026-11-19）
 
 - 控制协议版本为 `1`，持久化 schema 为 `18`。旧库逐级迁移；较新 schema 不能被旧程序打开，发布说明必须注明。
-- 对外主控、外部投递、decision、能力交集、workspace 路径边界、协议降级、双 binding 单写席位和归档暂停已有契约测试；其中前五项另用真实 Claude/DSH/MCP 环境复验。
-- Codex 主动唤醒具备 provisioning/ready/degraded/unsupported 状态和真实回合启动证据；Codex multi-agent 子会话只能 pull-only，其他宿主当前也默认 pull-only，直到各自实现 wake driver。
-- 主动唤醒回合使用 Codex `read-only` sandbox；只为 `agent_team` MCP server 设置工具自动批准，不绕过宿主文件系统 sandbox。
+- 对外主控、外部投递、decision、能力交集、workspace 路径边界、协议降级、双 binding 单写席位和归档暂停已有契约测试；其中前五项另用真实 Codex/Claude/DSH/ZCode/MCP 环境复验。
+- Codex、DSH、ZCode 的主动唤醒具备真实回合启动证据；Codex multi-agent 子会话只能 pull-only，Claude Code 与 WorkBuddy 当前也保持 pull-only。
+- Codex 主动唤醒回合使用 `read-only` sandbox；ZCode、DSH 继续走各自的会话或 headless 权限路径。唤醒不得绕过群策略与宿主沙箱。
 - 服务重启后的 pending delivery 和 binding 已有契约覆盖，尚未把“真实团队在重启后继续处理”纳入本轮发布硬门禁。
 - 当前只支持严格本机连接。远程部署、多主控同时写同一团队、完整原生 TUI 嵌入、所有宿主桌面产品适配、Panel Agent 与外部主控完全对等、强制隔离托管成员原生 session 不进入当前版本。
 
