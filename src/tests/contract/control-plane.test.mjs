@@ -505,14 +505,18 @@ test('one principal can connect twice but only the active binding can write a te
   });
   const secondCall = (name, args = {}) => bus.controlTool(second.binding.id, second.key, name, args);
   assert.equal((await secondCall('team_snapshot', { teamId: created.team.id })).team.id, created.team.id);
-  const listed = await secondCall('control_teams');
-  assert.equal(listed.teams[0].active, false);
+  // 同一 principal 的两个会话互相独立:列表只给建立过关系的会话;接管前不出现。
+  assert.deepEqual((await secondCall('control_teams')).teams, []);
   await assert.rejects(
     () => secondCall('team_tasks_set', { teamId: created.team.id, tasks: [] }),
     /team_activate/,
   );
   assert.equal((await secondCall('team_activate', { teamId: created.team.id })).activeBindingId, second.binding.id);
   assert.equal((await secondCall('control_teams')).teams[0].active, true);
+  // 原席位会话保留关系,列表可见但不再是活跃席位,写被拒绝。
+  const originalListed = await call('control_teams');
+  assert.equal(originalListed.teams.length, 1);
+  assert.equal(originalListed.teams[0].active, false);
   await assert.rejects(
     () => call('team_tasks_set', { teamId: created.team.id, tasks: [] }),
     /team_activate/,

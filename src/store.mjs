@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -224,6 +224,7 @@ export class Store {
     if (fromVersion < 17) this.migrateV17();
     if (fromVersion < 18) this.migrateV18();
     if (fromVersion < 19) this.migrateV19();
+    if (fromVersion < 20) this.migrateV20();
   }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -232,6 +233,80 @@ export class Store {
     const columns = this.all('PRAGMA table_info(external_client_bindings)');
     if (!columns.some(column => column.name === 'probed_capabilities')) return;
     this.db.exec('ALTER TABLE external_client_bindings DROP COLUMN probed_capabilities');
+  }
+
+  // v20:桌面域基础。三块事实各自独立:
+  // - desktop_applications:每个检测到的应用安装一行,持有安装身份与验证状态;
+  //   surface 区分 Codex Desktop 与 CLI-only Codex,不复制宿主模型。
+  // - 主控会话即 binding:桌面会话加 surface/app_id/controller_cwd,CLI binding 默认 cli 不受影响。
+  //   app_id 是裸 id 引用(同 notes.source_team_id 的取舍):注册表行由检测服务
+  //   按 (kind,surface,install_path) 重建,删除应用行不应级联抹掉绑定指向,
+  //   指向缺失正好表达「该 surface 不可用」。
+  // - team_controller_relations:团队与每个建立过访问的 binding 的持久关系;
+  //   「谁活跃」由 team_lead_controllers 席位推导,关系表只记访问事实,不存第二份活跃状态。
+  // - 团队 workspace 跟随主控会话:groups.workspace 仍是唯一生效目录,
+  //   workspace_pending 表达「等旧回合结算再切」,workspace_events 留下解释性历史。
+  // 既有 external_agent 席位播种为 creator 关系;旧 binding 一律 surface='cli',行为不变。
+  migrateV20() {
+    const ensureColumn = (table, name, definition) => {
+      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+        return true;
+      }
+      return false;
+    };
+    this.transaction(() => {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS desktop_applications(
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK(kind IN ('codex','dsh','claude')),
+          surface TEXT NOT NULL DEFAULT 'desktop' CHECK(surface IN ('cli','desktop')),
+          install_path TEXT,
+          engine_path TEXT,
+          engine_version TEXT,
+          readiness TEXT NOT NULL DEFAULT 'unavailable' CHECK(readiness IN ('available','unavailable')),
+          pull_only INTEGER NOT NULL DEFAULT 0,
+          controller_state TEXT,
+          engine_state TEXT,
+          diagnostics TEXT,
+          fingerprint TEXT,
+          verified_at TEXT,
+          lifecycle_note TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL,
+          UNIQUE(kind,surface,install_path));
+        CREATE TABLE IF NOT EXISTS team_controller_relations(
+          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          binding_id TEXT NOT NULL REFERENCES external_client_bindings(id) ON DELETE CASCADE,
+          principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,
+          origin TEXT NOT NULL DEFAULT 'takeover' CHECK(origin IN ('creator','takeover')),
+          revision INTEGER NOT NULL DEFAULT 1,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL,
+          PRIMARY KEY(group_id,binding_id));
+        CREATE INDEX IF NOT EXISTS team_controller_relations_binding ON team_controller_relations(binding_id);
+        CREATE TABLE IF NOT EXISTS workspace_events(
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK(kind IN ('pending','applied','cancelled')),
+          from_path TEXT,
+          to_path TEXT,
+          revision INTEGER,
+          detail TEXT,
+          created TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS workspace_events_group ON workspace_events(group_id,seq);`);
+      ensureColumn('external_client_bindings', 'app_id', 'TEXT');
+      ensureColumn('external_client_bindings', 'surface', "TEXT NOT NULL DEFAULT 'cli' CHECK(surface IN ('cli','desktop'))");
+      ensureColumn('external_client_bindings', 'controller_cwd', 'TEXT');
+      ensureColumn('external_client_bindings', 'controller_cwd_updated', 'TEXT');
+      ensureColumn('groups', 'workspace_pending', 'TEXT');
+      ensureColumn('groups', 'workspace_revision', 'INTEGER NOT NULL DEFAULT 0');
+      // 播种:既有外部主控席位即该 binding 建立访问的起点;origin 取 creator
+      // 是近似——旧模型没有跨会话接管,席位 binding 基本就是建群 binding。
+      this.db.exec(`INSERT OR IGNORE INTO team_controller_relations(group_id,binding_id,principal_id,origin,revision,created,updated)
+          SELECT group_id,controller_binding_id,controller_id,'creator',revision,updated,updated
+          FROM team_lead_controllers
+          WHERE controller_kind='external_agent' AND state='active' AND controller_binding_id IS NOT NULL`);
+    });
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。

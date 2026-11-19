@@ -5,6 +5,8 @@ import { legacyGroupDeliveryPrompt, legacyPanelDeliveryPrompt } from './prompts.
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as turnsAgg from './aggregates/turns.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
+import * as teamsAgg from './aggregates/teams.mjs';
+import * as externalAgg from './aggregates/external-control.mjs';
 
 // 消息调度:outbox 与待处理消息的投递循环、成员回合执行与会话重建。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -40,6 +42,9 @@ export class MessageDispatch {
   }
   pump() {
     if (this.bus.closing) return;
+    // 待定 workspace 切换优先结算:旧目录回合已停的团队在这里生效新目录并
+    // 失效成员会话,之后的投递扫描自然按新目录开工;未结算前 canRun 继续拦截。
+    externalAgg.settlePendingWorkspaces(this.bus.store);
     for (const entry of this.bus.store.pendingDeliveries()) {
       const conversation = conversationsAgg.byId(this.bus.store, entry.conversation_id);
       // 群级守卫(归档/群待核实)只作用于有群归属的会话;私聊会话的忙碌与
@@ -76,7 +81,8 @@ export class MessageDispatch {
     return !this.bus.deletingGroups.has(groupId)
       && this.bus.collaboration.communicationOpen(groupId)
       && !this.bus.collaboration.unknown(groupId).length
-      && !this.bus.panelUnknown(groupId).length;
+      && !this.bus.panelUnknown(groupId).length
+      && !teamsAgg.hasPendingWorkspace(this.bus.store, groupId);
   }
   deliver(entry) {
     const endpoint = conversationsAgg.byId(this.bus.store, entry.conversation_id);

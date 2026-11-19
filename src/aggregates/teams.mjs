@@ -8,7 +8,9 @@
 // - 成员名在组内唯一:role_names 记录历史规范化名字,成员移除后名字也不释放;
 // - team_lead_controllers 每团队至多一行,revision 单调递增(状态迁移处 +1);
 // - agent_tasks 每 (owner_id, group_id) 至多一行,空列表等价于删除;
-// - operation_records(scope='group-create') 按 client_key 幂等,ref 指向已建团队。
+// - operation_records(scope='group-create') 按 client_key 幂等,ref 指向已建团队;
+// - workspace 只有一个生效目录(groups.workspace);workspace_pending 是独立的
+//   「等旧回合结算再切」状态,不是生效目录的影子,应用时一并清空并 bump revision。
 
 // --- groups -----------------------------------------------------------------
 
@@ -136,6 +138,54 @@ export function insertExternalController(store, { groupId, principalId, bindingI
     "INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,controller_binding_id,state,original_lead_id,revision,updated) VALUES(?,'external_agent',?,?,'active',NULL,1,?)",
     groupId, principalId, bindingId, now,
   );
+}
+
+// --- workspace 跟随(ADR 0012) ----------------------------------------------
+// 团队 workspace 的行级写点。何时 pending、何时立即生效、以及成员会话失效,
+// 由 external-control 聚合的切换流程决定;这里只提供单一写入口,保证 revision
+// 与 events 不被绕过。
+
+/** 生效目录写点:revision 单调递增,并清掉待定状态(pending 与生效互斥)。 */
+export function setGroupWorkspace(store, { groupId, workspace }) {
+  const row = store.get('SELECT workspace_revision FROM groups WHERE id=?', groupId);
+  if (!row) throw new Error('群不存在');
+  const revision = Number(row.workspace_revision ?? 0) + 1;
+  store.run(
+    'UPDATE groups SET workspace=?,workspace_pending=NULL,workspace_revision=? WHERE id=?',
+    workspace, revision, groupId,
+  );
+  return revision;
+}
+
+/** 待定目录写点:不触碰生效目录;旧目录回合结算前派发由守卫拦下。 */
+export function setGroupPendingWorkspace(store, { groupId, workspace }) {
+  return store.run('UPDATE groups SET workspace_pending=? WHERE id=?', workspace, groupId).changes > 0;
+}
+
+export function insertWorkspaceEvent(store, { groupId, kind, fromPath = null, toPath = null, revision = null, detail = null, created }) {
+  return store.run(
+    'INSERT INTO workspace_events(group_id,kind,from_path,to_path,revision,detail,created) VALUES(?,?,?,?,?,?,?)',
+    groupId, kind, fromPath, toPath, revision, detail, created,
+  );
+}
+
+export function workspaceEvents(store, groupId, { after = 0, limit = 50 } = {}) {
+  const capped = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  return store.all(
+    `SELECT seq,kind,from_path,to_path,revision,detail,created FROM workspace_events
+     WHERE group_id=? AND seq>? ORDER BY seq LIMIT ?`,
+    groupId, after, capped,
+  );
+}
+
+/** 待定切换守卫:存在待定切换即阻止该团队的新派发,直到结算完成。 */
+export function hasPendingWorkspace(store, groupId) {
+  return Boolean(store.get('SELECT 1 FROM groups WHERE id=? AND workspace_pending IS NOT NULL', groupId));
+}
+
+/** 结算扫描:全部带待定切换的团队(pump 每轮先尝试结算)。 */
+export function pendingWorkspaceGroups(store) {
+  return store.all('SELECT id,workspace_pending FROM groups WHERE workspace_pending IS NOT NULL');
 }
 
 // --- 任务面板(agent_tasks) -------------------------------------------------

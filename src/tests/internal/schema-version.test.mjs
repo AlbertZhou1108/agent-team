@@ -146,6 +146,10 @@ test('a v11 database gains external controller identities, controller kind and b
   store.run('DROP TABLE team_lead_controllers_v12');
   store.run('DROP TABLE external_decisions');
   store.run('DROP TABLE external_deliveries');
+  // v14 之后的桌面域事实表也一并剥掉,保持 v11 形状(关系表引用绑定表,先删它)。
+  store.run('DROP TABLE IF EXISTS workspace_events');
+  store.run('DROP TABLE IF EXISTS team_controller_relations');
+  store.run('DROP TABLE IF EXISTS desktop_applications');
   store.run('DROP TABLE external_client_bindings');
   store.run('DROP TABLE external_principals');
   store.setSchemaVersion(11);

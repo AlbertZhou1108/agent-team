@@ -38,6 +38,11 @@ export function hasUnknown(store, conversationId) {
   return Boolean(store.get("SELECT 1 FROM turns WHERE conversation_id=? AND state='unknown'", conversationId));
 }
 
+/** 团队内是否还有运行中的回合(workspace 切换等待旧回合结算的判定事实)。 */
+export function hasRunningTurnsForGroup(store, groupId) {
+  return Boolean(store.get("SELECT 1 FROM turns WHERE group_id=? AND state='running'", groupId));
+}
+
 /** 单条 Panel 待核实回合(用户核实入口用)。 */
 export function unknownPanelTurn(store, turnId) {
   return store.get(

@@ -144,10 +144,13 @@ export function createExternalIdentity(store, {
   command = null,
   session = null,
   declared,
+  surface = 'cli',
+  appId = null,
 } = {}) {
   if (typeof principalName !== 'string' || !principalName.trim()) throw new Error('principalName 无效');
   if (typeof bindingName !== 'string' || !bindingName.trim()) throw new Error('bindingName 无效');
   if (typeof host !== 'string' || !host.trim()) throw new Error('host 无效');
+  if (!['cli', 'desktop'].includes(surface)) throw new Error(`未知的连接 surface: ${surface}`);
   const declaredCapabilities = assertControllerCapabilities(declared ?? {});
   const now = new Date().toISOString();
   return store.transaction(() => {
@@ -166,6 +169,8 @@ export function createExternalIdentity(store, {
         keyHash: keyHash(key),
         session: session ?? existing.session,
         declaredCapabilities,
+        appId,
+        surface,
         updated: now,
       });
     } else {
@@ -178,6 +183,8 @@ export function createExternalIdentity(store, {
         keyHash: keyHash(key),
         session,
         declaredCapabilities,
+        appId,
+        surface,
         created: now,
       });
     }
@@ -198,7 +205,7 @@ export class ControlPlane {
     this.wakeInFlight = new Set();
   }
 
-  authenticate(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false) {
+  authenticate(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
     if (typeof bindingId !== 'string' || typeof key !== 'string' || !bindingId || !key) {
       throw new Error('缺少外部主控连接凭据');
     }
@@ -242,8 +249,18 @@ export class ControlPlane {
         row.id,
       );
       row.session = clearHostSession ? null : String(hostSession).trim();
-      for (const team of externalAgg.controlledTeams(this.bus.store, row.principal_id)) {
+      for (const team of externalAgg.activeTeamsForBinding(this.bus.store, row.id)) {
         this.scheduleWake(row.principal_id, team.id);
+      }
+    }
+    // 主控会话工作目录(ADR 0012):桌面会话的目录变化就是 Controller workspace
+    // 变化,跟随到其席位团队;CLI binding 只记录事实,不自动移动团队目录。
+    if (hostCwd && externalAgg.setBindingControllerCwd(this.bus.store, row.id, hostCwd)) {
+      row.controller_cwd = hostCwd;
+      if (row.surface === 'desktop') {
+        for (const team of externalAgg.activeTeamsForBinding(this.bus.store, row.id)) {
+          externalAgg.requestControllerWorkspace(this.bus.store, { groupId: team.id, cwd: hostCwd });
+        }
       }
     }
     return {
@@ -253,8 +270,8 @@ export class ControlPlane {
     };
   }
 
-  tools(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false) {
-    const { capabilities, protocol } = this.authenticate(bindingId, key, protocolVersion, hostSession, clearHostSession);
+  tools(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
+    const { capabilities, protocol } = this.authenticate(bindingId, key, protocolVersion, hostSession, clearHostSession, hostCwd);
     return toolsForControlCapabilities(capabilities)
       .filter(tool => protocol.compatible || READ_ONLY_CONTROL_TOOLS.has(tool.name));
   }
@@ -269,8 +286,8 @@ export class ControlPlane {
     };
   }
 
-  async tool(bindingId, key, name, args, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false) {
-    const { binding, capabilities, protocol } = this.authenticate(bindingId, key, protocolVersion, hostSession, clearHostSession);
+  async tool(bindingId, key, name, args, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
+    const { binding, capabilities, protocol } = this.authenticate(bindingId, key, protocolVersion, hostSession, clearHostSession, hostCwd);
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('工具参数必须是对象');
     if (!hasElicitation(capabilities) && ['control_decisions', 'team_decision_answer'].includes(name)) {
       throw new Error(`宿主未声明能力: ${CONTROL_CAPABILITIES.userElicitation}`);
@@ -367,17 +384,20 @@ export class ControlPlane {
         name: binding.name,
         host: binding.host,
         status: binding.status,
+        surface: binding.surface,
         pullOnlyAccepted: Boolean(binding.pull_only_accepted),
       },
       capabilities,
       delivery: externalAgg.deliveryStatus(this.bus.store, binding.principal_id),
       decisions: externalAgg.pendingDecisions(this.bus.store, binding.principal_id).length,
       protocol,
-      controlledTeams: externalAgg.controlledTeams(this.bus.store, binding.principal_id).length,
+      controlledTeams: externalAgg.teamsForBinding(this.bus.store, binding.id).length,
       wake: wakeStatus(binding),
     };
+    // 列表按「与当前主控会话建立过关系的团队」收口:独立主控会话互相看不到
+    // 对方的团队;接管后的旧会话保留关系(active=false),凭精确团队 ID 仍可检视。
     if (name === 'control_teams') return {
-      teams: externalAgg.controlledTeams(this.bus.store, binding.principal_id).map(team => ({
+      teams: externalAgg.teamsForBinding(this.bus.store, binding.id).map(team => ({
         ...team,
         active: team.controller_binding_id === binding.id,
       })),
@@ -413,18 +433,44 @@ export class ControlPlane {
     }
 
     if (name === 'team_activate') {
-      if (!externalAgg.controlsTeam(this.bus.store, binding.principal_id, args.teamId)) {
-        throw new Error('外部主控无权访问该团队');
+      if (typeof args.teamId !== 'string' || !args.teamId) throw new Error('需要 teamId');
+      const group = this.bus.store.group(args.teamId);
+      const now = new Date().toISOString();
+      let assignment;
+      if (externalAgg.relationFor(this.bus.store, group.id, binding.id)) {
+        assignment = externalAgg.activateTeam(this.bus.store, {
+          groupId: group.id,
+          principalId: binding.principal_id,
+          bindingId: binding.id,
+          now,
+        });
+      } else {
+        // 同用户凭精确团队 ID 直接接管(ADR 0010):确立关系、移交席位、
+        // 留下可见事件、尽力唤醒旧主控,并把团队 workspace 跟到新会话目录。
+        const takeover = externalAgg.takeoverTeam(this.bus.store, {
+          groupId: group.id,
+          principalId: binding.principal_id,
+          bindingId: binding.id,
+          now,
+        });
+        this.bus.notify(
+          group.id,
+          'user',
+          `主控已切换到「${binding.name}」（${binding.host}）；此前的主控会话保留只读访问。`,
+        );
+        this.wakePreviousController(takeover.previousBindingId, group);
+        if (binding.surface === 'desktop' && binding.controller_cwd) {
+          externalAgg.requestControllerWorkspace(this.bus.store, {
+            groupId: group.id,
+            cwd: binding.controller_cwd,
+            now,
+          });
+        }
+        assignment = takeover.assignment;
       }
-      const assignment = externalAgg.activateTeam(this.bus.store, {
-        groupId: args.teamId,
-        principalId: binding.principal_id,
-        bindingId: binding.id,
-        now: new Date().toISOString(),
-      });
-      this.scheduleWake(binding.principal_id, args.teamId);
+      this.scheduleWake(binding.principal_id, group.id);
       return {
-        teamId: args.teamId,
+        teamId: group.id,
         activeBindingId: binding.id,
         revision: assignment.revision,
       };
@@ -637,6 +683,25 @@ export class ControlPlane {
     return true;
   }
 
+  /**
+   * 接管后尽力唤醒旧主控(ADR 0010):让它有机会得知自己已只读。
+   * 只是通知,不重试不调度;失败不打断接管本身。
+   */
+  wakePreviousController(previousBindingId, group) {
+    if (!previousBindingId) return;
+    const previous = externalAgg.binding(this.bus.store, previousBindingId);
+    if (!previous?.session) return;
+    Promise.resolve()
+      .then(() => this.wake(previous, {
+        teamName: `${group.name}（主控已移交）`,
+        count: 0,
+        workspace: group.workspace,
+      }))
+      .catch(error => {
+        if (!this.bus.closing) console.error('[control] 唤醒前任主控失败:', error.message);
+      });
+  }
+
   scheduleWake(principalId, groupId) {
     const key = principalId;
     let state = this.wakeSchedules.get(key);
@@ -843,10 +908,15 @@ export class ControlPlane {
   async createTeam(binding, capabilities, args) {
     const name = typeof args.name === 'string' ? args.name.trim() : '';
     if (!name || name.length > 200) throw new Error('团队名称无效');
-    if (typeof args.workspace !== 'string' || !args.workspace) throw new Error('工作目录无效');
+    // ADR 0012:桌面主控会话不注册第二份目录,团队 workspace 就是该会话的
+    // 当前工作目录;CLI 连接沿用显式传入的 workspace。
+    const workspaceSource = binding.surface === 'desktop' ? binding.controller_cwd : args.workspace;
+    if (typeof workspaceSource !== 'string' || !workspaceSource) {
+      throw new Error(binding.surface === 'desktop' ? '主控会话尚未提供工作目录' : '工作目录无效');
+    }
     let workspace;
     try {
-      workspace = realpathSync(resolve(args.workspace));
+      workspace = realpathSync(resolve(workspaceSource));
       if (!statSync(workspace).isDirectory()) throw new Error('工作目录无效');
     } catch {
       throw new Error('工作目录无效');
@@ -911,6 +981,14 @@ export class ControlPlane {
         groupId: id,
         principalId: binding.principal_id,
         bindingId: binding.id,
+        now,
+      });
+      externalAgg.establishRelation(this.bus.store, {
+        groupId: id,
+        principalId: binding.principal_id,
+        bindingId: binding.id,
+        origin: 'creator',
+        created: now,
         now,
       });
       for (const person of people) {
@@ -1077,7 +1155,7 @@ export function toolsForControlCapabilities(capabilities) {
     ['control_inbox', '领取待投递给当前外部主控的团队消息；领取表示客户端接受输入，不表示宿主回合已经完成。', {
       limit: { type: 'integer', minimum: 1, maximum: 100 },
     }, []],
-    ['team_create', '以当前外部主控身份创建团队；工作目录必须位于绑定的 workspace roots 内。', {
+    ['team_create', '以当前外部主控身份创建团队。桌面主控会话省略 workspace，团队跟随会话当前工作目录；CLI 连接必须显式传入且位于绑定的 workspace roots 内。', {
       name: { type: 'string', minLength: 1, maxLength: 200 },
       workspace: { type: 'string', minLength: 1, maxLength: 4096 },
       members: { type: ['array', 'string'], maxLength: 16000, maxItems: 20, items: memberInput },
@@ -1085,7 +1163,7 @@ export function toolsForControlCapabilities(capabilities) {
       policy: { type: 'string', enum: ['communication', 'read-only', 'workspace-write'] },
       allowShell: { type: 'boolean' },
       operationId: { type: 'string', minLength: 1, maxLength: 128 },
-    }, ['name', 'workspace']],
+    }, ['name']],
     ['team_snapshot', '读取一个受控团队的基础快照、成员、沟通状态与任务。', { teamId }, ['teamId']],
     ['team_members', '读取受控团队成员。', { teamId }, ['teamId']],
     ['team_read', '分页读取受控团队共享消息。', {
