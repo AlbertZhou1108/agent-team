@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication } from './desktop/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -238,6 +239,15 @@ export async function handleRpc(bus, request) {
   if (request.op === 'ping') return { version };
   if (request.op === 'control_tools') return bus.controlTools(request.binding, request.key, request.protocolVersion, request.hostSession, request.clearHostSession === true, request.hostCwd ?? null);
   if (request.op === 'control_tool') return bus.controlTool(request.binding, request.key, request.name, request.args, request.protocolVersion, request.hostSession, request.clearHostSession === true, request.hostCwd ?? null);
+  if (request.op === 'desktop_status') return desktopApplicationStatus(bus.store);
+  if (request.op === 'desktop_detect') {
+    await detectDesktopApplications(bus.store);
+    return desktopApplicationStatus(bus.store);
+  }
+  if (request.op === 'desktop_verify') return verifyDesktopApplication(bus.store, request.kind, { confirmed: request.confirmed === true });
+  if (request.op === 'desktop_disable') return disableDesktopApplication(bus.store, request.kind, { reason: request.reason ?? null });
+  if (request.op === 'desktop_enable') return enableDesktopApplication(bus.store, request.kind);
+  if (request.op === 'desktop_remove') return removeDesktopApplication(bus.store, request.kind);
   if (request.op === 'bind_client_session') return bus.controlPlane.bindSession(request.binding, request.key, request.session, request.protocolVersion);
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });

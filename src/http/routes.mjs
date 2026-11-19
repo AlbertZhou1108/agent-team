@@ -5,6 +5,7 @@ import { telemetryOverview } from '../telemetry-overview.mjs';
 import { chooseDirectory } from './directory.mjs';
 import { interactionView } from '../bus.mjs';
 import { attachmentError, ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication } from '../desktop/index.mjs';
 // Each declaration owns matching, allowed methods, archived access and dispatch.
 
 // 消息列表统一带上产出它的回合:一个回合可以产出多条消息,前端据此让行内
@@ -125,6 +126,37 @@ export function apiRoutes(context) {
                 try { return { name, ...await (host.probeConnection?.() ?? Promise.resolve({ status: 'error', reason: '该适配器不支持通信检测' })) }; }
                 catch (error) { return { name, status: 'error', reason: error.message }; }
             }));
+        } },
+        // 桌面应用集成(计划 §3):一行一个应用的用户可见结论,诊断按检查项展开。
+        { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/desktop/applications', handle: async () =>
+            desktopApplicationStatus(bus.store) },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/detect', handle: async () => {
+            await detectDesktopApplications(bus.store);
+            return desktopApplicationStatus(bus.store);
+        } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/verify', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body.kind !== 'string') return fail(400, '需要应用类型');
+            return verifyDesktopApplication(bus.store, body.kind, { confirmed: body.confirmed === true });
+        } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/disable', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body.kind !== 'string') return fail(400, '需要应用类型');
+            return disableDesktopApplication(bus.store, body.kind, { reason: typeof body.reason === 'string' ? body.reason : null });
+        } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/enable', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body.kind !== 'string') return fail(400, '需要应用类型');
+            return enableDesktopApplication(bus.store, body.kind);
+        } },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/remove', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body.kind !== 'string') return fail(400, '需要应用类型');
+            return removeDesktopApplication(bus.store, body.kind);
         } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/search', handle: async () => searchWorkspace(bus, url.searchParams) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/workbench', handle: async () => homeWorkbench(bus) },

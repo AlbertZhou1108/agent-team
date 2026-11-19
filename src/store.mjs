@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -225,6 +225,7 @@ export class Store {
     if (fromVersion < 18) this.migrateV18();
     if (fromVersion < 19) this.migrateV19();
     if (fromVersion < 20) this.migrateV20();
+    if (fromVersion < 21) this.migrateV21();
   }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -306,6 +307,24 @@ export class Store {
           SELECT group_id,controller_binding_id,controller_id,'creator',revision,updated,updated
           FROM team_lead_controllers
           WHERE controller_kind='external_agent' AND state='active' AND controller_binding_id IS NOT NULL`);
+    });
+  }
+
+  // v21:桌面应用的「用户停用」与 bundle 版本。readiness 表达系统能力结论,用户
+  // 主动关掉一个可用应用是另一种事实——检测与验证都不应把它翻回来,所以单独成列;
+  // bundle_version 是安装指纹的可见来源(重验证提示要能说出哪个版本变了)。
+  migrateV21() {
+    const ensureColumn = (table, name, definition) => {
+      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+        return true;
+      }
+      return false;
+    };
+    this.transaction(() => {
+      ensureColumn('desktop_applications', 'user_disabled', 'INTEGER NOT NULL DEFAULT 0');
+      ensureColumn('desktop_applications', 'disabled_reason', 'TEXT');
+      ensureColumn('desktop_applications', 'bundle_version', 'TEXT');
     });
   }
 

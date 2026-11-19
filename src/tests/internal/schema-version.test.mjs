@@ -199,6 +199,35 @@ test('a v17 database gains read watermarks and treats existing history as read',
   store.close();
 });
 
+test('a v20 database gains desktop disable controls and bundle version', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run(
+    `INSERT INTO desktop_applications(id,kind,surface,install_path,engine_path,readiness,created,updated)
+     VALUES('app1','codex','desktop','/Applications/ChatGPT.app','/engine','available',?,?)`,
+    NOW, NOW,
+  );
+  store.run('ALTER TABLE desktop_applications DROP COLUMN user_disabled');
+  store.run('ALTER TABLE desktop_applications DROP COLUMN disabled_reason');
+  store.run('ALTER TABLE desktop_applications DROP COLUMN bundle_version');
+  store.setSchemaVersion(20);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const columns = store.all('PRAGMA table_info(desktop_applications)').map(column => column.name);
+  for (const column of ['user_disabled', 'disabled_reason', 'bundle_version']) {
+    assert.ok(columns.includes(column), `desktop_applications 缺少 ${column}`);
+  }
+  // 存量行保留;停用/版本列按默认值补齐。
+  const row = store.get('SELECT * FROM desktop_applications WHERE id=?', 'app1');
+  assert.equal(row.user_disabled, 0);
+  assert.equal(row.bundle_version, null);
+  store.run('UPDATE desktop_applications SET user_disabled=1,bundle_version=? WHERE id=?', '26.1111.71704', 'app1');
+  assert.equal(store.get('SELECT user_disabled FROM desktop_applications WHERE id=?', 'app1').user_disabled, 1);
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

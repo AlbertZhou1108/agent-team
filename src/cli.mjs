@@ -26,6 +26,7 @@ const options = {
   client: { type: 'string' }, principal: { type: 'string' }, session: { type: 'string' },
   capabilities: { type: 'string' }, command: { type: 'string' },
   'skill-root': { type: 'string' }, 'no-install-skill': { type: 'boolean' },
+  verify: { type: 'string' }, confirm: { type: 'boolean' },
 };
 export function parseMembers(text = '') {
   return text ? text.split(',').filter(Boolean).map(item => {
@@ -51,7 +52,8 @@ async function main() {
 继续已有群：
   npm start -- --group 群编号
 
-命令：start / serve / connect / bind-session / mcp / models / new / chat / groups / members / state / direct / archive / restore / resolve-runtime / add / remove / delete / retry / stop
+命令：start / serve / connect / bind-session / mcp / models / new / chat / groups / members / state / direct / archive / restore / resolve-runtime / add / remove / delete / retry / stop / desktop
+  desktop           刷新桌面应用检测并输出各应用状态；--verify kind 做真实验证（需 --confirm，会消耗少量模型额度）
   connect           登记外部主控 client binding，并输出 stdio MCP 配置
   bind-session      用 AGENT_TEAM_CLIENT_KEY 把宿主 thread/session 绑定到 client
   new               在已有总线上创建新群（--charter 可选团队说明文件）
@@ -205,6 +207,12 @@ async function main() {
     else if (command === 'add') request = { op: 'add', group: values.group, args: { name: values.member, host: values.host } };
     else if (['remove', 'stop'].includes(command)) request = { op: command, group: values.group, member: values.member };
     else if (['retry', 'delete'].includes(command)) request = { op: command, group: values.group };
+    else if (command === 'desktop') {
+      // 桌面应用集成:不带 --verify 时刷新检测并输出状态;--verify kind 需 --confirm 才执行真实验证。
+      request = values.verify
+        ? { op: 'desktop_verify', kind: values.verify, confirmed: values.confirm === true }
+        : { op: 'desktop_detect' };
+    }
     else throw new Error('未知命令，使用 --help 查看');
     console.log(JSON.stringify(await rpc(socketPath, request), null, 2));
     return;

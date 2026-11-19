@@ -158,24 +158,34 @@ export function applicationForInstance(store, { kind, surface = 'desktop', insta
   ) ?? null;
 }
 
+/** 该 kind 最新的桌面安装行(检测/验证/状态投影的默认目标)。 */
+export function applicationForKind(store, kind) {
+  return store.get(
+    "SELECT * FROM desktop_applications WHERE kind=? AND surface='desktop' ORDER BY created DESC LIMIT 1",
+    kind,
+  ) ?? null;
+}
+
 export function upsertApplication(store, {
-  id, kind, surface = 'desktop', installPath = null, enginePath = null, engineVersion = null, created,
+  id, kind, surface = 'desktop', installPath = null, bundleVersion = null,
+  enginePath = null, engineVersion = null, fingerprint = null, created,
 }) {
   const existing = applicationForInstance(store, { kind, surface, installPath });
   if (existing) {
     store.run(
       `UPDATE desktop_applications
-       SET engine_path=COALESCE(?,engine_path),engine_version=COALESCE(?,engine_version),updated=?
+       SET bundle_version=COALESCE(?,bundle_version),engine_path=COALESCE(?,engine_path),
+           engine_version=COALESCE(?,engine_version),fingerprint=COALESCE(?,fingerprint),updated=?
        WHERE id=?`,
-      enginePath, engineVersion, created, existing.id,
+      bundleVersion, enginePath, engineVersion, fingerprint, created, existing.id,
     );
     return { ...application(store, existing.id), created: false };
   }
   store.run(
     `INSERT INTO desktop_applications(
-       id,kind,surface,install_path,engine_path,engine_version,readiness,created,updated
-     ) VALUES(?,?,?,?,?,?, 'unavailable',?,?)`,
-    id, kind, surface, installPath, enginePath, engineVersion, created, created,
+       id,kind,surface,install_path,bundle_version,engine_path,engine_version,fingerprint,readiness,created,updated
+     ) VALUES(?,?,?,?,?,?,?,?, 'unavailable',?,?)`,
+    id, kind, surface, installPath, bundleVersion, enginePath, engineVersion, fingerprint, created, created,
   );
   return { ...application(store, id), created: true };
 }
@@ -207,6 +217,26 @@ export function setApplicationVerification(store, id, {
     fingerprint, verifiedAt, lifecycleNote, now, id,
   );
   return application(store, id);
+}
+
+/** 用户停用:系统能力结论保持原样,只叠加用户意图;重新启用需再走完整验证。 */
+export function setApplicationDisabled(store, id, { reason, now = new Date().toISOString() }) {
+  return store.run(
+    'UPDATE desktop_applications SET user_disabled=1,disabled_reason=?,updated=? WHERE id=?',
+    reason ?? '用户停用', now, id,
+  ).changes > 0;
+}
+
+export function clearApplicationDisabled(store, id, now = new Date().toISOString()) {
+  return store.run(
+    "UPDATE desktop_applications SET user_disabled=0,disabled_reason=NULL,readiness='unavailable',diagnostics=NULL,verified_at=NULL,updated=? WHERE id=?",
+    now, id,
+  ).changes > 0;
+}
+
+/** 移除集成登记:团队/消息/成员不受影响(外键只从应用表出发,没有反向引用)。 */
+export function removeApplication(store, id) {
+  return store.run('DELETE FROM desktop_applications WHERE id=?', id).changes > 0;
 }
 
 /** 主控会话当前工作目录:只在变化时写入,返回是否变化(跟随流程的触发信号)。 */
