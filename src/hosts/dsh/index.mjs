@@ -1,14 +1,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCliLifecycle } from './lifecycle.mjs';
-import { connectionProbe, exchange } from './probe.mjs';
-import { writeMcpFiles, runJsonProcess } from './process.mjs';
-import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
-import { modelCatalog } from './catalog.mjs';
-import { dshProcessEnv } from './dsh-credentials.mjs';
-import { telemetryObservation } from '../observation.mjs';
-import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
+import { createCliLifecycle } from '../lifecycle.mjs';
+import { connectionProbe, exchange } from '../probe.mjs';
+import { writeMcpFiles, runJsonProcess } from '../process.mjs';
+import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
+import { modelCatalog } from '../catalog.mjs';
+import { dshProcessEnv } from './credentials.mjs';
+import { telemetryObservation } from '../../observation.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
+import { memberExecutionCapabilities } from '../execution.mjs';
+
+export const DSH_TRAITS = Object.freeze({});
 
 export async function runDshCatalogProbe(command, directory, { signal, env } = {}) {
   const { mkdtempSync, rmSync } = await import('node:fs');
@@ -73,17 +76,7 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
     },
     telemetryCapabilities: dshCapabilities(),
     executionCapabilities({ mode, allowShell }) {
-      if (mode === 'communication') {
-        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
-      }
-      if (mode === 'read-only') {
-        return { effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取' };
-      }
-      return {
-        effectivePolicy: 'workspace-write',
-        capabilities: ['file.read', 'file.write', 'filesystem.boundary', ...(allowShell ? ['shell.exec'] : [])],
-        reason: allowShell ? null : '未启用 shell；仍允许受限文件编辑',
-      };
+      return memberExecutionCapabilities(DSH_TRAITS, { mode, allowShell });
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)

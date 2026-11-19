@@ -7,7 +7,7 @@ test('DSH catalog waits for stdout completion and defers exit outside the write 
   const timers = [];
   const writes = [];
   const exits = [];
-  const source = readFileSync(new URL('../../hosts/dsh-model-catalog.mjs', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../../hosts/dsh/model-catalog.mjs', import.meta.url), 'utf8');
   const apply = runInNewContext(source.replace('export const inject', 'const inject').replace('export function apply', 'function apply') + '; apply;', {
     process: { stdout: { write: (text, callback) => writes.push({ text, callback }) }, exit: code => exits.push(code) },
     setTimeout: (callback, delay) => { const timer = { callback, delay }; timers.push(timer); return timer; },

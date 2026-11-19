@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
-import { createCodexHost } from '../../hosts/codex.mjs';
+import { createCodexHost } from '../../hosts/codex/index.mjs';
 import { toolsFor } from '../../tools/registry.mjs';
 import { panelToolsFor } from '../../tools/panel.mjs';
 import {

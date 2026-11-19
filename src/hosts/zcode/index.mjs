@@ -1,15 +1,21 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { connectionProbe, exchange } from './probe.mjs';
-import { mcpConfig } from './process.mjs';
-import { executionPolicy, policyObservation } from './policies.mjs';
-import { modelCatalog } from './catalog.mjs';
-import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
-import { telemetryObservation } from '../observation.mjs';
-import { createZcodeProtocol, headlessInteractionReply } from './zcode-protocol.mjs';
-import { resolveZcodeLaunch } from './zcode-wake.mjs';
+import { connectionProbe, exchange } from '../probe.mjs';
+import { mcpConfig } from '../process.mjs';
+import { executionPolicy, policyObservation } from '../policies.mjs';
+import { modelCatalog } from '../catalog.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
+import { telemetryObservation } from '../../observation.mjs';
+import { createZcodeProtocol, headlessInteractionReply } from './protocol.mjs';
+import { resolveZcodeLaunch } from './wake.mjs';
+import { memberExecutionCapabilities } from '../execution.mjs';
 
 const ZCODE_EFFORTS = new Set(['disabled', 'low', 'high', 'max']);
+
+/** 未启用 shell 时，执行边界按 ZCode 会话权限模式解释。 */
+export const ZCODE_TRAITS = Object.freeze({
+  noShellReason: '未启用 shell；执行边界依赖 ZCode 会话权限模式',
+});
 
 /** zcode 的遥测能力声明：桶来自 turn/model_request 完成事件的宿主用量。 */
 export function zcodeCapabilities() {
@@ -90,7 +96,9 @@ async function zcodeModelCatalog(launch, home, options = {}) {
     command: launch.command,
     args: launch.args,
     env: { ...launch.env, HOME: home },
-    onRequest: () => ({}),
+    // 启动期反向请求也要按无头默认应答：新版 app-server 校验
+    // nativeSearchEnhancementsEnabled 必须是布尔值，回 {} 会让目录探测失败。
+    onRequest: headlessInteractionReply,
     onNotification(row) {
       if (row.method !== 'state.updated') return;
       const model = row.params?.patch?.model;
@@ -106,6 +114,13 @@ async function zcodeModelCatalog(launch, home, options = {}) {
       workspace: { workspacePath: home, workspaceKey: home },
       persistence: 'immediate',
     }, { timeout: 30000 });
+    // 新版 app 不再推送 state.updated，模型目录随 session/create 返回在
+    // settings.model 里（结构与旧版 patch.model 一致）；state.updated 兜底旧版。
+    const settingsModel = created?.settings?.model;
+    if (!available && Array.isArray(settingsModel?.available) && settingsModel.available.length) {
+      available = settingsModel.available;
+      lastUsed = settingsModel.lastUsed ?? settingsModel.current?.ref ?? settingsModel.current ?? null;
+    }
     const deadline = Date.now() + 15000;
     while (!available) {
       options.signal?.throwIfAborted();
@@ -178,17 +193,7 @@ export function createZcodeHost({
     install: lifecycle.install,
     telemetryCapabilities: zcodeCapabilities(),
     executionCapabilities({ mode, allowShell }) {
-      if (mode === 'communication') {
-        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
-      }
-      if (mode === 'read-only') {
-        return { effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取' };
-      }
-      return {
-        effectivePolicy: 'workspace-write',
-        capabilities: ['file.read', 'file.write', 'filesystem.boundary', ...(allowShell ? ['shell.exec'] : [])],
-        reason: allowShell ? null : '未启用 shell；执行边界依赖 ZCode 会话权限模式',
-      };
+      return memberExecutionCapabilities(ZCODE_TRAITS, { mode, allowShell });
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)

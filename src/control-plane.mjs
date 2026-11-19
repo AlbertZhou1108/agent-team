@@ -8,7 +8,6 @@ import {
   assertControlPolicy,
   assertControlWorkspace,
   assertControllerCapabilities,
-  effectiveControlCapabilities,
   normalizeControlCapabilities,
   supportsControlCapability,
 } from './control-capabilities.mjs';
@@ -22,6 +21,7 @@ import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
 import { wakeDriverFor } from './hosts/wake-drivers.mjs';
+import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -34,6 +34,13 @@ const CONTROL_GUIDE = [
   '需要用户决定时，向当前主控发 decision_request；由主控询问用户后通过 decision_answer 回复。',
   '同步工具失败以 isError 返回；不应伪造用户确认、送达或工作完成。',
 ].join('\n');
+
+const WAKE_BACKOFF_MS = Object.freeze([60_000, 5 * 60_000, 15 * 60_000]);
+
+/** 主动唤醒失败后的退避间隔；超过三次返回 null（由 attempts 阈值转永久降级）。 */
+export function wakeBackoffMs(attempts) {
+  return WAKE_BACKOFF_MS[attempts - 1] ?? null;
+}
 
 function wakeStatus(binding) {
   if (!binding.session) {
@@ -122,10 +129,8 @@ function normalizedMembers(value) {
 }
 
 function bindingCapabilities(row) {
-  return effectiveControlCapabilities(
-    JSON.parse(row.declared_capabilities),
-    JSON.parse(row.probed_capabilities),
-  );
+  // 声明即有效：不再与探测结果取交集（v19 起移除 probed_capabilities）。
+  return normalizeControlCapabilities(JSON.parse(row.declared_capabilities));
 }
 
 function hasElicitation(capabilities) {
@@ -139,15 +144,11 @@ export function createExternalIdentity(store, {
   command = null,
   session = null,
   declared,
-  probed,
 } = {}) {
   if (typeof principalName !== 'string' || !principalName.trim()) throw new Error('principalName 无效');
   if (typeof bindingName !== 'string' || !bindingName.trim()) throw new Error('bindingName 无效');
   if (typeof host !== 'string' || !host.trim()) throw new Error('host 无效');
   const declaredCapabilities = assertControllerCapabilities(declared ?? {});
-  const probedCapabilities = normalizeControlCapabilities(probed ?? declaredCapabilities);
-  const effective = effectiveControlCapabilities(declaredCapabilities, probedCapabilities);
-  assertControllerCapabilities(effective);
   const now = new Date().toISOString();
   return store.transaction(() => {
     let owner = externalAgg.principalByName(store, principalName.trim());
@@ -165,7 +166,6 @@ export function createExternalIdentity(store, {
         keyHash: keyHash(key),
         session: session ?? existing.session,
         declaredCapabilities,
-        probedCapabilities: effective,
         updated: now,
       });
     } else {
@@ -178,7 +178,6 @@ export function createExternalIdentity(store, {
         keyHash: keyHash(key),
         session,
         declaredCapabilities,
-        probedCapabilities: effective,
         created: now,
       });
     }
@@ -186,7 +185,7 @@ export function createExternalIdentity(store, {
       principal: owner,
       binding: externalAgg.binding(store, id),
       key,
-      capabilities: effective,
+      capabilities: declaredCapabilities,
     };
   });
 }
@@ -492,7 +491,9 @@ export class ControlPlane {
       if (name === 'team_send' && Array.isArray(args.requiredCapabilities) && args.requiredCapabilities.length) {
         const member = this.bus.resolveMember(group.id, target.id);
         const policy = await this.executionPolicyFor(group, member);
-        const missing = args.requiredCapabilities.filter(capability => !policy.capabilities.includes(capability));
+        // 派单要求归一化到统一词汇；旧词（file.read 等）在此转换，避免调用方被迫改。
+        const required = canonicalMemberCapabilityIds(args.requiredCapabilities);
+        const missing = required.filter(capability => !policy.capabilities.includes(capability));
         if (missing.length) {
           const error = new Error(`capability_required: 成员 ${member.name} 缺少 ${missing.join(', ')}`);
           error.code = 'capability_required';
@@ -715,17 +716,14 @@ export class ControlPlane {
         return { state: 'unsupported', count: rows.length, reason: result.reason };
       }
       if (result.state === 'failed') {
-        externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-          bindingId: binding.id,
-          state: 'error',
-          error: result.reason ?? '主动唤醒失败',
-        });
-        externalAgg.setBindingWakeState(this.bus.store, binding.id, {
-          state: 'degraded',
-          mode: result.mode ?? binding.host,
+        this.recordWakeFailure({
+          binding,
+          principalId,
+          groupId,
+          messageIds: rows.map(row => row.id),
           reason: result.reason ?? '主动唤醒失败',
+          mode: result.mode ?? binding.host,
           fingerprint: result.fingerprint ?? null,
-          attempts: Number(binding.wake_attempts ?? 0) + 1,
         });
         return { state: 'error', count: rows.length, reason: result.reason };
       }
@@ -746,31 +744,48 @@ export class ControlPlane {
       });
       return { state: 'sent', count: rows.length };
     } catch (error) {
-      const attempts = Number(binding.wake_attempts ?? 0) + 1;
-      const backoff = [60_000, 5 * 60_000, 15 * 60_000][attempts - 1] ?? null;
-      const nextAttempt = backoff == null
-        ? null
-        : new Date(Date.now() + backoff).toISOString();
-      externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-        bindingId: binding.id,
-        state: 'error',
-        error: error.message,
+      this.recordWakeFailure({
+        binding,
+        principalId,
+        groupId,
+        messageIds: rows.map(row => row.id),
+        reason: error.message,
       });
-      externalAgg.setBindingWakeState(this.bus.store, binding.id, {
-        state: 'degraded',
-        mode: binding.host,
-        reason: attempts >= 3 ? `主动唤醒连续失败：${error.message}` : error.message,
-        attempts,
-        nextAttempt,
-      });
-      if (backoff != null) {
-        const timer = setTimeout(() => {
-          this.scheduleWake(principalId, groupId);
-        }, backoff);
-        timer.unref?.();
-      }
       return { state: 'error', count: rows.length, reason: error.message };
     }
+  }
+
+  /**
+   * 主动唤醒失败的统一收尾：标记消息、降级 binding、按次数安排有界退避。
+   *
+   * 适配器"返回失败"（例如会话写锁被占用）与"抛异常"走同一条路径——
+   * 两者都是暂时性失败，都应退避后重试，而不是只有异常才重试。
+   * 第三次失败后由 wakePending 的 attempts 阈值转永久降级。
+   */
+  recordWakeFailure({ binding, principalId, groupId, messageIds, reason, mode = binding.host, fingerprint = null }) {
+    const attempts = Number(binding.wake_attempts ?? 0) + 1;
+    const backoff = wakeBackoffMs(attempts);
+    const nextAttempt = backoff == null ? null : new Date(Date.now() + backoff).toISOString();
+    externalAgg.markWake(this.bus.store, messageIds, {
+      bindingId: binding.id,
+      state: 'error',
+      error: reason,
+    });
+    externalAgg.setBindingWakeState(this.bus.store, binding.id, {
+      state: 'degraded',
+      mode,
+      reason: attempts >= 3 ? `主动唤醒连续失败：${reason}` : reason,
+      fingerprint,
+      attempts,
+      nextAttempt,
+    });
+    if (backoff != null) {
+      const timer = setTimeout(() => {
+        this.scheduleWake(principalId, groupId);
+      }, backoff);
+      timer.unref?.();
+    }
+    return { attempts, backoff, nextAttempt };
   }
 
   requestDecision({ groupId, memberId, payload }) {
@@ -969,7 +984,7 @@ export class ControlPlane {
     } else {
       report = {
         effectivePolicy: group.policy === 'workspace-write' ? 'read-only' : group.policy,
-        capabilities: group.policy === 'communication' ? [] : ['file.read'],
+        capabilities: group.policy === 'communication' ? [] : ['exec.read'],
         reason: group.policy === 'workspace-write' ? '宿主未声明工作区写边界保证' : null,
       };
     }
@@ -982,11 +997,11 @@ export class ControlPlane {
       reason = '群策略仅允许通信';
     } else if (group.policy === 'read-only' && effective === 'workspace-write') {
       effective = 'read-only';
-      capabilities = capabilities.filter(capability => capability === 'file.read');
+      capabilities = capabilities.filter(capability => capability === 'exec.read');
       reason = '群策略仅允许读取';
     }
     if (effective !== 'workspace-write') {
-      capabilities = capabilities.filter(capability => capability === 'file.read');
+      capabilities = capabilities.filter(capability => capability === 'exec.read');
     }
     const policy = {
       requested: group.policy,

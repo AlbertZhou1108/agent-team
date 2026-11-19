@@ -105,8 +105,8 @@ test('retention keeps pending external deliveries and decision requests', t => {
   );
   store.run(
     `INSERT INTO external_client_bindings(
-       id,principal_id,name,host,key_hash,session,declared_capabilities,probed_capabilities,status,created,updated
-     ) VALUES('b','p','main','fake','hash',NULL,'{}','{}','active',?,?)`,
+       id,principal_id,name,host,key_hash,session,declared_capabilities,status,created,updated
+     ) VALUES('b','p','main','fake','hash',NULL,'{}','active',?,?)`,
     old, old,
   );
   store.run(

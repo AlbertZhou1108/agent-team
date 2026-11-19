@@ -31,6 +31,28 @@ test('a fresh database is stamped with the current schema version and keeps it a
   store.close();
 });
 
+test('v19 drops the unused probe column without losing declared capabilities', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO external_principals(id,name,created,updated) VALUES('p1','u',?,?)", NOW, NOW);
+  // 当前 schema 已无 probed 列；手工加回，模拟 v18 库。
+  store.db.exec("ALTER TABLE external_client_bindings ADD COLUMN probed_capabilities TEXT NOT NULL DEFAULT '[]'");
+  store.run(
+    `INSERT INTO external_client_bindings(id,principal_id,name,host,key_hash,session,declared_capabilities,probed_capabilities,status,created,updated)
+     VALUES('b1','p1','main','codex','h',NULL,'["session.deliver"]','["session.deliver"]','active',?,?)`,
+    NOW, NOW,
+  );
+  store.db.exec('PRAGMA user_version=18');
+  store.close();
+
+  store = new Store(directory);
+  const columns = store.all('PRAGMA table_info(external_client_bindings)').map(column => column.name);
+  assert.equal(columns.includes('probed_capabilities'), false);
+  const row = store.get('SELECT declared_capabilities FROM external_client_bindings WHERE id=?', 'b1');
+  assert.deepEqual(JSON.parse(row.declared_capabilities), ['session.deliver']);
+  store.close();
+});
+
 test('a v1 database (user_version=0) is stamped without losing rows', t => {
   const directory = tempDir(t);
   const legacy = createLegacyV1(directory);

@@ -63,10 +63,16 @@ test('an external host module is loaded through config and validated by the cont
 });
 
 test('host definitions stay in sync with every derived registry', () => {
-  assert.deepEqual([...HOST_DEFINITIONS.keys()].sort(), [...HOST_FACTORIES.keys()].sort());
+  // 有工厂的才能当成员；没有工厂的（桌面应用类主控）只出现在定义表里。
+  const memberHosts = [...HOST_DEFINITIONS]
+    .filter(([, definition]) => typeof definition.factory === 'function')
+    .map(([name]) => name)
+    .sort();
+  assert.deepEqual([...HOST_FACTORIES.keys()].sort(), memberHosts);
+  assert.deepEqual(Object.keys(DEFAULT_HOST_SPECS).sort(), [...HOST_FACTORIES.keys()].sort());
   for (const [name, definition] of HOST_DEFINITIONS) {
-    assert.equal(typeof definition.factory, 'function', `${name} factory`);
-    assert.equal(typeof definition.telemetryCapabilities, 'function', `${name} telemetry builder`);
+    if (definition.factory !== undefined) assert.equal(typeof definition.factory, 'function', `${name} factory`);
+    if (definition.telemetryCapabilities !== undefined) assert.equal(typeof definition.telemetryCapabilities, 'function', `${name} telemetry builder`);
     if (definition.wake) {
       assert.equal(typeof definition.wake.id, 'string', `${name} wake id`);
       assert.equal(typeof definition.wake.fingerprint, 'function', `${name} wake fingerprint`);
@@ -84,4 +90,7 @@ test('host definitions stay in sync with every derived registry', () => {
     assert.ok(wakeDriverFor(name), `${name} must expose an active wake driver`);
   }
   assert.equal(wakeDriverFor('claude'), null, 'claude stays pull-only until a wake driver lands');
+  // 桌面应用类主控：没有工厂、没有唤醒驱动，只作为外部主控接入。
+  assert.equal(HOST_FACTORIES.has('workbuddy'), false, 'workbuddy is not a launchable member');
+  assert.equal(wakeDriverFor('workbuddy'), null, 'workbuddy has no injection channel');
 });

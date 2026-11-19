@@ -8,7 +8,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { startServer } from '../../src/server.mjs';
-import { createCodexHost } from '../../src/hosts/codex.mjs';
+import { createCodexHost } from '../../src/hosts/codex/index.mjs';
 const root = process.env.ATTACHMENT_PROBE_ROOT ?? mkdtempSync(join(tmpdir(), 'attachment-codex-vertical-'));
 const data=join(root,'data'), workspace=join(root,'workspace'), files=join(workspace,'attachments');
 mkdirSync(files,{recursive:true});mkdirSync(data,{recursive:true});
@@ -36,7 +36,7 @@ async function boot(native=false){
  let factory=createCodexHost;
  if(native){
   // Execute the real adapter with exactly one input mapping replaced, in a scratch copy.
-  const original=new URL('../../src/hosts/codex.mjs',import.meta.url);
+  const original=new URL('../../src/hosts/codex/index.mjs',import.meta.url);
   let source=readFileSync(original,'utf8');
   const needle="input: [{ type: 'text', text: prompt }]";
   if(!source.includes(needle))throw Error('Adapter seam changed; inspect before rerunning');

@@ -1,12 +1,50 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createCodexHost, codexCapabilities } from './codex.mjs';
-import { codexWakeFingerprint, wakeCodexAppServer } from './codex-wake.mjs';
-import { createClaudeHost, claudeCapabilities } from './claude.mjs';
-import { createDshHost, dshCapabilities } from './dsh.mjs';
-import { dshWakeFingerprint, wakeDshSession } from './dsh-wake.mjs';
-import { createZcodeHost, zcodeCapabilities } from './zcode.mjs';
-import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode-wake.mjs';
+import { createCodexHost, codexCapabilities, CODEX_TRAITS } from './codex/index.mjs';
+import { codexWakeFingerprint, wakeCodexAppServer } from './codex/wake.mjs';
+import { createClaudeHost, claudeCapabilities, CLAUDE_TRAITS } from './claude/index.mjs';
+import { createDshHost, dshCapabilities, DSH_TRAITS } from './dsh/index.mjs';
+import { dshWakeFingerprint, wakeDshSession } from './dsh/wake.mjs';
+import { createZcodeHost, zcodeCapabilities, ZCODE_TRAITS } from './zcode/index.mjs';
+import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode/wake.mjs';
+import { resolveCapabilities } from './capabilities.mjs';
+
+/**
+ * 四个内置宿主共同的手写能力。`session.spawn` 与 `session.wake` 不在这里：
+ * 前者由"有没有成员工厂"推导，后者由"有没有注册唤醒驱动"推导（见文件末尾）。
+ * 这里只写宿主自身的本事。
+ */
+const COMMON_CAPABILITIES = Object.freeze({
+  'session.deliver': true,
+  'turn.observe': true,
+  'exec.read': true,
+  'exec.write': true,
+  'exec.shell': true,
+  'user.elicit': false,
+  'user.notify': false,
+  'telemetry.tokens.direct': true,
+  'telemetry.tokens.derived': true,
+  'telemetry.turn_time': true,
+  'telemetry.context_window': true,
+});
+
+/**
+ * 桌面应用类主控（WorkBuddy）：框架不启动它，也没有注入接口，所以只声明
+ * "能收发、能观察"。执行能力全为 false——它不接派单，也不产出遥测。
+ */
+const WORKBUDDY_CAPABILITIES = Object.freeze({
+  'session.deliver': true,
+  'turn.observe': true,
+  'exec.read': false,
+  'exec.write': false,
+  'exec.shell': false,
+  'user.elicit': false,
+  'user.notify': false,
+  'telemetry.tokens.direct': false,
+  'telemetry.tokens.derived': false,
+  'telemetry.turn_time': false,
+  'telemetry.context_window': false,
+});
 
 /**
  * 按宿主收敛的适配定义：一个宿主要接入框架的全部事实都在这里声明——
@@ -20,9 +58,11 @@ import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppS
  * 新增宿主只改本文件；注册顺序即会话发现优先级（Codex 最先，保留其
  * multi-agent 子会话降级语义）。
  */
-export const HOST_DEFINITIONS = new Map([
+const RAW_DEFINITIONS = new Map([
   ['codex', {
     factory: createCodexHost,
+    capabilities: COMMON_CAPABILITIES,
+    traits: CODEX_TRAITS,
     telemetryCapabilities: codexCapabilities,
     wake: {
       id: 'codex-app-server',
@@ -46,6 +86,8 @@ export const HOST_DEFINITIONS = new Map([
   }],
   ['zcode', {
     factory: createZcodeHost,
+    capabilities: COMMON_CAPABILITIES,
+    traits: ZCODE_TRAITS,
     telemetryCapabilities: zcodeCapabilities,
     wake: {
       id: 'zcode-app-server',
@@ -75,6 +117,8 @@ export const HOST_DEFINITIONS = new Map([
   }],
   ['dsh', {
     factory: createDshHost,
+    capabilities: COMMON_CAPABILITIES,
+    traits: DSH_TRAITS,
     telemetryCapabilities: dshCapabilities,
     wake: {
       id: 'dsh-headless-resume',
@@ -95,6 +139,8 @@ export const HOST_DEFINITIONS = new Map([
   }],
   ['claude', {
     factory: createClaudeHost,
+    capabilities: COMMON_CAPABILITIES,
+    traits: CLAUDE_TRAITS,
     telemetryCapabilities: claudeCapabilities,
     skill: { mode: 'copy', dir: home => join(home ?? homedir(), '.claude', 'skills', 'agent-team') },
     discoverControllerSession(env) {
@@ -102,4 +148,27 @@ export const HOST_DEFINITIONS = new Map([
       return session ? { session, clearExistingSession: false } : null;
     },
   }],
+  ['workbuddy', {
+    // 桌面应用，作为 MCP 客户端连到框架，以主控身份参与。
+    // 没有 factory（框架启动不了它），所以没有实现目录；`session.spawn` 由工厂推导为 false。
+    // 没有 wake（无注入接口），`session.wake` 由驱动推导为 false。
+    capabilities: WORKBUDDY_CAPABILITIES,
+    traits: Object.freeze({}),
+    skill: { mode: 'copy', dir: home => join(home ?? homedir(), '.workbuddy', 'skills', 'agent-team') },
+  }],
 ]);
+
+/**
+ * 对外导出的宿主定义：手写声明 + 由工厂/驱动推导出的 spawn/wake。
+ * 推导集中在这里，保证"一个宿主的能力"只有一种来源。
+ */
+export const HOST_DEFINITIONS = new Map(
+  [...RAW_DEFINITIONS].map(([name, definition]) => [name, Object.freeze({
+    ...definition,
+    capabilities: resolveCapabilities({
+      declaration: definition.capabilities,
+      hasFactory: typeof definition.factory === 'function',
+      hasWake: Boolean(definition.wake),
+    }),
+  })]),
+);

@@ -6,12 +6,23 @@
 // 调用方(server.mjs)只依赖这里的注册表,不再各自维护工厂 Map。
 import { HOST_DEFINITIONS } from './definitions.mjs';
 
-/** 内置宿主:friendly name -> 工厂。 */
-export const HOST_FACTORIES = new Map([...HOST_DEFINITIONS].map(([name, definition]) => [name, definition.factory]));
+/**
+ * 内置宿主:friendly name -> 工厂。没有工厂的宿主（例如桌面应用类主控）不参与成员注册，
+ * 它们只能作为外部主控接入——这正是 `session.spawn = false` 的含义。
+ */
+export const HOST_FACTORIES = new Map(
+  [...HOST_DEFINITIONS]
+    .filter(([, definition]) => typeof definition.factory === 'function')
+    .map(([name, definition]) => [name, definition.factory]),
+);
 
-/** 未显式提供 hosts 配置时的默认注册。 */
+/** 未显式提供 hosts 配置时的默认注册；同样只包含可被启动的成员宿主。 */
 export const DEFAULT_HOST_SPECS = Object.freeze(
-  Object.fromEntries([...HOST_DEFINITIONS].map(([name]) => [name, Object.freeze({ adapter: name })])),
+  Object.fromEntries(
+    [...HOST_DEFINITIONS]
+      .filter(([, definition]) => typeof definition.factory === 'function')
+      .map(([name]) => [name, Object.freeze({ adapter: name })]),
+  ),
 );
 
 /**

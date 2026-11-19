@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { spawnHost, stopHost } from './subprocess.mjs';
+import { spawnHost, stopHost } from '../subprocess.mjs';
 
 /**
  * DSH 主动唤醒驱动：DSH 没有常驻服务也能唤醒——headless profile 的

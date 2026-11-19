@@ -209,11 +209,17 @@ export class MessageDispatch {
     const effectiveMode = requestedPolicy.mode === 'communication'
       ? 'communication'
       : (member.effective_policy ?? requestedPolicy.mode);
+    const allowShell = effectiveMode === 'workspace-write' && requestedPolicy.allowShell === true;
+    // 执行能力随策略进入回合上下文：宿主执行、附件边界与失败归因共用同一份裁剪结果。
+    const execution = typeof host.executionCapabilities === 'function'
+      ? await host.executionCapabilities({ mode: effectiveMode, allowShell, workspace: group.workspace })
+      : null;
     const policy = {
       ...requestedPolicy,
       mode: effectiveMode,
-      allowShell: effectiveMode === 'workspace-write' && requestedPolicy.allowShell === true,
+      allowShell,
       requestedMode: requestedPolicy.mode,
+      capabilities: Array.isArray(execution?.capabilities) ? execution.capabilities : [],
     };
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';

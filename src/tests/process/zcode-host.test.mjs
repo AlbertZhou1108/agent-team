@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createZcodeHost, zcodeCapabilities, probeZcode } from '../../hosts/zcode.mjs';
+import { createZcodeHost, zcodeCapabilities, probeZcode } from '../../hosts/zcode/index.mjs';
 import { telemetryCapabilitiesFor } from '../../telemetry-capabilities.mjs';
 
 function fixture(t, source) {
@@ -183,6 +183,52 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.equal(catalog.models.filter(item => item.isDefault).length, 1);
 });
 
+test('zcode listModels reads the catalog from session/create settings and answers runtime preferences', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const command = fixture(t, `
+import { createInterface } from 'node:readline';
+import assert from 'node:assert/strict';
+console.log(JSON.stringify({ method: 'startup/storagePath', params: { path: '/tmp/stub-db.sqlite' } }));
+let acked = false;
+createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  const send = value => console.log(JSON.stringify(value));
+  if (row.method === 'startup/storagePathReady') { acked = true; send({ method: 'startup/storageState', params: { sequence: 1 } }); return; }
+  if (row.method?.startsWith('startup/')) return;
+  if (row.id && row.method === 'session/requestRuntimePreferences') {
+    // 新版 app-server 校验应答里必须有布尔 nativeSearchEnhancementsEnabled。
+    assert.equal(row.result.nativeSearchEnhancementsEnabled, false);
+    send({ id: row.id, result: { nativeSearchEnhancementsEnabled: false } });
+    return;
+  }
+  if (!acked) { if ('id' in row) send({ id: row.id, error: { message: '启动握手未完成' } }); return; }
+  if (row.method === 'session/create') {
+    assert.ok(process.env.HOME.includes('zcode-catalog-home'), 'catalog probe must use the scratch home');
+    // 新版 app 不再推送 state.updated，目录随 session/create 返回。
+    send({ id: row.id, result: {
+      session: { sessionId: 'sess-catalog' },
+      settings: { model: {
+        available: [{ ref: { providerId: 'prov-9', modelId: 'deepseek-v4-flash' }, label: 'deepseek-v4-flash', providerLabel: 'DeepSeek', contextWindow: 1000000, reasoning: { levels: [{ value: 'disabled', label: 'disabled' }, { value: 'low', label: 'low' }, { value: 'high', label: 'high' }, { value: 'max', label: 'max' }], defaultLevel: 'max' } }],
+        current: { providerId: 'prov-9', modelId: 'deepseek-v4-flash' },
+        lastUsed: { providerId: 'prov-9', modelId: 'deepseek-v4-flash' },
+      } },
+    } });
+  } else if (row.method === 'session/close') { send({ id: row.id, result: {} }); }
+  else if ('id' in row) send({ id: row.id, result: {} });
+});
+`);
+  const host = createZcodeHost({ directory: root, socketPath: join(root, 'bus.sock'), command });
+  const catalog = await host.listModels({});
+  assert.equal(catalog.host, 'zcode');
+  assert.equal(catalog.models.length, 1);
+  const model = catalog.models[0];
+  assert.equal(model.id, 'deepseek-v4-flash');
+  assert.equal(model.provider, 'prov-9');
+  assert.equal(model.defaultReasoningEffort, 'max');
+  assert.equal(catalog.defaultModel, 'prov-9:deepseek-v4-flash');
+});
+
 test('zcode execution capabilities follow the group policy', t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
   t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
@@ -191,12 +237,12 @@ test('zcode execution capabilities follow the group policy', t => {
     effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信',
   });
   assert.deepEqual(host.executionCapabilities({ mode: 'read-only', allowShell: true }), {
-    effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取',
+    effectivePolicy: 'read-only', capabilities: ['exec.read'], reason: '群策略只允许读取',
   });
   const write = host.executionCapabilities({ mode: 'workspace-write', allowShell: false });
   assert.equal(write.effectivePolicy, 'workspace-write');
-  assert.ok(write.capabilities.includes('file.write'));
-  assert.ok(!write.capabilities.includes('shell.exec'));
+  assert.ok(write.capabilities.includes('exec.write'));
+  assert.ok(!write.capabilities.includes('exec.shell'));
 });
 
 test('zcode telemetry capability declaration covers the unified fields', () => {

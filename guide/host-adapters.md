@@ -37,7 +37,7 @@
 
 ## ZCode 桌面 app 的启动与版本适配
 
-ZCode 的主控唤醒、成员执行与模型目录探测都经 `zcode.cjs app-server --stdio`（ZCode Protocol），协议层见 [zcode-protocol.mjs](../src/hosts/zcode-protocol.mjs)，启动命令解析见 [zcode-wake.mjs](../src/hosts/zcode-wake.mjs) 的 `resolveZcodeLaunch`。桌面 app 随版本升级会改变内置 CLI 的启动约束与目录布局，产品代码已内置兼容，新旧版本都可用：
+ZCode 的主控唤醒、成员执行与模型目录探测都经 `zcode.cjs app-server --stdio`（ZCode Protocol），协议层见 [zcode/protocol.mjs](../src/hosts/zcode/protocol.mjs)，启动命令解析见 [zcode/wake.mjs](../src/hosts/zcode/wake.mjs) 的 `resolveZcodeLaunch`。桌面 app 随版本升级会改变内置 CLI 的启动约束与目录布局，产品代码已内置兼容，新旧版本都可用：
 
 - **布局探测**：`detectZcodeLayout(appRoot)` 按 provider 配置位置区分两版——旧版配置在入口旁 `Resources/glm/provider/`，新版迁到 `Resources/config/provider/`。`resolveZcodeLaunch` 据此选择启动方式。
 - **旧版**：保持原样，以 Electron 二进制 + `ELECTRON_RUN_AS_NODE=1` 执行入口。
@@ -55,9 +55,9 @@ ZCode 的主控唤醒、成员执行与模型目录探测都经 `zcode.cjs app-s
 
 ## DSH 的模型发现与 API Key
 
-DSH 通过 headless profile 的模型目录探针读取可用模型（[dsh-model-catalog.mjs](../src/hosts/dsh-model-catalog.mjs)）。headless 一次性回合禁用凭据服务，模型发现依赖环境变量 `DEEPSEEK_API_KEY`：若未注入该 key，`llm.listModels()` 对每个 provider 返回空数组，状态页显示「DSH 没有可用模型」，且真实成员回合同样受影响。
+DSH 通过 headless profile 的模型目录探针读取可用模型（[dsh/model-catalog.mjs](../src/hosts/dsh/model-catalog.mjs)）。headless 一次性回合禁用凭据服务，模型发现依赖环境变量 `DEEPSEEK_API_KEY`：若未注入该 key，`llm.listModels()` 对每个 provider 返回空数组，状态页显示「DSH 没有可用模型」，且真实成员回合同样受影响。
 
-适配器通过 [dsh-credentials.mjs](../src/hosts/dsh-credentials.mjs) 自动处理：派生 DSH 子进程前，若环境里没有 `DEEPSEEK_API_KEY`，就从本机 `~/.dsh/.credentials.yaml` 读取并注入（已有环境变量优先，不覆盖）；文件仅本机读取、不打印内容，读取失败时保持原环境、由宿主报错。模型目录探测与成员回合两条路径都会注入。注入后目录探针可正常返回 `deepseek-flash`、`deepseek-v4-pro` 等模型。需要注意：**服务进程启动时加载的是当时代码**，升级后需重启服务才会启用自动注入。
+适配器通过 [dsh/credentials.mjs](../src/hosts/dsh/credentials.mjs) 自动处理：派生 DSH 子进程前，若环境里没有 `DEEPSEEK_API_KEY`，就从本机 `~/.dsh/.credentials.yaml` 读取并注入（已有环境变量优先，不覆盖）；文件仅本机读取、不打印内容，读取失败时保持原环境、由宿主报错。模型目录探测与成员回合两条路径都会注入。注入后目录探针可正常返回 `deepseek-flash`、`deepseek-v4-pro` 等模型。需要注意：**服务进程启动时加载的是当时代码**，升级后需重启服务才会启用自动注入。
 
 ## 新适配器
 
@@ -72,6 +72,6 @@ DSH 通过 headless profile 的模型目录探针读取可用模型（[dsh-model
 - 可选的 `executionCapabilities`：声明指定群策略和 shell 配置下真实可用的文件读取、工作区写入、shell 与路径边界能力。未声明路径边界时不能把成员标成可写。
 - 可选的主动唤醒 driver：提供环境指纹与对现有会话的真实注入能力。未注册 driver 的宿主保持显式 pull-only。
 
-主要入口：[definitions.mjs](../src/hosts/definitions.mjs)（按宿主注册收敛）、[codex.mjs](../src/hosts/codex.mjs)、[codex-wake.mjs](../src/hosts/codex-wake.mjs)、[dsh.mjs](../src/hosts/dsh.mjs)、[dsh-wake.mjs](../src/hosts/dsh-wake.mjs)、[zcode.mjs](../src/hosts/zcode.mjs)、[zcode-wake.mjs](../src/hosts/zcode-wake.mjs)、[zcode-protocol.mjs](../src/hosts/zcode-protocol.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
+主要入口：[definitions.mjs](../src/hosts/definitions.mjs)（按宿主注册收敛）、[codex/index.mjs](../src/hosts/codex/index.mjs)、[codex/wake.mjs](../src/hosts/codex/wake.mjs)、[dsh/index.mjs](../src/hosts/dsh/index.mjs)、[dsh/wake.mjs](../src/hosts/dsh/wake.mjs)、[zcode/index.mjs](../src/hosts/zcode/index.mjs)、[zcode/wake.mjs](../src/hosts/zcode/wake.mjs)、[zcode/protocol.mjs](../src/hosts/zcode/protocol.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
 
 模型目录可由 CLI 查询；页面设置中的全局模型策略用于新建角色的默认模型说明，不会追溯改写所有已有角色。事件视图只呈现适配器实际观察到的内容，不等同于宿主原生完整历史。

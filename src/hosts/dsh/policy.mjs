@@ -1,4 +1,4 @@
-import { sandboxMode } from './policies.mjs';
+import { sandboxMode } from '../policies.mjs';
 
 // A host-side DSH plugin, loaded through an invocation-only overlay. No user profile edits.
 export const inject = ['tools', 'agents', 'sandboxPolicy', 'approval'];

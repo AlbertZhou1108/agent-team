@@ -5,16 +5,15 @@ import {
   assertControlPolicy,
   assertControlWorkspace,
   assertControllerCapabilities,
-  effectiveControlCapabilities,
   normalizeControlCapabilities,
 } from '../../control-capabilities.mjs';
 
-test('controller capabilities require identity, delivery and observation', () => {
+test('controller capabilities require delivery and observation', () => {
   assert.throws(
     () => assertControllerCapabilities({
-      capabilities: [CONTROL_CAPABILITIES.sessionIdentity, CONTROL_CAPABILITIES.messageDelivery],
+      capabilities: [CONTROL_CAPABILITIES.messageDelivery],
     }),
-    /session\.status/,
+    /turn\.observe/,
   );
   assert.deepEqual(
     assertControllerCapabilities({
@@ -26,22 +25,11 @@ test('controller capabilities require identity, delivery and observation', () =>
   );
 });
 
-test('effective capabilities are the intersection of declaration and probe', () => {
-  const value = effectiveControlCapabilities({
-    capabilities: Object.values(CONTROL_CAPABILITIES),
-    workspaceRoots: ['/one', '/two'],
-    policies: ['read-only', 'workspace-write'],
-  }, {
-    capabilities: [CONTROL_CAPABILITIES.sessionIdentity, CONTROL_CAPABILITIES.messageDelivery],
-    workspaceRoots: ['/two'],
-    policies: ['read-only'],
+test('legacy capability ids normalize to the unified vocabulary', () => {
+  const legacy = normalizeControlCapabilities({
+    capabilities: ['session.identity', 'session.status', 'notification.native'],
   });
-  assert.deepEqual(value.capabilities, [
-    CONTROL_CAPABILITIES.messageDelivery,
-    CONTROL_CAPABILITIES.sessionIdentity,
-  ]);
-  assert.deepEqual(value.workspaceRoots, ['/two']);
-  assert.deepEqual(value.policies, ['read-only']);
+  assert.deepEqual(legacy.capabilities, ['session.deliver', 'turn.observe', 'user.notify']);
 });
 
 test('workspace roots use path boundaries rather than string prefixes', () => {

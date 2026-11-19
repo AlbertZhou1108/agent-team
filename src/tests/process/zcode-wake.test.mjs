@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveZcodeLaunch, wakeZcodeAppServer, detectZcodeLayout, prepareZcodeEntry, zcodeAppPaths } from '../../hosts/zcode-wake.mjs';
+import { resolveZcodeLaunch, wakeZcodeAppServer, detectZcodeLayout, prepareZcodeEntry, zcodeAppPaths, zcodePersonalProviderConfigPath } from '../../hosts/zcode/wake.mjs';
 
 function fixture(t, source) {
   const directory = mkdtempSync(join(tmpdir(), 'zcode-wake-'));
@@ -110,7 +110,8 @@ test('ZCode launch resolution prefers the env override and existing commands', t
   const override = resolveZcodeLaunch({ command: 'zcode', cwd: directory });
   assert.equal(override.command, entry);
   assert.deepEqual(override.args, ['app-server', '--stdio', '--cwd', directory]);
-  assert.deepEqual(override.env, {});
+  // provider 配置路径随机器而异（CI 上可能不存在）；断言注入值与探测约定一致。
+  assert.equal(override.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE, zcodePersonalProviderConfigPath());
   delete process.env.AGENT_TEAM_ZCODE_COMMAND;
   const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
   assert.equal(direct.command, entry);
@@ -149,7 +150,20 @@ test('ZCode legacy layout keeps the Electron launch unchanged', t => {
   const launch = resolveZcodeLaunch({ command: join(app, 'Contents', 'MacOS', 'ZCode'), cwd: process.cwd() });
   assert.equal(launch.command, join(app, 'Contents', 'MacOS', 'ZCode'));
   assert.deepEqual(launch.args, [zcodeAppPaths(app).entry, 'app-server', '--stdio', '--cwd', process.cwd()]);
-  assert.deepEqual(launch.env, { ELECTRON_RUN_AS_NODE: '1' });
+  assert.equal(launch.env.ELECTRON_RUN_AS_NODE, '1');
+  assert.equal(launch.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE, zcodePersonalProviderConfigPath());
+});
+
+test('ZCode launch injects the personal provider config path for headless spawns', t => {
+  // 新版 app-server 靠该变量定位 provider 配置；桌面外无头启动必须自行注入，否则不报模型目录。
+  const directory = mkdtempSync(join(tmpdir(), 'zcode-launch-'));
+  const entry = join(directory, 'zcode-entry.mjs');
+  writeFileSync(entry, 'process.exit(0);\n');
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  delete process.env.AGENT_TEAM_ZCODE_COMMAND;
+  const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
+  const expected = zcodePersonalProviderConfigPath();
+  assert.equal(direct.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE ?? null, expected);
 });
 
 test('ZCode modern layout uses a prepared copy launched by system node', t => {

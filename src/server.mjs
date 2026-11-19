@@ -133,7 +133,10 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         const actualPort = panel.address().port;
         if (request.headers.host !== `127.0.0.1:${actualPort}` && request.headers.host !== `localhost:${actualPort}`) return fail(403, 'Invalid host');
         const url = new URL(request.url, `http://127.0.0.1:${actualPort}`);
-        if (request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
+        // 页面导航放行跨站：粘贴链接、从聊天工具或别的浏览器标签打开是常见用法，
+        // 而返回的只是一份 SPA 外壳，不产生副作用。接口请求仍拒绝跨站，挡住 CSRF。
+        const navigation = request.method === 'GET' && String(request.headers.accept ?? '').includes('text/html');
+        if (!navigation && request.headers['sec-fetch-site'] === 'cross-site') return fail(403, 'Cross-site request rejected');
         const route = matchRoute(apiRoutes({ bus, url, request, fail, failJson, readJsonBody, cursor, response, panelEventStreams, serviceInfo: () => ({ version, directory, url: serviceUrl }), stopService: () => { void close(); } }), request.method, url);
         const teamStateMutation = route?.archived === true;
         if (request.method !== 'GET' && !route) return fail(403, 'Panel endpoint is not writable');

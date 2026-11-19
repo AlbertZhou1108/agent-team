@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { wakeCodexAppServer } from '../../hosts/codex-wake.mjs';
+import { wakeCodexAppServer } from '../../hosts/codex/wake.mjs';
 
 function fixture(t, source) {
   const directory = mkdtempSync(join(tmpdir(), 'codex-wake-'));

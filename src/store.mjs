@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -70,7 +70,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS panel_team_bindings(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,relation TEXT NOT NULL CHECK(relation IN ('observer','main')),created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(panel_agent_id,group_id));
       CREATE TABLE IF NOT EXISTS team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent','external_agent')),controller_id TEXT NOT NULL,controller_binding_id TEXT,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,command TEXT,wake_config TEXT,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,probed_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
+      CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,command TEXT,wake_config TEXT,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
       CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
       CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),wake_state TEXT NOT NULL DEFAULT 'pending' CHECK(wake_state IN ('pending','sending','sent','unsupported','error')),wake_error TEXT,wake_updated TEXT,payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
       CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);
@@ -223,6 +223,15 @@ export class Store {
     if (fromVersion < 16) this.migrateV16();
     if (fromVersion < 17) this.migrateV17();
     if (fromVersion < 18) this.migrateV18();
+    if (fromVersion < 19) this.migrateV19();
+  }
+
+  // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
+  // 旧库该列与 declared_capabilities 内容一致，删除不丢信息。
+  migrateV19() {
+    const columns = this.all('PRAGMA table_info(external_client_bindings)');
+    if (!columns.some(column => column.name === 'probed_capabilities')) return;
+    this.db.exec('ALTER TABLE external_client_bindings DROP COLUMN probed_capabilities');
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -391,7 +400,7 @@ export class Store {
     const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
     this.transaction(() => {
       this.db.exec(`CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,probed_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
+        CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
         CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
         CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
         CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);`);

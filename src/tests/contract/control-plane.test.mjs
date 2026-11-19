@@ -350,7 +350,7 @@ test('workspace-write is a ceiling and dispatch rejects missing member capabilit
   host.executionCapabilities = async ({ mode }) => mode !== 'communication'
     ? {
         effectivePolicy: 'read-only',
-        capabilities: ['file.read'],
+        capabilities: ['exec.read'],
         reason: '宿主无法保证工作区写边界',
       }
     : { effectivePolicy: 'communication', capabilities: [], reason: '仅通信' };
@@ -365,7 +365,7 @@ test('workspace-write is a ceiling and dispatch rejects missing member capabilit
   assert.deepEqual(snapshot.members[0].executionPolicy, {
     requested: 'workspace-write',
     effective: 'read-only',
-    capabilities: ['file.read'],
+    capabilities: ['exec.read'],
     reason: '宿主无法保证工作区写边界',
   });
   let capabilityError;
@@ -386,7 +386,8 @@ test('workspace-write is a ceiling and dispatch rejects missing member capabilit
     /capability_required/,
   );
   assert.equal(capabilityError.code, 'capability_required');
-  assert.deepEqual(capabilityError.details.missingCapabilities, ['file.write', 'filesystem.boundary']);
+  // 调用方仍可传旧词：file.write 与 filesystem.boundary 都归一化为 exec.write，去重后只报一项。
+  assert.deepEqual(capabilityError.details.missingCapabilities, ['exec.write']);
   const sent = await call('team_send', {
     teamId: created.team.id,
     to: '成员',
@@ -717,6 +718,34 @@ test('unsupported active wake stays pending and is visible in control status', a
     'wake recovery did not retry the unsupported delivery',
   );
   assert.equal((await call('control_inbox')).deliveries.length, 1);
+});
+
+test('a wake that returns failed is recorded as degraded with the host reason', async t => {
+  const { bus, directory, call } = setup(t, {
+    externalWake: async (_binding, options) => {
+      if (options.verification) return { supported: true, state: 'started' };
+      return {
+        supported: true,
+        state: 'failed',
+        reason: 'session "thread-test" is already owned by an active write handle',
+      };
+    },
+  });
+  const created = await call('team_create', {
+    name: '锁冲突团队',
+    workspace: directory,
+    members: '成员=fake',
+    policy: 'read-only',
+  });
+  await untilAsync(async () => bus.running.size === 0, 'member profile turns did not settle');
+  await call('control_wake_test');
+  await call('team_send', { teamId: created.team.id, to: '成员', text: '请处理。' });
+  await untilAsync(async () => {
+    const status = await call('control_status');
+    return status.wake.state === 'degraded';
+  }, 'a failed wake was not recorded as degraded');
+  const status = await call('control_status');
+  assert.match(status.wake.reason, /already owned by an active write handle/);
 });
 
 test('active wake is serialized for one controller session', async t => {

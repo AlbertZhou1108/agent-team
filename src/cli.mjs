@@ -10,10 +10,11 @@ import { startServer, socketFor } from './server.mjs';
 import { rpc, serveMcp, serveControlMcp } from './rpc.mjs';
 import { Store } from './store.mjs';
 import { createExternalIdentity } from './control-plane.mjs';
-import { CONTROL_CAPABILITIES, CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
+import { CONTROL_PROTOCOL_VERSION, CONTROLLER_REQUIRED_CAPABILITIES } from './control-capabilities.mjs';
 import { nodeRunner } from './runtime.mjs';
 import { defaultSkillTarget, sharedSkillTarget, installSkill } from './skill-install.mjs';
-import { wakeDriverFor } from './hosts/wake-drivers.mjs';
+import { HOST_DEFINITIONS } from './hosts/definitions.mjs';
+import { controllerCapabilityIds } from './hosts/capabilities.mjs';
 
 const options = {
   data: { type: 'string', default: 'work/local' }, port: { type: 'string', default: '0' },
@@ -94,12 +95,11 @@ async function main() {
     const host = values.host;
     const client = values.client;
     if (!host || !client) throw new Error('connect 需要 --host 与 --client');
+    // 主控能力从宿主声明推导（ADR 0009），不再写死"必需四项 + wake 探测"。
+    // 未注册的宿主推导为空，必须用 --capabilities 显式声明。
     const capabilityIds = values.capabilities
       ? values.capabilities.split(',').map(item => item.trim()).filter(Boolean)
-      : [
-          ...CONTROLLER_REQUIRED_CAPABILITIES,
-          ...(wakeDriverFor(host) ? [CONTROL_CAPABILITIES.sessionWake] : []),
-        ];
+      : controllerCapabilityIds(HOST_DEFINITIONS.get(host)?.capabilities);
     const required = new Set(CONTROLLER_REQUIRED_CAPABILITIES);
     if ([...required].some(capability => !capabilityIds.includes(capability))) {
       throw new Error(`外部主控至少需要能力: ${[...required].join(', ')}`);
@@ -148,11 +148,6 @@ async function main() {
         command: values.command ?? host,
         session: values.session ?? null,
         declared: {
-          capabilities: capabilityIds,
-          workspaceRoots: [resolve(values.workspace)],
-          policies: ['communication', 'read-only', 'workspace-write'],
-        },
-        probed: {
           capabilities: capabilityIds,
           workspaceRoots: [resolve(values.workspace)],
           policies: ['communication', 'read-only', 'workspace-write'],

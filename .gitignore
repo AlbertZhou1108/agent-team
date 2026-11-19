@@ -24,6 +24,7 @@ docs/*
 .zcode/
 .mimosa/
 .workbuddy/
+.workbuddy-ai/
 .claude/
 
 # Local release artifacts

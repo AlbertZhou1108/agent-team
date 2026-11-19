@@ -3,8 +3,8 @@ import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { version } from '../version.mjs';
-import { spawnHost, stopHost } from './subprocess.mjs';
+import { version } from '../../version.mjs';
+import { spawnHost, stopHost } from '../subprocess.mjs';
 
 function tomlValue(value) {
   return JSON.stringify(value);

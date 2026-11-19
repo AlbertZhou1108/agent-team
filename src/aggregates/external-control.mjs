@@ -41,14 +41,14 @@ export function bindingByName(store, principalId, name) {
 
 export function insertBinding(store, {
   id, principalId, name, host, command = null, keyHash, session = null,
-  declaredCapabilities, probedCapabilities, created, updated = created,
+  declaredCapabilities, created, updated = created,
 }) {
   return store.run(
     `INSERT INTO external_client_bindings(
-       id,principal_id,name,host,command,key_hash,session,declared_capabilities,probed_capabilities,status,created,updated
-     ) VALUES(?,?,?,?,?,?,?,?,?,'active',?,?)`,
+       id,principal_id,name,host,command,key_hash,session,declared_capabilities,status,created,updated
+     ) VALUES(?,?,?,?,?,?,?,?,'active',?,?)`,
     id, principalId, name, host, command, keyHash, session,
-    JSON.stringify(declaredCapabilities), JSON.stringify(probedCapabilities),
+    JSON.stringify(declaredCapabilities),
     created, updated,
   );
 }
@@ -77,14 +77,14 @@ export function disableBinding(store, id, now = new Date().toISOString()) {
 }
 
 export function rotateBinding(store, id, {
-  host, command, keyHash, session, declaredCapabilities, probedCapabilities, updated,
+  host, command, keyHash, session, declaredCapabilities, updated,
 }) {
   return store.run(
     `UPDATE external_client_bindings
-     SET host=?,command=?,key_hash=?,session=?,declared_capabilities=?,probed_capabilities=?,wake_config=NULL,status='active',updated=?
+     SET host=?,command=?,key_hash=?,session=?,declared_capabilities=?,wake_config=NULL,status='active',updated=?
      WHERE id=?`,
     host, command, keyHash, session,
-    JSON.stringify(declaredCapabilities), JSON.stringify(probedCapabilities),
+    JSON.stringify(declaredCapabilities),
     updated, id,
   );
 }

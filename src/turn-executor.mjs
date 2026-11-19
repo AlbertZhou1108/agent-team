@@ -1,5 +1,6 @@
 import { telemetryObservation } from './telemetry.mjs';
 import { modelSelectionOf } from './actors.mjs';
+import { describeDeclaredCapabilities } from './hosts/capabilities.mjs';
 
 // 共享回合执行器:成员会话与 Panel 会话共用同一套回合生命周期
 // (落库 -> 运行态 -> 流 -> 事件 -> 宿主调用 -> 完成/失败 -> 遥测 -> 清理)。
@@ -243,10 +244,13 @@ export class TurnExecutor {
         bus.discardToolStreamRun(turnId);
         return result;
       } catch (error) {
+        // 声明归因：只在本次回合声明了执行能力时追加。措辞只说"声明支持"，
+        // 不推断失败是否由该能力导致——避免把环境问题误导成能力问题。
+        const declaredNote = describeDeclaredCapabilities(policy?.capabilities);
         bus.store.setTurnState(
           turnId,
           error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed',
-          { detail: failureDetail ? error.message : null },
+          { detail: failureDetail ? `${error.message}${declaredNote}` : null },
         );
         emit(turnId, { type: abort.signal.aborted ? 'framework.cancelled' : 'framework.error', error: error.message });
         if (hasPanel) {

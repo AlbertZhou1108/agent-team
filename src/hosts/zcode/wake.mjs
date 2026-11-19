@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createZcodeProtocol, headlessInteractionReply } from './zcode-protocol.mjs';
+import { createZcodeProtocol, headlessInteractionReply } from './protocol.mjs';
 
 /**
  * ZCode 主动唤醒驱动：通过 `zcode.cjs app-server --stdio` 的 ZCode Protocol
@@ -97,8 +97,6 @@ export function prepareZcodeEntry(appRoot) {
  */
 export function resolveZcodeLaunch({ command, cwd } = {}) {
   const protocol = cwd ? ['app-server', '--stdio', '--cwd', cwd] : ['app-server', '--stdio'];
-  const override = process.env.AGENT_TEAM_ZCODE_COMMAND?.trim() || process.env.ZCODE_AGENT_SERVER_COMMAND?.trim();
-  if (override) return { command: override, args: protocol, env: {} };
   const desktopLaunch = appRoot => {
     const layout = detectZcodeLayout(appRoot);
     if (layout === null) return null;
@@ -109,24 +107,43 @@ export function resolveZcodeLaunch({ command, cwd } = {}) {
     const paths = zcodeAppPaths(appRoot);
     return { command: paths.electron, args: [paths.entry, ...protocol], env: { ELECTRON_RUN_AS_NODE: '1' } };
   };
-  if (command && command !== 'zcode' && existsSync(command)) {
-    const macApp = process.platform === 'darwin'
-      ? /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(command)
-      : null;
-    if (macApp) {
-      const launch = desktopLaunch(macApp[1]);
+  const base = (() => {
+    const override = process.env.AGENT_TEAM_ZCODE_COMMAND?.trim() || process.env.ZCODE_AGENT_SERVER_COMMAND?.trim();
+    if (override) return { command: override, args: protocol, env: {} };
+    if (command && command !== 'zcode' && existsSync(command)) {
+      const macApp = process.platform === 'darwin'
+        ? /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(command)
+        : null;
+      if (macApp) {
+        const launch = desktopLaunch(macApp[1]);
+        if (launch) return launch;
+      }
+      return { command, args: protocol, env: {} };
+    }
+    if (process.platform === 'darwin') {
+      const launch = desktopLaunch('/Applications/ZCode.app');
       if (launch) return launch;
     }
-    return { command, args: protocol, env: {} };
-  }
-  if (process.platform === 'darwin') {
-    const launch = desktopLaunch('/Applications/ZCode.app');
-    if (launch) return launch;
-  }
-  throw new Error(
-    '未找到 ZCode 桌面安装；请用 agent-team connect --command 指定 ZCode 可执行文件，'
-    + '或设置 AGENT_TEAM_ZCODE_COMMAND 环境变量',
-  );
+    throw new Error(
+      '未找到 ZCode 桌面安装；请用 agent-team connect --command 指定 ZCode 可执行文件，'
+      + '或设置 AGENT_TEAM_ZCODE_COMMAND 环境变量',
+    );
+  })();
+  // 新版桌面 app 经 ZCODE_PERSONAL_PROVIDER_CONFIG_FILE 告知 provider 配置位置；
+  // 桌面外无头启动时按同一约定自行探测，缺了它 app-server 不报模型目录、
+  // 回合也拿不到可用模型（ZCode 3.18.2 实测）。旧版 app 不读该变量，注入无害。
+  return { ...base, env: { ...base.env, ...personalProviderConfigEnv() } };
+}
+
+/** 探测用户级 provider 配置（桌面 app 的 v2 布局约定路径），存在才注入。 */
+export function zcodePersonalProviderConfigPath() {
+  const config = join(homedir(), '.zcode', 'v2', 'provider_config.json');
+  return existsSync(config) ? config : null;
+}
+
+function personalProviderConfigEnv() {
+  const config = zcodePersonalProviderConfigPath();
+  return config ? { ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: config } : {};
 }
 
 /** AGENT_TEAM_ZCODE_HOME 把唤醒实例的 ZCode 数据目录重定向到隔离环境（验收用）。 */

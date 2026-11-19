@@ -7,24 +7,37 @@
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
+/**
+ * 外部主控能力沿用宿主声明的词汇（ADR 0009）：
+ * identity 并入 deliver（能投递必然知道发给谁），status 并入 observe（能看状态就是能看回合）。
+ * 写入一律用这些新 ID；读取历史 binding 时经 LEGACY_CAPABILITY_IDS 归一化。
+ */
 export const CONTROL_CAPABILITIES = Object.freeze({
-  sessionIdentity: 'session.identity',
   messageDelivery: 'session.deliver',
   sessionWake: 'session.wake',
-  statusObservation: 'session.status',
   turnObservation: 'turn.observe',
   userElicitation: 'user.elicit',
-  nativeNotification: 'notification.native',
+  nativeNotification: 'user.notify',
 });
 
 export const CONTROL_CAPABILITY_IDS = Object.freeze(Object.values(CONTROL_CAPABILITIES));
 
+/** 成为主控的最低要求：能投递、能观察回合。 */
 export const CONTROLLER_REQUIRED_CAPABILITIES = Object.freeze([
-  CONTROL_CAPABILITIES.sessionIdentity,
   CONTROL_CAPABILITIES.messageDelivery,
-  CONTROL_CAPABILITIES.statusObservation,
   CONTROL_CAPABILITIES.turnObservation,
 ]);
+
+/** 旧 ID → 新 ID。identity 与 status 已分别并入 deliver 与 observe。 */
+const LEGACY_CAPABILITY_IDS = Object.freeze({
+  'session.identity': 'session.deliver',
+  'session.status': 'turn.observe',
+  'notification.native': 'user.notify',
+});
+
+function canonicalCapabilityId(id) {
+  return LEGACY_CAPABILITY_IDS[id] ?? id;
+}
 
 const POLICY_MODES = new Set(['communication', 'read-only', 'workspace-write']);
 
@@ -46,7 +59,7 @@ export function normalizeControlCapabilities(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('宿主能力必须是对象');
   const capabilities = value.capabilities === undefined
     ? []
-    : uniqueStrings(value.capabilities, 'capabilities');
+    : uniqueStrings(value.capabilities, 'capabilities').map(canonicalCapabilityId);
   const unknown = capabilities.filter(id => !CONTROL_CAPABILITY_IDS.includes(id));
   if (unknown.length) throw new Error(`未知宿主能力: ${unknown.join(', ')}`);
   const workspaceRoots = value.workspaceRoots === undefined
@@ -64,22 +77,6 @@ export function normalizeControlCapabilities(value = {}) {
     capabilities: [...new Set(capabilities)].sort(),
     workspaceRoots,
     policies,
-  };
-}
-
-/** 有效能力是声明与实测的交集；workspace 和策略也分别取交集。 */
-export function effectiveControlCapabilities(declaredValue, probedValue = {}) {
-  const declared = normalizeControlCapabilities(declaredValue);
-  const probed = normalizeControlCapabilities({
-    capabilities: probedValue.capabilities ?? [],
-    workspaceRoots: probedValue.workspaceRoots ?? declared.workspaceRoots,
-    policies: probedValue.policies ?? declared.policies,
-  });
-  return {
-    version: CONTROL_PROTOCOL_VERSION,
-    capabilities: declared.capabilities.filter(id => probed.capabilities.includes(id)),
-    workspaceRoots: declared.workspaceRoots.filter(root => probed.workspaceRoots.includes(root)),
-    policies: declared.policies.filter(mode => probed.policies.includes(mode)),
   };
 }
 

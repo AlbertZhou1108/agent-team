@@ -1,14 +1,21 @@
-import { version } from '../version.mjs';
-import { spawnHost as spawn, stopHost } from './subprocess.mjs';
-import { createCliLifecycle } from './lifecycle.mjs';
-import { connectionProbe, probeCodex } from './probe.mjs';
+import { version } from '../../version.mjs';
+import { spawnHost as spawn, stopHost } from '../subprocess.mjs';
+import { createCliLifecycle } from '../lifecycle.mjs';
+import { connectionProbe, probeCodex } from '../probe.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
-import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
-import { ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
-import { modelCatalog } from './catalog.mjs';
-import { telemetryObservation } from '../observation.mjs';
-import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
+import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
+import { ATTACHMENT_IMAGE_TYPES } from '../../attachments.mjs';
+import { modelCatalog } from '../catalog.mjs';
+import { telemetryObservation } from '../../observation.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
+import { memberExecutionCapabilities } from '../execution.mjs';
+
+/** 项目操作依赖沙箱命令；只读策略下仍保留只读沙箱 shell。 */
+export const CODEX_TRAITS = Object.freeze({
+  requiresShellForProject: true,
+  readOnlyKeepsShell: true,
+});
 
 function sameSessionConfiguration(previous, signature) {
   try {
@@ -264,28 +271,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort }) {
         : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要群策略允许沙箱命令' };
     },
     executionCapabilities({ mode, allowShell }) {
-      if (mode === 'communication') {
-        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
-      }
-      if (!allowShell) {
-        return {
-          effectivePolicy: 'communication',
-          capabilities: [],
-          reason: 'Codex 项目操作依赖沙箱命令，当前群未启用 shell',
-        };
-      }
-      if (mode === 'read-only') {
-        return {
-          effectivePolicy: 'read-only',
-          capabilities: ['file.read', 'shell.exec'],
-          reason: '群策略只允许读取，shell 运行在只读沙箱',
-        };
-      }
-      return {
-        effectivePolicy: 'workspace-write',
-        capabilities: ['file.read', 'file.write', 'filesystem.boundary', 'shell.exec'],
-        reason: null,
-      };
+      return memberExecutionCapabilities(CODEX_TRAITS, { mode, allowShell });
     },
     supportsPanelAccess() {
       return { supported: true };

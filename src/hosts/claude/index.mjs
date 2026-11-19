@@ -1,15 +1,24 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createCliLifecycle } from './lifecycle.mjs';
-import { connectionProbe, probeClaude, initializeClaude } from './probe.mjs';
-import { writeMcpFiles, runJsonProcess } from './process.mjs';
-import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from './policies.mjs';
-import { modelCatalog } from './catalog.mjs';
-import { telemetryObservation } from '../observation.mjs';
-import { capability, capabilities, executionConditions, tokenConditions } from '../capability-contract.mjs';
+import { createCliLifecycle } from '../lifecycle.mjs';
+import { connectionProbe, probeClaude, initializeClaude } from '../probe.mjs';
+import { writeMcpFiles, runJsonProcess } from '../process.mjs';
+import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
+import { modelCatalog } from '../catalog.mjs';
+import { telemetryObservation } from '../../observation.mjs';
+import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
+import { memberExecutionCapabilities } from '../execution.mjs';
 
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/** Windows 会话无法保证工作区写边界。 */
+export const CLAUDE_TRAITS = Object.freeze({
+  boundaryUnsupported: Object.freeze({
+    platforms: Object.freeze(['win32']),
+    reason: 'Claude Code 在当前 Windows 会话无法保证工作区写边界',
+  }),
+});
 
 export function claudeSessionFile(sessionId, configDirectory) {
   const projects = join(configDirectory, 'projects');
@@ -79,24 +88,7 @@ export function createClaudeHost({
     },
     telemetryCapabilities: claudeCapabilities(),
     executionCapabilities({ mode, allowShell }) {
-      if (mode === 'communication') {
-        return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };
-      }
-      if (mode === 'read-only') {
-        return { effectivePolicy: 'read-only', capabilities: ['file.read'], reason: '群策略只允许读取' };
-      }
-      if (process.platform === 'win32') {
-        return {
-          effectivePolicy: 'read-only',
-          capabilities: ['file.read'],
-          reason: 'Claude Code 在当前 Windows 会话无法保证工作区写边界',
-        };
-      }
-      return {
-        effectivePolicy: 'workspace-write',
-        capabilities: ['file.read', 'file.write', 'filesystem.boundary', ...(allowShell ? ['shell.exec'] : [])],
-        reason: allowShell ? null : '未启用 shell；仍允许受限文件编辑',
-      };
+      return memberExecutionCapabilities(CLAUDE_TRAITS, { mode, allowShell });
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
