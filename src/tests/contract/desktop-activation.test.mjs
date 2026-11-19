@@ -89,3 +89,38 @@ test('activation credentials without a host thread identity are refused', async 
   const { call } = setup(t);
   await assert.rejects(() => call(null, 'control_status'), /需要宿主会话身份/);
 });
+
+test('hosts without a session identity channel resolve per their declared channel', async t => {
+  const { bus, directory } = setup(t);
+  const declared = {
+    capabilities: ['session.deliver', 'turn.observe'],
+    workspaceRoots: [directory],
+    policies: ['read-only'],
+  };
+  const claude = createExternalIdentity(bus.store, {
+    principalName: '本机用户',
+    bindingName: 'Claude Desktop 接入',
+    host: 'claude',
+    declared,
+    surface: 'desktop',
+    bindingKind: 'activation',
+  });
+  const dsh = createExternalIdentity(bus.store, {
+    principalName: '本机用户',
+    bindingName: 'DSH Desktop 接入',
+    host: 'dsh',
+    declared,
+    surface: 'desktop',
+    bindingKind: 'activation',
+  });
+  // Claude:无会话身份通道 → 应用级单连接,两次调用落在同一连接。
+  const app1 = await bus.controlTool(claude.binding.id, claude.key, 'control_status', {});
+  const app2 = await bus.controlTool(claude.binding.id, claude.key, 'control_status', {});
+  assert.match(app1.binding.name, /应用级/);
+  assert.equal(app2.binding.id, app1.binding.id);
+  // DSH:须显式绑定会话,裸调用被拒绝并给出 bind-session 指引。
+  await assert.rejects(
+    () => bus.controlTool(dsh.binding.id, dsh.key, 'control_status', {}),
+    /bind-session/,
+  );
+});

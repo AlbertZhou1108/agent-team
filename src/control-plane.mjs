@@ -22,6 +22,7 @@ import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
 import { wakeDriverFor } from './hosts/wake-drivers.mjs';
 import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
+import { HOST_DEFINITIONS } from './hosts/definitions.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -210,14 +211,31 @@ export class ControlPlane {
   }
 
   /**
-   * 激活连接解析:桌面宿主配置里只能放一条全局 MCP 凭据,激活连接按宿主上报的
-   * 会话身份(如 CODEX_THREAD_ID)解析或创建真正的会话连接。一个桌面会话一个
-   * binding,互相隔离;激活连接本身永不持有团队席位,也永不进入工具调用。
+   * 激活连接解析:桌面宿主配置里只能放一条全局 MCP 凭据,激活连接按宿主的
+   * 会话身份通道(desktopConversationIdentity)解析出真正的会话连接:
+   * - thread:按宿主上报的线程身份一线程一连接(如 CODEX_THREAD_ID);
+   * - manual:宿主不给子进程会话身份,须 bind_client_session 显式绑定后按
+   *   绑定值解析,未绑定前拒绝执行工具;
+   * - app:宿主没有会话身份通道,解析为应用级单连接;多会话隔离做不到,
+   *   作为宿主限制如实呈现(配合 Pull-only 使用,如 Claude Desktop)。
+   * 激活连接本身永不持有团队席位,也永不进入工具调用。
    */
   resolveActivationBinding(activation, hostSession) {
     const threadId = typeof hostSession === 'string' ? hostSession.trim() : '';
-    if (!threadId) throw new Error('桌面激活连接需要宿主会话身份(如 CODEX_THREAD_ID);请在桌面会话内调用');
-    const name = `${activation.name}·${threadId}`;
+    const identity = HOST_DEFINITIONS.get(activation.host)?.desktopConversationIdentity ?? 'thread';
+    if (identity === 'app') {
+      return this.resolveThreadBinding(activation, '应用级');
+    }
+    if (!threadId) {
+      throw new Error(identity === 'manual'
+        ? '该桌面宿主不会向 MCP 子进程注入会话身份;请用 bind-session 把桌面会话显式绑定到激活连接后再调用'
+        : '桌面激活连接需要宿主会话身份(如 CODEX_THREAD_ID);请在桌面会话内调用');
+    }
+    return this.resolveThreadBinding(activation, threadId);
+  }
+
+  resolveThreadBinding(activation, identityKey) {
+    const name = `${activation.name}·${identityKey}`;
     const existing = externalAgg.bindingByName(this.bus.store, activation.principal_id, name);
     if (existing) {
       if (existing.binding_kind !== 'conversation') throw new Error('激活连接解析到了非会话连接');
@@ -228,7 +246,7 @@ export class ControlPlane {
       principalName: principal?.name,
       bindingName: name,
       host: activation.host,
-      session: threadId,
+      session: identityKey === '应用级' ? null : identityKey,
       declared: JSON.parse(activation.declared_capabilities),
       surface: 'desktop',
       appId: activation.app_id,

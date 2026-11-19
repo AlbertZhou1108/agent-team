@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
-import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration } from './desktop/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration } from './desktop/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -246,8 +246,11 @@ export async function handleRpc(bus, request) {
   }
   if (request.op === 'desktop_verify') return verifyDesktopApplication(bus.store, request.kind, { confirmed: request.confirmed === true, socketPath: bus.controlSocketPath });
   if (request.op === 'desktop_install') {
-    if (request.kind !== 'codex') throw new Error(`暂不支持安装桌面集成: ${request.kind}`);
-    return installCodexDesktopIntegration(bus.store, { socketPath: bus.controlSocketPath });
+    const detections = await detectDesktopApplications(bus.store);
+    if (request.kind === 'codex') return installCodexDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
+    if (request.kind === 'dsh') return installDshDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
+    if (request.kind === 'claude') return installClaudeDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
+    throw new Error(`暂不支持安装桌面集成: ${request.kind}`);
   }
   if (request.op === 'desktop_disable') return disableDesktopApplication(bus.store, request.kind, { reason: request.reason ?? null });
   if (request.op === 'desktop_enable') return enableDesktopApplication(bus.store, request.kind);

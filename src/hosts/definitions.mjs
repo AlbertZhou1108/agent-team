@@ -64,6 +64,9 @@ const RAW_DEFINITIONS = new Map([
     capabilities: COMMON_CAPABILITIES,
     traits: CODEX_TRAITS,
     telemetryCapabilities: codexCapabilities,
+    // 桌面集成的会话身份通道:桌面 MCP 子进程能拿到 CODEX_THREAD_ID,
+    // 激活连接可按线程解析出每会话独立的会话连接。
+    desktopConversationIdentity: 'thread',
     wake: {
       id: 'codex-app-server',
       fingerprint({ command, threadId, mcpConfig }) {
@@ -120,6 +123,9 @@ const RAW_DEFINITIONS = new Map([
     capabilities: COMMON_CAPABILITIES,
     traits: DSH_TRAITS,
     telemetryCapabilities: dshCapabilities,
+    // 桌面 MCP 子进程拿不到 DSH_SESSION_ID(实测),桌面会话身份只能经
+    // bind_client_session 显式绑定;绑定前激活连接拒绝执行工具。
+    desktopConversationIdentity: 'manual',
     wake: {
       id: 'dsh-headless-resume',
       fingerprint({ command, threadId, mcpConfig }) {
@@ -142,6 +148,9 @@ const RAW_DEFINITIONS = new Map([
     capabilities: COMMON_CAPABILITIES,
     traits: CLAUDE_TRAITS,
     telemetryCapabilities: claudeCapabilities,
+    // 桌面 MCP 子进程拿不到 CLAUDE_SESSION_ID(实测),也没有安全的同会话唤醒;
+    // 桌面集成解析为应用级单连接并保持 Pull-only,限制如实展示(ADR 0011)。
+    desktopConversationIdentity: 'app',
     skill: { mode: 'copy', dir: home => join(home ?? homedir(), '.claude', 'skills', 'agent-team') },
     discoverControllerSession(env) {
       const session = env.CLAUDE_SESSION_ID?.trim();
