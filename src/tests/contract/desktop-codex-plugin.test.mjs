@@ -11,7 +11,7 @@ import { PLUGIN_NAME, applyPluginEnabled, codexDesktopPluginMcp, installCodexDes
 
 function tempDir(t, prefix) {
   const directory = mkdtempSync(join(tmpdir(), prefix));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* Windows 上文件可能仍被占用 */ } });
   return directory;
 }
 

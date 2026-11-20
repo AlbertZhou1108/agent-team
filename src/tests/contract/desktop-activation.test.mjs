@@ -32,7 +32,7 @@ function setup(t) {
   });
   t.after(async () => {
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* Windows 上文件可能仍被占用 */ }
   });
   const activation = createExternalIdentity(bus.store, {
     principalName: '本机用户',

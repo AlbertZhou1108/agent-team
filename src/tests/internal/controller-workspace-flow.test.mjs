@@ -14,7 +14,7 @@ const NOW = '2026-01-01T00:00:00.000Z';
 
 function tempDir(t) {
   const directory = mkdtempSync(join(tmpdir(), 'desktop-flow-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* Windows 上文件可能仍被占用 */ } });
   return directory;
 }
 

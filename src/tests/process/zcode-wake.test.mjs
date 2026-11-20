@@ -111,7 +111,7 @@ test('ZCode launch resolution prefers the env override and existing commands', t
   assert.equal(override.command, entry);
   assert.deepEqual(override.args, ['app-server', '--stdio', '--cwd', directory]);
   // provider 配置路径随机器而异（CI 上可能不存在）；断言注入值与探测约定一致。
-  assert.equal(override.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE, zcodePersonalProviderConfigPath());
+  assert.equal(override.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE ?? null, zcodePersonalProviderConfigPath());
   delete process.env.AGENT_TEAM_ZCODE_COMMAND;
   const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
   assert.equal(direct.command, entry);
