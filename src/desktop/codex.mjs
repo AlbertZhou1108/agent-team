@@ -10,7 +10,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
@@ -42,8 +42,67 @@ export function codexDesktopMcpBlock({ socketPath, bindingId, clientKey, runner 
   ].join('\n');
 }
 
-/** 替换既有的受管块;没有则追加到文件尾(追加表在 TOML 中合法)。 */
-export function applyManagedBlock(configText, block) {
+export const PLUGIN_NAME = 'agent-team@agent-team';
+const PLUGIN_MARKETPLACE = 'agent-team';
+
+/** cliPath 指向 <root>/src/cli.mjs;仓库根即其两级父目录。 */
+function repositoryRoot(cliPath) {
+  return dirname(dirname(cliPath));
+}
+
+function pluginVersionFor(cliPath) {
+  try {
+    const version = JSON.parse(readFileSync(join(repositoryRoot(cliPath), 'package.json'), 'utf8')).version;
+    return typeof version === 'string' && version ? version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/**
+ * Codex Desktop 聊天宿主(code mode)读的是插件机制,不是 config.toml 的
+ * [mcp_servers.*]。插件目录里的 .mcp.json 与受管块同源,额外带 enabled 与
+ * 工具审批策略——缺了它,桌面聊天里的模型看不到 Agent Team 工具。
+ */
+export function codexDesktopPluginMcp({ socketPath, bindingId, clientKey, runner = nodeRunner(), cliPath = codexDesktopCliPath() }) {
+  return {
+    mcpServers: {
+      [CONTROL_MCP_NAME]: {
+        command: runner.command,
+        args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--client', bindingId],
+        env: { AGENT_TEAM_CLIENT_KEY: clientKey, AGENT_TEAM_CONTROL_PROTOCOL: '1' },
+        enabled: true,
+        default_tools_approval_mode: 'never',
+      },
+    },
+  };
+}
+
+/**
+ * 幂等开启 [plugins."<pluginName>"]:表存在则确保 enabled=true(含从 false 翻转),
+ * 不存在则追加。只动这一个键,保留 Codex 重排后的其余内容。
+ */
+export function applyPluginEnabled(configText, pluginName = PLUGIN_NAME) {
+  const header = `[plugins."${pluginName}"]`;
+  const index = configText.indexOf(header);
+  if (index < 0) {
+    const separator = configText.trim().length ? '\n\n' : '';
+    return `${configText.replace(/\s*$/, '')}${separator}${header}\nenabled = true\n`;
+  }
+  const bodyStart = index + header.length;
+  const rest = configText.slice(bodyStart);
+  const nextTable = rest.search(/\n\[/);
+  const bodyEnd = nextTable < 0 ? configText.length : bodyStart + nextTable;
+  const body = configText.slice(bodyStart, bodyEnd);
+  // 行内空白用 [ \t],不能用 \s:后者含换行,替换时会吞掉行尾换行、把后续内容整体上移。
+  const enabledLine = /^([ \t]*)enabled[ \t]*=[ \t]*(?:true|false)[ \t]*$/m;
+  const replaced = enabledLine.test(body)
+    ? body.replace(enabledLine, '$1enabled = true')
+    : `\nenabled = true${body}`;
+  return configText.slice(0, bodyStart) + replaced + configText.slice(bodyEnd);
+}
+
+/** 替换既有的受管块;没有则追加到文件尾(追加表在 TOML 中合法)。 */export function applyManagedBlock(configText, block) {
   const body = block.replace(/\s*$/, '');
   const begin = configText.indexOf(BLOCK_BEGIN);
   const end = configText.indexOf(BLOCK_END);
@@ -78,6 +137,7 @@ export async function installCodexDesktopIntegration(store, {
   socketPath,
   runner = nodeRunner(),
   cliPath = codexDesktopCliPath(),
+  pluginVersion = null,
   now = new Date().toISOString(),
 } = {}) {
   if (!socketPath) throw new Error('桌面接入安装需要总线 socket 路径');
@@ -115,7 +175,25 @@ export async function installCodexDesktopIntegration(store, {
     chmodSync(backupPath, 0o600);
     backupHash = createHash('sha256').update(configText).digest('hex');
   }
-  writeFileSync(configPath, applyManagedBlock(configText, block), { mode: 0o600 });
+  const nextConfig = applyPluginEnabled(applyManagedBlock(configText, block));
+  writeFileSync(configPath, nextConfig, { mode: 0o600 });
+
+  // 桌面聊天宿主只认插件机制:写插件目录 + .mcp.json + marketplace 元数据。
+  // config.toml 受管块保留给 CLI 侧(codex exec 读 [mcp_servers.*])。
+  const version = pluginVersion ?? pluginVersionFor(cliPath);
+  const pluginRoot = join(codexHome, 'plugins', 'cache', PLUGIN_MARKETPLACE, PLUGIN_MARKETPLACE, version);
+  mkdirSync(pluginRoot, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(pluginRoot, '.mcp.json'),
+    `${JSON.stringify(codexDesktopPluginMcp({ socketPath, bindingId: identity.binding.id, clientKey: identity.key, runner, cliPath }), null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  writeFileSync(
+    join(pluginRoot, '.codex-marketplace-install.json'),
+    `${JSON.stringify({ source_type: 'local', source: repositoryRoot(cliPath), ref_name: 'main', sparse_paths: [], revision: 'local' }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+
   return {
     applicationId: detected.applicationId,
     binding: {
@@ -126,12 +204,14 @@ export async function installCodexDesktopIntegration(store, {
       host: identity.binding.host,
     },
     configPath,
+    pluginPath: pluginRoot,
+    pluginVersion: version,
     socketPath,
     backupPath,
     backupHash,
     enginePath: detected.enginePath,
     engineVersion: detected.engineVersion,
-    nextStep: '重启 Codex Desktop 加载 MCP 配置;在桌面会话内调用 Agent Team Skill 即把该会话激活为桌面主控。',
+    nextStep: '重启 Codex Desktop 使插件与 MCP 配置生效;在桌面会话内调用 Agent Team Skill 即把该会话激活为桌面主控。',
   };
 }
 
