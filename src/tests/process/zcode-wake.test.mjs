@@ -151,7 +151,8 @@ test('ZCode legacy layout keeps the Electron launch unchanged', t => {
   assert.equal(launch.command, join(app, 'Contents', 'MacOS', 'ZCode'));
   assert.deepEqual(launch.args, [zcodeAppPaths(app).entry, 'app-server', '--stdio', '--cwd', process.cwd()]);
   assert.equal(launch.env.ELECTRON_RUN_AS_NODE, '1');
-  assert.equal(launch.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE, zcodePersonalProviderConfigPath());
+  // 没有本机 provider 配置时 env 不注入该键;两边统一归一化到 null 再比较。
+  assert.equal(launch.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE ?? null, zcodePersonalProviderConfigPath());
 });
 
 test('ZCode launch injects the personal provider config path for headless spawns', t => {
