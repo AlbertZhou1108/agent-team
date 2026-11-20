@@ -143,6 +143,7 @@ export async function installZcodeDesktopIntegration(store, {
     engineVersion: detected.engineVersion,
     limitations: [
       '桌面 MCP 子进程没有会话身份通道:桌面会话经 Skill 自行 bind-session 绑定;并发桌面会话共享最近绑定(后绑定者赢)。',
+      '账号套餐模型(如 account:* 命名空间,鉴权依赖应用登录态)在无头唤醒进程无法物化,主动唤醒将如实降级为手动拉取;API-key 模型(个人 provider 配置)可完整唤醒。',
     ],
     nextStep: '重启 ZCode Desktop 加载 MCP 配置;在桌面会话内调用 Agent Team Skill——模型可用 shell 中的 $ZCODE_SESSION_ID 自行 bind-session 激活主控。',
   };
