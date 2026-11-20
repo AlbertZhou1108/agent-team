@@ -1,12 +1,12 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createCodexHost, codexCapabilities, CODEX_TRAITS } from './codex/index.mjs';
-import { codexWakeFingerprint, wakeCodexAppServer } from './codex/wake.mjs';
-import { createClaudeHost, claudeCapabilities, CLAUDE_TRAITS } from './claude/index.mjs';
-import { createDshHost, dshCapabilities, DSH_TRAITS } from './dsh/index.mjs';
-import { dshWakeFingerprint, wakeDshSession } from './dsh/wake.mjs';
-import { createZcodeHost, zcodeCapabilities, ZCODE_TRAITS } from './zcode/index.mjs';
-import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from './zcode/wake.mjs';
+import { createCodexHost, codexCapabilities, CODEX_TRAITS } from '../member/codex/index.mjs';
+import { codexWakeFingerprint, wakeCodexAppServer } from '../member/codex/wake.mjs';
+import { createClaudeHost, claudeCapabilities, CLAUDE_TRAITS } from '../member/claude/index.mjs';
+import { createDshHost, dshCapabilities, DSH_TRAITS } from '../member/dsh/index.mjs';
+import { dshWakeFingerprint, wakeDshSession } from '../member/dsh/wake.mjs';
+import { createZcodeHost, zcodeCapabilities, ZCODE_TRAITS } from '../member/zcode/index.mjs';
+import { applyZcodeHome, resolveZcodeLaunch, zcodeWakeFingerprint, wakeZcodeAppServer } from '../member/zcode/wake.mjs';
 import { resolveCapabilities } from './capabilities.mjs';
 
 /**
@@ -181,3 +181,14 @@ export const HOST_DEFINITIONS = new Map(
     }),
   })]),
 );
+
+/**
+ * 连接面:桌面主控省略 workspace 时,团队跟随会话当前目录;
+ * CLI 连接必须显式提供工作目录。所有 surface 判断都走这里,
+ * 不要在业务代码里比较字符串字面量。
+ */
+export const SURFACES = Object.freeze({ cli: 'cli', desktop: 'desktop' });
+
+export function surfaceFollowsConversation(surface) {
+  return surface === SURFACES.desktop;
+}

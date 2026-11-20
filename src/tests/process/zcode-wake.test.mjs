@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveZcodeLaunch, wakeZcodeAppServer, detectZcodeLayout, prepareZcodeEntry, zcodeAppPaths, zcodePersonalProviderConfigPath } from '../../hosts/zcode/wake.mjs';
+import { resolveZcodeLaunch, wakeZcodeAppServer, detectZcodeLayout, prepareZcodeEntry, zcodeAppPaths, zcodePersonalProviderConfigPath } from '../../member/zcode/wake.mjs';
 
 function fixture(t, source) {
   const directory = mkdtempSync(join(tmpdir(), 'zcode-wake-'));

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createCodexHost } from '../../hosts/codex/index.mjs';
+import { createCodexHost } from '../../member/codex/index.mjs';
 
 test('Codex native child-agent and wait activity is interrupted instead of blocking a team turn', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-codex-policy-'));
@@ -144,7 +144,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 
 test('attachment policy helpers gate private sessions and build internal manifests', async () => {
   const { attachmentManifest, panelAttachmentsAllowed } = await import('../../hosts/policies.mjs');
-  const { codexTurnInput } = await import('../../hosts/codex/index.mjs');
+  const { codexTurnInput } = await import('../../member/codex/index.mjs');
 
   // 只有带 access 的私人策略允许附件;communication 不扩大。
   assert.equal(panelAttachmentsAllowed({ mode: 'communication', allowShell: false }), false);

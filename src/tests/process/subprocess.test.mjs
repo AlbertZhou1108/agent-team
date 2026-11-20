@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
-import { spawnHost, stopHost } from '../../hosts/subprocess.mjs';
+import { spawnHost, stopHost } from '../../host-runtime/subprocess.mjs';
 import { until } from '../support/wait.mjs';
 
 test('host launcher preserves arguments through a Windows npm-style cmd shim', { skip: process.platform !== 'win32', timeout: 10000 }, async () => {

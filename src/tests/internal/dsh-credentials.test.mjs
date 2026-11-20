@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readDshApiKey, dshProcessEnv } from '../../hosts/dsh/credentials.mjs';
-import { runDshCatalogProbe } from '../../hosts/dsh/index.mjs';
-import { dshWakeEnv, wakeDshSession } from '../../hosts/dsh/wake.mjs';
+import { readDshApiKey, dshProcessEnv } from '../../member/dsh/credentials.mjs';
+import { runDshCatalogProbe } from '../../member/dsh/index.mjs';
+import { dshWakeEnv, wakeDshSession } from '../../member/dsh/wake.mjs';
 
 function credentialsFixture(t, content) {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-credentials-'));

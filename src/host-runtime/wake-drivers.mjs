@@ -1,4 +1,4 @@
-import { HOST_DEFINITIONS } from './definitions.mjs';
+import { HOST_DEFINITIONS } from '../hosts/definitions.mjs';
 
 // 主控主动唤醒驱动注册表：按宿主从 definitions.mjs 派生；
 // registerWakeDriver 保留给测试注入假驱动。

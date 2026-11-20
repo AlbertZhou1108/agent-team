@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline';
-import { spawnHost, stopHost } from '../subprocess.mjs';
+import { spawnHost, stopHost } from '../../host-runtime/subprocess.mjs';
 
 /**
  * 无头协议会话的默认反向请求应答：权限审批没有人可点，选允许类选项的

@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { version } from '../../version.mjs';
-import { spawnHost, stopHost } from '../subprocess.mjs';
+import { spawnHost, stopHost } from '../../host-runtime/subprocess.mjs';
 
 function tomlValue(value) {
   return JSON.stringify(value);

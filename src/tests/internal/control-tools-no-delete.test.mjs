@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const source = readFileSync(fileURLToPath(new URL('../../control-plane.mjs', import.meta.url)), 'utf8');
+const source = readFileSync(fileURLToPath(new URL('../../control/tools.mjs', import.meta.url)), 'utf8');
 const names = [...source.matchAll(/\['((?:control|team)_[a-z_]+)'/g)].map(match => match[1]);
 
 test('外部主控工具面不提供永久删除', () => {

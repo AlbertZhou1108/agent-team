@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as externalAgg from '../aggregates/external-control.mjs';
-import { spawnHost, stopHost } from '../hosts/subprocess.mjs';
+import { spawnHost, stopHost } from '../host-runtime/subprocess.mjs';
 import { detectDesktopApplications, desktopDetectionContext } from './detect.mjs';
 import { DESKTOP_DEFINITIONS } from './definitions.mjs';
 

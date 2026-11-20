@@ -2,10 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
-import { CODEX_TRAITS } from '../../hosts/codex/index.mjs';
-import { CLAUDE_TRAITS } from '../../hosts/claude/index.mjs';
-import { DSH_TRAITS } from '../../hosts/dsh/index.mjs';
-import { ZCODE_TRAITS } from '../../hosts/zcode/index.mjs';
+import { CODEX_TRAITS } from '../../member/codex/index.mjs';
+import { CLAUDE_TRAITS } from '../../member/claude/index.mjs';
+import { DSH_TRAITS } from '../../member/dsh/index.mjs';
+import { ZCODE_TRAITS } from '../../member/zcode/index.mjs';
 
 const FULL = ['exec.read', 'exec.write'];
 

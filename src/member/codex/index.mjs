@@ -1,15 +1,15 @@
 import { version } from '../../version.mjs';
-import { spawnHost as spawn, stopHost } from '../subprocess.mjs';
-import { createCliLifecycle } from '../lifecycle.mjs';
-import { connectionProbe, probeCodex } from '../probe.mjs';
+import { spawnHost as spawn, stopHost } from '../../host-runtime/subprocess.mjs';
+import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
+import { connectionProbe, probeCodex } from '../../host-runtime/probe.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
-import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
+import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
 import { ATTACHMENT_IMAGE_TYPES } from '../../attachments.mjs';
-import { modelCatalog } from '../catalog.mjs';
+import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../execution.mjs';
+import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
 
 /** 项目操作依赖沙箱命令；只读策略下仍保留只读沙箱 shell。 */
 export const CODEX_TRAITS = Object.freeze({

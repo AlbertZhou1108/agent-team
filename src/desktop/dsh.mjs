@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
-import { dshProcessEnv } from '../hosts/dsh/credentials.mjs';
+import { dshProcessEnv } from '../member/dsh/credentials.mjs';
 import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 
 /** DSH Desktop Profile 桥接的 stdio MCP 配置:用户粘贴进 Profile UI。 */

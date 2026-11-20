@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createZcodeHost, zcodeCapabilities, probeZcode } from '../../hosts/zcode/index.mjs';
+import { createZcodeHost, zcodeCapabilities, probeZcode } from '../../member/zcode/index.mjs';
 import { telemetryCapabilitiesFor } from '../../telemetry-capabilities.mjs';
 
 function fixture(t, source) {

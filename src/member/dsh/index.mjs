@@ -1,15 +1,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCliLifecycle } from '../lifecycle.mjs';
-import { connectionProbe, exchange } from '../probe.mjs';
-import { writeMcpFiles, runJsonProcess } from '../process.mjs';
-import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
-import { modelCatalog } from '../catalog.mjs';
+import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
+import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
+import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
+import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { modelCatalog } from '../../hosts/catalog.mjs';
 import { dshProcessEnv } from './credentials.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../execution.mjs';
+import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
 
 export const DSH_TRAITS = Object.freeze({});
 

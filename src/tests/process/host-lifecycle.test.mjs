@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { createCliLifecycle, installationPlan, runCommand } from '../../hosts/lifecycle.mjs';
+import { createCliLifecycle, installationPlan, runCommand } from '../../host-runtime/lifecycle.mjs';
 
 test('installation plans choose supported native shells or fixed npm packages', () => {
   for (const platform of ['win32', 'darwin', 'linux']) {

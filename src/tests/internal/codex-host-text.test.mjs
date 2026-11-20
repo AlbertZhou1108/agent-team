@@ -2,7 +2,7 @@
 // 仍应把回合文本交回框架,避免"回合完成但回复丢失"。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveEventContext, turnText } from '../../hosts/codex/index.mjs';
+import { resolveEventContext, turnText } from '../../member/codex/index.mjs';
 
 test('resolveEventContext 优先按 threadId 命中', () => {
   const a = { text: 'A' };

@@ -1,14 +1,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { connectionProbe, exchange } from '../probe.mjs';
-import { mcpConfig } from '../process.mjs';
-import { executionPolicy, policyObservation } from '../policies.mjs';
-import { modelCatalog } from '../catalog.mjs';
+import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
+import { mcpConfig } from '../../host-runtime/process.mjs';
+import { executionPolicy, policyObservation } from '../../hosts/policies.mjs';
+import { modelCatalog } from '../../hosts/catalog.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { createZcodeProtocol, headlessInteractionReply } from './protocol.mjs';
 import { resolveZcodeLaunch } from './wake.mjs';
-import { memberExecutionCapabilities } from '../execution.mjs';
+import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
 
 const ZCODE_EFFORTS = new Set(['disabled', 'low', 'high', 'max']);
 
