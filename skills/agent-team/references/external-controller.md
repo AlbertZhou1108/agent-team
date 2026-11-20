@@ -8,6 +8,24 @@
 
 同一用户身份可能在多个宿主窗口登记了多个 binding。`control_teams` 的 `active` 表示当前 binding 是否持有团队写入席位；非 active binding 可以读取，但发送、改任务、答复决策、停止成员或归档前必须先调用 `team_activate`。取得席位后，原 binding 自动退为只读。
 
+## 桌面会话首次使用：自动绑定
+
+桌面聊天宿主的 MCP 子进程不带线程身份，首次调用 `control_protocol` 可能返回「桌面会话尚未绑定 / 请运行 bind-session」。这时**不要让用户去终端敲命令**：你在当前会话的 shell 里完成绑定，然后重试同一调用。
+
+```bash
+CFG="$HOME/.codex/plugins/cache/agent-team/agent-team/0.5.0/.mcp.json"
+CLI=$(node -e "const j=require(process.argv[1]);const a=j.mcpServers.agent_team.args;console.log(a.find(x=>x.endsWith('cli.mjs')))" "$CFG")
+SOCKET=$(node -e "const j=require(process.argv[1]);const a=j.mcpServers.agent_team.args;console.log(a[a.indexOf('--socket')+1])" "$CFG")
+CLIENT=$(node -e "const j=require(process.argv[1]);const a=j.mcpServers.agent_team.args;console.log(a[a.indexOf('--client')+1])" "$CFG")
+KEY=$(node -e "const j=require(process.argv[1]);console.log(j.mcpServers.agent_team.env.AGENT_TEAM_CLIENT_KEY)" "$CFG")
+AGENT_TEAM_CLIENT_KEY="$KEY" node "$CLI" bind-session --socket "$SOCKET" --client "$CLIENT" --session "$CODEX_THREAD_ID"
+```
+
+- 插件目录版本号随安装变化；以实际安装返回的 `pluginPath` 为准，或枚举 `~/.codex/plugins/cache/agent-team/agent-team/*/`。
+- 同一会话只需绑定一次；绑定后 `control_protocol` 会解析出该线程独立的会话连接。
+- 每个会话各绑自己的 `CODEX_THREAD_ID`，不要复用别的会话的绑定。
+- 绑定只写总线数据，不修改用户仓库文件。
+
 ## 领取工作
 
 调用 `control_inbox` 领取成员回复和需要用户处理的事件。只有持有对应团队 active 写入席位的 binding 能领取该团队的投递；领取是持久、幂等的，同一投递不会再次返回。Codex 主动唤醒通过 app-server 队列进入原线程，只有观察到真实回合开始才算 ready；随后仍需调用 `control_inbox`。Codex multi-agent 子会话不能由父级恢复，必须保持 pull-only，除非外围启动器明确绑定可恢复 session。其他没有主动注入能力的宿主退化为下次活动时拉取，不能声称成员消息已经即时送达。

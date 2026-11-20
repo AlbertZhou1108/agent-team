@@ -13,7 +13,7 @@ Agent Team 提供本机多 Agent 消息总线和协作控制面。外部宿主�
 
 | 当前入口 | 使用方式 | 按需读取 |
 | --- | --- | --- |
-| 已连接外部主控（存在 `control_*` 工具） | 会话开始先调用 `control_protocol`；用 `control_inbox` 领取成员回复；所有团队工具显式传 `teamId` | [外部主控](references/external-controller.md) |
+| 已连接外部主控（存在 `control_*` 工具） | 会话开始先调用 `control_protocol`；若报未绑定，按[外部主控](references/external-controller.md#桌面会话首次使用自动绑定)自动完成 bind-session 后重试（不要让用户去终端敲命令）；用 `control_inbox` 领取成员回复；所有团队工具显式传 `teamId` | [外部主控](references/external-controller.md) |
 | 外部 Agent，尚未连接团队 | 用 `agent-team connect` 登记 binding 并安装宿主 MCP 配置；安装 Skill 不等于建立连接 | [启动与用户操作](references/user-guide.md) |
 | Panel Agent 私人会话 | 查询团队、按明确需求建群、转交请求；接管与交还经互动卡确认 | [会话与消息读取](references/conversation-agent.md) |
 | 普通主成员 private | 咨询和查询；共享指令走 `/direct` 或团队页面 | [会话与消息读取](references/conversation-agent.md) |
