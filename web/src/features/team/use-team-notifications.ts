@@ -31,6 +31,36 @@ export function useTeamNotifications(
       connection.online();
   });
 
+  // 主控变更:别的连接接管后提示当前视图转只读,避免用户以为还能继续派发。
+  let lastControllerId: string | null = null;
+  watch(
+    derived.currentController,
+    (controller) => {
+      const id = controller?.id ?? null;
+      if (lastControllerId && id && id !== lastControllerId) {
+        toast.info('主控已变更', {
+          description: `${controller?.name ?? '新的连接'} 已接管该团队，当前视图转为只读。`,
+        });
+      }
+      lastControllerId = id;
+    },
+    { immediate: true },
+  );
+
+  // 工作目录变更:旧会话不复用,新派发走新目录。
+  let lastWorkspace: string | null = null;
+  watch(
+    () => queries.detailQuery.data.value?.workspace ?? null,
+    (workspace) => {
+      if (lastWorkspace && workspace && workspace !== lastWorkspace) {
+        toast.info('工作目录已变更', {
+          description: '旧会话不会复用，新的派发将使用新目录。',
+        });
+      }
+      lastWorkspace = workspace;
+    },
+  );
+
   // 新互动卡等待答复时提醒；点击跳到卡片所在视图，已在目标页则不跳转。
   const seenPendingInteractions = new Set<string>();
   let interactionsPrimed = false;
