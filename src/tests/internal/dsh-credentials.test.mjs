@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readDshApiKey, dshProcessEnv } from '../../hosts/dsh/credentials.mjs';
 import { runDshCatalogProbe } from '../../hosts/dsh/index.mjs';
+import { dshWakeEnv, wakeDshSession } from '../../hosts/dsh/wake.mjs';
 
 function credentialsFixture(t, content) {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-credentials-'));
@@ -57,4 +58,47 @@ process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ ok: true
   const result = await runDshCatalogProbe(fake, directory, { env });
   assert.ok(Array.isArray(result.providers));
   assert.equal(readFileSync(seen, 'utf8'), 'sk-injected');
+});
+
+test('dshWakeEnv 从凭据文件补齐唤醒回合的 key,extraEnv 优先', t => {
+  const path = credentialsFixture(t, 'DEEPSEEK_API_KEY: sk-wake-file\n');
+  const injected = dshWakeEnv({ baseEnv: { PATH: '/usr/bin' }, credentialsPath: path });
+  assert.equal(injected.DEEPSEEK_API_KEY, 'sk-wake-file');
+  assert.equal(injected.PATH, '/usr/bin');
+
+  const explicit = dshWakeEnv({ baseEnv: { PATH: '/usr/bin' }, extraEnv: { DEEPSEEK_API_KEY: 'sk-explicit' }, credentialsPath: path });
+  assert.equal(explicit.DEEPSEEK_API_KEY, 'sk-explicit', '调用方显式提供的 key 优先');
+
+  const empty = { PATH: '/bin' };
+  assert.deepEqual(dshWakeEnv({ baseEnv: empty, credentialsPath: credentialsFixture(t, null) }), empty);
+});
+
+test('wakeDshSession 把凭据注入唤醒子进程', async t => {
+  const saved = process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  t.after(() => { if (saved !== undefined) process.env.DEEPSEEK_API_KEY = saved; });
+
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-wake-env-'));
+  const seen = join(directory, 'seen.txt');
+  const script = join(directory, 'fake-dsh.mjs');
+  writeFileSync(script, `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(seen)}, process.env.DEEPSEEK_API_KEY ?? '<missing>');
+process.stdout.write(JSON.stringify({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } }) + '\\n');
+process.stdout.write(JSON.stringify({ type: 'final', text: 'ok' }) + '\\n');
+`);
+  const fake = process.platform === 'win32' ? join(directory, 'fake-dsh.cmd') : script;
+  if (process.platform === 'win32') writeFileSync(fake, `@echo off\r\n"${process.execPath}" "%~dp0fake-dsh.mjs" %*\r\n`);
+  else { writeFileSync(script, `#!/usr/bin/env node\n` + readFileSync(script, 'utf8')); chmodSync(fake, 0o700); }
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const result = await wakeDshSession({
+    command: fake,
+    threadId: 'thread-1',
+    text: 'hi',
+    credentialsPath: credentialsFixture(t, 'DEEPSEEK_API_KEY: sk-wake-injected\n'),
+    timeout: 15000,
+  });
+
+  assert.equal(result.state, 'started');
+  assert.equal(readFileSync(seen, 'utf8'), 'sk-wake-injected');
 });

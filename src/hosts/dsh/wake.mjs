@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawnHost, stopHost } from '../subprocess.mjs';
+import { dshProcessEnv } from './credentials.mjs';
 
 /**
  * DSH 主动唤醒驱动：DSH 没有常驻服务也能唤醒——headless profile 的
@@ -15,6 +16,15 @@ import { spawnHost, stopHost } from '../subprocess.mjs';
 
 function dshHome() {
   return process.env.DSH_HOME?.trim() || join(homedir(), '.dsh');
+}
+
+/**
+ * 唤醒回合的子进程环境:与成员适配器同源。DSH headless 禁用凭据服务,
+ * 环境里没有 DEEPSEEK_API_KEY 时从本机凭据文件补齐——否则唤醒必然以
+ * MISSING_CREDENTIAL 失败(与桌面验证修复前的症状相同)。
+ */
+export function dshWakeEnv({ baseEnv = process.env, extraEnv = {}, credentialsPath } = {}) {
+  return dshProcessEnv({ ...baseEnv, ...extraEnv }, credentialsPath);
 }
 
 export function dshWakeFingerprint({ command, threadId, mcpConfig }) {
@@ -68,6 +78,7 @@ export async function wakeDshSession({
   mcpConfig,
   timeout = 8 * 60 * 1000,
   env,
+  credentialsPath,
 }) {
   if (!threadId) return { supported: false, reason: '缺少 controller session' };
   if (!text?.trim()) throw new Error('主动唤醒正文为空');
@@ -83,7 +94,7 @@ export async function wakeDshSession({
   ];
   const child = spawnHost(command, args, {
     ...(cwd ? { cwd } : {}),
-    env: { ...process.env, ...env },
+    env: dshWakeEnv({ extraEnv: env, credentialsPath }),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   child.stdin.on('error', () => {});
