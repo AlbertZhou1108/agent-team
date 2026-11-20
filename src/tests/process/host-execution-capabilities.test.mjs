@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createClaudeHost } from '../../hosts/claude/index.mjs';
-import { createCodexHost } from '../../hosts/codex/index.mjs';
+import { createClaudeHost } from '../../member/claude/index.mjs';
+import { createCodexHost } from '../../member/codex/index.mjs';
 
 test('hosts report only writable filesystem boundaries they can enforce', () => {
   const claude = createClaudeHost({ command: 'claude', directory: '.', socketPath: 'socket' });

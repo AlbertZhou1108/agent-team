@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dshWakeFingerprint, wakeDshSession } from '../../hosts/dsh/wake.mjs';
+import { dshWakeFingerprint, wakeDshSession } from '../../member/dsh/wake.mjs';
 
 function fixture(t, source) {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-wake-'));

@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
 import { connectionProbe, probeClaude, initializeClaude } from '../../host-runtime/probe.mjs';
 import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
-import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
-import { modelCatalog } from '../catalog.mjs';
+import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../execution.mjs';
+import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
 
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
