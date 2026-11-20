@@ -24,7 +24,7 @@ export async function runDshCatalogProbe(command, directory, { signal, env } = {
     { id: 'headless-startup', disabled: true },
     { id: 'session-persistence-jsonl', config: { root: join(probeDirectory, 'sessions') } },
     { id: 'storage-json', config: { root: join(probeDirectory, 'storage') } },
-    { insert: [{ id: 'agent-team-model-catalog', name: fileURLToPath(new URL('./dsh-model-catalog.mjs', import.meta.url)) }] },
+    { insert: [{ id: 'agent-team-model-catalog', name: fileURLToPath(new URL('./model-catalog.mjs', import.meta.url)) }] },
   ]), { mode: 0o600 });
   try {
     return await exchange(command, ['--profile', 'headless', '--patch', patchPath], {
