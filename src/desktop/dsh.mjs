@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
+import { dshProcessEnv } from '../hosts/dsh/credentials.mjs';
 
 const CONTROL_MCP_NAME = 'agent_team';
 
@@ -104,13 +105,13 @@ function dshVerificationPatch({ workspace, mcp = null } = {}) {
   return overlay;
 }
 
-async function runDshHeadlessTurn({ enginePath, workspace, spawnTracked, timeoutMs, patch, prompt }) {
+async function runDshHeadlessTurn({ enginePath, workspace, spawnTracked, timeoutMs, patch, prompt, env }) {
   const patchFile = join(workspace, `dsh-verify-${randomUUID().slice(0, 8)}.json`);
   writeFileSync(patchFile, JSON.stringify(patch), { mode: 0o600 });
   try {
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('验证回合超时')), timeoutMs);
-      const child = spawnTracked(enginePath, ['headless', '--patch', patchFile, '--json', prompt], { cwd: workspace });
+      const child = spawnTracked(enginePath, ['headless', '--patch', patchFile, '--json', prompt], { cwd: workspace, env });
       let output = '';
       child.stdout?.on('data', chunk => { output = (output + chunk).slice(-4000); });
       child.stderr?.on('data', chunk => { output = (output + chunk).slice(-4000); });
@@ -149,7 +150,11 @@ function extractDshFailure(output) {
   return null;
 }
 
-export function dshDesktopVerification() {
+export function dshDesktopVerification({ credentialsPath, baseEnv = process.env } = {}) {
+  // DSH headless 禁用凭据服务,key 只能从启动环境注入。与宿主适配器同源:
+  // 优先沿用当前环境,否则从 ~/.dsh/.credentials.yaml 补齐。缺了这一步,
+  // 验证回合会以 MISSING_CREDENTIAL 失败,把可用的应用误判为不可用。
+  const engineEnv = () => dshProcessEnv(baseEnv, credentialsPath);
   return {
     async verifyEngine({ workspace, detection, spawnTracked, timeoutMs }) {
       const output = await runDshHeadlessTurn({
@@ -159,6 +164,7 @@ export function dshDesktopVerification() {
         timeoutMs,
         patch: dshVerificationPatch({ workspace }),
         prompt: ENGINE_CHECK_PROMPT,
+        env: engineEnv(),
       });
       return { ok: /ok/i.test(output), detail: '内嵌引擎完成短任务' };
     },
@@ -186,6 +192,7 @@ export function dshDesktopVerification() {
             mcp: dshDesktopMcpConfig({ socketPath, bindingId: temp.binding.id, clientKey: temp.key }),
           }),
           prompt: CONTROLLER_CHECK_PROMPT,
+          env: engineEnv(),
         });
         return { ok: /version|1/.test(output), detail: '主控工具可调用' };
       } finally {
