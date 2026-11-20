@@ -1,6 +1,6 @@
 # ADR 0013：Phase 7 适配层收敛拆分方案
 
-- 状态：提议
+- 状态：已执行（2026-11-20，A + B1 + B2 + B3）
 - 日期：2026-11-20
 - 前置：三个桌面切片真机通过，发布门 10/10
 
@@ -94,3 +94,18 @@ A 先做；B 每步合并前跑一次真机成员回合。任何一步回归失�
 ## 不做的理由（如果决定停在这里）
 
 当前 503 后端 + 389 前端用例全绿、发布门 10/10。上述两项只影响可维护性，不影响功能与安全。若近期有功能迭代压力，可长期停留在当前结构，等下一次大改时顺带做。
+
+## 执行记录（2026-11-20）
+
+分支 `refactor/phase7-adaptation`，四个提交，合并到 main（`9a7483e`）：
+
+| 步骤 | 提交 | 内容 |
+| --- | --- | --- |
+| A | `0a361f1` | `SURFACES` + `surfaceFollowsConversation()`，control-plane 4 处不再比字面量 |
+| B1 | `69afaba` | `subprocess/process/lifecycle/probe/wake-drivers` → `src/host-runtime/` |
+| B2 | `3607a97` | `hosts/codex|claude|dsh|zcode` → `src/member/`，`hosts/` 只留共享定义 |
+| B3 | `48ccaf1` | 19 个工具定义 → `src/control/tools.mjs` |
+
+验证：`npm run check` 绿；后端 505（504 pass / 1 skip）+ 前端 389 全过；真机冒烟（重启 dev 后）成员回 `OK`。
+
+**执行中发现**：冒烟首次连续两次无回传，重启 dev 后立即通过——与交接文档记录的「codex 宿主运行一段时间后回合完成但回复不回传」一致，说明 commit `59b1979` 的兜底未根除该问题。重构本身无回归（全量测试与重启后冒烟均通过）。
