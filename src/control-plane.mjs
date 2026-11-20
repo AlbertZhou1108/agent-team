@@ -22,7 +22,7 @@ import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
 import { wakeDriverFor } from './hosts/wake-drivers.mjs';
 import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
-import { HOST_DEFINITIONS } from './hosts/definitions.mjs';
+import { HOST_DEFINITIONS, surfaceFollowsConversation } from './hosts/definitions.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -331,7 +331,7 @@ export class ControlPlane {
     // 变化,跟随到其席位团队;CLI binding 只记录事实,不自动移动团队目录。
     if (hostCwd && externalAgg.setBindingControllerCwd(this.bus.store, row.id, hostCwd)) {
       row.controller_cwd = hostCwd;
-      if (row.surface === 'desktop') {
+      if (surfaceFollowsConversation(row.surface)) {
         for (const team of externalAgg.activeTeamsForBinding(this.bus.store, row.id)) {
           externalAgg.requestControllerWorkspace(this.bus.store, { groupId: team.id, cwd: hostCwd });
         }
@@ -533,7 +533,7 @@ export class ControlPlane {
           `主控已切换到「${binding.name}」（${binding.host}）；此前的主控会话保留只读访问。`,
         );
         this.wakePreviousController(takeover.previousBindingId, group);
-        if (binding.surface === 'desktop' && binding.controller_cwd) {
+        if (surfaceFollowsConversation(binding.surface) && binding.controller_cwd) {
           externalAgg.requestControllerWorkspace(this.bus.store, {
             groupId: group.id,
             cwd: binding.controller_cwd,
@@ -984,9 +984,9 @@ export class ControlPlane {
     if (!name || name.length > 200) throw new Error('团队名称无效');
     // ADR 0012:桌面主控会话不注册第二份目录,团队 workspace 就是该会话的
     // 当前工作目录;CLI 连接沿用显式传入的 workspace。
-    const workspaceSource = binding.surface === 'desktop' ? binding.controller_cwd : args.workspace;
+    const workspaceSource = surfaceFollowsConversation(binding.surface) ? binding.controller_cwd : args.workspace;
     if (typeof workspaceSource !== 'string' || !workspaceSource) {
-      throw new Error(binding.surface === 'desktop' ? '主控会话尚未提供工作目录' : '工作目录无效');
+      throw new Error(surfaceFollowsConversation(binding.surface) ? '主控会话尚未提供工作目录' : '工作目录无效');
     }
     let workspace;
     try {

@@ -181,3 +181,14 @@ export const HOST_DEFINITIONS = new Map(
     }),
   })]),
 );
+
+/**
+ * 连接面:桌面主控省略 workspace 时,团队跟随会话当前目录;
+ * CLI 连接必须显式提供工作目录。所有 surface 判断都走这里,
+ * 不要在业务代码里比较字符串字面量。
+ */
+export const SURFACES = Object.freeze({ cli: 'cli', desktop: 'desktop' });
+
+export function surfaceFollowsConversation(surface) {
+  return surface === SURFACES.desktop;
+}
