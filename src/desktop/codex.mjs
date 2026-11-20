@@ -197,7 +197,7 @@ export async function installCodexDesktopIntegration(store, {
   const memberHome = member.spec.env.CODEX_HOME;
   mkdirSync(memberHome, { recursive: true, mode: 0o700 });
   try {
-    symlinkSync(join(homedir(), '.codex', 'auth.json'), join(memberHome, 'auth.json'));
+    linkAuth(join(homedir(), '.codex', 'auth.json'), join(memberHome, 'auth.json'));
   } catch {
     // 未登录、平台不支持或链接已存在:交给引擎自身报告失败原因。
   }
@@ -230,6 +230,15 @@ export async function installCodexDesktopIntegration(store, {
 const CONTROLLER_CHECK_PROMPT = '你是 Agent Team 桌面接入验证会话。调用一次 control_protocol 工具,把返回 JSON 里的 version 数字原样写在最终回复里,不要做其他事情。';
 const ENGINE_CHECK_PROMPT = '只回复两个字符:OK';
 
+/**
+ * 复用桌面登录态:POSIX 用符号链接,Windows 用复制——symlink 需要开发者模式,
+ * 且悬空链接会让临时目录删除永久 EPERM。源不存在时抛错,由调用方决定降级。
+ */
+function linkAuth(source, target) {
+  if (process.platform === 'win32') copyFileSync(source, target);
+  else symlinkSync(source, target);
+}
+
 function isolatedCodexHome(configText) {
   const home = join(homedir(), '.agent-team', 'desktop-verify', randomUUID());
   mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -237,7 +246,7 @@ function isolatedCodexHome(configText) {
   // 复用桌面应用的登录态而不复制凭据文件:auth.json 经符号链接引用。
   let authLinked = false;
   try {
-    symlinkSync(join(homedir(), '.codex', 'auth.json'), join(home, 'auth.json'));
+    linkAuth(join(homedir(), '.codex', 'auth.json'), join(home, 'auth.json'));
     authLinked = true;
   } catch {
     // 无登录态或平台不支持:交给引擎自身报告失败原因。
