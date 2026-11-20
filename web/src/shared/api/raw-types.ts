@@ -6,6 +6,8 @@ export interface Group {
   created: string;
   state?: 'open' | 'archived';
   revision?: number;
+  /** 待生效的工作目录:有成员回合在跑时,切换目录会先挂起。 */
+  workspace_pending?: string | null;
 }
 
 export interface Member {

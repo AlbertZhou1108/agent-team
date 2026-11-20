@@ -61,6 +61,20 @@ export function useTeamNotifications(
     },
   );
 
+  // 目录切换待生效:有成员回合在跑时,新派发会等待。
+  let lastPendingWorkspace: string | null = null;
+  watch(
+    () => queries.detailQuery?.data?.value?.workspace_pending ?? null,
+    (pending) => {
+      if (pending && pending !== lastPendingWorkspace) {
+        toast.info('目录切换待生效', {
+          description: '有成员回合在运行，新派发会等待当前回合结束。',
+        });
+      }
+      lastPendingWorkspace = pending;
+    },
+  );
+
   // 新互动卡等待答复时提醒；点击跳到卡片所在视图，已在目标页则不跳转。
   const seenPendingInteractions = new Set<string>();
   let interactionsPrimed = false;
