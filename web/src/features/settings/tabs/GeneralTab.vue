@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import HostStatuses from '../HostStatuses.vue';
-import DesktopApplications from '../DesktopApplications.vue';
 import LocalService from '../LocalService.vue';
 import AttachmentSettings from '../AttachmentSettings.vue';
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { Switch } from '@/components/ui/switch';
 import { usePreferencesStore } from '@/stores/preferences';
+import HostIntegrationPanel from '../hosts/HostIntegrationPanel.vue';
+import type { HostKind } from '../hosts/host-view-model';
 
 const preferences = usePreferencesStore();
+const emit = defineEmits<{ 'open-host-detail': [kind: HostKind] }>();
 </script>
 
 <template>
-            <HostStatuses active />
-            <DesktopApplications active />
-            <LocalService />
+  <HostIntegrationPanel active @open-detail="emit('open-host-detail', $event)" />
+
+  <LocalService />
 
           <section class="flex flex-col gap-3">
             <div class="flex items-start justify-between gap-3">

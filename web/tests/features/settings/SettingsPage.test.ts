@@ -19,8 +19,8 @@ vi.mock('@tanstack/vue-query', async () => {
 });
 
 // 这两个子组件各自依赖宿主/服务查询层，冒烟测试只关心设置页自身的结构。
-vi.mock('@/features/settings/HostStatuses.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'host-statuses') } }; });
-vi.mock('@/features/settings/DesktopApplications.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'desktop-applications') } }; });
+vi.mock('@/features/settings/hosts/HostIntegrationPanel.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'host-integration-panel') } }; });
+vi.mock('@/features/settings/hosts/HostDetailPanel.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'host-detail-panel') } }; });
 vi.mock('@/features/settings/LocalService.vue', async () => { const { h } = await import('vue'); return { default: { render: () => h('div', 'local-service') } }; });
 
 vi.mock('@/shared/api/client', () => ({
@@ -68,5 +68,13 @@ describe('settings page', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  // 宿主详情是独立页面：进入后标签栏和通用分区其余小节都不应再出现。
+  it('renders the host detail as its own page and hides the tab list', async () => {
+    const { html } = await render(SettingsPage, '/settings?section=general&host=codex');
+    expect(html).toContain('host-detail-panel');
+    expect(html).not.toContain('role="tab"');
+    expect(html).not.toContain('local-service');
   });
 });

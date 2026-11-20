@@ -998,7 +998,7 @@ export interface HostStatus {
 
 /** 桌面应用集成的用户可见结论:一行一个应用,诊断细节按检查项展开。 */
 export interface DesktopApplicationStatus {
-  kind: 'codex' | 'dsh' | 'claude';
+  kind: 'codex' | 'dsh' | 'claude' | 'zcode';
   label: string;
   installed: boolean;
   state: 'available' | 'pull-only' | 'unavailable';
@@ -1011,7 +1011,7 @@ export interface DesktopApplicationStatus {
   verifiedAt?: string | null;
   userDisabled?: boolean;
   lifecycleNote?: string | null;
-  diagnostics?: { summary?: string; controller?: { ok?: boolean; reason?: string }; engine?: { ok?: boolean; reason?: string }; timedOut?: boolean } | null;
+  diagnostics?: { summary?: string; controller?: { ok?: boolean; reason?: string; detail?: string }; engine?: { ok?: boolean; reason?: string; detail?: string }; timedOut?: boolean } | null;
 }
 
 export interface DesktopVerifyResult {
