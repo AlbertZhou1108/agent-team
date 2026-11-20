@@ -849,6 +849,21 @@ export class Store {
     if (!group) throw new Error('群不存在');
     return group;
   }
+  /** 团队的主控关系:哪些连接建立过访问、当前谁仍持有写入席位。 */
+  controllerRelations(groupId) {
+    return this.all(
+      `SELECT r.binding_id, r.principal_id, r.origin, r.revision, r.created, r.updated,
+              b.name AS binding_name, b.surface,
+              CASE WHEN l.controller_binding_id IS NULL THEN 0 ELSE 1 END AS active
+         FROM team_controller_relations r
+         LEFT JOIN external_client_bindings b ON b.id = r.binding_id
+         LEFT JOIN team_lead_controllers l
+                ON l.group_id = r.group_id AND l.controller_binding_id = r.binding_id AND l.state = 'active'
+        WHERE r.group_id = ?
+        ORDER BY active DESC, r.updated DESC`,
+      groupId,
+    );
+  }
   member(id) {
     const member = this.get('SELECT * FROM members WHERE id=? AND removed IS NULL', id);
     if (!member) throw new Error('成员不存在或已移除');

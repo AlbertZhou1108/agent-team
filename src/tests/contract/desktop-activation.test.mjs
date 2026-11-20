@@ -83,6 +83,12 @@ test('one global desktop credential resolves a separate conversation binding per
   const teamsA = await call('thread-A', 'control_teams');
   assert.equal(teamsA.teams.length, 1);
   assert.equal(teamsA.teams[0].active, false);
+
+  // 主控关系:A 建团、B 接管后各留一条;只有 B 仍持有写入席位。
+  const relations = bus.store.controllerRelations(created.team.id);
+  assert.equal(relations.length, 2);
+  assert.deepEqual(relations.map(row => row.active).sort(), [0, 1]);
+  assert.ok(relations.every(row => row.binding_name), '关系应带出连接名供界面展示');
 });
 
 test('activation credentials without a host thread identity fall back to the latest bound conversation', async t => {

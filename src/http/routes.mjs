@@ -555,6 +555,11 @@ export function apiRoutes(context) {
                 return value;
             } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/groups'), handle: async () => { let value; value = url.searchParams.get('archived') === '1' ? bus.store.all("SELECT id,name,workspace,state,created,lead FROM groups WHERE state='archived' ORDER BY created") : bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created"); return value; } },
+        { methods: ['GET'], archived: false, matches: url => /^\/api\/groups\/[^/]+\/controllers$/.test(url.pathname), handle: async () => {
+            const id = decodeURIComponent(url.pathname.match(/^\/api\/groups\/([^/]+)\/controllers$/)[1]);
+            bus.store.group(id);
+            return bus.store.controllerRelations(id);
+        } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/directory'), handle: async () => { let value; value = bus.queryDirectory(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/model-policy/defaults'), handle: async () => { let value; value = bus.queryDefaults(); return value; } },
         { methods: ["GET"], archived: false, matches: url => (url.pathname === '/api/group'), handle: async () => {
