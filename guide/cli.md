@@ -1,6 +1,6 @@
 # CLI 使用参考
 
-[返回产品介绍](../README.md) · [开发环境](development.md) · [通信模型](architecture.md)
+[返回产品介绍](../README.md) · [English](en/cli.md) · [开发环境](development.md) · [通信模型](architecture.md)
 
 普通用户可优先使用[发行包和页面](quick-start.md)。本页适合从终端启动、指定混合宿主成员或查询团队的用户。
 

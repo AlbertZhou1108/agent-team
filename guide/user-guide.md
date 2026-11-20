@@ -1,6 +1,6 @@
 # 日常使用
 
-[返回产品介绍](../README.md) · [开始使用](quick-start.md) · [CLI 参考](cli.md)
+[返回产品介绍](../README.md) · [English](en/user-guide.md) · [开始使用](quick-start.md) · [CLI 参考](cli.md)
 
 ## 在哪里交代工作？
 

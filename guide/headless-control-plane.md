@@ -1,6 +1,6 @@
 # 无头协作控制面
 
-[返回产品介绍](../README.md) · [架构](architecture.md) · [宿主适配](host-adapters.md)
+[返回产品介绍](../README.md) · [English](en/headless-control-plane.md) · [架构](architecture.md) · [宿主适配](host-adapters.md)
 
 本文定义 Agent Team 面向外部宿主的协作控制面。文中的“目标”不表示已经上线；实现状态以当前源码和测试为准。
 

@@ -78,15 +78,15 @@ console.log(`Import checks passed (${files.length} 个文件，${specifiers} 个
 
 // 文档里的本地链接：文件搬家/改名后，README/DESIGN/guide/skills 里的相对路径会静默失效。
 // 不只查 .mjs：设置页从 SettingsDialog.vue 改成 SettingsPage.vue 时，旧链接就曾漏过 .mjs 版门禁。
-const docs = ['README.md', 'DESIGN.md'].filter((name) => existsSync(name));
-for (const name of readdirSync('guide')) if (name.endsWith('.md')) docs.push(`guide/${name}`);
-(function walkDocs(directory) {
+const docs = ['README.md', 'README.en.md', 'DESIGN.md'].filter((name) => existsSync(name));
+function walkDocs(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) walkDocs(path);
     else if (path.endsWith('.md')) docs.push(path);
   }
-})('skills');
+}
+for (const directory of ['guide', 'skills']) walkDocs(directory);
 const deadLinks = [];
 let links = 0;
 for (const doc of docs) {

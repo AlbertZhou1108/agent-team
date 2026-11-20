@@ -1,6 +1,6 @@
 # 架构与通信
 
-[返回产品介绍](../README.md) · [术语表](../GLOSSARY.md) · [宿主适配](host-adapters.md)
+[返回产品介绍](../README.md) · [English](en/architecture.md) · [术语表](../GLOSSARY.md) · [宿主适配](host-adapters.md)
 
 ## 本地 B/S 与整体边界
 

@@ -1,6 +1,6 @@
 # 宿主配置与适配
 
-[返回产品介绍](../README.md) · [架构](architecture.md) · [限制](limitations.md)
+[返回产品介绍](../README.md) · [English](en/host-adapters.md) · [架构](architecture.md) · [限制](limitations.md)
 
 ## 内置接入
 

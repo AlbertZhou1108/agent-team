@@ -1,6 +1,6 @@
 # 能力边界与安全
 
-[返回产品介绍](../README.md) · [日常使用](user-guide.md) · [技术架构](architecture.md)
+[返回产品介绍](../README.md) · [English](en/limitations.md) · [日常使用](user-guide.md) · [技术架构](architecture.md)
 
 ## 适用范围
 

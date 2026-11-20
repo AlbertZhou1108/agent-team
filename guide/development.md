@@ -1,6 +1,6 @@
 # 开发、测试与发行构建
 
-[返回产品介绍](../README.md) · [架构](architecture.md) · [前端设计](../DESIGN.md)
+[返回产品介绍](../README.md) · [English](en/development.md) · [架构](architecture.md) · [前端设计](../DESIGN.md)
 
 ## 环境与源码运行
 

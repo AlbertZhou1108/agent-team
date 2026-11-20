@@ -1,6 +1,6 @@
 # 开始使用
 
-[返回产品介绍](../README.md) · [日常使用](user-guide.md) · [常见限制](limitations.md)
+[返回产品介绍](../README.md) · [English](en/quick-start.md) · [日常使用](user-guide.md) · [常见限制](limitations.md)
 
 ## 准备一个 AI 工具
 
