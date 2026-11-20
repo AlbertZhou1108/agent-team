@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { connectionProbe, exchange } from '../probe.mjs';
-import { mcpConfig } from '../process.mjs';
+import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
+import { mcpConfig } from '../../host-runtime/process.mjs';
 import { executionPolicy, policyObservation } from '../policies.mjs';
 import { modelCatalog } from '../catalog.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';

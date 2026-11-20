@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { probeCodex, probeClaude, exchange, connectionProbe } from '../../hosts/probe.mjs';
+import { probeCodex, probeClaude, exchange, connectionProbe } from '../../host-runtime/probe.mjs';
 import { createDshHost } from '../../hosts/cli-hosts.mjs';
 
 function fixture(t, source) {

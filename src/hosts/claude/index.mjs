@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createCliLifecycle } from '../lifecycle.mjs';
-import { connectionProbe, probeClaude, initializeClaude } from '../probe.mjs';
-import { writeMcpFiles, runJsonProcess } from '../process.mjs';
+import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
+import { connectionProbe, probeClaude, initializeClaude } from '../../host-runtime/probe.mjs';
+import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
 import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
 import { modelCatalog } from '../catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';

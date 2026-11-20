@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sandboxMode } from './policies.mjs';
+import { sandboxMode } from '../hosts/policies.mjs';
 import { nodeRunner } from '../runtime.mjs';
 
 export const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));

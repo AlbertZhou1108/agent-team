@@ -1,7 +1,7 @@
 import { version } from '../../version.mjs';
-import { spawnHost as spawn, stopHost } from '../subprocess.mjs';
-import { createCliLifecycle } from '../lifecycle.mjs';
-import { connectionProbe, probeCodex } from '../probe.mjs';
+import { spawnHost as spawn, stopHost } from '../../host-runtime/subprocess.mjs';
+import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
+import { connectionProbe, probeCodex } from '../../host-runtime/probe.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';

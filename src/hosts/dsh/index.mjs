@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCliLifecycle } from '../lifecycle.mjs';
-import { connectionProbe, exchange } from '../probe.mjs';
-import { writeMcpFiles, runJsonProcess } from '../process.mjs';
+import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
+import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
+import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
 import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from '../policies.mjs';
 import { modelCatalog } from '../catalog.mjs';
 import { dshProcessEnv } from './credentials.mjs';

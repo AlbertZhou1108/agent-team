@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from '../../hosts/index.mjs';
 import { HOST_DEFINITIONS } from '../../hosts/definitions.mjs';
-import { wakeDriverFor } from '../../hosts/wake-drivers.mjs';
+import { wakeDriverFor } from '../../host-runtime/wake-drivers.mjs';
 import { telemetryCapabilitiesFor, UNIFIED_FIELDS } from '../../telemetry-capabilities.mjs';
 import { loadHosts } from '../../server.mjs';
 

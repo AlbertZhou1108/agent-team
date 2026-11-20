@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
-import { runJsonProcess } from '../../hosts/process.mjs';
+import { runJsonProcess } from '../../host-runtime/process.mjs';
 import { createClaudeHost, readClaudeSessionMetadata } from '../../hosts/cli-hosts.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

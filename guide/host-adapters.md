@@ -45,7 +45,7 @@ WorkBuddy 不属于可启动成员，因此不写入这份成员宿主配置；�
 | `cancelProbe()` | 取消并收尾适配器拥有的检测进程 |
 | `listModels({ signal })` | 返回规范化模型目录，支持按宿主获取与缓存 |
 
-检测不发送模型消息。Codex 使用 app-server 初始化及目录；Claude 使用控制初始化协议；DSH 使用临时 overlay，并显式禁用任务执行器后读取目录；ZCode 完成 app-server 启动握手并列出会话。进程超时、取消、输出上限与清理集中在 [probe.mjs](../src/hosts/probe.mjs)。
+检测不发送模型消息。Codex 使用 app-server 初始化及目录；Claude 使用控制初始化协议；DSH 使用临时 overlay，并显式禁用任务执行器后读取目录；ZCode 完成 app-server 启动握手并列出会话。进程超时、取消、输出上限与清理集中在 [probe.mjs](../src/host-runtime/probe.mjs)。
 
 协议与宿主版本相关。检测成功不证明账号额度、线上推理或下一回合一定成功；实际宿主错误仍会反馈给用户，不自动登录、修改配置或重放业务消息。
 
@@ -86,6 +86,6 @@ DSH 通过 headless profile 的模型目录探针读取可用模型（[dsh/model
 - 可选的 `executionCapabilities`：声明指定群策略和 shell 配置下真实可用的文件读取、工作区写入、shell 与路径边界能力。未声明路径边界时不能把成员标成可写。
 - 可选的主动唤醒 driver：提供环境指纹与对现有会话的真实注入能力。未注册 driver 的宿主保持显式 pull-only。
 
-主要入口：[definitions.mjs](../src/hosts/definitions.mjs)（按宿主注册收敛）、[codex/index.mjs](../src/hosts/codex/index.mjs)、[codex/wake.mjs](../src/hosts/codex/wake.mjs)、[dsh/index.mjs](../src/hosts/dsh/index.mjs)、[dsh/wake.mjs](../src/hosts/dsh/wake.mjs)、[zcode/index.mjs](../src/hosts/zcode/index.mjs)、[zcode/wake.mjs](../src/hosts/zcode/wake.mjs)、[zcode/protocol.mjs](../src/hosts/zcode/protocol.mjs)、[wake-drivers.mjs](../src/hosts/wake-drivers.mjs)、[subprocess.mjs](../src/hosts/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
+主要入口：[definitions.mjs](../src/hosts/definitions.mjs)（按宿主注册收敛）、[codex/index.mjs](../src/hosts/codex/index.mjs)、[codex/wake.mjs](../src/hosts/codex/wake.mjs)、[dsh/index.mjs](../src/hosts/dsh/index.mjs)、[dsh/wake.mjs](../src/hosts/dsh/wake.mjs)、[zcode/index.mjs](../src/hosts/zcode/index.mjs)、[zcode/wake.mjs](../src/hosts/zcode/wake.mjs)、[zcode/protocol.mjs](../src/hosts/zcode/protocol.mjs)、[wake-drivers.mjs](../src/host-runtime/wake-drivers.mjs)、[subprocess.mjs](../src/host-runtime/subprocess.mjs)、[catalog.mjs](../src/hosts/catalog.mjs)、[policies.mjs](../src/hosts/policies.mjs)。
 
 模型目录可由 CLI 查询；页面设置中的全局模型策略用于新建角色的默认模型说明，不会追溯改写所有已有角色。事件视图只呈现适配器实际观察到的内容，不等同于宿主原生完整历史。

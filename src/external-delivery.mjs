@@ -1,4 +1,4 @@
-import { wakeDriverFor } from './hosts/wake-drivers.mjs';
+import { wakeDriverFor } from './host-runtime/wake-drivers.mjs';
 
 function wakeText({ teamName, count, verification }) {
   if (verification) {

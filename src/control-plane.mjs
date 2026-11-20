@@ -20,7 +20,7 @@ import { roleNameKey } from './collaboration.mjs';
 import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
 import { nodeRunner } from './runtime.mjs';
-import { wakeDriverFor } from './hosts/wake-drivers.mjs';
+import { wakeDriverFor } from './host-runtime/wake-drivers.mjs';
 import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
 import { HOST_DEFINITIONS, surfaceFollowsConversation } from './hosts/definitions.mjs';
 

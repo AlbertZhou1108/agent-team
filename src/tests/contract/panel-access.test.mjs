@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
 import { claudeExecutionConfig, codexSandboxConfig, executionPolicy, sandboxMode } from '../../hosts/policies.mjs';
-import { writeMcpFiles } from '../../hosts/process.mjs';
+import { writeMcpFiles } from '../../host-runtime/process.mjs';
 import { apply as applyDshPolicy } from '../../hosts/dsh/policy.mjs';
 
 async function until(fn) {

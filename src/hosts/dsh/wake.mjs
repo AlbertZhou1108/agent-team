@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { spawnHost, stopHost } from '../subprocess.mjs';
+import { spawnHost, stopHost } from '../../host-runtime/subprocess.mjs';
 import { dshProcessEnv } from './credentials.mjs';
 
 /**

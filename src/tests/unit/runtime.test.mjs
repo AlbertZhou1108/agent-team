@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nodeRunner } from '../../runtime.mjs';
-import { mcpConfig } from '../../hosts/process.mjs';
+import { mcpConfig } from '../../host-runtime/process.mjs';
 
 test('普通 Node 运行时不注入 Electron 标记', () => {
   assert.deepEqual(nodeRunner({ execPath: '/usr/bin/node', electron: false }), {
