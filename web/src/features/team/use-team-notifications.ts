@@ -34,7 +34,7 @@ export function useTeamNotifications(
   // 主控变更:别的连接接管后提示当前视图转只读,避免用户以为还能继续派发。
   let lastControllerId: string | null = null;
   watch(
-    derived.currentController,
+    () => derived.currentController?.value ?? null,
     (controller) => {
       const id = controller?.id ?? null;
       if (lastControllerId && id && id !== lastControllerId) {
@@ -50,7 +50,7 @@ export function useTeamNotifications(
   // 工作目录变更:旧会话不复用,新派发走新目录。
   let lastWorkspace: string | null = null;
   watch(
-    () => queries.detailQuery.data.value?.workspace ?? null,
+    () => queries.detailQuery?.data?.value?.workspace ?? null,
     (workspace) => {
       if (lastWorkspace && workspace && workspace !== lastWorkspace) {
         toast.info('工作目录已变更', {
