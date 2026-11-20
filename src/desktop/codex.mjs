@@ -196,7 +196,15 @@ export async function installCodexDesktopIntegration(store, {
   );
 
   // 成员宿主:内嵌引擎在框架私有 CODEX_HOME 里跑成员回合,不写用户可见聊天历史。
+  // 目录必须真实存在(引擎会在 CODEX_HOME 不存在时直接退出),并复用桌面登录态。
   const member = codexDesktopMemberHostSpec({ enginePath: detected.enginePath, dataDirectory: store.directory });
+  const memberHome = member.spec.env.CODEX_HOME;
+  mkdirSync(memberHome, { recursive: true, mode: 0o700 });
+  try {
+    symlinkSync(join(homedir(), '.codex', 'auth.json'), join(memberHome, 'auth.json'));
+  } catch {
+    // 未登录、平台不支持或链接已存在:交给引擎自身报告失败原因。
+  }
   writeDesktopHostSpec(store.directory, member.hostName, member.spec);
 
   return {

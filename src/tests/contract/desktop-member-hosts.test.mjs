@@ -3,7 +3,7 @@
 // spec 的 CODEX_HOME 指向框架私有目录保证。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../../store.mjs';
@@ -34,6 +34,7 @@ test('安装 Codex 后注册桌面成员宿主,引擎走隔离 CODEX_HOME', asyn
   assert.equal(spec.adapter, 'codex');
   assert.equal(spec.command, '/fake/codex', '成员执行必须用桌面内嵌引擎');
   assert.equal(spec.env.CODEX_HOME, join(store.directory, 'desktop-engines', 'codex'), '必须指向框架私有目录');
+  assert.equal(existsSync(spec.env.CODEX_HOME), true, '隔离 CODEX_HOME 必须真实存在,否则引擎直接退出');
 });
 
 test('服务启动时合并动态桌面宿主,且不影响内置宿主', async t => {
