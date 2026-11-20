@@ -147,6 +147,10 @@ export const api = {
   service() { return request<{ version: string; directory: string; url: string }>('/api/service'); },
   stopService() { return mutate<{ stopping: boolean }>('/api/service/stop', {}); },
   createGroup(body: { operationId: string; name: string; workspace: string; lead: { name: string; host: string }; members: Array<{ name: string; host: string }>; policy: string }) { return mutate<Group>('/api/groups', body); },
+  /** 团队的主控关系:哪些连接建立过访问、当前谁持有写入席位。 */
+  getTeamControllers(groupId: string) {
+    return request<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>(`/api/groups/${encodeURIComponent(groupId)}/controllers`);
+  },
   hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
   hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
   installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },

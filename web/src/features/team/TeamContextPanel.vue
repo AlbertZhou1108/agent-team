@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, type ComponentPublicInstance } from 'vue';
+import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
+import { api } from '@/shared/api/client';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
@@ -149,6 +150,13 @@ function bindGapRef(element: Element | ComponentPublicInstance | null) {
   sortable.bindGap(element instanceof HTMLElement ? element : null);
 }
 
+// 主控关系:当前谁持有写入席位、谁已只读。随团队切换刷新。
+const controllers = ref<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>([]);
+watch(() => props.groupId, async id => {
+  if (!id) { controllers.value = []; return; }
+  try { controllers.value = await api.getTeamControllers(id); } catch { controllers.value = []; }
+}, { immediate: true });
+
 const modelDialogMember = ref<Member | null>(null);
 const modelDialogOpen = ref(false);
 function openMemberModelDialog(member: Member) {
@@ -192,6 +200,16 @@ function onTab(value: string | number) {
         @click="emit('close')"
         ><span aria-hidden="true">×</span></Button
       >
+    </div>
+    <div v-if="controllers.length" class="border-b px-3 py-2 text-xs">
+      <p class="text-muted-foreground">主控</p>
+      <ul class="mt-1 flex flex-col gap-0.5">
+        <li v-for="row in controllers" :key="`${row.binding_name}-${row.updated}`" class="flex items-center gap-1.5">
+          <span :class="row.active ? 'text-foreground' : 'text-muted-foreground'" class="truncate">{{ row.binding_name ?? '未知连接' }}</span>
+          <span v-if="row.active" class="shrink-0 rounded bg-primary/10 px-1 text-[10px] text-primary">当前</span>
+          <span v-else class="shrink-0 text-[10px] text-muted-foreground">只读</span>
+        </li>
+      </ul>
     </div>
     <Tabs
       :model-value="panel"
