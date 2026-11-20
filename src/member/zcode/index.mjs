@@ -206,7 +206,7 @@ export function createZcodeHost({
       return zcodeModelCatalog(launch, join(directory, 'zcode-catalog-home'), options);
     },
     async run(context) {
-      const { endpoint, prompt, instructions, onSession, onAccepted, onTextDelta, onTelemetry, onModel, onSelection, onPolicy, signal, turnId, workspace } = context;
+      const { endpoint, prompt, instructions, onSession, onAccepted, onTextDelta, onReasoningDelta, onTelemetry, onModel, onSelection, onPolicy, signal, turnId, workspace } = context;
       if ((context.attachments ?? []).length) throw new Error('ZCode 会话暂不支持附件输入');
       const launch = resolveZcodeLaunch({ command, cwd: workspace });
       // 每 endpoint 独立 HOME：会话库与 agent_team MCP 配置都在该目录内，互不串扰。
@@ -314,9 +314,18 @@ export function createZcodeHost({
             turnStartedAt ??= timestamp;
             wakeTurnId ??= eventTurnId ?? null;
           }
-          if (type === 'text_delta' && typeof payload?.delta === 'string') {
+          // 真实 ZCode Protocol 将流式增量统一包在 `model.streaming` 下，由 payload.kind 区分 text_delta / reasoning_delta；
+          // 保留顶层 `text_delta` 兼容旧测试桩。
+          const streamKind = type === 'model.streaming' ? payload?.kind : type;
+          if (streamKind === 'text_delta' && typeof payload?.delta === 'string') {
             deltaText += payload.delta;
             onTextDelta?.(payload.delta, {
+              assistantMessageId: payload.assistantMessageId ?? null,
+              done: payload.done ?? null,
+              nativeTurnId: eventTurnId ?? null,
+            });
+          } else if (streamKind === 'reasoning_delta' && typeof payload?.delta === 'string') {
+            onReasoningDelta?.(payload.delta, {
               assistantMessageId: payload.assistantMessageId ?? null,
               done: payload.done ?? null,
               nativeTurnId: eventTurnId ?? null,
@@ -331,6 +340,10 @@ export function createZcodeHost({
             if (payload?.modelId) onModel({ phase: 'usage', models: [payload.modelId], provider: 'zcode', source: 'zcode.turn_completed' });
             completedResolve(payload ?? {});
           }
+          if (type === 'turn.failed') {
+            const message = payload?.error?.message ?? payload?.message ?? 'ZCode 回合执行失败';
+            completedReject(new Error(String(message)));
+          }
         },
       });
       signal.addEventListener('abort', () => {
@@ -342,23 +355,36 @@ export function createZcodeHost({
       try {
         signal.throwIfAborted();
         await protocol.ready;
+        let sessionResponse = null;
         if (endpoint.session) {
           sessionId = endpoint.session;
-          await protocol.request('session/resume', { sessionId }, { timeout: 60000 });
+          sessionResponse = await protocol.request('session/resume', { sessionId }, { timeout: 60000 });
           onSession(sessionId);
         } else {
-          const created = await protocol.request('session/create', {
+          sessionResponse = await protocol.request('session/create', {
             workspace: { workspacePath: workspace, workspaceKey: workspace },
             persistence: 'immediate',
           }, { timeout: 60000 });
-          sessionId = created?.session?.sessionId;
+          sessionId = sessionResponse?.session?.sessionId;
           if (!sessionId) throw new Error('ZCode 会话创建未返回 sessionId');
           onSession(sessionId);
         }
         if (selectedModel) {
+          const availableModels = sessionResponse?.settings?.model?.available;
+          const matchedProvider = Array.isArray(availableModels)
+            ? availableModels.find(item => (item?.ref?.modelId ?? item?.id) === selectedModel)?.ref?.providerId ?? null
+            : null;
+          const providerId = context.modelSelection?.model_provider
+            ?? matchedProvider
+            ?? sessionResponse?.session?.model?.providerId
+            ?? null;
           await protocol.request('session/setModel', {
             sessionId,
-            model: { providerId: context.modelSelection?.model_provider ?? null, modelId: selectedModel },
+            model: {
+              providerId,
+              modelId: selectedModel,
+              ...(selectedEffort ? { options: { reasoningLevel: selectedEffort } } : {}),
+            },
           }, { timeout: 30000 });
         }
         if (selectedEffort) {

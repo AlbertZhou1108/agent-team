@@ -59,7 +59,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     send({ id: row.id, result: { messages: [] } });
   } else if (row.method === 'session/setModel') {
     assert.equal(row.params.sessionId, process.env.STUB_RESUME_SESSION ?? 'sess-new-1');
-    assert.deepEqual(row.params.model, { providerId: process.env.STUB_MODEL_PROVIDER ?? 'prov-1', modelId: process.env.STUB_MODEL_ID ?? 'deepseek-v4-flash' });
+    assert.deepEqual(row.params.model, {
+      providerId: process.env.STUB_MODEL_PROVIDER ?? 'prov-1',
+      modelId: process.env.STUB_MODEL_ID ?? 'deepseek-v4-flash',
+      options: { reasoningLevel: 'low' },
+    });
     send({ id: row.id, result: {} });
   } else if (row.method === 'session/setThoughtLevel') {
     assert.equal(row.params.thoughtLevel, 'low');
@@ -78,7 +82,8 @@ createInterface({ input: process.stdin }).on('line', line => {
     send({ id: row.id, result: { accepted: true, stateRevision: 1 } });
     const sessionId = row.params.sessionId;
     send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1000, type: 'turn.started', payload: { input: row.params.content } } });
-    send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1100, type: 'text_delta', payload: { delta: '你好', assistantMessageId: 'msg-1', done: false } } });
+    send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1050, type: 'model.streaming', payload: { kind: 'reasoning_delta', delta: '思考中', assistantMessageId: 'msg-1', done: false } } });
+    send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1100, type: 'model.streaming', payload: { kind: 'text_delta', delta: '你好', assistantMessageId: 'msg-1', done: false } } });
     send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1200, type: 'model_request_completed', payload: { requestId: 'req-1', modelId: 'deepseek-v4-flash', contextWindow: 200000, usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105, cacheReadTokens: 80, cacheWriteTokens: 0 } } } });
     send({ method: 'session/event', params: { sessionId, turnId: 'turn-native-1', timestamp: 1450, type: 'turn.completed', payload: { response: '你好，已收到', tokenCount: 105, usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105, cacheReadTokens: 80, cacheWriteTokens: 0, reasoningTokens: 0 } } } });
   } else if ('id' in row) send({ id: row.id, result: {} });
@@ -101,6 +106,7 @@ function makeContext(endpoint) {
       onSession: value => events.push(['session', value]),
       onAccepted: () => events.push(['accepted']),
       onTextDelta: delta => events.push(['delta', delta]),
+      onReasoningDelta: delta => events.push(['reasoning', delta]),
       onTelemetry: observation => events.push(['telemetry', observation]),
       onModel: model => events.push(['model', model]),
       onSelection: selection => events.push(['selection', selection]),
@@ -120,6 +126,7 @@ test('zcode member run creates a session, applies model selection and returns th
   assert.equal(result, '你好，已收到');
   assert.deepEqual(events.find(row => row[0] === 'session')?.[1], 'sess-new-1');
   assert.ok(events.some(row => row[0] === 'accepted'), 'send receipt must be acknowledged');
+  assert.deepEqual(events.find(row => row[0] === 'reasoning')?.[1], '思考中');
   assert.deepEqual(events.find(row => row[0] === 'delta')?.[1], '你好');
   const selection = events.find(row => row[0] === 'selection')?.[1];
   assert.deepEqual(selection, { model: 'deepseek-v4-flash', reasoning_effort: 'low' });
