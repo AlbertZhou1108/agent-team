@@ -355,7 +355,7 @@ test('Panel tool entry uses the same projection and keeps session credentials', 
   const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const group = createTestGroup(bus, {
     name: 'panel projection',
@@ -436,7 +436,7 @@ if(r.method==='turn/start'){send({id:r.id,result:{turn:{id:'u'}}});setImmediate(
   });
   t.after(async () => {
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const group = createTestGroup(bus, {
     name: 'codex projection',

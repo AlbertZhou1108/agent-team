@@ -379,7 +379,7 @@ test('panel private answers survive a restart through the outbox', async t => {
   revived.start();
   await until(() => panelPrivateCalls(callsAfter).some(c => String(c.prompt).includes('用户选择:A')));
   await until(() => !revived.running.size);
-  t.after(() => rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  t.after(() => { try { rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
 });
 
 test('panel private answers wait out an unverified turn and deliver after resolution', async t => {
@@ -399,7 +399,7 @@ test('panel private answers wait out an unverified turn and deliver after resolu
   f.bus.resolvePanelRuntime(unknown[0].id, '用户核实宿主已停止');
   await until(() => panelPrivateCalls(calls).some(c => String(c.prompt).includes('用户选择:B')));
   await until(() => !f.bus.running.size);
-  t.after(() => rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  t.after(() => { try { rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
 });
 
 test('failed panel private answer delivery leaves a visible system notice', async t => {
@@ -416,7 +416,7 @@ test('failed panel private answer delivery leaves a visible system notice', asyn
   assert.ok(notice, 'system notice recorded');
   assert.ok(notice.text.includes('投递失败'));
   assert.ok(notice.text.includes('宿主拒绝输入'));
-  t.after(() => rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  t.after(() => { try { rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
 });
 
 test('queued panel private answers deliver in enqueue order', async t => {
@@ -439,7 +439,7 @@ test('queued panel private answers deliver in enqueue order', async t => {
   const prompts = panelPrivateCalls(calls).map(c => String(c.prompt));
   assert.ok(prompts[1].includes('用户选择:A'));
   assert.ok(prompts[2].includes('用户选择:B'));
-  t.after(() => rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  t.after(() => { try { rmSync(f.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
 });
 
 test('group_add becomes an interaction card and approval performs the add', async t => {
@@ -728,7 +728,7 @@ test('member model HTTP route applies directly with catalog validation', async t
 
 test('legacy interactions table rebuilds to accept member_model kind', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'interactions-migrate-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   {
     // 直接构造一个只含旧 interactions 的 v1 数据目录；Store 启动时补齐其余 v1 表再迁移到 v2。
     const raw = new DatabaseSync(join(directory, 'groups.sqlite'));

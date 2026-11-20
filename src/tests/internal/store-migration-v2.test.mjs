@@ -61,7 +61,7 @@ function seedV1(directory) {
 
 test('v1 data is migrated to the unified v2 schema without loss', t => {
   const directory = mkdtempSync(join(tmpdir(), 'store-v2-migrate-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   seedV1(directory);
 
   const store = new Store(directory);
@@ -135,7 +135,7 @@ test('v1 data is migrated to the unified v2 schema without loss', t => {
 
 test('reopening a migrated directory is idempotent', t => {
   const directory = mkdtempSync(join(tmpdir(), 'store-v2-reopen-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   seedV1(directory);
   let store = new Store(directory);
   const before = store.all('SELECT id FROM conversations ORDER BY id').map(row => row.id);

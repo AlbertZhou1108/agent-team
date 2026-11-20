@@ -45,7 +45,7 @@ test('coalesces consecutive token deltas of one stream into a single row', () =>
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -65,7 +65,7 @@ test('flushes pending deltas before a structured event so seq order is preserved
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -92,7 +92,7 @@ test('keeps different streams and different payload kinds apart', () => {
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -130,6 +130,6 @@ test('member history returns null for private endpoints and stores elsewhere', (
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });

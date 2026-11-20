@@ -35,7 +35,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.equal(host.supportsPolicy({ policy: { mode: 'workspace-write', allowShell: false } }).supported, false);
   t.after(async () => {
     await host.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
 
   await assert.rejects(host.run({

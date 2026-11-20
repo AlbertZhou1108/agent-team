@@ -12,7 +12,7 @@ function fixture(t, source) {
   chmodSync(file, 0o700);
   const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
   if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   return command;
 }
 

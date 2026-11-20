@@ -9,7 +9,7 @@ import { createLegacyV1 } from '../support/legacy-v1.mjs';
 
 function tempDir(t) {
   const directory = mkdtempSync(join(tmpdir(), 'store-schema-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   return directory;
 }
 

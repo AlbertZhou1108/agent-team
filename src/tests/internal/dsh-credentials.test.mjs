@@ -11,7 +11,7 @@ function credentialsFixture(t, content) {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-credentials-'));
   const path = join(directory, '.credentials.yaml');
   if (content !== null) writeFileSync(path, content);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   return path;
 }
 
@@ -53,7 +53,7 @@ process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ ok: true
   const fake = process.platform === 'win32' ? join(directory, 'fake-dsh.cmd') : script;
   if (process.platform === 'win32') writeFileSync(fake, `@echo off\r\n"${process.execPath}" "%~dp0fake-dsh.mjs" %*\r\n`);
   else { writeFileSync(script, `#!/usr/bin/env node\n` + readFileSync(script, 'utf8')); chmodSync(fake, 0o700); }
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const env = dshProcessEnv({ PATH: process.env.PATH ?? '' }, credentialsFixture(t, 'DEEPSEEK_API_KEY: sk-injected\n'));
   const result = await runDshCatalogProbe(fake, directory, { env });
   assert.ok(Array.isArray(result.providers));
@@ -89,7 +89,7 @@ process.stdout.write(JSON.stringify({ type: 'final', text: 'ok' }) + '\\n');
   const fake = process.platform === 'win32' ? join(directory, 'fake-dsh.cmd') : script;
   if (process.platform === 'win32') writeFileSync(fake, `@echo off\r\n"${process.execPath}" "%~dp0fake-dsh.mjs" %*\r\n`);
   else { writeFileSync(script, `#!/usr/bin/env node\n` + readFileSync(script, 'utf8')); chmodSync(fake, 0o700); }
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
 
   const result = await wakeDshSession({
     command: fake,

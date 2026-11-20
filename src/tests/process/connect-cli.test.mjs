@@ -13,7 +13,7 @@ const cli = fileURLToPath(new URL('../../cli.mjs', import.meta.url));
 
 test('connect installs the Skill, prints MCP config and rotates the same binding on repeat', async t => {
   const root = mkdtempSync(join(tmpdir(), 'agent-team-connect-cli-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const data = join(root, 'data');
   const skill = join(root, 'skill');
   const args = [
@@ -47,7 +47,7 @@ test('connect installs the Skill, prints MCP config and rotates the same binding
 
 test('connect for zcode declares session.wake and reuses the shared skill directory', async t => {
   const root = mkdtempSync(join(tmpdir(), 'agent-team-connect-zcode-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const data = join(root, 'data');
   const output = JSON.parse((await run(process.execPath, [
     cli,
@@ -72,7 +72,7 @@ test('connect for zcode declares session.wake and reuses the shared skill direct
 
 test('connect for dsh declares session.wake and reuses the shared skill directory', async t => {
   const root = mkdtempSync(join(tmpdir(), 'agent-team-connect-dsh-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const data = join(root, 'data');
   const output = JSON.parse((await run(process.execPath, [
     cli,

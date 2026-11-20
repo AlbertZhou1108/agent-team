@@ -32,7 +32,7 @@ test('default panel workspace adapts to the platform and documents presence', ()
       join(desktopHome, 'Documents', 'AgentTeam'),
     );
   } finally {
-    rmSync(desktopHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(desktopHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -45,6 +45,6 @@ test('ensureDefaultPanelWorkspace creates the directory idempotently', () => {
     // 再次调用不抛错(幂等)。
     assert.equal(ensureDefaultPanelWorkspace({ home, platform: 'darwin' }), first);
   } finally {
-    rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });

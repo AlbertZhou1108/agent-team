@@ -67,7 +67,7 @@ test('attachment settings persist across restart', async t => {
   let server = await startServer({ directory, hosts: new Map() });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   server.bus.updateAttachmentSettings({ maxFileBytes: 2048, maxFilesPerMessage: 3, maxImagePixels: 30_000_000 });
   await server.close();

@@ -13,7 +13,7 @@ function fixture(t, source) {
   chmodSync(file, 0o700);
   const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
   if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   return command;
 }
 
@@ -112,7 +112,7 @@ function makeContext(endpoint) {
 
 test('zcode member run creates a session, applies model selection and returns the final text', async t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const command = fixture(t, baseStub());
   const host = createZcodeHost({ directory: root, socketPath: join(root, 'bus.sock'), command });
   const { context, events } = makeContext({ id: 'endpoint-1', key: 'ep-key', context: 'coordination' });
@@ -130,12 +130,12 @@ test('zcode member run creates a session, applies model selection and returns th
   assert.equal(turnTelemetry.usage.uncachedInputTokens, 20);
   assert.ok(Number.isFinite(turnTelemetry.usage.hostTurnWallMs));
   assert.ok(events.some(row => row[0] === 'policy'), 'policy observation must be emitted');
-  rmSync(context.workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  try { rmSync(context.workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
 });
 
 test('zcode member run resumes the bound endpoint session', async t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const command = fixture(t, baseStub());
   const host = createZcodeHost({ directory: root, socketPath: join(root, 'bus.sock'), command });
   const { context, events } = makeContext({ id: 'endpoint-2', key: 'ep-key', context: 'coordination' });
@@ -150,7 +150,7 @@ test('zcode member run resumes the bound endpoint session', async t => {
 
 test('zcode listModels reads the catalog from isolated session state', async t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const command = fixture(t, `
 import { createInterface } from 'node:readline';
 import assert from 'node:assert/strict';
@@ -185,7 +185,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 
 test('zcode listModels reads the catalog from session/create settings and answers runtime preferences', async t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const command = fixture(t, `
 import { createInterface } from 'node:readline';
 import assert from 'node:assert/strict';
@@ -231,7 +231,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 
 test('zcode execution capabilities follow the group policy', t => {
   const root = mkdtempSync(join(tmpdir(), 'zcode-host-root-'));
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const host = createZcodeHost({ directory: root, socketPath: 'unused', command: 'unused-host' });
   assert.deepEqual(host.executionCapabilities({ mode: 'communication', allowShell: true }), {
     effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信',

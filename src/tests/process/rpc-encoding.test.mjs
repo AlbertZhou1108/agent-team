@@ -41,7 +41,7 @@ test('RPC request preserves byte-fragmented Chinese and emoji', async () => {
   } finally {
     socket?.destroy();
     await server?.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -76,6 +76,6 @@ test('RPC server closes requests exceeding one MiB in UTF-8 bytes', async () => 
   } finally {
     socket?.destroy();
     await server?.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });

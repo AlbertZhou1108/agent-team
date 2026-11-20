@@ -309,7 +309,7 @@ test('private conversation cannot dispatch; explicitly shared user directive has
 test('legacy database migrates additively and remains unknown across reopen', async t => {
   const { Store } = await import('../../store.mjs');
   const directory = mkdtempSync(join(tmpdir(), 'agent-migration-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   let store = new Store(directory);
   store.run('INSERT INTO groups(id,name,workspace,lead,created) VALUES(?,?,?,?,?)', 'g', 'legacy', directory, null, 'old');
   store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', 'm', 'g', 'old', 'fake', 'lead');

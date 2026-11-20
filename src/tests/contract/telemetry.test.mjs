@@ -653,7 +653,7 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const deltas = [], toolDeltas = [], reasonings = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },

@@ -63,7 +63,7 @@ async function fixture(t) {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   return { directory, calls, bus };
 }
@@ -251,7 +251,7 @@ test('coordination updates remain source notifications without waking the privat
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const group = createTestGroup(bus, {
     name: 'team update channel',
@@ -304,7 +304,7 @@ test('legacy notifications do not wake an idle private host', async t => {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const group = createTestGroup(bus, {
     name: 'update queueing',
@@ -548,7 +548,7 @@ test('Panel Agent identity, private conversation and session survive restart', a
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const after = bus.panelAgentState();
   assert.equal(after.agent.id, before.agent.id);
@@ -622,8 +622,8 @@ test('panel private turns bind attachments, record requests and replay idempoten
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
+    try { rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const state = await createAgent(bus, workspace);
   const agentId = state.agent.id;
@@ -701,8 +701,8 @@ test('attachment metadata survives a service restart', async t => {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
+    try { rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const state = await createAgent(bus, workspace);
   const uploaded = await bus.attachmentUpload(state.agent.id, Buffer.from('restart me'), { name: 'r.txt', mediaType: 'text/plain' });

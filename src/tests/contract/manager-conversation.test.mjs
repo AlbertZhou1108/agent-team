@@ -158,7 +158,7 @@ async function fixture(t) {
   t.after(async () => {
     for (const close of cleanup) await close();
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   return { bus, group, lead, one, two, panelId, session, addPanelTurn, addMemberPairTurn, directory, cleanup };
 }

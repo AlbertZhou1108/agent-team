@@ -13,7 +13,7 @@ import { loadHosts } from '../../server.mjs';
 
 function tempDir(t, prefix) {
   const directory = mkdtempSync(join(tmpdir(), prefix));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   return directory;
 }
 

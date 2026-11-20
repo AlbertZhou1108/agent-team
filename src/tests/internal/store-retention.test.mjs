@@ -12,7 +12,7 @@ const fresh = new Date(Date.now() - 1 * DAY).toISOString();
 
 function setup(t) {
   const directory = mkdtempSync(join(tmpdir(), 'store-retention-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const store = new Store(directory);
   store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g','G','/tmp',?)", old);
   store.run("INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g','one','fake','lead'),('m2','g','two','fake','member')");

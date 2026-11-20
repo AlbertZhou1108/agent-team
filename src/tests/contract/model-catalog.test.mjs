@@ -53,7 +53,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createClaudeHost({ directory, socketPath: join(directory, 'bus.sock'), command: fake });
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const catalog = await host.listModels();
   assert.equal(catalog.defaultModel, 'default');
   assert.ok(catalog.models.some(model => model.id === 'sonnet'));
@@ -78,7 +78,7 @@ process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ directory, socketPath: join(directory, 'bus.sock'), command: fake });
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const catalog = await host.listModels();
   assert.equal(catalog.defaultModel, 'provider/model-a');
   assert.equal(catalog.models[0].contextWindow, 1000000);
@@ -135,7 +135,7 @@ test('Bus reports a host that cannot discover models without failing other hosts
     assert.equal(result.hosts.find(host => host.host === 'supported').ok, true);
   } finally {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });
 
@@ -146,6 +146,6 @@ test('Bus reports a host that cannot discover models without failing other hosts
 process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ok:true,providers:[],failures:[]}) + '\\n', () => setTimeout(() => process.exit(7), 50));
 `);
   chmodSync(fake, 0o700);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  t.after(() => { try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   await assert.rejects(createDshHost({directory, command:fake}).listModels(), /退出 \(7\)/);
 });

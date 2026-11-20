@@ -17,6 +17,6 @@ test('store keeps WAL durability at NORMAL so per-event commits do not fsync', (
     assert.equal(store.get('PRAGMA synchronous').synchronous, 1);
   } finally {
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   }
 });

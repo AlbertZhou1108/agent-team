@@ -40,7 +40,7 @@ test('discovery treats a resetting socket as not running', { timeout: 15000 }, a
   const resetting = net.createServer(socket => socket.destroy());
   t.after(async () => {
     await new Promise(resolve => resetting.close(resolve));
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   await new Promise((resolve, reject) => {
     resetting.once('error', reject);
@@ -57,7 +57,7 @@ test('an occupied remembered port falls back without stopping its owner', { time
   t.after(async () => {
     await stopService(directory);
     if (occupied.listening) await new Promise(resolve => occupied.close(resolve));
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const first = await launch({ directory, configFile });
   await stopService(directory);

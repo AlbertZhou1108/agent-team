@@ -76,7 +76,7 @@ test('stable control MCP shim lists and executes cross-team control tools', asyn
   const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const identity = createExternalIdentity(server.bus.store, {
     principalName: 'stdio 用户',
@@ -133,7 +133,7 @@ test('control MCP treats an inherited Codex subagent thread as pull-only', async
   const server = await startServer({ directory, hosts: new Map([['fake', fakeHost({ profileText: null })]]) });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const identity = createExternalIdentity(server.bus.store, {
     principalName: '子 Agent 用户',

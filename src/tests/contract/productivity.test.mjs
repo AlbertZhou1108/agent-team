@@ -25,7 +25,7 @@ test('search treats wildcard characters literally, filters groups and dates and 
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const a = createTestGroup(bus, {
     name: 'a',
@@ -96,7 +96,7 @@ test('workbench counts only unanswered interactions and retains the last complet
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const group = createTestGroup(bus, {
     name: 'team',
@@ -208,7 +208,7 @@ test('home summary uses the existing Panel Agent execution and survives a later 
   const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const created = new Date().toISOString();
   bus.store.run(
@@ -283,7 +283,7 @@ test('workbench HTTP stays readable throughout Panel Agent summary generation', 
     await pending?.catch(() => {});
     abort.abort();
     await server.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
   });
   const created = new Date().toISOString();
   bus.store.run(
