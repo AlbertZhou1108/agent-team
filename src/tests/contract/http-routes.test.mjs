@@ -36,6 +36,6 @@ test('HTTP routes enforce methods, preserve errors and keep SSE open', async () 
     await reader.cancel().catch(() => {});
   } finally {
     await server?.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });

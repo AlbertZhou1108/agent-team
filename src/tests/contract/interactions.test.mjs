@@ -28,7 +28,7 @@ async function setup(t, script, { members = [] } = {}) {
   const calls = [];
   const host = makeHost(async c => { calls.push(c); return script(c); });
   const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const group = createTestGroup(server.bus, { name: 'interactions', workspace: directory, lead: { name: 'Lead', host: 'fake' }, members });
   await until(() => !server.bus.running.size);
   const memberRow = server.bus.store.get("SELECT * FROM members WHERE group_id=? AND role!='lead'", group.id);
@@ -283,7 +283,7 @@ test('panel agent ask in private chat creates a card and the answer wakes its pr
     },
   };
   const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   await server.bus.createPanelAgent({ name: 'Panel', host: 'fake', model: 'test', reasoning_effort: 'low' });
   const agent = server.bus.panelAgent();
   const session = server.bus.store.panelSession(agent.id, 'private');
@@ -728,7 +728,7 @@ test('member model HTTP route applies directly with catalog validation', async t
 
 test('legacy interactions table rebuilds to accept member_model kind', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'interactions-migrate-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   {
     // 直接构造一个只含旧 interactions 的 v1 数据目录；Store 启动时补齐其余 v1 表再迁移到 v2。
     const raw = new DatabaseSync(join(directory, 'groups.sqlite'));

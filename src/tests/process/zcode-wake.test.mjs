@@ -12,7 +12,7 @@ function fixture(t, source) {
   chmodSync(file, 0o700);
   const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
   if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return command;
 }
 
@@ -102,7 +102,7 @@ test('ZCode launch resolution prefers the env override and existing commands', t
   const directory = mkdtempSync(join(tmpdir(), 'zcode-launch-'));
   t.after(() => {
     delete process.env.AGENT_TEAM_ZCODE_COMMAND;
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const entry = join(directory, 'zcode-entry.mjs');
   writeFileSync(entry, 'process.exit(0);\n');
@@ -130,7 +130,7 @@ function fakeApp(t, layout) {
   const provider = layout === 'modern' ? paths.modernProvider : paths.legacyProvider;
   mkdirSync(join(provider, '..'), { recursive: true });
   writeFileSync(provider, '{}');
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return app;
 }
 
@@ -138,7 +138,7 @@ test('ZCode detects legacy and modern provider layouts', t => {
   assert.equal(detectZcodeLayout(fakeApp(t, 'legacy')), 'legacy');
   assert.equal(detectZcodeLayout(fakeApp(t, 'modern')), 'modern');
   const empty = mkdtempSync(join(tmpdir(), 'zcode-empty-'));
-  t.after(() => rmSync(empty, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(empty, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   assert.equal(detectZcodeLayout(empty), null);
 });
 
@@ -160,7 +160,7 @@ test('ZCode launch injects the personal provider config path for headless spawns
   const directory = mkdtempSync(join(tmpdir(), 'zcode-launch-'));
   const entry = join(directory, 'zcode-entry.mjs');
   writeFileSync(entry, 'process.exit(0);\n');
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   delete process.env.AGENT_TEAM_ZCODE_COMMAND;
   const direct = resolveZcodeLaunch({ command: entry, cwd: directory });
   const expected = zcodePersonalProviderConfigPath();
@@ -177,7 +177,7 @@ test('ZCode modern layout uses a prepared copy launched by system node', t => {
     delete process.env.AGENT_TEAM_ZCODE_COMMAND;
     delete process.env.ZCODE_AGENT_SERVER_COMMAND;
     delete process.env.AGENT_TEAM_ZCODE_COMPAT_DIR;
-    rmSync(compat, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(compat, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const launch = resolveZcodeLaunch({ command: join(app, 'Contents', 'MacOS', 'ZCode') });
   assert.equal(launch.command, process.execPath);
@@ -196,7 +196,7 @@ test('prepareZcodeEntry is idempotent and migrates provider config', t => {
   process.env.AGENT_TEAM_ZCODE_COMPAT_DIR = compat;
   t.after(() => {
     delete process.env.AGENT_TEAM_ZCODE_COMPAT_DIR;
-    rmSync(compat, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(compat, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const first = prepareZcodeEntry(app);
   const config = join(compat, 'glm', 'provider', 'zcode-builtin.json');

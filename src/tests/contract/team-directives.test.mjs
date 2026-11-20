@@ -12,7 +12,7 @@ async function setup(t, run, { members = [] } = {}) {
  const calls=[];
  const host={async listModels(){return{version:1,host:'fake',source:'test',defaultModel:'test',models:[{id:'test',key:'test',reasoningEfforts:[{id:'low'}]}]};},async run(c){c.onSession(c.endpoint.session??c.endpoint.id);if(c.endpoint.context==='profile'){await c.onTool('profile_set',{text:'ready'});c.onAccepted();return''}calls.push(c);if(run)return run(c);c.onAccepted();return'done'}};
  let server=await startServer({directory,hosts:new Map([['fake',host]])});
- t.after(async()=>{await server.close();rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50})});
+ t.after(async()=>{await server.close();rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:100})});
  const group=createTestGroup(server.bus,{name:'directives',workspace:directory,lead:{name:'Lead',host:'fake'},members});await until(()=>!server.bus.running.size);
  const send=(body,headers={})=>fetch(new URL(`/api/teams/${group.id}/directives`,server.url),{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
  const read=async()=>{const r=await fetch(new URL(`/api/teams/${group.id}/directives`,server.url));return r.json()};

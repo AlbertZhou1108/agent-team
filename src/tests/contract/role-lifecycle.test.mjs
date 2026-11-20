@@ -47,7 +47,7 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   assert.throws(() => bus.createGroup({

@@ -16,7 +16,7 @@ function fixture(t) {
   const store = new Store(directory);
   t.after(() => {
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   store.run(
     "INSERT INTO groups(id,name,workspace,lead,created,state) VALUES('g1','G1','/tmp',NULL,?,NULL),('g2','G2','/tmp',NULL,?,'active'),('g3','G3','/tmp',NULL,?,'archived')",

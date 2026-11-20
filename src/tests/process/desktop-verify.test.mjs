@@ -12,7 +12,7 @@ import * as externalAgg from '../../aggregates/external-control.mjs';
 
 function tempDir(t, prefix) {
   const directory = mkdtempSync(join(tmpdir(), prefix));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
 }
 

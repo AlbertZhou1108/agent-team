@@ -35,7 +35,7 @@ function setup(t, { run = null } = {}) {
   });
   t.after(async () => {
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const declared = {
     capabilities: Object.values(CONTROL_CAPABILITIES),

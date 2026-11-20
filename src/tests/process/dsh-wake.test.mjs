@@ -12,7 +12,7 @@ function fixture(t, source) {
   chmodSync(file, 0o700);
   const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
   if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return command;
 }
 
@@ -98,7 +98,7 @@ test('DSH wake fingerprint tracks the dsh home patch layer', t => {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-wake-fp-'));
   t.after(() => {
     delete process.env.DSH_HOME;
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const mcpConfig = { command: '/tmp/n', args: [], env: {} };
   const base = dshWakeFingerprint({ command: 'dsh', threadId: 'session-1', mcpConfig });

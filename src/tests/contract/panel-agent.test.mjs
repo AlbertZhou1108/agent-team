@@ -63,7 +63,7 @@ async function fixture(t) {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   return { directory, calls, bus };
 }
@@ -251,7 +251,7 @@ test('coordination updates remain source notifications without waking the privat
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const group = createTestGroup(bus, {
     name: 'team update channel',
@@ -304,7 +304,7 @@ test('legacy notifications do not wake an idle private host', async t => {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const group = createTestGroup(bus, {
     name: 'update queueing',
@@ -414,7 +414,7 @@ test('private creation forwards to its team coordination and receives an explici
    return base.run(context);
  }};
  bus=new Bus({directory,hosts:new Map([['fake',host]])}); bus.start();
- t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
+ t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:100});});
  const state=await createAgent(bus); const response=await bus.panelPrivateTurn({ text: 'create and run' });
  await until(()=>!bus.running.size);
  const requests=bus.panelAgentState().requests; assert.equal(requests.length,1);
@@ -548,7 +548,7 @@ test('Panel Agent identity, private conversation and session survive restart', a
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const after = bus.panelAgentState();
   assert.equal(after.agent.id, before.agent.id);
@@ -599,7 +599,7 @@ test('unread projection preserves the private message window without text', asyn
 test('service restart separates all private history from current messages and pages without overlap', async t => {
  const directory=mkdtempSync(join(tmpdir(),'panel-boot-'));
  let bus=new Bus({directory,hosts:new Map([['fake',hostFixture()]])});
- t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
+ t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:100});});
  const state=await createAgent(bus);
  for(let i=0;i<205;i++) bus.store.panelAppend(state.agent.id,'private','assistant','old '+i,i%2?'legacy-team':null);
  const hosts=bus.hosts;await bus.close();bus=new Bus({directory,hosts});
@@ -622,8 +622,8 @@ test('panel private turns bind attachments, record requests and replay idempoten
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const state = await createAgent(bus, workspace);
   const agentId = state.agent.id;
@@ -701,8 +701,8 @@ test('attachment metadata survives a service restart', async t => {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const state = await createAgent(bus, workspace);
   const uploaded = await bus.attachmentUpload(state.agent.id, Buffer.from('restart me'), { name: 'r.txt', mediaType: 'text/plain' });

@@ -25,7 +25,7 @@ function fixture(t) {
   new TeamRequests({ store });
   t.after(() => {
     store.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   return store;
 }

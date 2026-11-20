@@ -18,7 +18,7 @@ test('concurrent launchers discover and reuse one service; stop preserves data',
   const directory = mkdtempSync(join(tmpdir(), 'launcher 中文 space-'));
   const configFile = join(directory, 'hosts.json');
   writeFileSync(configFile, JSON.stringify({ hosts: {} }));
-  t.after(async () => { await stopService(directory); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await stopService(directory); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const [first, second] = await Promise.all([launch({ directory, configFile }), launch({ directory, configFile })]);
   assert.equal(first.pid, second.pid);
   assert.equal(first.instanceId, second.instanceId);
@@ -40,7 +40,7 @@ test('discovery treats a resetting socket as not running', { timeout: 15000 }, a
   const resetting = net.createServer(socket => socket.destroy());
   t.after(async () => {
     await new Promise(resolve => resetting.close(resolve));
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   await new Promise((resolve, reject) => {
     resetting.once('error', reject);
@@ -57,7 +57,7 @@ test('an occupied remembered port falls back without stopping its owner', { time
   t.after(async () => {
     await stopService(directory);
     if (occupied.listening) await new Promise(resolve => occupied.close(resolve));
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const first = await launch({ directory, configFile });
   await stopService(directory);

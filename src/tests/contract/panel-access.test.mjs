@@ -75,8 +75,8 @@ async function fixture(t, options = {}) {
   bus.start();
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   return { bus, directory, workspace, calls };
 }
@@ -102,7 +102,7 @@ test('Panel access configuration is validated before persistence', async t => {
   t.after(() => {
     process.env.HOME = previousHome.HOME;
     process.env.USERPROFILE = previousHome.USERPROFILE;
-    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const { bus, workspace } = await fixture(t);
   await assert.rejects(bus.createPanelAgent({ ...baseAgent, access: 'invalid' }), /访问级别无效/);
@@ -221,7 +221,7 @@ test('Panel can switch from a provider-qualified host to a providerless model', 
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   await bus.createPanelAgent({
     name: 'Provider switch',
@@ -257,7 +257,7 @@ test('Legacy Panel Agent rows migrate to read-only and reset the private host se
   const bus = new Bus({ directory, hosts: new Map([['fake', hostFixture(calls)]]) });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const agent = bus.panelAgent();
   assert.equal(agent.access, 'read-only');
@@ -305,8 +305,8 @@ test('DSH patch and policy plugin carry the full-access and read-only tiers', as
   const workspace = mkdtempSync(join(tmpdir(), 'agent-team-panel-dsh-workspace-'));
   mkdirSync(workspace, { recursive: true });
   t.after(() => {
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   const files = writeMcpFiles(directory, join(directory, 'bus.sock'), { id: 'endpoint-1', key: 'key-1' }, 'turn-1', {
@@ -355,7 +355,7 @@ test('panel agent creation falls back to the per-OS default workspace', async t 
   t.after(() => {
     process.env.HOME = previousHome.HOME;
     process.env.USERPROFILE = previousHome.USERPROFILE;
-    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(fakeHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   const { bus } = await fixture(t);
@@ -366,7 +366,7 @@ test('panel agent creation falls back to the per-OS default workspace', async t 
   assert.ok(await import('node:fs').then(fs => fs.existsSync(workspace)), '默认工作区已创建');
   // 显式提供的工作区仍然按原样校验使用。
   const explicit = mkdtempSync(join(tmpdir(), 'agent-explicit-ws-'));
-  t.after(() => rmSync(explicit, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(explicit, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const updated = await bus.updatePanelAgent({ workspace: explicit, access: 'workspace-write' });
   assert.equal(updated.agent.workspace, explicit);
 });

@@ -8,7 +8,7 @@ import { Store, SCHEMA_VERSION } from '../../store.mjs';
 
 function tempDir(t) {
   const directory = mkdtempSync(join(tmpdir(), 'store-notes-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
 }
 

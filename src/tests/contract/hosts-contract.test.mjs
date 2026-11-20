@@ -12,7 +12,7 @@ import { loadHosts } from '../../server.mjs';
 
 function tempDir(t) {
   const directory = mkdtempSync(join(tmpdir(), 'host-contract-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
 }
 

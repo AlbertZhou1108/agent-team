@@ -18,7 +18,7 @@ test('first use isolates hosts, resolves explicit defaults, creates teams once a
     connectionStatus() { return { status: 'available' }; },
   };
   let server = await startServer({ directory, hosts: new Map([['fake', fake], ['other', { async listModels() { otherCalls++; throw new Error('must not be queried'); } }]]) });
-  t.after(async () => { await server.close(); rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const post = (path, body, headers = {}) => fetch(new URL(path, server.url), { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
   const catalog = await (await fetch(new URL('/api/model-catalog?host=fake', server.url))).json();
   assert.equal(catalog.hosts.length, 1); assert.equal(otherCalls, 0);

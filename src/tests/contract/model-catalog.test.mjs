@@ -30,7 +30,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
-  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const catalog = await host.listModels();
   assert.equal(catalog.defaultModel, 'model-a');
   assert.deepEqual(catalog.models.map(model => model.id), ['model-a']);
@@ -53,7 +53,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createClaudeHost({ directory, socketPath: join(directory, 'bus.sock'), command: fake });
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const catalog = await host.listModels();
   assert.equal(catalog.defaultModel, 'default');
   assert.ok(catalog.models.some(model => model.id === 'sonnet'));
@@ -78,7 +78,7 @@ process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ directory, socketPath: join(directory, 'bus.sock'), command: fake });
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const catalog = await host.listModels();
   assert.equal(catalog.defaultModel, 'provider/model-a');
   assert.equal(catalog.models[0].contextWindow, 1000000);
@@ -100,7 +100,7 @@ test('model catalog is cached, refreshable, and exposed through the read-only AP
     },
   };
   const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const first = await server.bus.modelCatalog();
   const second = await server.bus.modelCatalog();
   const refreshed = await server.bus.modelCatalog({ refresh: true });
@@ -135,7 +135,7 @@ test('Bus reports a host that cannot discover models without failing other hosts
     assert.equal(result.hosts.find(host => host.host === 'supported').ok, true);
   } finally {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });
 
@@ -146,6 +146,6 @@ test('Bus reports a host that cannot discover models without failing other hosts
 process.stdout.write('AGENT_TEAM_DSH_MODEL_CATALOG ' + JSON.stringify({ok:true,providers:[],failures:[]}) + '\\n', () => setTimeout(() => process.exit(7), 50));
 `);
   chmodSync(fake, 0o700);
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   await assert.rejects(createDshHost({directory, command:fake}).listModels(), /退出 \(7\)/);
 });

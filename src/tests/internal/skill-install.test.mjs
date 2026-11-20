@@ -17,7 +17,7 @@ function fixture(t) {
   mkdirSync(join(source, 'references'), { recursive: true });
   writeFileSync(join(source, 'SKILL.md'), '# Agent Team\n');
   writeFileSync(join(source, 'references', 'lead.md'), 'lead\n');
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return { root, source, target };
 }
 

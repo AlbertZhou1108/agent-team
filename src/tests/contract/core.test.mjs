@@ -149,7 +149,7 @@ test('restart recovers identical persisted input with stable message and note id
 test('HTTP panel needs no key or cookie, rejects DNS rebinding and paginates records', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-panel-test-'));
   const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const base = new URL(server.url).origin;
   const entry = await fetch(server.url, { redirect: 'manual' });
   assert.equal(entry.status, 200);
@@ -187,7 +187,7 @@ test('local panel rejects cross-site and cross-origin requests without cookie au
 
     hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]),
   });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const base = new URL(server.url).origin;
   assert.equal((await fetch(base + "/api/snapshot", { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
   assert.equal((await fetch(base + "/api/model-policy", { method: "POST", headers: { Origin: "http://localhost:9999", "Content-Type": "application/json" }, body: "{}" })).status, 403);
@@ -207,7 +207,7 @@ test('local panel rejects cross-site and cross-origin requests without cookie au
 test('second bus cannot open the same data directory', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-lock-test-'));
   const server = await startServer({ directory, hosts: new Map() });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   await assert.rejects(startServer({ directory, hosts: new Map() }), /已有群总线/);
 });
 
@@ -224,7 +224,7 @@ test('RPC rejects a connection closed before a reply rather than hanging', async
   const directory = mkdtempSync(join(tmpdir(), 'agent-rpc-test-')), socketPath = (await import('../../server.mjs')).socketFor(directory);
   const server = net.createServer(socket => { socket.on('data', () => socket.destroy()); });
   await new Promise(resolve => server.listen(socketPath, resolve));
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   await assert.rejects(rpc(socketPath, { op: 'ping' }), /断开连接/);
 });
 
@@ -309,7 +309,7 @@ test('private conversation cannot dispatch; explicitly shared user directive has
 test('legacy database migrates additively and remains unknown across reopen', async t => {
   const { Store } = await import('../../store.mjs');
   const directory = mkdtempSync(join(tmpdir(), 'agent-migration-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   let store = new Store(directory);
   store.run('INSERT INTO groups(id,name,workspace,lead,created) VALUES(?,?,?,?,?)', 'g', 'legacy', directory, null, 'old');
   store.run('INSERT INTO members(id,group_id,name,host,role) VALUES(?,?,?,?,?)', 'm', 'g', 'old', 'fake', 'lead');
@@ -334,7 +334,7 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
     for (let i = 0; i < 205; i++) ctx.onEvent({ type: 'step', i });
     ctx.onAccepted(); return 'done';
   } }]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const group = createTestGroup(server.bus, { name: 'trace', workspace: directory, lead: { name: 'lead', host: 'fake' } });
   await until(() => server.bus.running.size === 0);
   await server.bus.privateTurn(group.id, 'secret');
@@ -381,7 +381,7 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
 test('turn summaries API paginates whole turns oldest-first with stable ordinals', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-turns-api-'));
   const server = await startServer({ directory, hosts: new Map([['fake', { async run(ctx) { ctx.onAccepted(); return 'done'; } }]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const group = createTestGroup(server.bus, { name: 'turns', workspace: directory, lead: { name: 'lead', host: 'fake' } });
   await until(() => server.bus.running.size === 0);
   await server.bus.privateTurn(group.id, 'secret');
@@ -462,7 +462,7 @@ console.log(JSON.stringify({ type: 'result', session_id: sessionId, is_error: fa
 `);
   chmodSync(fake, 0o700);
   process.env.AGENT_TEST_CLAUDE_CONFIG = configDirectory;
-  t.after(() => { delete process.env.AGENT_TEST_CLAUDE_CONFIG; rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  t.after(() => { delete process.env.AGENT_TEST_CLAUDE_CONFIG; rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   const observations = [], sessions = [], deltas = [], toolDeltas = [], reasonings = [];
   const host = createClaudeHost({
     directory, socketPath: join(directory, 'bus.sock'), command: fake, model: 'opus',

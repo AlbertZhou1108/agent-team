@@ -37,6 +37,6 @@ test('host endpoints check independently and restrict installation to configured
     assert.equal(installs, 1);
   } finally {
     await server.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });

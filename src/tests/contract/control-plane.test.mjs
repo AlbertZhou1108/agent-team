@@ -50,7 +50,7 @@ function setup(t, { externalWake, capabilities = Object.values(CONTROL_CAPABILIT
   });
   t.after(async () => {
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
   const identity = createExternalIdentity(bus.store, {
     principalName: '测试用户',
@@ -442,7 +442,7 @@ test('external binding rejects bad keys, foreign teams and workspaces outside it
 test('workspace roots reject symlinks that resolve outside the registered boundary', async t => {
   const { directory, call } = setup(t);
   const outside = mkdtempSync(join(tmpdir(), 'agent-team-outside-'));
-  t.after(() => rmSync(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(outside, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const link = join(directory, 'outside-link');
   try {
     symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');

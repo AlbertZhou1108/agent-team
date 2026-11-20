@@ -15,7 +15,7 @@ export function createTestGroup(bus, args, charter = null) {
 
 // Windows 上服务刚关闭时目录句柄可能还没释放,删除会 EPERM;统一带重试。
 function cleanup(t, directory) {
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
 }
 
 /**

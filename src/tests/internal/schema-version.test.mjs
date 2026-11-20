@@ -9,7 +9,7 @@ import { createLegacyV1 } from '../support/legacy-v1.mjs';
 
 function tempDir(t) {
   const directory = mkdtempSync(join(tmpdir(), 'store-schema-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
 }
 
