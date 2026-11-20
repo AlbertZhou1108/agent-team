@@ -55,6 +55,19 @@ export function codexCapabilities() {
   });
 }
 
+/**
+ * 事件上下文解析:优先按事件 threadId;引擎偶尔漏带/写错 threadId 时,
+ * 若只有一个活跃回合就退回它,避免"回合完成但文本丢失"。
+ */
+export function resolveEventContext(active, threadId) {
+  return active.get(threadId) ?? (active.size === 1 ? [...active.values()][0] : undefined);
+}
+
+/** 回合文本:item/completed 优先,缺失时用流式累积兜底。 */
+export function turnText(live) {
+  return live?.text || live?.streamed || '';
+}
+
 export function createCodexHost({ command = 'codex', model, reasoningEffort, env = {} }) {
   const lifecycle = createCliLifecycle('codex', command, value => { command = value; });
   let child, init, nextId = 0, stderr = '', serverNames = [];
@@ -83,7 +96,9 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
       if (entry) { clearTimeout(entry.timer); pending.delete(row.id); row.error ? entry.reject(new Error(row.error.message)) : entry.resolve(row.result); }
       return;
     }
-    const context = active.get(row.params?.threadId);
+    // 正常情况下按事件里的 threadId 找上下文;若引擎偶尔漏带/写错 threadId,
+    // 且当前只有一个活跃回合,退回该回合——避免"回合完成但文本丢失"。
+    const context = resolveEventContext(active, row.params?.threadId);
     context?.onEvent(row);
     if (context?.onTelemetry) {
       if (row.method === 'thread/tokenUsage/updated') {
@@ -200,6 +215,8 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
     }
     if (row.method === 'item/completed' && row.params.item?.type === 'agentMessage' && context) context.text = row.params.item.text ?? '';
     if (row.method === 'item/agentMessage/delta' && context && typeof row.params?.delta === 'string') {
+      // 同时累积一份流式文本:item/completed 偶尔缺失时用它兜底。
+      context.streamed = (context.streamed ?? '') + row.params.delta;
       context.onTextDelta?.(row.params.delta, {
         itemId: row.params.itemId ?? null,
         nativeTurnId: row.params.turnId ?? null,
@@ -323,7 +340,7 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
         });
       }
       onSession(thread);
-      const live = { ...context, text: '', telemetryModel: result.model ? { provider: result.modelProvider ?? null, model: result.model, source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start', observedAt: new Date().toISOString() } : null };
+      const live = { ...context, text: '', streamed: '', telemetryModel: result.model ? { provider: result.modelProvider ?? null, model: result.model, source: endpoint.session ? 'codex.thread_resume' : 'codex.thread_start', observedAt: new Date().toISOString() } : null };
       if (!usageBaselines.has(thread)) usageBaselines.set(thread, endpoint.session ? null : { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, totalTokens: 0 });
       active.set(thread, live);
       let turn;
@@ -343,7 +360,8 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
         });
         ended.delete(turn.id);
         if (complete.status !== 'completed') throw new Error(complete.error?.message ?? `Codex 回合 ${complete.status}`);
-        return live.text;
+        // item/completed 未到达时用流式累积兜底,避免回合完成但文本为空。
+        return turnText(live);
       } finally { signal.removeEventListener('abort', interrupt); active.delete(thread); }
     },
     async close() {
