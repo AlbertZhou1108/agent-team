@@ -99,6 +99,22 @@ Agent Team 是**本机、单用户的多 Agent 协作控制面**：本地服务�
 
 选择访问范围、核对实际产物，并在需要时停止服务。框架不会替你配置宿主账号；页面显示“可用”也不保证下一次模型调用成功。[完整能力边界与安全说明 →](guide/limitations.md)
 
+## 技术架构与设计原则
+
+Agent Team 采用**单进程本地服务 + 单文件 SQLite + 独立宿主 CLI 子进程**的架构，不托管模型推理，也不把宿主拉入服务进程内存：
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/architecture/overview-dark.png">
+  <img alt="Agent Team 总览：本机多 Agent 协作总线" src="assets/architecture/overview-light.png">
+</picture>
+
+- **三入口共用同一本地服务**：浏览器与 Electron 桌面窗口共用同一份 `web/dist` 前端（桌面壳只负责开窗、托盘与单实例）；外部主控通过固定 stdio MCP shim 经本地 socket / named pipe 接入。HTTP 固定只监听 `127.0.0.1`，并对 Host、Origin、跨站请求与 CSP 做校验。
+- **分域会话与投递安全**：每个团队由单一主 Agent 串行调度，普通成员之间走独立双人上下文可并行协作；`send` 立即落库并唤醒，`note` 随下一条正式消息合并。运行态无法确认时标记为 `unknown` 并阻断后续投递，仅由人工核实解除，不自动重放。
+- **统一宿主契约与策略边界**：Codex、Claude Code、DSH、ZCode 作为独立 CLI 子进程直接读写受策略约束的项目目录；宿主不支持请求策略时直接拒绝回合，不静默降级权限。WorkBuddy 无成员工厂，仅通过 MCP 作为外部主控接入。
+- **核心聚合与纯 Web 前端**：本地 SQLite（schema v22）由 `src/aggregates/` 8 个聚合模块守护核心表不变式与嵌套事务；前端通过 REST + 双路 SSE（`useEventStream` 单一出口按帧批处理）+ 四档轮询工作，对桌面能力保持可选注入与 HTTP 回退。
+
+更多子系统设计（启动与单实例模型、消息调度流水线、聚合与数据表域、前端架构及四家宿主适配细节），见[技术架构](guide/architecture.md)与[宿主适配](guide/host-adapters.md)。
+
 ## 进一步了解
 
 | 文档 | 内容 |
@@ -106,7 +122,7 @@ Agent Team 是**本机、单用户的多 Agent 协作控制面**：本地服务�
 | [快速开始](guide/quick-start.md) | 安装、首次聊天、创建团队、停止与升级 |
 | [日常使用](guide/user-guide.md) | 消息、互动卡、文件、工作台、搜索与归档 |
 | [能力边界](guide/limitations.md) | 费用、权限、失败恢复与当前限制 |
-| [技术架构](guide/architecture.md) | 通信模型、会话、存储与调度 |
+| [技术架构](guide/architecture.md) | 总览、启动单实例、调度流水线、数据聚合与前端结构 |
 | [CLI 使用](guide/cli.md) | 命令行入口、创建团队与独立服务 |
 | [宿主适配](guide/host-adapters.md) | 宿主配置、通信检测与适配器扩展 |
 | [无头协作控制面](guide/headless-control-plane.md) | 外部主控、MCP、能力边界与无面板协作 |

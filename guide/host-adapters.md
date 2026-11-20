@@ -35,6 +35,21 @@
 
 WorkBuddy 不属于可启动成员，因此不写入这份成员宿主配置；使用 `agent-team connect --host workbuddy` 登记外部主控连接。
 
+## 架构分层与契约收束
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/architecture/hosts-dark.png">
+  <img alt="宿主适配层：同一契约，四种 CLI 运行时" src="../assets/architecture/hosts-light.png">
+</picture>
+
+宿主体系按职责拆为三层，各自遵守清晰边界：
+
+- **[src/hosts/](../src/hosts/)（定义、能力、策略与契约）**：`definitions.mjs` 统一收敛宿主声明；`index.mjs` 构建 `HOST_FACTORIES` 与 `assertHostContract`（校验 `run` 必需及 `connectionStatus` / `sessionKey` / `supportsPolicy` / `capabilities` 四个可选函数）；`policies.mjs` 转换 `communication | read-only | workspace-write | full-access` 四档策略；`capabilities.mjs` 与 `execution.mjs` **在运行时不做能力探测**——成员能力以开发期静态声明为准，再按群策略、shell 开关和平台边界推导（例如 Codex 拿不到 shell 时降级为 `communication`，`read-only` 保留只读 shell，不支持请求策略时直接拒绝回合）。
+- **[src/host-runtime/](../src/host-runtime/)（运行时公共设施）**：集中实现安装/版本检查（`lifecycle.mjs`）、通信握手探测（`probe.mjs`）、子进程管理（`subprocess.mjs`）和外部主控唤醒驱动注册（`wake-drivers.mjs`）。其中 `connectionProbe` 只检测 CLI 可用性与协议握手，不回改成员静态能力。
+- **[src/member/](../src/member/)（四家成员适配器）**：`codex/`、`claude/`、`dsh/`、`zcode/` 各自独立目录、互不 `import`。Codex 按 `communication` / `project` 分两个 thread 域；Claude Code 为 app 级单连接且无唤醒驱动；DSH 走 headless resume；ZCode 走 `app-server`。技能目录按宿主定义分别采用复制（Codex / Claude / WorkBuddy）或共享目录（DSH / ZCode）。
+
+> 注意区分两类能力模型：**成员宿主**运行时不做能力探测（[capabilities.mjs](../src/hosts/capabilities.mjs)），而**外部主控**的接管能力才要求「适配器声明 ∩ 连接时实测」（[control-capabilities.mjs](../src/control-capabilities.mjs)）。
+
 ## 安装检查与通信检测
 
 | 接口 | 回答的问题 |

@@ -36,7 +36,10 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 
 | 位置 | 内容 |
 | --- | --- |
-| `src/` | Node ESM 后端，宿主适配器在 `src/hosts/` |
+| `src/` | Node ESM 后端，核心业务与总线门面 |
+| `src/hosts/` 与 `src/host-runtime/` | 宿主声明/注册表/策略/静态能力，及安装/探测/唤醒公共设施 |
+| `src/member/` | 各成员宿主适配实现（`codex/`、`claude/`、`dsh/`、`zcode/`），互不 import |
+| `src/aggregates/` | 核心领域写边界与不变式（`messages` / `turns` / `conversations` 等 8 个聚合） |
 | `web/` | Vue 3、TypeScript、Vite 前端，npm workspace |
 | `electron/` | 开发态桌面窗口：启动器、主进程、托盘、preload |
 | `src/tests/` | `node:test` 后端测试，按 `unit/` `contract/` `internal/` `process/` 分层，`support/` 放共用辅助 |
