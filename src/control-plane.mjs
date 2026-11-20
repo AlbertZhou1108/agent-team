@@ -242,11 +242,12 @@ export class ControlPlane {
   /** 激活连接最近绑定的会话连接(桌面聊天 MCP 子进程无线程身份时的回落目标)。 */
   latestBoundConversation(activation) {
     // 只回落到本激活连接解析出的会话(名字前缀限定),不同应用/不同接入不互相串。
+    // 同毫秒绑定很常见:用 rowid 作 tiebreaker,保证「后绑定者赢」是确定性的。
     return this.bus.store.get(
       `SELECT * FROM external_client_bindings
        WHERE principal_id=? AND binding_kind='conversation' AND session IS NOT NULL
          AND name LIKE ? ESCAPE '\\'
-       ORDER BY updated DESC LIMIT 1`,
+       ORDER BY updated DESC, rowid DESC LIMIT 1`,
       activation.principal_id,
       activation.name.replace(/[\\%_]/g, c => `\\${c}`) + '%',
     ) ?? null;

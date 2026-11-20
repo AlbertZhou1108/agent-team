@@ -132,8 +132,8 @@ test('a conversation binding woken from the desktop config carries the activatio
   // 另一个线程得到独立连接;激活连接永不变成会话。
   const other = plane.resolveActivationBinding(activationRow, 'thread-other');
   assert.notEqual(other.id, resolved.id);
-  // 无线程身份的调用回落到最近绑定的会话连接(thread-xyz 更新更晚)。
+  // 无线程身份的调用回落到最近绑定的会话连接(thread-other 后绑定,updated 更晚)。
   const fallback = plane.resolveActivationBinding(activationRow, null);
-  assert.equal(fallback.id, resolved.id);
+  assert.equal(fallback.id, other.id);
   store.close();
 });

@@ -11,6 +11,7 @@ Object.assign(DESKTOP_DEFINITIONS.get('dsh'), dshDesktopVerification());
 Object.assign(DESKTOP_DEFINITIONS.get('claude'), claudeDesktopVerification());
 
 export * from './definitions.mjs';
+export * from './member-hosts.mjs';
 export * from './detect.mjs';
 export * from './verify.mjs';
 export * from './status.mjs';

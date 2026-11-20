@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
-import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration } from './desktop/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration, readDesktopHostSpecs } from './desktop/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -23,7 +23,9 @@ export function socketFor(directory) {
 }
 export async function loadHosts({ directory, socketPath, configFile }) {
   socketPath ??= socketFor(directory);
-  const specs = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : DEFAULT_HOST_SPECS;
+  const configured = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : DEFAULT_HOST_SPECS;
+  // 桌面接入安装动态注册的成员宿主(隐藏引擎);文件不存在时为空表。
+  const specs = { ...configured, ...readDesktopHostSpecs(directory) };
   if (!specs || typeof specs !== 'object' || Array.isArray(specs)) throw new Error('宿主配置需要 hosts 对象');
   const hosts = new Map();
   for (const [name, spec] of Object.entries(specs)) {

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
+import { writeDesktopHostSpec } from './member-hosts.mjs';
 
 const CONTROL_MCP_NAME = 'agent_team';
 export const BLOCK_BEGIN = '# ---- agent-team managed block:begin (由 Agent Team 维护,重装即更新) ----';
@@ -194,6 +195,10 @@ export async function installCodexDesktopIntegration(store, {
     { mode: 0o600 },
   );
 
+  // 成员宿主:内嵌引擎在框架私有 CODEX_HOME 里跑成员回合,不写用户可见聊天历史。
+  const member = codexDesktopMemberHostSpec({ enginePath: detected.enginePath, dataDirectory: store.directory });
+  writeDesktopHostSpec(store.directory, member.hostName, member.spec);
+
   return {
     applicationId: detected.applicationId,
     binding: {
@@ -206,6 +211,7 @@ export async function installCodexDesktopIntegration(store, {
     configPath,
     pluginPath: pluginRoot,
     pluginVersion: version,
+    memberHost: member.hostName,
     socketPath,
     backupPath,
     backupHash,

@@ -1,6 +1,7 @@
 // 桌面应用的停用/启用/移除入口:统一按 kind 定位最新桌面安装行。
 import * as externalAgg from '../aggregates/external-control.mjs';
 import { desktopApplicationStatus } from './status.mjs';
+import { removeDesktopHostSpec } from './member-hosts.mjs';
 
 function requireApplication(store, kind) {
   const row = externalAgg.applicationForKind(store, kind);
@@ -30,5 +31,7 @@ export function enableDesktopApplication(store, kind) {
 export function removeDesktopApplication(store, kind) {
   const row = requireApplication(store, kind);
   externalAgg.removeApplication(store, row.id);
+  // 同时摘掉该应用动态注册的成员宿主,避免引擎已卸载后仍被派单。
+  removeDesktopHostSpec(store.directory, `${kind}-desktop`);
   return statusFor(store, kind);
 }
