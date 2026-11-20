@@ -295,9 +295,13 @@ export function codexDesktopVerification() {
             codexHome: home,
             prompt: CONTROLLER_CHECK_PROMPT,
           });
+          const ok = /version|1/.test(output);
           return {
-            ok: /version|1/.test(output),
-            detail: `主控工具可调用${authLinked ? '' : '(未链接宿主登录态)'}`,
+            ok,
+            // 失败时必须如实说「没确认到版本」,不能固定写「可调用」——否则诊断会掩盖真实原因。
+            detail: ok
+              ? `主控工具可调用${authLinked ? '' : '(未链接宿主登录态)'}`
+              : '回合未返回可确认的 control_protocol 版本',
           };
         } finally {
           rmSync(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
