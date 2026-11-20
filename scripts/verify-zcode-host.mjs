@@ -12,7 +12,7 @@ import { startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
 import { createExternalIdentity } from '../src/control-plane.mjs';
 import { CONTROL_CAPABILITIES, CONTROL_PROTOCOL_VERSION } from '../src/control-capabilities.mjs';
-import { createZcodeProtocol, headlessInteractionReply } from '../src/hosts/zcode/protocol.mjs';
+import { createZcodeProtocol, headlessInteractionReply } from '../src/member/zcode/protocol.mjs';
 
 // 若验收脚本跑在注入了文件访问 shim 的外围宿主环境里，NODE_OPTIONS 会随
 // process.env 透传给 zcode/包装子进程，导致读真实配置被拦截。验收需要读本机
