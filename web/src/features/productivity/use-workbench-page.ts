@@ -1,104 +1,65 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useQueryClient } from '@tanstack/vue-query';
+import type { BadgeVariants } from '@/components/ui/badge';
 import { usePanelStream } from '@/features/panel-agent/panel-stream-store';
 import type { PanelStreamEvent } from '@/features/streams/panel-reducer';
 import { api } from '@/shared/api/client';
-import { useWorkbenchQuery, type Workbench } from './workbench-query';
+import {
+  useWorkbenchQuery,
+  type ActivityRun,
+  type PendingEntry,
+  type UnreadRow,
+} from './workbench-query';
 
 /**
- * 工作台页的视图状态 / 查询 / 动作（从 HomeWorkbench.vue 纯搬迁）。
+ * 工作台页的视图状态 / 查询 / 动作。
  *
- * 组件只保留模板与接线：本 composable 持有 /api/workbench 查询、三类待办合并
- * 与过滤、清理动作、执行活动 tab、进展摘要流订阅与生成动作，以及秒级时钟。
- * 查询本身在 workbench-query.ts：工作台与侧栏共用同一个 key 与 fetcher。
+ * 组件只保留模板与接线：本 composable 持有 /api/workbench 查询、未读双 Tab
+ * （待处理 / 未读消息）、执行活动双 Tab（运行活动 / 最近执行）、清理动作、
+ * 进展摘要流订阅与生成动作，以及秒级时钟。
  */
 
-/** 未读卡的一行：一个会话，同时挂未读条数与待处理卡数。 */
-export type InboxRow = {
-  key: string;
-  title: string;
-  groupName: string;
-  path: string;
-  unread: number;
-  cards: number;
-  cardTitle?: string;
-  created: string;
-};
-
-/** 「没回音」的一行：等待回复的指令，或 Agent 之间的等待。 */
-export type StaleEntry = {
-  id: string;
-  source: 'user' | 'agent';
-  title: string;
-  groupName: string;
-  created: string;
-  path: string;
-  recipientName?: string;
-  senderName?: string;
+export type BadgeMeta = {
+  label: string;
+  variant: NonNullable<BadgeVariants['variant']>;
 };
 
 export function useWorkbenchPage() {
-  const client = useQueryClient();
   const query = useWorkbenchQuery();
   const data = computed(() => query.data.value);
-  const pending = computed(() =>
+
+  const inboxTab = ref<'pending' | 'unread'>('pending');
+  const activityTab = ref<'running' | 'recent'>('running');
+
+  const pending = computed<PendingEntry[]>(() =>
     (data.value?.pending ?? []).filter((item) => item.kind === 'interaction'),
   );
-  const waiting = computed(() => data.value?.waiting ?? []);
-  const agentWaiting = computed(() => data.value?.agentWaiting ?? []);
-  // 未读卡：一个会话一行，把「未读条数」和「待处理卡数」并到同一行，
-  // 这样徽标显示的数字（卡片数 + 未读条数）在列表里能逐行对上账。
-  const inbox = computed<InboxRow[]>(() => {
-    const rows = new Map<string, InboxRow>();
-    for (const item of data.value?.unread ?? []) {
-      rows.set(item.conversation, {
-        key: item.conversation,
-        title: item.title,
-        groupName: item.groupName,
-        path: item.path,
-        unread: item.count,
-        cards: 0,
-        created: item.latest,
-      });
-    }
-    for (const item of pending.value) {
-      const row = rows.get(item.conversation);
-      if (row) {
-        row.cards += 1;
-        row.cardTitle ??= item.title;
-        if (item.created > row.created) row.created = item.created;
-      } else {
-        rows.set(item.conversation, {
-          key: item.conversation,
-          title: item.groupName,
-          groupName: item.groupName,
-          path: item.path,
-          unread: 0,
-          cards: 1,
-          cardTitle: item.title,
-          created: item.created,
-        });
-      }
-    }
-    return [...rows.values()].sort((a, b) => b.created.localeCompare(a.created));
-  });
-  const inboxTotal = computed(() => (data.value?.unreadTotal ?? 0) + pending.value.length);
-  // 「没回音」不是未读：你发出去还没回复的指令、以及 Agent 之间的等待，
-  // 都归到执行活动那一侧，只做审计，不点亮徽标。
-  const stale = computed<StaleEntry[]>(() => [
-    ...waiting.value.map((item) => ({ ...item, source: 'user' as const })),
-    ...agentWaiting.value.map((item) => ({ ...item, source: 'agent' as const })),
-  ]);
-  const staleLabel: Record<StaleEntry['source'], string> = { user: '你的指令', agent: 'Agent 请求' };
-  const emptyText = computed(() =>
-    query.isPending.value ? '正在加载…' : '没有未读',
+  const unread = computed<UnreadRow[]>(() => data.value?.unread ?? []);
+  const unreadTotal = computed(() => data.value?.unreadTotal ?? 0);
+  const running = computed<ActivityRun[]>(() => data.value?.running ?? []);
+  const recent = computed<ActivityRun[]>(() => data.value?.recent ?? []);
+
+  const emptyPendingText = computed(() =>
+    query.isPending.value ? '正在加载…' : '暂无待处理卡片',
+  );
+  const emptyUnreadText = computed(() =>
+    query.isPending.value ? '正在加载…' : '没有未读消息',
+  );
+  const emptyRunningText = computed(() =>
+    query.isPending.value ? '正在加载…' : '暂无运行中的成员',
+  );
+  const emptyRecentText = computed(() =>
+    query.isPending.value ? '正在加载…' : '暂无最近执行记录',
   );
 
   const confirmClean = ref(false);
   const cleaning = ref(false);
   const cleanError = ref('');
+  const cleanPendingDisabled = computed(
+    () => inboxTab.value !== 'pending' || !pending.value.length,
+  );
   const cleanDescription = computed(
-    () => `将从工作台隐藏 ${pending.value.length} 张待处理卡片；未读消息不受影响，读过后会自动消失。`,
+    () =>
+      `将从工作台隐藏 ${pending.value.length} 张待处理卡片；未读消息不受影响，读过后会自动消失。`,
   );
   async function cleanEntries() {
     if (!pending.value.length || cleaning.value) return;
@@ -117,53 +78,32 @@ export function useWorkbenchPage() {
     }
   }
 
-  const confirmCleanStale = ref(false);
-  const cleaningStale = ref(false);
-  const cleanStaleError = ref('');
-  const cleanStaleDescription = computed(
-    () => `将从工作台隐藏 ${stale.value.length} 项没回音的记录；消息记录不会删除。`,
-  );
-  async function cleanStale() {
-    if (!stale.value.length || cleaningStale.value) return;
-    cleaningStale.value = true;
-    cleanStaleError.value = '';
-    try {
-      await api.dismissWorkbench(
-        stale.value.map((item) => ({
-          category: item.source === 'user' ? ('waiting:user' as const) : ('waiting:agent' as const),
-          id: item.id,
-        })),
-      );
-      confirmCleanStale.value = false;
-      await query.refetch();
-    } catch (error) {
-      cleanStaleError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
-    } finally {
-      cleaningStale.value = false;
-    }
-  }
-
   const workbenchOpen = ref(true);
   const confirmCleanActivity = ref(false);
   const cleaningActivity = ref(false);
   const cleanActivityError = ref('');
+  const cleanActivityDisabled = computed(
+    () => activityTab.value !== 'recent' || !recent.value.length,
+  );
   async function cleanRecentActivity() {
-    const items = data.value?.recent ?? [];
+    const items = recent.value;
     if (!items.length || cleaningActivity.value) return;
     cleaningActivity.value = true;
     cleanActivityError.value = '';
     try {
-      await api.dismissWorkbench(items.map((item) => ({ category: 'activity:recent' as const, id: item.id })));
+      await api.dismissWorkbench(
+        items.map((item) => ({ category: 'activity:recent' as const, id: item.id })),
+      );
       confirmCleanActivity.value = false;
       await query.refetch();
     } catch (error) {
-      cleanActivityError.value = error instanceof Error ? error.message : '清理失败，请稍后重试';
+      cleanActivityError.value =
+        error instanceof Error ? error.message : '清理失败，请稍后重试';
     } finally {
       cleaningActivity.value = false;
     }
   }
 
-  const activityTab = ref('running');
   const generating = ref(false);
   const error = ref('');
   // 摘要流不再是本组件自己的连接：PanelAgentPanel 与工作台共用 panel-stream-store
@@ -219,7 +159,8 @@ export function useWorkbenchPage() {
     return Date.now() - new Date(created).getTime() > 24 * 3600_000;
   });
   const summaryText = computed(
-    () => live.value.stream?.text ?? (summarizing.value ? '' : (data.value?.summary?.text ?? '')),
+    () =>
+      live.value.stream?.text ?? (summarizing.value ? '' : (data.value?.summary?.text ?? '')),
   );
   const summaryPhase = computed(
     () =>
@@ -236,18 +177,63 @@ export function useWorkbenchPage() {
     now.value = Date.now();
   }, 1000);
   onBeforeUnmount(() => clearInterval(clock));
-  function elapsed(created: string) {
-    const seconds = Math.max(
-      0,
-      Math.floor((now.value - Date.parse(created)) / 1000),
-    );
-    return seconds < 60
-      ? `${seconds} 秒`
-      : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+
+  function formatSeconds(totalSeconds: number) {
+    const seconds = Math.max(0, Math.floor(totalSeconds));
+    if (seconds < 60) return `${seconds} 秒`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours} 小时 ${minutes} 分`;
   }
-  const privateBusy = computed(() =>
-    data.value?.running.some((run) => run.path === '/agent'),
-  );
+
+  function elapsed(created: string) {
+    return formatSeconds((now.value - Date.parse(created)) / 1000);
+  }
+
+  function durationText(created: string, ended?: string) {
+    const start = Date.parse(created);
+    const end = ended ? Date.parse(ended) : Number.NaN;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '';
+    return `耗时 ${formatSeconds((end - start) / 1000)}`;
+  }
+
+  function relativeTime(iso: string) {
+    const time = Date.parse(iso);
+    if (!Number.isFinite(time)) return '';
+    const diffSeconds = Math.max(0, Math.floor((now.value - time) / 1000));
+    if (diffSeconds < 60) return '刚刚';
+    const minutes = Math.floor(diffSeconds / 60);
+    if (minutes < 60) return `${minutes} 分钟前`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} 小时前`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} 天前`;
+    const date = new Date(time);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
+  function shortTime(iso?: string) {
+    if (!iso) return '';
+    const time = Date.parse(iso);
+    if (!Number.isFinite(time)) return '';
+    const date = new Date(time);
+    const current = new Date(now.value);
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const sameDay =
+      date.getFullYear() === current.getFullYear() &&
+      date.getMonth() === current.getMonth() &&
+      date.getDate() === current.getDate();
+    return sameDay ? `${hh}:${mm}` : `${date.getMonth() + 1}/${date.getDate()} ${hh}:${mm}`;
+  }
+
+  function interactionMeta(kind?: string): BadgeMeta {
+    if (kind === 'choice') return { label: '待选择', variant: 'info' };
+    if (kind === 'input' || kind === 'flow') return { label: '待填写', variant: 'info' };
+    return { label: '待确认', variant: 'warning' };
+  }
+
   const statusLabels: Record<string, string> = {
     completed: '已完成',
     failed: '失败',
@@ -256,18 +242,51 @@ export function useWorkbenchPage() {
     stopped: '已停止',
     error: '失败',
   };
+
+  function statusMeta(state?: string): BadgeMeta {
+    const key = state ?? '';
+    if (key === 'failed' || key === 'error') {
+      return { label: statusLabels[key] ?? '失败', variant: 'destructive' };
+    }
+    if (key === 'unknown') {
+      return { label: statusLabels.unknown, variant: 'warning' };
+    }
+    if (key === 'completed') {
+      return { label: statusLabels.completed, variant: 'success' };
+    }
+    return { label: statusLabels[key] ?? (key || '未知'), variant: 'secondary' };
+  }
+
+  function pendingSource(item: PendingEntry) {
+    if (item.senderName && item.senderName !== item.groupName) {
+      return `${item.groupName} · ${item.senderName}`;
+    }
+    return item.groupName;
+  }
+
+  function unreadTitle(row: UnreadRow) {
+    if (row.scope === 'panel' && row.groupName && row.groupName !== 'Panel Agent') {
+      return `Panel Agent（${row.groupName}）`;
+    }
+    return row.groupName;
+  }
+
+  function recentMeta(run: ActivityRun) {
+    const parts: string[] = [];
+    const duration = durationText(run.created, run.ended);
+    if (duration) parts.push(duration);
+    const detail = run.detail?.trim();
+    if (detail) parts.push(detail);
+    return parts.join(' · ');
+  }
+
   async function summarize() {
-    if (summarizing.value || privateBusy.value) return;
+    if (summarizing.value) return;
     panelStream.resetSummary();
     generating.value = true;
     error.value = '';
     try {
-      await api.panelMessage(
-        `[主页进展摘要]\n请只读查看所有未归档团队的近期消息，汇总最近完成的工作、已有结果、尚未解决的问题和下一步建议。不要派发任务或修改配置。每项结论附原消息链接，团队消息使用 /groups/团队ID?message=消息ID。没有证据的内容不要推断。直接输出适合在主页阅读的简短 Markdown 摘要。`,
-        null,
-        { clientMessageId: crypto.randomUUID() },
-      );
-      await client.invalidateQueries({ queryKey: ['panel-agent'] });
+      await api.summarizeWorkbench();
     } catch (cause) {
       if (!live.value.active)
         error.value = cause instanceof Error ? cause.message : '摘要生成失败';
@@ -278,12 +297,48 @@ export function useWorkbenchPage() {
   }
 
   return {
-    query, data, pending, waiting, agentWaiting, inbox, inboxTotal, stale, staleLabel,
-    emptyText, confirmClean, cleaning, cleanError, cleanDescription, cleanEntries,
-    confirmCleanStale, cleaningStale, cleanStaleError, cleanStaleDescription, cleanStale,
-    workbenchOpen, confirmCleanActivity,
-    cleaningActivity, cleanActivityError, cleanRecentActivity, activityTab,
-    generating, error, live, summarizing, summaryStale, summaryText,
-    summaryPhase, elapsed, privateBusy, statusLabels, summarize,
+    query,
+    data,
+    inboxTab,
+    activityTab,
+    pending,
+    unread,
+    unreadTotal,
+    running,
+    recent,
+    emptyPendingText,
+    emptyUnreadText,
+    emptyRunningText,
+    emptyRecentText,
+    confirmClean,
+    cleaning,
+    cleanError,
+    cleanPendingDisabled,
+    cleanDescription,
+    cleanEntries,
+    workbenchOpen,
+    confirmCleanActivity,
+    cleaningActivity,
+    cleanActivityError,
+    cleanActivityDisabled,
+    cleanRecentActivity,
+    generating,
+    error,
+    live,
+    summarizing,
+    summaryStale,
+    summaryText,
+    summaryPhase,
+    elapsed,
+    durationText,
+    relativeTime,
+    shortTime,
+    interactionMeta,
+    statusLabels,
+    statusMeta,
+    pendingSource,
+    unreadTitle,
+    recentMeta,
+    summarize,
   };
 }

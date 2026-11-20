@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -228,6 +228,7 @@ export class Store {
     if (fromVersion < 21) this.migrateV21();
     if (fromVersion < 22) this.migrateV22();
     if (fromVersion < 23) this.migrateV23();
+    if (fromVersion < 24) this.migrateV24();
 }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -377,6 +378,16 @@ export class Store {
         DROP TABLE desktop_applications;
         ALTER TABLE desktop_applications_v23 RENAME TO desktop_applications;`);
     });
+  }
+
+  // v24:主页进展摘要独立存储，与 Panel Agent 私聊消息解耦。
+  migrateV24() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS home_summaries(
+      id TEXT PRIMARY KEY,
+      panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      created TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS home_summaries_agent ON home_summaries(panel_agent_id,created DESC);`);
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
@@ -682,7 +693,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
       CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
       CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
-      CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);`);
+      CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);
+      CREATE TABLE IF NOT EXISTS home_summaries(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,text TEXT NOT NULL,created TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS home_summaries_agent ON home_summaries(panel_agent_id,created DESC);`);
   }
 
   // v1 -> v2:会话、回合、输入、历史、来源、投递队列各合并为单表。
@@ -921,9 +934,9 @@ export class Store {
       return { ...row, owner_kind: 'member', owner_id: row.member_id };
     }
     if (kind === 'panel_agent') {
-      const existing = context === 'private'
-        ? this.get("SELECT * FROM conversations WHERE panel_agent_id=? AND context='private'", ownerId)
-        : this.get("SELECT * FROM conversations WHERE panel_agent_id=? AND context='coordination' AND group_id=?", ownerId, groupId);
+      const existing = context === 'coordination'
+        ? this.get("SELECT * FROM conversations WHERE panel_agent_id=? AND context='coordination' AND group_id=?", ownerId, groupId)
+        : this.get('SELECT * FROM conversations WHERE panel_agent_id=? AND context=?', ownerId, context);
       if (existing) return { ...existing, owner_kind: 'panel_agent', owner_id: existing.panel_agent_id };
       if (context === 'coordination') this.group(groupId);
       const id = `panel-session-${randomUUID()}`;

@@ -25,58 +25,36 @@ export type UnreadRow = {
   path: string;
 };
 
+export type PendingEntry = {
+  id: string;
+  kind: string;
+  interactionKind?: string;
+  title: string;
+  groupName: string;
+  senderName?: string | null;
+  conversation: string;
+  created: string;
+  path: string;
+};
+
+export type ActivityRun = {
+  id: string;
+  name: string;
+  groupName: string;
+  created: string;
+  ended?: string;
+  queued?: number;
+  state?: string;
+  detail?: string | null;
+  path: string;
+};
+
 export type Workbench = {
-  pending: {
-    id: string;
-    kind: string;
-    title: string;
-    groupName: string;
-    conversation: string;
-    created: string;
-    path: string;
-  }[];
+  pending: PendingEntry[];
   unread: UnreadRow[];
   unreadTotal: number;
-  waiting: {
-    id: string;
-    title: string;
-    groupName: string;
-    recipientName: string;
-    recipientKind: string;
-    created: string;
-    path: string;
-  }[];
-  agentWaiting: {
-    id: string;
-    title: string;
-    groupName: string;
-    senderName: string;
-    senderKind: string;
-    recipientName: string;
-    recipientKind: string;
-    created: string;
-    path: string;
-  }[];
-  running: {
-    id: string;
-    name: string;
-    groupName: string;
-    created: string;
-    ended?: string;
-    queued?: number;
-    state?: string;
-    path: string;
-  }[];
-  recent: {
-    id: string;
-    name: string;
-    groupName: string;
-    created: string;
-    ended?: string;
-    queued?: number;
-    state?: string;
-    path: string;
-  }[];
+  running: ActivityRun[];
+  recent: ActivityRun[];
   panelReady: boolean;
   summary: { id: string; text: string; created: string } | null;
   summaryRequest: { id: string; created: string } | null;

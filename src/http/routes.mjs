@@ -171,6 +171,11 @@ export function apiRoutes(context) {
         } },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/search', handle: async () => searchWorkspace(bus, url.searchParams) },
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/workbench', handle: async () => homeWorkbench(bus) },
+        { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/workbench/summary', handle: async () => {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            await readJsonBody(request);
+            return bus.panelHomeSummaryTurn();
+        } },
         { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/read', handle: async () => {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
@@ -387,7 +392,7 @@ export function apiRoutes(context) {
                     : bus.restoreGroup(decodeURIComponent(url.pathname.split('/')[3]));
                 return value;
             } },
-        { methods: ["POST"], archived: false, matches: url => (/^\/api\/panel-agent(?:\/(?:update|messages|stop|resolve-runtime))?$/.test(url.pathname) || /^\/api\/interactions\/[^/]+\/answer$/.test(url.pathname) || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname) || /^\/api\/teams\/[^/]+\/members\/[^/]+\/model$/.test(url.pathname)), handle: async () => {
+        { methods: ["POST"], archived: false, matches: url => (/^\/api\/panel-agent(?:\/(?:update|messages|stop|resolve-runtime|reset-session))?$/.test(url.pathname) || /^\/api\/interactions\/[^/]+\/answer$/.test(url.pathname) || /^\/api\/teams\/[^/]+\/(?:takeover|handback)$/.test(url.pathname) || /^\/api\/teams\/[^/]+\/members\/[^/]+\/model$/.test(url.pathname)), handle: async () => {
                 let value;
                 if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
                     return fail(415, '需要 application/json');
@@ -417,6 +422,8 @@ export function apiRoutes(context) {
                     value = await bus.stopPanel();
                 else if (url.pathname === '/api/panel-agent/resolve-runtime')
                     value = bus.resolvePanelRuntime(body.turnId, body.reason);
+                else if (url.pathname === '/api/panel-agent/reset-session')
+                    value = bus.resetPanelPrivateSession();
                 else {
                     const teamMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/(takeover|handback)$/);
                     const interactionMatch = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/);

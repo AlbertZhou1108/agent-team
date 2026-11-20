@@ -65,7 +65,7 @@ export function unreadPanel(store, panelAgentId) {
     LEFT JOIN read_watermarks w ON w.scope='panel' AND w.scope_id=? || ':' || COALESCE(NULLIF(p.active_team_id,''),'${GLOBAL_TEAM}')
     WHERE p.panel_agent_id=? AND p.context='private' AND p.role IN ('assistant','system')
       AND p.receipt_id IS NULL AND p.seq>COALESCE(w.seq,0)
-      AND (p.active_team_id IS NULL OR p.active_team_id='' OR EXISTS(SELECT 1 FROM groups g WHERE g.id=p.active_team_id))
+      AND (p.active_team_id IS NULL OR p.active_team_id='' OR EXISTS(SELECT 1 FROM groups g WHERE g.id=p.active_team_id AND (g.state IS NULL OR g.state!='archived')))
       AND NOT EXISTS(SELECT 1 FROM interactions i WHERE i.panel_message_id=p.id)
     GROUP BY teamId`, panelAgentId, panelAgentId);
 }

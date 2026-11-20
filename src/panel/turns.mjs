@@ -293,6 +293,124 @@ export async function stopPanel(bus) {
   return { stopped: active.map(item => item.turnId) };
 }
 
+/**
+ * 主页进展摘要:复用 Panel Agent 的宿主/模型配置，但在独立的 home-summary
+ * 只读会话中执行，每次强制新建宿主会话(session=null)，不占用或污染私聊会话。
+ */
+export async function panelHomeSummaryTurn(bus) {
+  if (bus.closing) throw new Error('服务正在停止');
+  const panelAgent = bus.panelAgent();
+  if (!panelAgent) throw new Error('Panel Agent 尚未创建');
+  const host = bus.hosts.get(panelAgent.host);
+  if (!host) throw new Error(`宿主未配置: ${panelAgent.host}`);
+  const session = conversationsAgg.forPanelAgent(bus.store, panelAgent.id, 'home-summary');
+  if (bus.running.has(session.id)) throw new Error('进展摘要正在生成中');
+  if (turnsAgg.hasUnknown(bus.store, session.id)) {
+    throw new Error('进展摘要存在待核实运行，请先核实宿主已经停止');
+  }
+  const policy = { mode: 'communication', allowShell: false, domain: 'communication' };
+  bus.requirePolicy(panelAgent, policy);
+  // 每次生成均以空宿主会话起步，彻底与任何历史宿主 session 解耦。
+  const freshEndpoint = { ...session, group_id: null, session: null, policy_signature: null };
+  const instructions = [
+    '你是 Panel Agent，正在独立的一次性只读会话中生成工作台「进展摘要」。',
+    '只能使用只读团队查询工具；不要派发任务、创建团队、发送消息或修改配置。',
+    '先调用 teams_list 概览全部未归档团队，优先读取近期有活跃更新或尚未处理的重点团队消息（每个团队取近期关键几条即可，无实质内容的一次性测试/空团队合并一句概括，避免逐一深挖拉长等待）。',
+    '每项结论附原消息链接，团队消息使用 /groups/团队ID?message=消息ID；没有证据的内容不要推断。',
+    '直接输出适合在主页阅读的简短中文 Markdown 摘要。',
+  ].join('\n');
+  const prompt = '请只读查看所有未归档团队的近期消息，汇总最近完成的工作、已有结果、尚未解决的问题和下一步建议。';
+  let saved = null;
+  await bus.turnExecutor.run({
+    conversation: session,
+    actor: panelAgent,
+    host,
+    executorKind: 'panel_agent',
+    executorId: panelAgent.id,
+    inputs: [],
+    prompt,
+    instructions,
+    schema: 1,
+    policy,
+    previousPolicy: null,
+    workspace: bus.store.directory,
+    tools: panelToolsFor('home-summary'),
+    hostEndpoint: freshEndpoint,
+    liveEndpoint: freshEndpoint,
+    emit: (turnId, event) => bus.events.panel(session.id, event, turnId),
+    executeTool: (turnId, name, args, metadata) => bus.panelTool(session.id, session.key, name, args, {
+      ...metadata,
+      turnId,
+      activeTeamId: null,
+    }),
+    // 一次性汇总会话不回写宿主 session，确保下一次刷新仍是全新会话。
+    onSession: () => {},
+    onPolicy: (_turnId, signature) => conversationsAgg.setPolicySignature(bus.store, session.id, signature),
+    streamFactories: turnId => ({
+      panel: {
+        homeSummary: true,
+        sourceUserMessageId: null,
+        agentId: panelAgent.id,
+        sessionId: session.id,
+        turnId,
+        context: 'home-summary',
+        activeTeamId: null,
+        text: '',
+        reasoning: '',
+        runPhase: 'accepted',
+        tool: null,
+        created: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    }),
+    measure: { groupId: null, fixed: false },
+    telemetry: { groupId: null, sessionKey: 'default', host: panelAgent.host, context: 'home-summary', turnKind: 'panel' },
+    getHostSessionId: () => null,
+    onComplete: (_turnId, result, abort) => {
+      if (abort.signal.aborted) return null;
+      const text = String(result ?? '').trim();
+      if (!text) throw new Error('Panel Agent 未返回摘要，请重试');
+      const summary = { id: randomUUID(), text, created: new Date().toISOString() };
+      panelAgg.insertHomeSummary(bus.store, {
+        id: summary.id,
+        panelAgentId: panelAgent.id,
+        text: summary.text,
+        created: summary.created,
+      });
+      saved = summary;
+      return summary;
+    },
+    nativeTurnEvent: true,
+    failureDetail: true,
+    onFinally: () => {},
+  });
+  return { summary: saved };
+}
+
+/**
+ * 重置 Panel Agent 私聊的宿主会话绑定(宿主无关):清空 session 与策略签名，
+ * 保留全部聊天记录，下一次发消息自动以当前模型开启全新宿主会话。
+ */
+export function resetPanelPrivateSession(bus) {
+  const panelAgent = bus.panelAgent();
+  if (!panelAgent) throw new Error('Panel Agent 尚未创建');
+  const session = conversationsAgg.forPanelAgent(bus.store, panelAgent.id, 'private');
+  if (bus.running.has(session.id)) throw new Error('Panel Agent 会话正在运行，请先停止后再新建会话');
+  if (turnsAgg.hasUnknown(bus.store, session.id)) {
+    throw new Error('Panel Agent 会话存在待核实运行，请先核实宿主已经停止');
+  }
+  const previousSession = session.session ?? null;
+  bus.store.transaction(() => {
+    conversationsAgg.clearSessionsForPanelAgent(bus.store, panelAgent.id, { privateOnly: true });
+    conversationsAgg.resetBindings(bus.store, session.id);
+  });
+  bus.events.panel(session.id, {
+    type: 'framework.session_reset',
+    previousSession,
+  });
+  return { reset: true, sessionId: session.id, previousSession };
+}
+
 /** 用户核实「宿主已停止」:unknown -> stopped,并广播核实事件。 */
 export function resolvePanelRuntime(bus, turnId, reason) {
   if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明停止核实依据');

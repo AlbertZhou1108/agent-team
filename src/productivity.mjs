@@ -1,5 +1,6 @@
 // Read-only projections for navigation and the home workbench.
 import * as readState from './aggregates/read-state.mjs';
+import * as panelAgg from './aggregates/panel.mjs';
 export function searchWorkspace(bus, params) {
   const q = String(params.get('q') ?? '')
     .trim()
@@ -84,19 +85,30 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   for (const row of s.all('SELECT category,item_id FROM workbench_dismissals')) {
     dismissed.get(row.category)?.add(row.item_id);
   }
-  const destination = (group, endpoint, message) =>
+  const destination = (group, endpoint, message, context = null) =>
     group
       ? `/groups/${encodeURIComponent(group)}?${new URLSearchParams({ ...(endpoint ? { session: endpoint } : {}), ...(message ? { message } : {}) })}`
-      : '/agent';
+      : context === 'home-summary'
+        ? '/groups'
+        : '/agent';
   const pending = s
-    .all(`SELECT * FROM interactions WHERE state='pending' ORDER BY created`)
+    .all(
+      `SELECT i.*, COALESCE(m.name, pa.name) AS senderName
+       FROM interactions i
+       LEFT JOIN members m ON m.id=i.member_id
+       LEFT JOIN panel_agents pa ON pa.id=i.panel_agent_id
+       WHERE i.state='pending'
+       ORDER BY i.created DESC`,
+    )
     .filter((i) => (!i.group_id || names.has(i.group_id)) && !dismissed.get('interaction').has(i.id))
     .map((i) => ({
       id: i.id,
       kind: 'interaction',
+      interactionKind: i.kind,
       title: JSON.parse(i.payload).text,
       groupName: names.get(i.group_id) ?? 'Panel Agent',
-      // 与未读行合并展示时用同一个键：一个会话一行。
+      senderName: i.senderName ?? null,
+      // 与未读行按同一会话键对应，便于跨视图引用。
       conversation: i.group_id ? `group:${i.group_id}` : `panel:${readState.GLOBAL_TEAM}`,
       created: i.created,
       path:
@@ -115,7 +127,9 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
           ?.name ??
         bus.panelAgent()?.name ??
         'Agent',
-      groupName: names.get(run.endpoint.group_id) ?? 'Panel Agent',
+      groupName:
+        names.get(run.endpoint.group_id) ??
+        (run.endpoint.context === 'home-summary' ? '主页进展摘要' : 'Panel Agent'),
       created: run.created,
       queued: queued.filter(
         (m) =>
@@ -127,6 +141,8 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
       path: destination(
         run.endpoint.group_id,
         run.endpoint.group_id ? run.endpoint.id : null,
+        null,
+        run.endpoint.context,
       ),
     }));
   // 未应答:用户已发出、且尚没有任何一条消息通过 reply_to 指回它的指令。
@@ -177,7 +193,7 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     }));
   const recent = s
     .all(
-      `SELECT t.id,t.state,t.created,t.ended,t.group_id,
+      `SELECT t.id,t.state,t.detail,t.created,t.ended,t.group_id,c.context,
         CASE WHEN t.executor_kind='panel_agent' THEN p.name ELSE m.name END AS name,
         t.conversation_id AS endpoint_id
        FROM turns t JOIN conversations c ON c.id=t.conversation_id
@@ -191,15 +207,18 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     .filter((run) => !dismissed.get('activity:recent').has(run.id))
     .map((run) => ({
       ...run,
-      groupName: names.get(run.group_id) ?? 'Panel Agent',
-      path: destination(run.group_id, run.group_id ? run.endpoint_id : null),
+      groupName:
+        names.get(run.group_id) ??
+        (run.context === 'home-summary' ? '主页进展摘要' : 'Panel Agent'),
+      path: destination(run.group_id, run.group_id ? run.endpoint_id : null, null, run.context),
     }));
   const agentId = bus.panelAgent()?.id ?? '';
+  const latestHomeSummary = agentId ? panelAgg.latestHomeSummary(s, agentId) : null;
   const summaryRequest = s.get(
     "SELECT id,created FROM panel_messages WHERE panel_agent_id=? AND context='private' AND role='user' AND text LIKE '[主页进展摘要]%' ORDER BY seq DESC LIMIT 1",
     agentId,
   );
-  const summaryReply = s.get(
+  const legacySummaryReply = s.get(
     `SELECT reply.id,reply.text,reply.created FROM panel_messages request
     JOIN panel_messages reply ON reply.panel_agent_id=request.panel_agent_id AND reply.context='private' AND reply.role='assistant' AND reply.seq>request.seq
     WHERE request.panel_agent_id=? AND request.context='private' AND request.role='user' AND request.text LIKE '[主页进展摘要]%'
@@ -207,6 +226,12 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
     ORDER BY request.seq DESC,reply.seq DESC LIMIT 1`,
     agentId,
   );
+  const summaryReply =
+    latestHomeSummary && legacySummaryReply
+      ? latestHomeSummary.created >= legacySummaryReply.created
+        ? latestHomeSummary
+        : legacySummaryReply
+      : latestHomeSummary ?? legacySummaryReply ?? null;
   // 未读：一个会话一行。群消息与面板私聊各自一套编号，分开取再合并。
   // 卡片锚点、回执副本、已删除团队的消息都由聚合层排除，不在这里重复判断。
   const unread = [

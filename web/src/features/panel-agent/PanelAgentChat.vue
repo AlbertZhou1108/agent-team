@@ -58,6 +58,7 @@ const emit = defineEmits<{
   send: [];
   stop: [];
   edit: [];
+  resetSession: [];
   updateModel: [form: PanelAgentForm];
   attach: [files: File[]];
   removeAttachment: [localId: string];
@@ -161,6 +162,15 @@ const suggestions = [
     <template #leading><div class="agent-mark agent-mark-small"><Bot /></div></template>
     <template #actions>
         <Button as-child variant="outline" size="sm"><RouterLink to="/groups/new">创建团队</RouterLink></Button>
+        <Button
+          v-if="!showHistory"
+          variant="ghost"
+          size="sm"
+          :disabled="sending"
+          title="解除旧宿主会话绑定并开启全新会话（保留历史记录）"
+          @click="emit('resetSession')"
+          >新建会话</Button
+        >
         <Button variant="ghost" size="sm" @click="showHistory = !showHistory">{{ showHistory ? '返回当前会话' : '历史记录' }}</Button>
         <Button
           variant="ghost"

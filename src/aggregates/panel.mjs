@@ -287,3 +287,22 @@ export function pendingPanelInteraction(store, { panelAgentId, groupId, kind }) 
     kind,
   ) ?? null;
 }
+
+/** 写入一条主页进展摘要快照(与私聊消息流完全独立)。 */
+export function insertHomeSummary(store, { id, panelAgentId, text, created }) {
+  return store.run(
+    'INSERT INTO home_summaries(id,panel_agent_id,text,created) VALUES(?,?,?,?)',
+    id,
+    panelAgentId,
+    text,
+    created,
+  );
+}
+
+/** 读取某 Panel Agent 最新一条主页进展摘要快照。 */
+export function latestHomeSummary(store, panelAgentId) {
+  return store.get(
+    'SELECT id,text,created FROM home_summaries WHERE panel_agent_id=? ORDER BY created DESC,rowid DESC LIMIT 1',
+    panelAgentId,
+  ) ?? null;
+}

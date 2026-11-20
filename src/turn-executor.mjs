@@ -146,6 +146,18 @@ export class TurnExecutor {
       appendDelta('reasoning', delta, 'reasoning-delta', metadata);
     };
 
+    // 宿主在回合真正入队(onAccepted)前上报的 session 先暂存,避免初始化中途失败
+    // 把尚未生效的宿主 session 写死进数据库(全宿主通用保护)。
+    let inputAccepted = false;
+    let pendingSession = null;
+    let committedSession = null;
+    const commitPendingSession = () => {
+      if (pendingSession === null || pendingSession === committedSession) return;
+      const value = pendingSession;
+      committedSession = value;
+      onSession?.(turnId, value);
+    };
+
     const promise = Promise.resolve().then(() => {
       emit(turnId, { type: 'input', text: prompt });
       try {
@@ -175,6 +187,8 @@ export class TurnExecutor {
         signal: abort.signal,
         modelSelection: modelSelectionOf(actor),
         onAccepted: () => {
+          inputAccepted = true;
+          commitPendingSession();
           accepted(turnId);
           emit(turnId, { type: 'framework.input_accepted' });
         },
@@ -183,7 +197,10 @@ export class TurnExecutor {
           if (nativeTurnEvent) emit(turnId, { type: 'framework.native_turn', ref: String(ref) });
         },
         onTool,
-        onSession: value => onSession(turnId, value),
+        onSession: value => {
+          pendingSession = value;
+          if (inputAccepted) commitPendingSession();
+        },
         onModel: observation => emit(turnId, { type: 'framework.model', ...observation }),
         onSelection: selection => { if (selection?.model) emit(turnId, { type: 'framework.model_selection', ...selection }); },
         onToolCallDelta: payload => handleToolDelta?.(payload),
@@ -204,7 +221,7 @@ export class TurnExecutor {
               turnId,
               turnKind: telemetry.turnKind,
               host: telemetry.host,
-              hostSessionId: getHostSessionId(),
+              hostSessionId: pendingSession ?? getHostSessionId(),
               context: telemetry.context,
               observation,
             });
@@ -219,6 +236,7 @@ export class TurnExecutor {
     const done = (async () => {
       try {
         const result = await promise;
+        commitPendingSession();
         bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
         emit(turnId, { type: 'framework.output', text: result });
         const persistedReply = await onComplete(turnId, result, abort);

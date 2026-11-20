@@ -367,6 +367,26 @@ export function usePanelAgentPage() {
       clearingNotifications.value = false;
     }
   }
+  function resetSession() {
+    askConfirm({
+      title: '开启新的宿主会话？',
+      description:
+        '将解除当前私人对话与旧宿主会话的绑定，下一条消息会使用当前模型开启全新会话；历史消息记录会保留。',
+      confirmText: '新建会话',
+      run: async () => {
+        actionError.value = '';
+        panelState.sendError = '';
+        try {
+          await api.resetPanelSession();
+          await panelQuery.refetch();
+          toast.success('已重置会话，下一条消息将开启新会话');
+        } catch (error) {
+          actionError.value = error instanceof Error ? error.message : String(error);
+        }
+      },
+    });
+  }
+
   function resolveRuntime(turnId: string) {
     askConfirm({
       title: '确认宿主进程已经实际停止？',
@@ -447,6 +467,6 @@ export function usePanelAgentPage() {
     conversationError, privateStreaming, clearingNotifications, confirmRequest,
     draft, activeTeamId, onAttach, onRemoveAttachment, sendMessage, stopTurn,
     beginEdit, cancelEdit, saveAgent, updateAgentModel, loadCatalog, openTeam,
-    takeover, handback, resolveRuntime, clearNotifications, runConfirm, cancelConfirm,
+    takeover, handback, resolveRuntime, resetSession, clearNotifications, runConfirm, cancelConfirm,
   };
 }

@@ -156,7 +156,7 @@ export interface PanelMessage {
   seq: number;
   id: string;
   panel_agent_id: string;
-  context: 'private' | 'coordination';
+  context: 'private' | 'coordination' | 'home-summary';
   role: 'user' | 'assistant' | 'system';
   text: string;
   active_team_id: string | null;
@@ -207,7 +207,7 @@ export interface PanelMessage {
   seq: number;
   id: string;
   panel_agent_id: string;
-  context: 'private' | 'coordination';
+  context: 'private' | 'coordination' | 'home-summary';
   role: 'user' | 'assistant' | 'system';
   text: string;
   active_team_id: string | null;
@@ -231,7 +231,7 @@ export interface PanelAgentState {
   agent: PanelAgent | null;
   sessions: Array<{
     id: string;
-    context: 'private' | 'coordination';
+    context: 'private' | 'coordination' | 'home-summary';
     group_id: string | null;
     session: string | null;
     updated: string;
@@ -506,7 +506,7 @@ export interface PanelStream {
   agentId: string;
   sessionId: string;
   turnId: string;
-  context: 'private' | 'coordination';
+  context: 'private' | 'coordination' | 'home-summary';
   activeTeamId: string | null;
   text: string;
   reasoning?: string;

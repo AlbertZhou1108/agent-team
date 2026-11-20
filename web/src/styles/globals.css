@@ -483,6 +483,12 @@
   min-block-size: 0;
 }
 
+/* 进展摘要卡片:随内容自适应高度，受响应式最大高度约束并在超出时内部滚动。 */
+.home-summary-card {
+  max-block-size: clamp(20rem, 48dvh, 38rem);
+  min-block-size: 0;
+}
+
 .home-card-scroll {
   min-block-size: 0;
   overflow-y: auto;

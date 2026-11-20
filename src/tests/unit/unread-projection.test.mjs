@@ -81,8 +81,10 @@ test('读一个团队不会清掉另一个团队的未读', async t => {
 test('归档期间不计数，恢复时视为全部已读', async t => {
   const { bus, group } = await busScenario(t, { members: [] });
   const lead = bus.teamController(group.id);
+  const agentId = seedPanelAgent(bus);
   bus.store.append(group.id, lead.id, 'user', 'send', '归档前的汇报');
-  assert.equal(homeWorkbench(bus).unreadTotal, 1);
+  bus.store.panelAppend(agentId, 'private', 'assistant', '归档前的私聊汇报', group.id);
+  assert.equal(homeWorkbench(bus).unreadTotal, 2);
 
   await bus.archiveGroup(group.id);
   assert.equal(homeWorkbench(bus).unreadTotal, 0);

@@ -92,7 +92,8 @@ export function reduceSummaryStream(
   event: PanelStreamEvent,
 ): SummaryStreamState {
   const isSummary = (stream: PanelStream) =>
-    stream.context === 'private' && stream.homeSummary === true;
+    stream.context === 'home-summary' ||
+    (stream.context === 'private' && stream.homeSummary === true);
   if (event.type === 'snapshot') {
     const stream = event.streams
       ?.filter(isSummary)

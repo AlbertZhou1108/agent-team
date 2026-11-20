@@ -179,7 +179,10 @@ test('workbench counts only unanswered interactions and retains the last complet
   const withInteraction = homeWorkbench(bus);
   assert.equal(withInteraction.pending.length, 1);
   assert.equal(withInteraction.pending[0].id, 'confirmation');
+  assert.equal(withInteraction.pending[0].interactionKind, 'choice');
+  assert.equal(withInteraction.pending[0].senderName, 'lead');
   assert.equal(new URL(withInteraction.pending[0].path,'http://localhost').searchParams.has('session'),false);
+  assert.equal(withInteraction.recent.find((row) => row.id === 'uncertain')?.detail, '核实宿主');
   bus.store.run(
     "UPDATE interactions SET state='answered' WHERE id='confirmation'",
   );
@@ -352,4 +355,127 @@ test('dismissing a team notification hides it from the panel list without touchi
   assert.equal(bus.panelAgentState().notifications.some(row => row.id === 'update-1'), false);
   assert.ok(bus.store.get('SELECT id FROM panel_updates WHERE id=?', 'update-1'), '投递台账本身保留');
   assert.throws(() => dismissWorkbench(bus, [{ category: 'panel:update', id: 'gone' }]), /已失效/);
+});
+
+test('home summary runs in a fresh read-only session using the Panel Agent model without touching private session', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'home-summary-isolated-'));
+  const observed = [];
+  const host = {
+    async run(context) {
+      observed.push({
+        context: context.endpoint.context,
+        session: context.endpoint.session,
+        modelSelection: context.modelSelection,
+        tools: context.tools.map(tool => tool.name),
+        policy: context.policy,
+      });
+      context.onSession(`ephemeral-${observed.length}`);
+      context.onAccepted();
+      context.onTextDelta('独立汇总');
+      return `独立汇总 #${observed.length}`;
+    },
+  };
+  const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
+  const bus = server.bus;
+  t.after(async () => {
+    await server.close();
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* ignore */ }
+  });
+  const created = new Date().toISOString();
+  bus.store.run(
+    'INSERT INTO panel_agents(id,name,host,model_provider,model,reasoning_effort,created,updated) VALUES(?,?,?,?,?,?,?,?)',
+    'panel-isolated', 'Panel', 'fake', 'prov-1', 'model-x', 'high', created, created,
+  );
+  // 模拟私聊会话上挂着一个已失效的旧宿主 session
+  const privateSession = bus.store.conversation('panel_agent', 'panel-isolated', 'private');
+  bus.store.setConversationSession(privateSession.id, 'stale-private-session');
+
+  const first = await fetch(`${server.url}api/workbench/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).summary.text, '独立汇总 #1');
+
+  const second = await fetch(`${server.url}api/workbench/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(second.status, 200);
+  assert.equal((await second.json()).summary.text, '独立汇总 #2');
+
+  // 两次汇总都复用 Panel Agent 的同模型配置，但每次均新建空宿主会话、仅开放只读工具。
+  assert.equal(observed.length, 2);
+  for (const call of observed) {
+    assert.equal(call.context, 'home-summary');
+    assert.equal(call.session, null);
+    assert.deepEqual(call.modelSelection, { model_provider: 'prov-1', model: 'model-x', reasoning_effort: 'high' });
+    assert.equal(call.policy.allowShell, false);
+    assert.ok(call.tools.includes('teams_list'));
+    assert.ok(call.tools.includes('team_read'));
+    assert.equal(call.tools.includes('team_create'), false);
+    assert.equal(call.tools.includes('ask'), false);
+  }
+  // 私聊消息流未被摘要污染，工作台直接读取最新独立摘要。
+  assert.equal(bus.panelAgentState().conversation.length, 0);
+  const workbench = await (await fetch(`${server.url}api/workbench`)).json();
+  assert.equal(workbench.summary.text, '独立汇总 #2');
+});
+
+test('turn executor does not persist a ghost session when a host fails before acceptance and panel reset clears stale bindings', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'turn-ghost-session-'));
+  let failBeforeAccept = true;
+  const seenSessions = [];
+  const host = {
+    async run(context) {
+      seenSessions.push(context.endpoint.session ?? null);
+      if (failBeforeAccept) {
+        context.onSession('ghost-session-id');
+        throw new Error('init failed before accept');
+      }
+      context.onSession(`real-session-${seenSessions.length}`);
+      context.onAccepted();
+      return '正常回复';
+    },
+  };
+  const server = await startServer({ directory, hosts: new Map([['fake', host]]) });
+  const bus = server.bus;
+  t.after(async () => {
+    await server.close();
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* ignore */ }
+  });
+  const created = new Date().toISOString();
+  bus.store.run(
+    'INSERT INTO panel_agents(id,name,host,created,updated) VALUES(?,?,?,?,?)',
+    'panel-ghost', 'Panel', 'fake', created, created,
+  );
+
+  // 第一次：宿主在 onAccepted 之前调了 onSession 但报错 -> 不得落盘幽灵 session。
+  await assert.rejects(
+    bus.panelPrivateTurn({ text: '第一次尝试', clientMessageId: 'm-1' }),
+    /init failed before accept/,
+  );
+  assert.equal(bus.panelAgentState().sessions.find(s => s.context === 'private')?.session ?? null, null);
+
+  // 第二次：正常入队完成 -> 此时才持久化真实 session。
+  failBeforeAccept = false;
+  await bus.panelPrivateTurn({ text: '第二次成功', clientMessageId: 'm-2' });
+  assert.deepEqual(seenSessions, [null, null]);
+  assert.equal(bus.panelAgentState().sessions.find(s => s.context === 'private')?.session, 'real-session-2');
+
+  // 通过 HTTP 重置私聊会话 -> 清空宿主绑定但保留聊天记录，下一条以 null 开启新会话。
+  const reset = await fetch(`${server.url}api/panel-agent/reset-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(reset.status, 200);
+  assert.equal((await reset.json()).reset, true);
+  assert.equal(bus.panelAgentState().sessions.find(s => s.context === 'private')?.session ?? null, null);
+  assert.ok(bus.panelAgentState().conversation.length >= 2);
+
+  await bus.panelPrivateTurn({ text: '重置后的第一条', clientMessageId: 'm-3' });
+  assert.deepEqual(seenSessions, [null, null, null]);
 });

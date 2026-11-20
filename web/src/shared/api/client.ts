@@ -283,6 +283,12 @@ export const api = {
   stopPanel() {
     return mutate<{ stopped: string[] }>('/api/panel-agent/stop', {});
   },
+  resetPanelSession() {
+    return mutate<{ reset: boolean; sessionId: string; previousSession: string | null }>('/api/panel-agent/reset-session', {});
+  },
+  summarizeWorkbench() {
+    return mutate<{ summary: { id: string; text: string; created: string } | null }>('/api/workbench/summary', {});
+  },
   resolvePanelRuntime(turnId: string, reason: string) {
     return mutate<{ turnId: string; state: string }>('/api/panel-agent/resolve-runtime', { turnId, reason });
   },

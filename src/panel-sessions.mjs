@@ -46,6 +46,8 @@ export class PanelSessions {
   isUniqueViolation(error) { return turnsDomain.isUniqueViolation(error); }
   replayPanelRequest(panelAgentId, request) { return turnsDomain.replayPanelRequest(this.bus, panelAgentId, request); }
   async panelPrivateTurn(options) { return turnsDomain.panelPrivateTurn(this.bus, options); }
+  async panelHomeSummaryTurn() { return turnsDomain.panelHomeSummaryTurn(this.bus); }
+  resetPanelPrivateSession() { return turnsDomain.resetPanelPrivateSession(this.bus); }
   async stopPanel() { return turnsDomain.stopPanel(this.bus); }
   resolvePanelRuntime(turnId, reason) { return turnsDomain.resolvePanelRuntime(this.bus, turnId, reason); }
   panelInteractionAnchor(session, panelAgent, origin, text) {

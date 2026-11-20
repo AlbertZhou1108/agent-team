@@ -141,6 +141,7 @@ function schema(source) {
 }
 
 export function panelToolsFor(context) {
+  if (context === 'home-summary') return schema(observerDefinitions.filter(([name]) => name !== 'model_catalog'));
   if (context === 'coordination') return schema([...mainDefinitions, ...coordinationUpdateDefinitions, ...receiptDefinitions, requestDefinitions[1]]);
   const all = new Map();
   for (const item of [...observerDefinitions, ...preparationDefinitions, ...requestDefinitions, mainDefinitions.find(item => item[0] === 'ask')]) all.set(item[0], item);

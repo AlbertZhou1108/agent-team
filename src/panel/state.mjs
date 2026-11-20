@@ -44,7 +44,7 @@ export function panelBrowserState(bus, summary = false) {
     requests: (state.requests ?? []).filter(row => active.has(row.group_id) && ((panelAgg.messageSeq(bus.store, row.source_user_message_id) ?? 0) > bus.panelBootSeq || row.receipts.some(receipt => receipt.seq > bus.panelBootReceiptSeq))),
     notifications: (state.notifications ?? []).filter(row => active.has(row.group_id)),
     sessions: state.sessions.filter(row => !row.group_id || active.has(row.group_id)),
-    unknown: (state.unknown ?? []).filter(row => row.session_context === 'archive-summary' || !row.group_id || active.has(row.group_id)),
+    unknown: (state.unknown ?? []).filter(row => row.session_context === 'archive-summary' || row.session_context === 'home-summary' || !row.group_id || active.has(row.group_id)),
     teamPendingInteractions: Object.fromEntries(Object.entries(state.teamPendingInteractions ?? {}).filter(([id]) => active.has(id))),
   };
 }

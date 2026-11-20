@@ -23,7 +23,7 @@ const {
   clearingNotifications, confirmRequest, draft, activeTeamId,
   onAttach, onRemoveAttachment, sendMessage, stopTurn, beginEdit,
   cancelEdit, saveAgent, updateAgentModel, loadCatalog, openTeam,
-  takeover, handback, resolveRuntime, clearNotifications,
+  takeover, handback, resolveRuntime, resetSession, clearNotifications,
   runConfirm, cancelConfirm,
 } = usePanelAgentPage();
 </script>
@@ -97,6 +97,7 @@ const {
           @send="sendMessage"
           @stop="stopTurn"
           @edit="beginEdit"
+          @reset-session="resetSession"
           @update-model="updateAgentModel"
         />
         <PanelAgentSidebar

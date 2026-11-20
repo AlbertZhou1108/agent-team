@@ -264,6 +264,28 @@ test('a v21 database gains the activation binding kind without changing existing
   store.close();
 });
 
+test('a v23 database gains home_summaries on upgrade without losing existing panel agents', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run(
+    "INSERT INTO panel_agents(id,name,host,created,updated) VALUES('pa1','Panel','fake',?,?)",
+    NOW, NOW,
+  );
+  store.run('DROP TABLE home_summaries');
+  store.setSchemaVersion(23);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='home_summaries'"));
+  store.run(
+    "INSERT INTO home_summaries(id,panel_agent_id,text,created) VALUES('hs1','pa1','汇总正文',?)",
+    NOW,
+  );
+  assert.equal(store.get("SELECT text FROM home_summaries WHERE id='hs1'").text, '汇总正文');
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

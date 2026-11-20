@@ -145,6 +145,8 @@ export class Bus extends EventEmitter {
   runPanelTurn(...args) { return this.panel.runPanelTurn(...args); }
 
   panelPrivateTurn(...args) { return this.panel.panelPrivateTurn(...args); }
+  panelHomeSummaryTurn(...args) { return this.panel.panelHomeSummaryTurn(...args); }
+  resetPanelPrivateSession(...args) { return this.panel.resetPanelPrivateSession(...args); }
   stopPanel(...args) { return this.panel.stopPanel(...args); }
   resolvePanelRuntime(...args) { return this.panel.resolvePanelRuntime(...args); }
   panelInteractionAnchor(...args) { return this.panel.panelInteractionAnchor(...args); }
