@@ -996,14 +996,31 @@ export class ControlPlane {
     } catch {
       throw new Error('工作目录无效');
     }
-    const workspaceRoots = capabilities.workspaceRoots.map(root => {
+    // ADR 0012 跟随语义:桌面会话的 controller_cwd 来自该会话自身(显式 env 或
+    // MCP 子进程 cwd),与会话同一信任层级;安装时无从知晓会话会开在哪个目录,
+    // 声明的 roots 只是上界猜测。把会话自己的目录并入有效 roots,团队才能跟随
+    // 会话开在注册根之外(2026-11-21 验收实测:桌面会话开在仓库而 roots=[主目录]
+    // 时建团被拒,显式传 workspace 也被忽略)。cwd 已消失时跳过,留给原语义拒绝。
+    let desktopCwd = null;
+    if (surfaceFollowsConversation(binding.surface) && binding.controller_cwd) {
       try {
-        const canonical = realpathSync(root);
-        return statSync(canonical).isDirectory() ? canonical : root;
+        desktopCwd = realpathSync(binding.controller_cwd);
+        if (!statSync(desktopCwd).isDirectory()) desktopCwd = null;
       } catch {
-        return root;
+        desktopCwd = null;
       }
-    });
+    }
+    const workspaceRoots = [...new Set([
+      ...capabilities.workspaceRoots.map(root => {
+        try {
+          const canonical = realpathSync(root);
+          return statSync(canonical).isDirectory() ? canonical : root;
+        } catch {
+          return root;
+        }
+      }),
+      ...(desktopCwd ? [desktopCwd] : []),
+    ])];
     assertControlWorkspace({ ...capabilities, workspaceRoots }, workspace);
     const policy = assertControlPolicy(capabilities, args.policy ?? 'read-only');
     const people = normalizedMembers(args.members);

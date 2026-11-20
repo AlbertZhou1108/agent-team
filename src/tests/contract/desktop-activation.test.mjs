@@ -2,7 +2,7 @@
 // 这是交接文档列出的头号风险(共享 MCP 条目坍缩多会话)的对外行为验证。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
@@ -107,6 +107,55 @@ test('activation credentials without a host thread identity fall back to the lat
   assert.match(status.binding.name, /thread-fallback/);
   assert.equal(status.binding.id, (await call('thread-fallback', 'control_status')).binding.id);
   assert.equal(status.controlledTeams, 1);
+});
+
+test('desktop sessions may root teams at their own working directory even outside declared roots', async t => {
+  // 2026-11-21 验收发现:桌面会话开在注册 roots 之外(如仓库)时建团被拒——
+  // 安装时无从知晓会话会开在哪个目录,声明的 roots 只是上界猜测。跟随语义下,
+  // 会话自己的 controller_cwd 与会话同一信任层级,应并入有效 roots。
+  const { bus, directory } = setup(t);
+  const outside = mkdtempSync(join(tmpdir(), 'agent-team-cwd-outside-'));
+  t.after(() => { try { rmSync(outside, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* Windows 上文件可能仍被占用 */ } });
+  const zcode = createExternalIdentity(bus.store, {
+    principalName: '本机用户',
+    bindingName: 'ZCode Desktop 接入',
+    host: 'zcode',
+    declared: {
+      capabilities: ['session.deliver', 'turn.observe'],
+      workspaceRoots: [directory],
+      policies: ['communication', 'read-only', 'workspace-write'],
+    },
+    surface: 'desktop',
+    bindingKind: 'activation',
+  });
+  // hostCwd 在 roots 之外:桌面跟随语义下建团成功,workspace 落在会话目录。
+  const created = await bus.controlTool(zcode.binding.id, zcode.key, 'team_create', {
+    name: '会话目录团队',
+    members: '成员=fake',
+    policy: 'read-only',
+  }, undefined, 'sess-outside', false, outside);
+  assert.equal(created.team.workspace, realpathSync(outside));
+  // CLI surface 语义不变:显式传入 roots 之外的 workspace 仍被拒。
+  const cli = createExternalIdentity(bus.store, {
+    principalName: '本机用户',
+    bindingName: 'CLI 会话',
+    host: 'zcode',
+    declared: {
+      capabilities: ['session.deliver', 'turn.observe'],
+      workspaceRoots: [directory],
+      policies: ['communication', 'read-only', 'workspace-write'],
+    },
+    surface: 'cli',
+  });
+  await assert.rejects(
+    () => bus.controlTool(cli.binding.id, cli.key, 'team_create', {
+      name: '越界团队',
+      workspace: outside,
+      members: '',
+      policy: 'read-only',
+    }),
+    /workspace roots/,
+  );
 });
 
 test('hosts without a session identity channel resolve per their declared channel', async t => {
