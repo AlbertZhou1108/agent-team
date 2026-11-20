@@ -34,7 +34,7 @@ AGENT_TEAM_CLIENT_KEY="$KEY" node "$CLI" bind-session --socket "$SOCKET" --clien
 
 ## 创建与派发
 
-`team_create` 的工作目录必须位于连接时登记的 `workspaceRoots` 内。默认使用 `read-only`；需要写入时显式选择策略，且不能超过当前绑定返回的 `policies`。成员格式为 `名称=宿主`。
+`team_create` 的工作目录必须位于连接时登记的 `workspaceRoots` 内。默认使用 `read-only`;需要写入时显式选择策略,且不能超过当前绑定返回的 `policies`。成员格式为 `名称=宿主`。**建团前先把「成员、文件访问范围、工作目录」复述给用户并得到确认**,再调用 `team_create`;用户没确认就不要建。
 
 成员也可以传结构化对象：`{name, host, model, reasoningEffort}`。模型与思考强度从宿主实时目录校验；无效选择直接失败。后续用 `team_member_model` 调整普通成员。
 
