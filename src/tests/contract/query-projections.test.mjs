@@ -9,7 +9,7 @@ import { createTestGroup } from '../support/fixture.mjs';
 test('query projections isolate teams and never compute list model histories', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'query-projections-'));
   const server = await startServer({ directory, hosts: new Map([['fake', { async run() { return 'done'; } }]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const create = name => createTestGroup(server.bus, { name, workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'worker', host: 'fake' }] });
   const group = create('one'); const other = create('two');
   const base = new URL(server.url).origin;

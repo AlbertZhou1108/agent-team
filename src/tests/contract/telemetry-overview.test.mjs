@@ -12,7 +12,7 @@ test('global overview counts execution once, excludes private/profile, conserves
  const directory=mkdtempSync(join(tmpdir(),'overview-'));
  let measured=true;
  const bus=new Bus({directory,hosts:new Map([['fake',{async run(c){c.onSession(c.endpoint.id);c.onAccepted();if(measured)c.onTelemetry(telemetryObservation({source:'fixture',scope:'turn',aggregation:'delta',context:{model:{model:'fixture-model',provider:'fixture'}},usage:{inputTokensTotal:100,outputTokens:10,totalTokens:110,cacheReadTokens:80},completeness:{inputTokensTotal:'complete',outputTokens:'complete',totalTokens:'complete',cacheReadTokens:'complete'}}));return'output'}}]])});
- t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true})});
+ t.after(async()=>{await bus.close();rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50})});
  const a=createTestGroup(bus,{name:'a',workspace:directory,lead:{name:'lead',host:'fake'},members:[]});
  const b=createTestGroup(bus,{name:'b',workspace:directory,lead:{name:'lead',host:'fake'},members:[]});
  await until(()=>!bus.running.size);

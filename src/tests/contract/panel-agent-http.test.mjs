@@ -50,7 +50,7 @@ test('Panel Agent HTTP API lazily creates identity and controls team relations',
   });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const group = server.bus.createGroup({
     name: 'legacy team',
@@ -187,8 +187,8 @@ test('panel messages accept clientMessageId with attachments and replay idempote
   const server = await startServer({ directory, hosts: new Map([['fake', fakeHost]]) });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const bus = server.bus;
   const base = new URL(server.url).origin;

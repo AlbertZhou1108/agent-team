@@ -45,7 +45,7 @@ test('coalesces consecutive token deltas of one stream into a single row', () =>
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -65,7 +65,7 @@ test('flushes pending deltas before a structured event so seq order is preserved
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -92,7 +92,7 @@ test('keeps different streams and different payload kinds apart', () => {
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -130,6 +130,6 @@ test('member history returns null for private endpoints and stores elsewhere', (
   } finally {
     log.close();
     store.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

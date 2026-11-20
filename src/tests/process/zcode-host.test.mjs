@@ -130,7 +130,7 @@ test('zcode member run creates a session, applies model selection and returns th
   assert.equal(turnTelemetry.usage.uncachedInputTokens, 20);
   assert.ok(Number.isFinite(turnTelemetry.usage.hostTurnWallMs));
   assert.ok(events.some(row => row[0] === 'policy'), 'policy observation must be emitted');
-  rmSync(context.workspace, { recursive: true, force: true });
+  rmSync(context.workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 test('zcode member run resumes the bound endpoint session', async t => {

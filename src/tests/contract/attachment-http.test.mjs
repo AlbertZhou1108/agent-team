@@ -243,7 +243,7 @@ test('attachment routes inherit local host and origin validation', async t => {
 test('upload without a panel agent returns 404', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'attachment-http-empty-'));
   const server = await startServer({ directory, hosts: new Map() });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const response = await upload(server.url, Buffer.from('x'));
   assert.equal(response.status, 404);
 });

@@ -22,7 +22,7 @@ test('loadHosts derives the shared socket when callers omit it', async t => {
   }));
   t.after(() => {
     delete globalThis.__agentTeamHostProbe;
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   await loadHosts({ directory, configFile: configPath });

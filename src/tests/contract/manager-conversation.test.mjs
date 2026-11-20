@@ -158,7 +158,7 @@ async function fixture(t) {
   t.after(async () => {
     for (const close of cleanup) await close();
     if (!bus.closing) await bus.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   return { bus, group, lead, one, two, panelId, session, addPanelTurn, addMemberPairTurn, directory, cleanup };
 }
@@ -418,6 +418,6 @@ test('manager-conversation rejects a member controller and keeps member-side sha
   await until(() => bus.running.size === 0);
   const [lead, worker] = bus.members(group.id);
   assert.throws(() => bus.telemetryManagerConversation(group.id, worker.id), /不是 Panel Agent/);
-  t.after(async () => { if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   assert.ok(lead);
 });

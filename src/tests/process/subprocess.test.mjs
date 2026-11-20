@@ -25,7 +25,7 @@ test('host launcher preserves arguments through a Windows npm-style cmd shim', {
     assert.deepEqual(JSON.parse(output), args);
   } finally {
     await stopHost(child);
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

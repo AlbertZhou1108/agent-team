@@ -35,7 +35,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.equal(host.supportsPolicy({ policy: { mode: 'workspace-write', allowShell: false } }).supported, false);
   t.after(async () => {
     await host.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   await assert.rejects(host.run({
@@ -76,7 +76,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
-  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const { codexPolicyConfig } = await import('../../hosts/policies.mjs');
   const policy = { mode: 'communication', allowShell: false };
   const config = codexPolicyConfig(policy, ['webstorm', 'idea', 'node_repl', 'shadcn']);
@@ -118,7 +118,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
-  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const policy = { mode: 'communication', allowShell: false };
   const { codexPolicyConfig } = await import('../../hosts/policies.mjs');
   const previousPolicy = { signature: JSON.stringify({ config: codexPolicyConfig(policy, []), tools: [] }) };
@@ -204,7 +204,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
-  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
 
   const attachments = [
     { id: 'a1', mediaType: 'text/plain', name: 'a.txt', path: join(directory, 'att', 'a1') },

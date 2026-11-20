@@ -239,10 +239,10 @@ test('upload works without any workspace and rejects a symlinked storage root', 
   assert.ok(readdirSync(attachmentsRoot(directory)).includes(ok.id));
 
   // 把存储根换成指向外部的符号链接:拒绝使用,防止附件字节被引出受控目录。
-  rmSync(attachmentsRoot(directory), { recursive: true, force: true });
+  rmSync(attachmentsRoot(directory), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   bus.store.run("DELETE FROM attachments WHERE id=?", ok.id);
   const outside = mkdtempSync(join(tmpdir(), 'attachments-outside-'));
-  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  t.after(() => rmSync(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   symlinkSync(outside, attachmentsRoot(directory));
   await assert.rejects(
     () => bus.attachmentUpload(agentId, textBuffer(), { name: 'a.txt' }),

@@ -27,7 +27,7 @@ async function setup(t) {
   const directory = mkdtempSync(join(tmpdir(), 'agent-tasks-'));
   const calls = [];
   const server = await startServer({ directory, hosts: new Map([['fake', makeHost(calls)]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const group = createTestGroup(server.bus, {
     name: 'tasks', workspace: directory,
     lead: { name: 'Lead', host: 'fake' },

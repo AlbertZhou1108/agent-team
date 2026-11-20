@@ -110,7 +110,7 @@ test('real RPC/MCP entry returns the same bounded projection and keeps authentic
   server = await startServer({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => {
     await server.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const group = await rpc(server.socketPath, {
     op: 'new',

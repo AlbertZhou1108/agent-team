@@ -41,7 +41,7 @@ function fixture(t, run) {
     members: [{ name: 'one', host: 'fake' }, { name: 'two', host: 'fake' }],
   });
   const members = bus.members(group.id);
-  t.after(async () => { for (const close of cleanup) await close(); if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { for (const close of cleanup) await close(); if (!bus.closing) await bus.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   return { bus, group, members, directory, calls, host, cleanup };
 }
 
@@ -505,7 +505,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 `);
   chmodSync(fake, 0o700);
   const host = createCodexHost({ command: fake });
-  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await host.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const telemetry = [], deltas = [], toolDeltas = [], reasonings = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },
@@ -557,7 +557,7 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
-  t.after(async () => { await host.close?.(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await host.close?.(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const telemetry = [], deltas = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },
@@ -653,7 +653,7 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
 `);
   chmodSync(fake, 0o700);
   const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const deltas = [], toolDeltas = [], reasonings = [];
   const output = await host.run({
     endpoint: { id: 'endpoint', key: 'key', session: null },

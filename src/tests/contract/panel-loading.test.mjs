@@ -9,7 +9,7 @@ import { createTestGroup } from '../support/fixture.mjs';
 test('panel scopes messages before paging and preserves legacy cursors', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'panel-loading-'));
   const server = await startServer({ directory,  hosts: new Map([['fake', { async run() { return 'done'; } }]]) });
-  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const group = createTestGroup(server.bus, { name: 'paging', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [{ name: 'worker', host: 'fake' }] });
   const members = server.bus.members(group.id);
   const endpoint = server.bus.store.endpoint(members[0].id, 'pair:' + members[1].id, members[1].id);

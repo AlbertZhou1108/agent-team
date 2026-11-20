@@ -77,8 +77,8 @@ test('Panel streaming state accumulates deltas and is replaced by the durable fi
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   await createPanel(bus, workspace);
   const events = [];
@@ -127,8 +127,8 @@ test('Panel SSE sends live deltas and completion over the local event stream', a
   t.after(async () => {
     if (!closed) await server.close();
     abort.abort();
-    rmSync(directory, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   await createPanel(server.bus, workspace);
   const base = new URL(server.url).origin;
@@ -190,8 +190,8 @@ test('Panel stream exposes the run phase and clears it after a tool call', async
   const bus = new Bus({ directory, hosts: new Map([['fake', toolHost]]) });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   await createPanel(bus, workspace);
   const events = [];
@@ -231,7 +231,7 @@ test('team SSE sends directive deltas before the durable team reply', async t =>
   t.after(async () => {
     if (!closed) await server.close();
     abort.abort();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const group = createTestGroup(server.bus, {
     name: 'team stream',

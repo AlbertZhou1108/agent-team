@@ -25,7 +25,7 @@ test('search treats wildcard characters literally, filters groups and dates and 
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const a = createTestGroup(bus, {
     name: 'a',
@@ -96,7 +96,7 @@ test('workbench counts only unanswered interactions and retains the last complet
   });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const group = createTestGroup(bus, {
     name: 'team',
@@ -208,7 +208,7 @@ test('home summary uses the existing Panel Agent execution and survives a later 
   const bus = new Bus({ directory, hosts: new Map([['fake', host]]) });
   t.after(async () => {
     await bus.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const created = new Date().toISOString();
   bus.store.run(
@@ -283,7 +283,7 @@ test('workbench HTTP stays readable throughout Panel Agent summary generation', 
     await pending?.catch(() => {});
     abort.abort();
     await server.close();
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const created = new Date().toISOString();
   bus.store.run(
@@ -339,7 +339,7 @@ test('workbench HTTP stays readable throughout Panel Agent summary generation', 
 test('dismissing a team notification hides it from the panel list without touching the update log', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'productivity-notify-'));
   const bus = new Bus({ directory, hosts: new Map([['fake', { async run() { return 'ok'; } }]]) });
-  t.after(async () => { await bus.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => { await bus.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const group = createTestGroup(bus, { name: 'notify', workspace: directory, lead: { name: 'lead', host: 'fake' }, members: [] });
   const agentId = seedPanelAgent(bus);
   bus.store.run(

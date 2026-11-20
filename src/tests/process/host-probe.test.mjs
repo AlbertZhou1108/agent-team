@@ -13,7 +13,7 @@ function fixture(t, source) {
   chmodSync(file, 0o700);
   const command = process.platform === 'win32' ? join(directory, 'fixture.cmd') : file;
   if (process.platform === 'win32') writeFileSync(command, `@echo off\r\n"${process.execPath}" "%~dp0fixture.mjs" %*\r\n`);
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   return { command, directory };
 }
 
@@ -40,12 +40,12 @@ test('probes reject malformed output, early exit and missing commands', async ()
 
 test('timeout and cancellation wait for their own process to stop', { timeout: 12000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'probe-stop-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const pidFile = join(directory, 'pid');
   const source = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)`;
   await assert.rejects(exchange(process.execPath, ['-e', source], { receive: JSON.parse, timeout: 1500 }), /超时/);
   assert.throws(() => process.kill(Number(readFileSync(pidFile)), 0), { code: 'ESRCH' });
-  rmSync(pidFile);
+  rmSync(pidFile, { force: true, maxRetries: 5, retryDelay: 50 });
   const controller = new AbortController();
   const result = exchange(process.execPath, ['-e', source], { receive: JSON.parse, signal: controller.signal });
   const rejection = assert.rejects(result, /cancel test/);
