@@ -6,7 +6,9 @@
 // - Codex Desktop /Applications/ChatGPT.app,内嵌引擎在 bundle 资源内;
 // - DSH Desktop /Applications/DeepSeek Harness.app,内嵌 dsh 在 bundle 资源内;
 // - Claude Desktop /Applications/Claude.app 的引擎不在 bundle 内,而是应用
-//   运行后下载到 ~/Library/Application Support/Claude-3p/claude-code/<版本>/<hash>/。
+//   运行后下载到 ~/Library/Application Support/Claude-3p/claude-code/<版本>/<hash>/;
+// - ZCode Desktop /Applications/ZCode.app,内嵌引擎是 bundle 资源内的 glm/zcode.cjs
+//   (node 脚本,启动与 provider 配置布局由 member/zcode/wake.mjs 的 launch 解析兼容)。
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -55,6 +57,13 @@ export const DESKTOP_DEFINITIONS = new Map([
     engineCandidates: ({ supportRoot }) => claudeEngineCandidates(join(supportRoot, 'Claude-3p', 'claude-code')),
     engineVersionArgs: ['--version'],
     lifecycleNote: '内嵌引擎由桌面应用下载到本地数据目录；未运行过应用时引擎不存在',
+  }],
+  ['zcode', {
+    label: 'ZCode',
+    bundleCandidates: ({ applicationsRoot }) => [join(applicationsRoot, 'ZCode.app')],
+    engineCandidates: ({ bundlePath }) => [
+      { path: join(bundlePath, 'Contents/Resources/glm/zcode.cjs') },
+    ],
   }],
 ]);
 

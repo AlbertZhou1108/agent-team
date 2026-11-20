@@ -146,8 +146,9 @@ async function zcodeModelCatalog(launch, home, options = {}) {
  * 对 agent_team MCP server 做 workspace 级授信：无头协议会话里没人点审批，
  * 未授信 server 的工具调用会被权限系统拒绝（Permission request failed）。
  * 授信状态持久于 workspace；已授信则跳过。
+ * 桌面接入的验证策略（desktop/zcode.mjs）同样驱动无头会话，复用本函数。
  */
-async function trustAgentTeamServer(protocol, workspace) {
+export async function trustAgentTeamServer(protocol, workspace) {
   const listed = await protocol.request('mcp/list', { workspace }, { timeout: 30000 });
   const server = listed?.statuses?.agent_team;
   if (!server) throw new Error('ZCode 会话未加载 agent_team MCP server；请检查 endpoint 配置');

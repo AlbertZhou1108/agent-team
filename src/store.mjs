@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 function modelObservations(rows) {
   return rows.flatMap(row => {
@@ -227,6 +227,7 @@ export class Store {
     if (fromVersion < 20) this.migrateV20();
     if (fromVersion < 21) this.migrateV21();
     if (fromVersion < 22) this.migrateV22();
+    if (fromVersion < 23) this.migrateV23();
 }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -339,6 +340,42 @@ export class Store {
       if (!hasKind) {
         this.db.exec("ALTER TABLE external_client_bindings ADD COLUMN binding_kind TEXT NOT NULL DEFAULT 'conversation' CHECK(binding_kind IN ('conversation','activation'))");
       }
+    });
+  }
+
+  // v23:桌面应用注册表新增第四家 ZCode Desktop。kind 的 CHECK 是 schema 级
+  // 枚举,SQLite 不能改约束,按列信息重建本表;app_id 是裸引用、无外键指向
+  // 本表,重建不牵连其他表。
+  migrateV23() {
+    this.transaction(() => {
+      const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='desktop_applications'")?.sql ?? '';
+      if (tableSql.includes("'zcode'")) return;
+      const columns = this.all('PRAGMA table_info(desktop_applications)').map(column => column.name);
+      if (!columns.length) return;
+      this.db.exec(`CREATE TABLE desktop_applications_v23(
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK(kind IN ('codex','dsh','claude','zcode')),
+          surface TEXT NOT NULL DEFAULT 'desktop' CHECK(surface IN ('cli','desktop')),
+          install_path TEXT,
+          engine_path TEXT,
+          engine_version TEXT,
+          readiness TEXT NOT NULL DEFAULT 'unavailable' CHECK(readiness IN ('available','unavailable')),
+          pull_only INTEGER NOT NULL DEFAULT 0,
+          controller_state TEXT,
+          engine_state TEXT,
+          diagnostics TEXT,
+          fingerprint TEXT,
+          verified_at TEXT,
+          lifecycle_note TEXT,
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL,
+          user_disabled INTEGER NOT NULL DEFAULT 0,
+          disabled_reason TEXT,
+          bundle_version TEXT,
+          UNIQUE(kind,surface,install_path));
+        INSERT INTO desktop_applications_v23(${columns.join(',')}) SELECT ${columns.join(',')} FROM desktop_applications;
+        DROP TABLE desktop_applications;
+        ALTER TABLE desktop_applications_v23 RENAME TO desktop_applications;`);
     });
   }
 

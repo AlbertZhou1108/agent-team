@@ -92,6 +92,9 @@ const RAW_DEFINITIONS = new Map([
     capabilities: COMMON_CAPABILITIES,
     traits: ZCODE_TRAITS,
     telemetryCapabilities: zcodeCapabilities,
+    // 桌面 MCP 子进程拿不到 ZCODE_SESSION_ID(与 DSH 同为 manual 通道),桌面
+    // 会话经 bind-session 显式绑定;绑定前激活连接回落最近绑定或拒绝执行工具。
+    desktopConversationIdentity: 'manual',
     wake: {
       id: 'zcode-app-server',
       fingerprint({ command, threadId, mcpConfig }) {

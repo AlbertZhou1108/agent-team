@@ -5,7 +5,7 @@ import { telemetryOverview } from '../telemetry-overview.mjs';
 import { chooseDirectory } from './directory.mjs';
 import { interactionView } from '../bus.mjs';
 import { attachmentError, ATTACHMENT_IMAGE_TYPES } from '../attachments.mjs';
-import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration } from '../desktop/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration, installZcodeDesktopIntegration } from '../desktop/index.mjs';
 // Each declaration owns matching, allowed methods, archived access and dispatch.
 
 // 消息列表统一带上产出它的回合:一个回合可以产出多条消息,前端据此让行内
@@ -148,6 +148,7 @@ export function apiRoutes(context) {
             if (body.kind === 'codex') return installCodexDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
             if (body.kind === 'dsh') return installDshDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
             if (body.kind === 'claude') return installClaudeDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
+            if (body.kind === 'zcode') return installZcodeDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
             return fail(400, `暂不支持安装桌面集成: ${body.kind}`);
         } },
         { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/desktop/disable', handle: async () => {

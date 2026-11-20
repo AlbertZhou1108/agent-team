@@ -23,9 +23,12 @@ export function headlessInteractionReply(method, params) {
  * 负责：spawn、启动握手（storagePath → storagePathReady → 首个 startup 通知即就绪）、
  * JSON-RPC 请求分发、服务端反向请求应答、退出时统一失败。
  * wake 驱动与成员适配器共享这一层，各自只关心业务事件。
+ * `spawn` 可注入替代进程启动器（默认 spawnHost）：桌面验证编排器传入
+ * spawnTracked，让引擎进程纳入验证看门狗的进程树清理；stdin 必须保持
+ * 可写（协议走 stdio），调用方需覆盖编排器默认的 stdin-ignore。
  */
-export function createZcodeProtocol({ command, args, env, onNotification, onRequest, stderrLimit = 8000 } = {}) {
-  const child = spawnHost(command, args, { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+export function createZcodeProtocol({ command, args, env, onNotification, onRequest, spawn = spawnHost, stderrLimit = 8000 } = {}) {
+  const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.on('error', () => {});
   let stderr = '';
   let nextId = 0;

@@ -3,11 +3,11 @@
 // 所有宿主进程一律 fake;真实 bundle 只在真宿主验收里探测。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../../store.mjs';
-import { DESKTOP_DEFINITIONS, detectDesktopApplications, desktopDetectionContext, verifyDesktopApplication } from '../../desktop/index.mjs';
+import { DESKTOP_DEFINITIONS, detectDesktopApplications, desktopDetectionContext, verifyDesktopApplication, zcodeDesktopVerification } from '../../desktop/index.mjs';
 import * as externalAgg from '../../aggregates/external-control.mjs';
 
 function tempDir(t, prefix) {
@@ -255,3 +255,164 @@ test('the real desktop definitions carry top-level verification strategies for e
     assert.equal(typeof definition.verifyEngine, 'function', `${kind} 缺少 verifyEngine`);
   }
 });
+
+// --- ZCode Desktop:fake app-server 走真实验证策略代码路径 --------------------
+
+/**
+ * fake ZCode app-server(node 子进程,三平台中性):完成启动握手 → session/create
+ * 时把隔离 HOME 的 config.json 拷进 marker(断言 MCP 条目确实落进引擎可见的
+ * 隔离配置)→ 应答授信协商 → session/send 后发 turn.started/turn.completed。
+ * behavior=exit 在 send 后退出进程(报真实退出原因);hang 永不完成(超时路径)。
+ */
+function fakeZcodeServerScript() {
+  return `import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const [, , markerPath, responseText, behavior] = process.argv;
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+// app-server 是握手主动方:先发 storagePath 请求,客户端应答 storagePathReady
+// 后补发 storageState 通知,客户端才视为就绪(与真实 app-server 行为一致)。
+send({ method: 'startup/storagePath', params: { path: '/tmp/fake-zcode-stub.sqlite' } });
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  let index;
+  while ((index = buffer.indexOf('\\n')) >= 0) {
+    const line = buffer.slice(0, index);
+    buffer = buffer.slice(index + 1);
+    if (!line.trim()) continue;
+    let row; try { row = JSON.parse(line); } catch { continue; }
+    if (row.method === 'startup/storagePathReady') {
+      send({ method: 'startup/storageState', params: { sequence: 1 } });
+      continue;
+    }
+    if (row.id == null || row.method == null) continue;
+    switch (row.method) {
+      case 'session/create': {
+        try { writeFileSync(markerPath, readFileSync(join(process.env.HOME, '.zcode', 'cli', 'config.json'), 'utf8')); }
+        catch (error) { writeFileSync(markerPath, 'read-failed: ' + error.message); }
+        send({ id: row.id, result: { session: { sessionId: 'verify-session' } } });
+        break;
+      }
+      case 'mcp/list':
+        send({ id: row.id, result: { statuses: { agent_team: { workspaceTrust: { declarationDigest: 'digest-1' } } } } });
+        break;
+      case 'workspace/mcp/trust':
+        send({ id: row.id, result: { accepted: true } });
+        break;
+      case 'session/send': {
+        send({ id: row.id, result: { accepted: true } });
+        if (behavior === 'exit') process.exit(3);
+        if (behavior === 'hang') break;
+        send({ method: 'session/event', params: { sessionId: 'verify-session', type: 'turn.started', turnId: 't1' } });
+        send({ method: 'session/event', params: { sessionId: 'verify-session', type: 'turn.completed', payload: { response: responseText } } });
+        break;
+      }
+      default:
+        send({ id: row.id, result: {} });
+    }
+  }
+});
+`;
+}
+
+function zcodeBundle(t) {
+  const root = tempDir(t, 'desktop-zcode-');
+  mkdirSync(join(root, 'FakeZcode.app', 'Contents', 'MacOS'), { recursive: true });
+  mkdirSync(join(root, 'FakeZcode.app', 'Contents', 'Resources', 'glm'), { recursive: true });
+  writeFileSync(join(root, 'FakeZcode.app', 'Contents', 'Info.plist'), '<plist><dict/></plist>');
+  writeFileSync(join(root, 'FakeZcode.app', 'Contents', 'MacOS', 'ZCode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  writeFileSync(join(root, 'FakeZcode.app', 'Contents', 'Resources', 'glm', 'zcode.cjs'), '// fake 引擎占位:引擎路径只参与 existsSync 探测\n');
+  const serverScript = join(root, 'fake-app-server.mjs');
+  writeFileSync(serverScript, fakeZcodeServerScript());
+  return { root, serverScript };
+}
+
+function zcodeDefinitions({ root, serverScript }, { response = 'OK: control_protocol version 1', behavior = null, verifyController, verifyEngine } = {}) {
+  // 每次检查(先主控后引擎)各产生一份 captured-N.json:fake app-server 把
+  // 引擎侧 HOME 的 config.json 拷到 marker,证明隔离配置确实被引擎读到。
+  // marker 放在 bundle 临时根目录,避开验证编排器会清理的 workspace。
+  let callIndex = 0;
+  const real = zcodeDesktopVerification({
+    resolveLaunch: () => {
+      callIndex += 1;
+      return {
+        command: process.execPath,
+        args: [serverScript, join(root, `captured-${callIndex}.json`), response, behavior],
+        env: {},
+      };
+    },
+  });
+  return new Map([['zcode', {
+    label: 'ZCode',
+    bundleCandidates: ({ applicationsRoot }) => [join(applicationsRoot, 'FakeZcode.app')],
+    engineCandidates: ({ bundlePath }) => [{ path: join(bundlePath, 'Contents', 'Resources', 'glm', 'zcode.cjs') }],
+    verifyController: verifyController ?? real.verifyController,
+    verifyEngine: verifyEngine ?? real.verifyEngine,
+  }]]);
+}
+
+test('zcode verification: isolated home carries the MCP entry and both checks pass (not pull-only)', async t => {
+  const bundle = zcodeBundle(t);
+  const store = new Store(tempDir(t, 'desktop-store-'));
+  const detectOpts = detectOptions(bundle);
+  const definitions = zcodeDefinitions(bundle);
+  await detectDesktopApplications(store, { definitions, ...detectOpts });
+  const socketPath = join(store.directory, 'bus.sock');
+
+  const result = await verifyDesktopApplication(store, 'zcode', { ...detectOpts, definitions, confirmed: true, socketPath });
+  assert.equal(result.verified, true);
+  const row = externalAgg.applicationForKind(store, 'zcode');
+  assert.equal(row.readiness, 'available', 'zcode 唤醒驱动可用,不是 pull-only');
+  assert.equal(row.pull_only, 0);
+  assert.equal(JSON.parse(row.diagnostics).controller.ok, true);
+  assert.equal(JSON.parse(row.diagnostics).engine.ok, true);
+
+  // 主控检查的隔离 HOME:agent_team 条目带着总线 socket 与激活凭据。
+  const controllerConfig = JSON.parse(readFileSync(join(bundle.root, 'captured-1.json'), 'utf8'));
+  const entry = controllerConfig.mcp.servers.agent_team;
+  assert.ok(entry.env.AGENT_TEAM_CLIENT_KEY, '一次性验证连接的凭据必须写进引擎可见的隔离配置');
+  assert.ok(entry.args.includes('--socket'));
+  assert.ok(entry.args.includes(socketPath));
+  // 引擎检查跑空配置,不残留 MCP 条目。
+  const engineConfig = JSON.parse(readFileSync(join(bundle.root, 'captured-2.json'), 'utf8'));
+  assert.equal(engineConfig.mcp, undefined);
+  assert.equal(existsSync(join(store.directory, 'desktop-verify')), false, 'workspace 统一清理');
+  store.close();
+});
+
+test('zcode verification: a wrong reply fails the controller check with an honest reason', async t => {
+  const bundle = zcodeBundle(t);
+  const store = new Store(tempDir(t, 'desktop-store-'));
+  const detectOpts = detectOptions(bundle);
+  const definitions = zcodeDefinitions(bundle, { response: '没有调用任何工具' });
+  await detectDesktopApplications(store, { definitions, ...detectOpts });
+
+  const result = await verifyDesktopApplication(store, 'zcode', {
+    ...detectOpts, definitions, confirmed: true, socketPath: join(store.directory, 'bus.sock'),
+  });
+  assert.equal(result.verified, false);
+  const diagnostics = JSON.parse(externalAgg.applicationForKind(store, 'zcode').diagnostics);
+  assert.equal(diagnostics.controller.ok, false);
+  assert.match(diagnostics.controller.detail, /版本/, '失败结论必须如实说没确认到版本');
+  store.close();
+});
+
+test('zcode verification: engine exiting mid-turn surfaces the real exit reason', async t => {
+  const bundle = zcodeBundle(t);
+  const store = new Store(tempDir(t, 'desktop-store-'));
+  const detectOpts = detectOptions(bundle);
+  const definitions = zcodeDefinitions(bundle, { behavior: 'exit', verifyController: async () => ({ ok: true, detail: '占位通过' }) });
+  await detectDesktopApplications(store, { definitions, ...detectOpts });
+
+  const result = await verifyDesktopApplication(store, 'zcode', {
+    ...detectOpts, definitions, confirmed: true, socketPath: join(store.directory, 'bus.sock'),
+  });
+  assert.equal(result.verified, false);
+  const diagnostics = JSON.parse(externalAgg.applicationForKind(store, 'zcode').diagnostics);
+  assert.equal(diagnostics.engine.ok, false);
+  assert.match(diagnostics.engine.reason, /内嵌引擎提前退出|验证回合超时/);
+  assert.equal(existsSync(join(store.directory, 'desktop-verify')), false, 'workspace 统一清理');
+  store.close();
+});
+

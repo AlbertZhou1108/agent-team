@@ -10,7 +10,7 @@ test('desktop application status lists every supported kind with one user-visibl
   const response = await fetch(new URL('/api/desktop/applications', url));
   assert.equal(response.status, 200);
   const applications = await response.json();
-  assert.deepEqual(applications.map(item => item.kind).sort(), ['claude', 'codex', 'dsh']);
+  assert.deepEqual(applications.map(item => item.kind).sort(), ['claude', 'codex', 'dsh', 'zcode']);
   for (const item of applications) {
     assert.equal(item.installed, false);
     assert.equal(item.state, 'unavailable');

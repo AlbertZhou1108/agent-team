@@ -5,10 +5,12 @@ import { DESKTOP_DEFINITIONS } from './definitions.mjs';
 import { codexDesktopVerification } from './codex.mjs';
 import { dshDesktopVerification } from './dsh.mjs';
 import { claudeDesktopVerification } from './claude.mjs';
+import { zcodeDesktopVerification } from './zcode.mjs';
 
 Object.assign(DESKTOP_DEFINITIONS.get('codex'), codexDesktopVerification());
 Object.assign(DESKTOP_DEFINITIONS.get('dsh'), dshDesktopVerification());
 Object.assign(DESKTOP_DEFINITIONS.get('claude'), claudeDesktopVerification());
+Object.assign(DESKTOP_DEFINITIONS.get('zcode'), zcodeDesktopVerification());
 
 export * from './definitions.mjs';
 export * from './member-hosts.mjs';
@@ -19,3 +21,4 @@ export * from './manage.mjs';
 export * from './codex.mjs';
 export * from './dsh.mjs';
 export * from './claude.mjs';
+export * from './zcode.mjs';

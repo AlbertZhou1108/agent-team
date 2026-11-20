@@ -132,14 +132,27 @@ test('hosts without a session identity channel resolve per their declared channe
     surface: 'desktop',
     bindingKind: 'activation',
   });
+  const zcode = createExternalIdentity(bus.store, {
+    principalName: '本机用户',
+    bindingName: 'ZCode Desktop 接入',
+    host: 'zcode',
+    declared,
+    surface: 'desktop',
+    bindingKind: 'activation',
+  });
   // Claude:无会话身份通道 → 应用级单连接,两次调用落在同一连接。
   const app1 = await bus.controlTool(claude.binding.id, claude.key, 'control_status', {});
   const app2 = await bus.controlTool(claude.binding.id, claude.key, 'control_status', {});
   assert.match(app1.binding.name, /应用级/);
   assert.equal(app2.binding.id, app1.binding.id);
-  // DSH:须显式绑定会话,裸调用被拒绝并给出 bind-session 指引。
+  // DSH 与 ZCode 同为 manual 通道:须显式绑定会话,裸调用被拒绝并给出
+  // bind-session 指引。
   await assert.rejects(
     () => bus.controlTool(dsh.binding.id, dsh.key, 'control_status', {}),
+    /bind-session/,
+  );
+  await assert.rejects(
+    () => bus.controlTool(zcode.binding.id, zcode.key, 'control_status', {}),
     /bind-session/,
   );
 });
