@@ -15,13 +15,15 @@ import './styles/globals.css';
 function showFatal(error: unknown) {
   const root = document.querySelector('#app');
   if (!root) return;
+  // 致命屏必须自给自足:此时主题 token 可能尚未应用(甚至正是应用过程本身抛错),
+  // 不能依赖任何语义变量或全局类,配色用字面量内联(本文件不在设计门禁扫描范围)。
   root.innerHTML = `
-    <main class="grid min-h-screen place-items-center px-6">
-      <section class="panel w-full max-w-xl p-8">
-        <p class="eyebrow">PANEL ERROR</p>
-        <h1 class="mt-2 text-2xl font-semibold tracking-tight">面板启动失败</h1>
-        <p class="mt-3 text-sm leading-7 text-muted">请刷新页面；若问题持续，请检查服务端日志和浏览器控制台。</p>
-        <pre class="mt-4 max-h-56 overflow-auto rounded-lg bg-[var(--code)] p-3 font-mono text-2xs text-[var(--code-foreground)]"></pre>
+    <main style="min-height:100vh;display:grid;place-items:center;padding:0 24px;background:#f4f4f5">
+      <section style="width:100%;max-width:36rem;padding:32px;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px">
+        <p style="margin:0;font-size:11px;letter-spacing:.08em;color:#71717a">PANEL ERROR</p>
+        <h1 style="margin:8px 0 0;font-size:24px;font-weight:600;color:#111827">面板启动失败</h1>
+        <p style="margin:12px 0 0;font-size:14px;line-height:1.75;color:#52525b">请刷新页面；若问题持续，请检查服务端日志和浏览器控制台。</p>
+        <pre style="margin:16px 0 0;max-height:14rem;overflow:auto;padding:12px;border-radius:8px;background:#18181b;color:#e4e4e7;font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap"></pre>
       </section>
     </main>`;
   const detail = root.querySelector('pre');

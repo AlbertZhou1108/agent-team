@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { applyComponentDesign, applyMaterial } from '@/theme/apply';
 import type { MaterialId } from '@/theme/materials';
 import { COMPONENT_DEFAULTS } from '@/theme/component-contract';
-import { DESIGN_PRESETS, resolveComponentDesign, type DesignPreset } from '@/theme/design-presets';
+import { DESIGN_PRESETS, isPresetModified, resolveComponentDesign, type DesignPreset } from '@/theme/design-presets';
 
 const resolve = (presetId = 'liquid-glass', material = 'glass', density: 'standard' | 'compact' | 'loose' = 'standard') => resolveComponentDesign({ presetId, material, density });
 
@@ -203,5 +203,32 @@ describe('five-dimension component configuration', () => {
     // 手选默认实色后,圆角/阴影回实色基线,活力表面配方不再生效。
     expect(fallback.variables['--component-control-radius']).toBe('var(--radius-md)');
     expect(fallback.variables['--component-content-shadow']).toBe(COMPONENT_DEFAULTS.material['--component-content-shadow']);
+  });
+});
+
+describe('isPresetModified', () => {
+  const axes = (overrides: Partial<Parameters<typeof isPresetModified>[1]> = {}) => ({
+    colorMode: 'system',
+    themePack: 'classic',
+    materialPreference: 'solid',
+    motionPreference: 'system',
+    density: 'standard',
+    ...overrides,
+  });
+  it('reports no deviation while every user axis matches the selected preset', () => {
+    expect(isPresetModified('classic', axes())).toBe(false);
+    expect(isPresetModified('paper', { colorMode: 'system', themePack: 'ivory', materialPreference: 'paper', motionPreference: 'simple', density: 'standard' })).toBe(false);
+    expect(isPresetModified('liquid-glass', { colorMode: 'system', themePack: 'classic', materialPreference: 'glass', motionPreference: 'soft', density: 'standard' })).toBe(false);
+  });
+  it('reports deviation as soon as any user axis leaves the preset recipe', () => {
+    expect(isPresetModified('classic', axes({ colorMode: 'dark' }))).toBe(true);
+    expect(isPresetModified('classic', axes({ materialPreference: 'glass' }))).toBe(true);
+    expect(isPresetModified('classic', axes({ themePack: 'forest' }))).toBe(true);
+    expect(isPresetModified('liquid-glass', axes({ motionPreference: 'lively' }))).toBe(true);
+    expect(isPresetModified('paper', axes({ density: 'compact' }))).toBe(true);
+  });
+  it('compares against classic when the stored preset id is unknown', () => {
+    expect(isPresetModified('不存在的历史预设', axes())).toBe(false);
+    expect(isPresetModified('不存在的历史预设', axes({ materialPreference: 'paper' }))).toBe(true);
   });
 });

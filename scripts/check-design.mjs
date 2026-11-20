@@ -7,6 +7,8 @@
  *  4. CSS 中的 --surface-* 变量消费必须指向已注册的角色。
  *  5. 动效只能经语义别名(--component-*)消费,不得直读 --motion-*(契约原语)。
  *  6. 同一模板内不得卡片套卡片:Card 里再开 Card 或折叠卡片,一律视为层级失控。
+ *  7. 主题规格表(theme/*.ts)里的 var() 引用必须指向已知变量 —— 规格表的值是
+ *     TS 字符串,var() 拼错只会静默失效,测试抓不住,只能在这里拦。
  * 违例以非零码退出,阻止进入提交;豁免清单在本文件底部显式维护。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -20,9 +22,7 @@ const SURFACE_ROLES = new Set([
   'context-panel',
   'action',
   'input',
-  'reading',
   'overlay',
-  'media',
 ]);
 
 const COMPONENT_VARIABLES = new Set([...readFileSync(join(srcDir, 'theme/component-contract.ts'), 'utf8').matchAll(/['"](--component-[a-z-]+)['"]:/g)].map(match => match[1]));
@@ -205,6 +205,44 @@ for (const check of CHECKS) {
       });
     });
   }
+}
+
+// 主题规格表 var() 引用的已知变量全集:主题 token 契约(TOKEN_KEYS)+ 契约与
+// 规格表声明的 --component-* + globals.css 定义的自定义属性(--motion-*/--glass-*
+// 等契约原语与派生)+ 玻璃受光的元素级运行时属性(glass-light.ts 写入,无 CSS 定义处)。
+const THEME_VAR_ALLOWLIST = (() => {
+  const defined = new Set();
+  const tokenKeys = readFileSync(join(srcDir, 'theme/tokens.ts'), 'utf8')
+    .match(/export const TOKEN_KEYS = \[([^\]]*)\]/)?.[1] ?? '';
+  for (const match of tokenKeys.matchAll(/['"]([a-z][a-z0-9-]*)['"]/g)) defined.add(`--${match[1]}`);
+  const themeDir = join(srcDir, 'theme');
+  for (const name of readdirSync(themeDir)) {
+    if (!name.endsWith('.ts')) continue;
+    for (const match of readFileSync(join(themeDir, name), 'utf8').matchAll(/['"](--component-[a-z-]+)['"]\s*:/g)) {
+      defined.add(match[1]);
+    }
+  }
+  for (const match of readFileSync(join(srcDir, 'styles/globals.css'), 'utf8').matchAll(/(?:^|[,{;\s])(--[\w-]+)\s*:/g)) {
+    defined.add(match[1]);
+  }
+  for (const match of readFileSync(join(themeDir, 'glass-light.ts'), 'utf8').matchAll(/['"](--glass-[a-z-]+)['"]/g)) {
+    defined.add(match[1]);
+  }
+  return defined;
+})();
+
+function checkThemeVarReferences(path, rel, problems) {
+  const source = readFileSync(path, 'utf8');
+  for (const match of source.matchAll(/var\((--[\w-]+)/g)) {
+    if (THEME_VAR_ALLOWLIST.has(match[1])) continue;
+    const line = source.slice(0, match.index).split('\n').length;
+    problems.push(`  ${rel}:${line}  [主题规格表引用了未定义变量] ${match[1]}`);
+  }
+}
+
+for (const name of readdirSync(join(srcDir, 'theme'))) {
+  if (!name.endsWith('.ts')) continue;
+  checkThemeVarReferences(join(srcDir, 'theme', name), `theme/${name}`, problems);
 }
 
 if (problems.length) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Disclosure } from '@/components/ui/disclosure';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,8 +8,8 @@ import { ChevronLeft, ChevronRight, Monitor, Moon, Sun, Trash2, Upload } from '@
 import AppearanceSample from '../AppearanceSample.vue';
 import { usePreferencesStore, type ColorMode } from '@/stores/preferences';
 import { isMotionPreference, type MotionPreference } from '@/shared/motion';
-import { isCodeSize, isDensity, isMaterialPreference, isReadingLeading, isReadingSize, isReadingWidth } from '@/theme/apply';
-import { DESIGN_PRESETS, isDesignPresetId } from '@/theme/design-presets';
+import { isCodeSize, isDensity, isMaterialPreference, isReadingLeading, isReadingSize, isReadingWidth, type MaterialPreference } from '@/theme/apply';
+import { DESIGN_PRESETS, isDesignPresetId, isPresetModified } from '@/theme/design-presets';
 import { MATERIAL_CATEGORIES } from '@/theme/materials';
 import { CLASSIC_THEME_ID } from '@/theme/builtin';
 import { useThemePacks } from '../use-theme-packs';
@@ -36,8 +37,17 @@ const motionOptions: Array<{ value: MotionPreference; label: string }> = [
 ];
 
 const materialOptions = Object.values(MATERIAL_CATEGORIES).map((category) => ({
-  value: category.id as 'solid' | 'glass',
+  value: category.id as MaterialPreference,
   label: category.label,
+}));
+
+// 预设选中态与各轴取值会因逐项调整而漂移,标记出来保住预设入口的可信度。
+const presetModified = computed(() => isPresetModified(preferences.designPreset, {
+  colorMode: preferences.colorMode,
+  themePack: preferences.themePack,
+  materialPreference: preferences.materialPreference,
+  motionPreference: preferences.motionPreference,
+  density: preferences.density,
 }));
 
 const densityOptions: Array<{ value: 'compact' | 'standard' | 'loose'; label: string }> = [
@@ -155,7 +165,10 @@ function selectCodeSize(value: unknown) {
 <template>
           <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-sm font-semibold">设计预设</h3>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold">设计预设</h3>
+                <Badge v-if="presetModified" variant="secondary">已自定义</Badge>
+              </div>
               <Button variant="outline" size="sm" @click="restoreAppearanceDefaults">恢复默认</Button>
             </div>
             <ToggleGroup presentation="segmented" type="single" :model-value="preferences.designPreset" variant="outline" aria-label="设计预设" @update:model-value="value => { if (isDesignPresetId(value)) preferences.setDesignPreset(value); }">

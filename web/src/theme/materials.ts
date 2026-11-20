@@ -8,15 +8,15 @@ import { freezeConfiguration } from './configuration-data';
  * 写成 --surface-{role}-* CSS 变量供表面消费。新增大类 = 新增一行数据。
  */
 
-/** 角色注册表:清单 + 每个角色的可供性需求(它向用户暗示什么交互)。 */
+/** 角色注册表:清单 + 每个角色的可供性需求(它向用户暗示什么交互)。
+ *  只收录已接线消费(globals.css 有对应 [data-surface] 规则)的角色;
+ *  新角色先补消费规则,再进这张清单。 */
 export const SURFACE_ROLE_REGISTRY = {
   'nav-panel': { affordance: '定位与导航(弱交互暗示)' },
   'context-panel': { affordance: '承载内容(中性)' },
   action: { affordance: '强可按/可输入暗示' },
   input: { affordance: '可输入、聚焦清晰' },
-  reading: { affordance: '安静可读(零交互暗示)' },
   overlay: { affordance: '遮挡聚焦,边界明确' },
-  media: { affordance: '内容承载,与主题无关' },
 } as const;
 
 export type SurfaceRole = keyof typeof SURFACE_ROLE_REGISTRY;
@@ -165,7 +165,6 @@ const PAPER: MaterialCategory = {
     'context-panel': { bg: 'var(--card)', image: 'var(--component-surface-texture)', shadow: 'var(--component-panel-shadow)' },
     action: { bg: 'var(--card)', shadow: '0 1px 2px color-mix(in oklch, var(--foreground) 6%, transparent)' },
     input: { bg: 'color-mix(in oklch, var(--background) 20%, var(--card))', shadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 5%, transparent), 0 1px 0 color-mix(in oklch, var(--card) 80%, transparent)' },
-    reading: { bg: 'var(--card)', image: 'none' },
     overlay: { bg: 'var(--popover)', image: 'var(--component-surface-texture)', shadow: 'inset 0 1px 0 light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 9%)), 0 1px 0 color-mix(in oklch, var(--card) 65%, var(--foreground)), 0 3px 0 color-mix(in oklch, var(--card) 90%, var(--background)), 0 4px 0 color-mix(in oklch, var(--card) 75%, var(--foreground)), 2px 6px 4px color-mix(in oklch, var(--foreground) 16%, transparent), 10px 22px 40px color-mix(in oklch, var(--foreground) 16%, transparent)' },
   },
   motion: { spring: 'suppress', signature: 'none' },

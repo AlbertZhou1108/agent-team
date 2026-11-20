@@ -62,6 +62,22 @@ export function getDesignPreset(id: unknown): DesignPreset {
   return DESIGN_PRESETS[isDesignPresetId(id) ? id : 'classic'];
 }
 
+/** 外观偏好是否偏离所选预设的维度取值(阅读设置独立于预设,不参与比对)。
+ *  未知预设 id 回落 classic,按 classic 的维度值比对。 */
+export function isPresetModified(
+  presetId: unknown,
+  axes: { colorMode: string; themePack: string; materialPreference: string; motionPreference: string; density: string },
+): boolean {
+  const dimensions = getDesignPreset(presetId).dimensions;
+  return (
+    axes.colorMode !== dimensions.style.colorMode ||
+    axes.themePack !== dimensions.style.themePack ||
+    axes.materialPreference !== dimensions.material.id ||
+    axes.motionPreference !== dimensions.behavior.preference ||
+    axes.density !== dimensions.layout.density
+  );
+}
+
 const DENSITY_LAYOUT = {
   compact: { '--component-control-height': '32px', '--component-nav-padding-y': '6px' },
   standard: { '--component-control-height': '36px', '--component-nav-padding-y': '8px' },

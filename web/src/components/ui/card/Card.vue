@@ -11,6 +11,7 @@ const props = defineProps<{
 <template>
   <div
     data-slot="card"
+    data-component="content-surface"
     :data-size="size || 'default'"
     :class="
       cn(

@@ -3,7 +3,8 @@ import type { ThemePack, ThemeTokens } from './tokens';
 /**
  * 内置主题:随应用发布、不可删除、不进服务端库(同「内置默认规则」先例,
  * 由前端合成注册项,删除接口天然触及不到)。
- * classic 的取值必须与 src/styles/globals.css 里 :root/.dark 的回退值保持一致。
+ * classic 的取值是全应用唯一主题基线:globals.css 不再内置第二份回退 token,
+ * 首帧由 main.ts 在挂载前把本表同步写到 <html>(调整取值只改这里)。
  */
 export const CLASSIC_THEME_ID = 'classic';
 
