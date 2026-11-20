@@ -99,6 +99,11 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
     // 正常情况下按事件里的 threadId 找上下文;若引擎偶尔漏带/写错 threadId,
     // 且当前只有一个活跃回合,退回该回合——避免"回合完成但文本丢失"。
     const context = resolveEventContext(active, row.params?.threadId);
+    // 诊断:记录本次回合收到的事件方法序列(限量),文本为空时据此定位。
+    if (context) {
+      context.events ??= [];
+      if (context.events.length < 200) context.events.push(row.method);
+    }
     context?.onEvent(row);
     if (context?.onTelemetry) {
       if (row.method === 'thread/tokenUsage/updated') {
@@ -361,7 +366,13 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
         ended.delete(turn.id);
         if (complete.status !== 'completed') throw new Error(complete.error?.message ?? `Codex 回合 ${complete.status}`);
         // item/completed 未到达时用流式累积兜底,避免回合完成但文本为空。
-        return turnText(live);
+        const text = turnText(live);
+        if (!text.trim()) {
+          // 静默返回空会让成员「回合完成却像没理人」,明确失败并带上事件序列。
+          const events = (live.events ?? []).join(', ') || '无事件';
+          throw new Error(`Codex 回合完成但没有返回文本（收到 ${live.events?.length ?? 0} 条事件：${events.slice(0, 400)}）`);
+        }
+        return text;
       } finally { signal.removeEventListener('abort', interrupt); active.delete(thread); }
     },
     async close() {

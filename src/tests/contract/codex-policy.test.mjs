@@ -70,7 +70,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (row.method === 'thread/start') return send({ id: row.id, error: { message: 'must preserve existing session' } });
   if (row.method === 'turn/start') {
     send({ id: row.id, result: { turn: { id: 'turn-resumed' } } });
-    setImmediate(() => send({ method: 'turn/completed', params: { threadId: 'original-session', turn: { id: 'turn-resumed', status: 'completed' } } }));
+    setImmediate(() => { send({ method: 'item/completed', params: { threadId: 'original-session', turnId: 'turn-resumed', item: { type: 'agentMessage', text: 'ok' } } }); send({ method: 'turn/completed', params: { threadId: 'original-session', turn: { id: 'turn-resumed', status: 'completed' } } }); });
   }
 });
 `);
@@ -112,7 +112,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (row.method === 'turn/start') {
     const turnId = 'turn-' + row.params.model + '-' + (row.params.effort ?? 'none');
     send({ id: row.id, result: { turn: { id: turnId } } });
-    setImmediate(() => send({ method: 'turn/completed', params: { threadId: 'session-1', turn: { id: turnId, status: 'completed' } } }));
+    setImmediate(() => { send({ method: 'item/completed', params: { threadId: 'session-1', turnId: turnId, item: { type: 'agentMessage', text: 'ok' } } }); send({ method: 'turn/completed', params: { threadId: 'session-1', turn: { id: turnId, status: 'completed' } } }); });
   }
 });
 `);
@@ -196,7 +196,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (row.method === 'turn/start') {
     record(row.params.input);
     send({ id: row.id, result: { turn: { id: 'turn-att' } } });
-    setImmediate(() => send({ method: 'turn/completed', params: { threadId: 'thread-att', turn: { id: 'turn-att', status: 'completed' } } }));
+    setImmediate(() => { send({ method: 'item/completed', params: { threadId: 'thread-att', turnId: 'turn-att', item: { type: 'agentMessage', text: 'ok' } } }); send({ method: 'turn/completed', params: { threadId: 'thread-att', turn: { id: 'turn-att', status: 'completed' } } }); });
     return;
   }
   if (row.method === 'turn/interrupt') return send({ id: row.id, result: {} });
