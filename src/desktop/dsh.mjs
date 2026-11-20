@@ -13,17 +13,14 @@ import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
 import { dshProcessEnv } from '../hosts/dsh/credentials.mjs';
-
-const CONTROL_MCP_NAME = 'agent_team';
+import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 
 /** DSH Desktop Profile 桥接的 stdio MCP 配置:用户粘贴进 Profile UI。 */
 export function dshDesktopMcpConfig({ socketPath, bindingId, clientKey, runner = nodeRunner(), cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url)) }) {
   return {
     serverName: CONTROL_MCP_NAME,
     transport: 'stdio',
-    command: runner.command,
-    args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--client', bindingId],
-    env: { AGENT_TEAM_CLIENT_KEY: clientKey, AGENT_TEAM_CONTROL_PROTOCOL: '1' },
+    ...desktopControlMcpSpec({ socketPath, bindingId, clientKey, runner, cliPath }),
   };
 }
 

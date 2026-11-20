@@ -16,8 +16,7 @@ import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
 import { writeDesktopHostSpec } from './member-hosts.mjs';
-
-const CONTROL_MCP_NAME = 'agent_team';
+import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 export const BLOCK_BEGIN = '# ---- agent-team managed block:begin (由 Agent Team 维护,重装即更新) ----';
 export const BLOCK_END = '# ---- agent-team managed block:end ----';
 
@@ -31,14 +30,13 @@ function tomlLiteral(value) {
 
 /** 受管 TOML 条目:单引号字面量字符串,Windows 反斜杠路径无需转义。 */
 export function codexDesktopMcpBlock({ socketPath, bindingId, clientKey, runner = nodeRunner(), cliPath = codexDesktopCliPath() }) {
+  const spec = desktopControlMcpSpec({ socketPath, bindingId, clientKey, runner, cliPath });
   return [
     BLOCK_BEGIN,
     `[mcp_servers.${CONTROL_MCP_NAME}]`,
-    `command = ${tomlLiteral(runner.command)}`,
-    `args = [${['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--client', bindingId]
-      .map(tomlLiteral)
-      .join(', ')}]`,
-    `env = { ${tomlLiteral('AGENT_TEAM_CLIENT_KEY')} = ${tomlLiteral(clientKey)}, ${tomlLiteral('AGENT_TEAM_CONTROL_PROTOCOL')} = ${tomlLiteral('1')} }`,
+    `command = ${tomlLiteral(spec.command)}`,
+    `args = [${spec.args.map(tomlLiteral).join(', ')}]`,
+    `env = { ${Object.entries(spec.env).map(([name, value]) => `${tomlLiteral(name)} = ${tomlLiteral(value)}`).join(', ')} }`,
     BLOCK_END,
   ].join('\n');
 }
@@ -69,9 +67,7 @@ export function codexDesktopPluginMcp({ socketPath, bindingId, clientKey, runner
   return {
     mcpServers: {
       [CONTROL_MCP_NAME]: {
-        command: runner.command,
-        args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--client', bindingId],
-        env: { AGENT_TEAM_CLIENT_KEY: clientKey, AGENT_TEAM_CONTROL_PROTOCOL: '1' },
+        ...desktopControlMcpSpec({ socketPath, bindingId, clientKey, runner, cliPath }),
         enabled: true,
         default_tools_approval_mode: 'never',
       },

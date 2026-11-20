@@ -11,8 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
-
-const CONTROL_MCP_NAME = 'agent_team';
+import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 
 /**
  * 安装 Claude Desktop 集成:claude_desktop_config.json 的 mcpServers.agent_team
@@ -61,11 +60,13 @@ export async function installClaudeDesktopIntegration(store, {
   }
   parsed.mcpServers ??= {};
   const replacedUserEntry = Boolean(parsed.mcpServers[CONTROL_MCP_NAME]);
-  parsed.mcpServers[CONTROL_MCP_NAME] = {
-    command: runner.command,
-    args: ['--disable-warning=ExperimentalWarning', cliPath, 'mcp', '--socket', socketPath, '--client', identity.binding.id],
-    env: { AGENT_TEAM_CLIENT_KEY: identity.key, AGENT_TEAM_CONTROL_PROTOCOL: '1' },
-  };
+  parsed.mcpServers[CONTROL_MCP_NAME] = desktopControlMcpSpec({
+    socketPath,
+    bindingId: identity.binding.id,
+    clientKey: identity.key,
+    runner,
+    cliPath,
+  });
   let backupPath = null;
   let backupHash = null;
   if (configText) {
