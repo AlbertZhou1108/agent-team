@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -315,7 +315,16 @@ test('DSH patch and policy plugin carry the full-access and read-only tiers', as
   const patch = JSON.parse(readFileSync(files.dsh, 'utf8'));
   assert.equal(patch.find(entry => entry.id === 'sandbox-policy').config.mode, 'danger-full-access');
   assert.equal(patch.find(entry => entry.id === 'permission').config.presets.team.sandbox, 'danger-full-access');
-  const plugin = patch.flatMap(entry => entry.insert ?? []).find(entry => entry.id === 'agent-team-policy');
+  const inserted = patch.flatMap(entry => entry.insert ?? []);
+  // 文件路径型插件(以 .mjs 结尾)必须真实存在:写错路径会让 dsh 启动即
+  // ERR_MODULE_NOT_FOUND。包名型插件(如 dsh-mcp-client)由 dsh 自行解析,跳过。
+  for (const entry of inserted.filter(item => item.name.endsWith('.mjs'))) {
+    assert.ok(
+      existsSync(entry.name),
+      `DSH 插件 ${entry.id} 的路径不存在: ${entry.name}`,
+    );
+  }
+  const plugin = inserted.find(entry => entry.id === 'agent-team-policy');
   assert.equal(plugin.config.mode, 'full-access');
   assert.equal(plugin.config.allowShell, true);
 

@@ -52,10 +52,12 @@ export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution
         },
       });
     }
+    // 这三个插件实现位于 member/dsh/,不是 host-runtime/ —— 路径写错会让 dsh
+    // 启动时报 ERR_MODULE_NOT_FOUND 并退出(团队消息投递失败的真正原因)。
     overlay.push(
-      { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('./dsh-policy.mjs', import.meta.url)), config: execution }] },
-      { insert: [{ id: 'agent-team-model-observer', name: fileURLToPath(new URL('./dsh-model-observer.mjs', import.meta.url)) }] },
-      { insert: [{ id: 'agent-team-telemetry-observer', name: fileURLToPath(new URL('./dsh-telemetry-observer.mjs', import.meta.url)) }] },
+      { insert: [{ id: 'agent-team-policy', name: fileURLToPath(new URL('../member/dsh/policy.mjs', import.meta.url)), config: execution }] },
+      { insert: [{ id: 'agent-team-model-observer', name: fileURLToPath(new URL('../member/dsh/model-observer.mjs', import.meta.url)) }] },
+      { insert: [{ id: 'agent-team-telemetry-observer', name: fileURLToPath(new URL('../member/dsh/telemetry-observer.mjs', import.meta.url)) }] },
     );
   }
   writeFileSync(dsh, JSON.stringify(overlay), { mode: 0o600 });
