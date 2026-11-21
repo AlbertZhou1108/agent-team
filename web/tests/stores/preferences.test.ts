@@ -197,10 +197,18 @@ describe('preferences appearance', () => {
     stubStorage(JSON.stringify({ themePack: 'ocean', themePackSnapshot: { light: 'nope' } }));
     expect(usePreferencesStore().themePackSnapshot).toBeNull();
   });
-  it('migrates old glass preferences and keeps explicit dimension overrides after changing density', () => {
+  it('migrates legacy glass ids to frosted on load', () => {
+    stubStorage(JSON.stringify({ designPreset: 'liquid-glass', materialPreference: 'glass' }));
+    const store = usePreferencesStore();
+    expect(store.designPreset).toBe('frosted-glass');
+    expect(store.materialPreference).toBe('frosted');
+  });
+
+  it('migrates a material-only legacy glass preference and keeps explicit overrides', () => {
     stubStorage(JSON.stringify({ materialPreference: 'glass', readingSize: 'xlarge' }));
     const store = usePreferencesStore();
-    expect(store.designPreset).toBe('liquid-glass');
+    expect(store.designPreset).toBe('frosted-glass');
+    expect(store.materialPreference).toBe('frosted');
     store.setDesignPreset('paper');
     expect(store.materialPreference).toBe('paper');
     expect(store.themePack).toBe('ivory');
@@ -208,7 +216,7 @@ describe('preferences appearance', () => {
     store.setDensity('compact');
     expect(store.designPreset).toBe('paper');
     expect(store.materialPreference).toBe('paper');
-    store.setMaterialPreference('glass');
+    store.setMaterialPreference('frosted');
     expect(store.designPreset).toBe('paper');
     expect(store.density).toBe('compact');
   });

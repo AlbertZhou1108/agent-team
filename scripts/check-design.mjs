@@ -225,7 +225,7 @@ for (const check of CHECKS) {
 
 // 主题规格表 var() 引用的已知变量全集:主题 token 契约(TOKEN_KEYS)+ 契约与
 // 规格表声明的 --component-* + globals.css 定义的自定义属性(--motion-*/--glass-*
-// 等契约原语与派生)+ 玻璃受光的元素级运行时属性(glass-light.ts 写入,无 CSS 定义处)。
+// 等契约原语与派生)。
 const THEME_VAR_ALLOWLIST = (() => {
   const defined = new Set();
   const tokenKeys = readFileSync(join(srcDir, 'theme/tokens.ts'), 'utf8')
@@ -239,9 +239,6 @@ const THEME_VAR_ALLOWLIST = (() => {
     }
   }
   for (const match of readFileSync(join(srcDir, 'styles/globals.css'), 'utf8').matchAll(/(?:^|[,{;\s])(--[\w-]+)\s*:/g)) {
-    defined.add(match[1]);
-  }
-  for (const match of readFileSync(join(themeDir, 'glass-light.ts'), 'utf8').matchAll(/['"](--glass-[a-z-]+)['"]/g)) {
     defined.add(match[1]);
   }
   return defined;

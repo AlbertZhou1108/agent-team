@@ -599,7 +599,11 @@ const ivory: ThemePack = {
   },
 };
 
-/** 跃彩:黑白底、青绿主色、杏橙辅助面与柔黄选中。 */
+/**
+ * 跃彩:黑白底 + 靛蓝主色 + 暖黄选中,冷主暖辅、明度错开。
+ * 单色锚点:靛蓝承担主按钮/状态/焦点,暖黄只用于选中态,成员气泡为蓝灰中性。
+ * success 语义绿保留,不参与装饰。
+ */
 const leap: ThemePack = {
   id: 'leap', name: '跃彩',
   light: {
@@ -609,12 +613,12 @@ const leap: ThemePack = {
     'card-foreground': 'oklch(0.23 0 0)',
     popover: 'oklch(1 0 0)',
     'popover-foreground': 'oklch(0.23 0 0)',
-    primary: 'oklch(0.46 0.105 180)',
-    'primary-foreground': 'oklch(0.99 0.008 95)',
-    secondary: 'oklch(0.91 0.08 45)',
-    'secondary-foreground': 'oklch(0.29 0.065 35)',
-    accent: 'oklch(0.9 0.085 100)',
-    'accent-foreground': 'oklch(0.27 0.045 100)',
+    primary: 'oklch(0.508 0.18 282.4)',
+    'primary-foreground': 'oklch(1 0 0)',
+    secondary: 'oklch(0.931 0.012 291.3)',
+    'secondary-foreground': 'oklch(0.385 0.039 284.4)',
+    accent: 'oklch(0.681 0.112 85.3)',
+    'accent-foreground': 'oklch(1 0 0)',
     muted: 'oklch(0.95 0 0)',
     'muted-foreground': 'oklch(0.47 0 0)',
     destructive: 'oklch(0.58 0.21 27)',
@@ -627,10 +631,10 @@ const leap: ThemePack = {
     'info-foreground': 'oklch(0.99 0.004 285)',
     border: 'oklch(0.88 0 0)',
     input: 'oklch(0.8 0 0)',
-    ring: 'oklch(0.49 0.11 180)',
+    ring: 'oklch(0.508 0.18 282.4)',
     code: 'oklch(0.22 0 0)',
     'code-foreground': 'oklch(0.93 0.03 100)',
-    scrim: 'oklch(0.15 0.03 180 / 65%)',
+    scrim: 'oklch(0.15 0.02 285 / 65%)',
     radius: '0.5rem',
   },
   dark: {
@@ -640,12 +644,12 @@ const leap: ThemePack = {
     'card-foreground': 'oklch(0.95 0 0)',
     popover: 'oklch(0.245 0 0)',
     'popover-foreground': 'oklch(0.95 0 0)',
-    primary: 'oklch(0.82 0.14 165)',
-    'primary-foreground': 'oklch(0.2 0.035 180)',
-    secondary: 'oklch(0.34 0.075 40)',
-    'secondary-foreground': 'oklch(0.9 0.065 55)',
-    accent: 'oklch(0.84 0.08 100)',
-    'accent-foreground': 'oklch(0.23 0.04 100)',
+    primary: 'oklch(0.612 0.177 284.4)',
+    'primary-foreground': 'oklch(1 0 0)',
+    secondary: 'oklch(0.385 0.039 284.4)',
+    'secondary-foreground': 'oklch(0.948 0.011 286.2)',
+    accent: 'oklch(0.843 0.106 88.3)',
+    'accent-foreground': 'oklch(0.25 0.018 102.9)',
     muted: 'oklch(0.27 0 0)',
     'muted-foreground': 'oklch(0.72 0 0)',
     destructive: 'oklch(0.66 0.19 27)',
@@ -658,10 +662,10 @@ const leap: ThemePack = {
     'info-foreground': 'oklch(0.19 0.03 284)',
     border: 'oklch(0.36 0 0)',
     input: 'oklch(0.44 0 0)',
-    ring: 'oklch(0.82 0.14 165)',
+    ring: 'oklch(0.612 0.177 284.4)',
     code: 'oklch(0.13 0 0)',
     'code-foreground': 'oklch(0.91 0.03 100)',
-    scrim: 'oklch(0.09 0.02 180 / 70%)',
+    scrim: 'oklch(0.09 0.02 285 / 70%)',
     radius: '0.5rem',
   },
 };

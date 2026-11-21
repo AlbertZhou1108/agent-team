@@ -143,12 +143,18 @@ function load(): PreferencesState {
   try {
     const saved = JSON.parse(
       localStorage.getItem(storageKey) ?? '{}',
-    ) as Partial<PreferencesState> & {
+    ) as Partial<Omit<PreferencesState, 'materialPreference' | 'designPreset'>> & {
       theme?: ColorMode;
+      // 玻璃改毛玻璃前的旧 id,仅用于 load 时迁移。
+      materialPreference?: MaterialPreference | 'glass';
+      designPreset?: DesignPresetId | 'liquid-glass';
     };
+    // 玻璃改毛玻璃:材质与预设 id 都换了名,旧偏好就地映射,刷新后不回落默认。
+    const materialPreference = saved.materialPreference === 'glass' ? 'frosted' : saved.materialPreference;
+    const designPreset = saved.designPreset === 'liquid-glass' ? 'frosted-glass' : saved.designPreset;
     return {
       ...fallback,
-      designPreset: isDesignPresetId(saved.designPreset) ? saved.designPreset : legacyDesignPreset(saved.materialPreference),
+      designPreset: isDesignPresetId(designPreset) ? designPreset : legacyDesignPreset(materialPreference),
       // 遗留:旧版本曾把 colorMode 存在 theme 键下,仅用于迁移;主题包用 themePack 键,两者不冲突。
       colorMode: saved.colorMode ?? saved.theme ?? fallback.colorMode,
       themePack:
@@ -161,8 +167,8 @@ function load(): PreferencesState {
       motionPreference: isMotionPreference(saved.motionPreference)
         ? saved.motionPreference
         : fallback.motionPreference,
-      materialPreference: isMaterialPreference(saved.materialPreference)
-        ? saved.materialPreference
+      materialPreference: isMaterialPreference(materialPreference)
+        ? materialPreference
         : fallback.materialPreference,
       density: isDensity(saved.density) ? saved.density : fallback.density,
       readingSize: isReadingSize(saved.readingSize) ? saved.readingSize : fallback.readingSize,

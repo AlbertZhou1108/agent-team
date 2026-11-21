@@ -29,15 +29,14 @@ export interface SurfaceFinish {
   image?: string;
   blur?: string;
   shadow?: string;
-  refraction?: { strength: number; edge: number; blur: number };
 }
 
 /** 材质的运动签名:材质对动效词汇的物理约束与专属动效。 */
 export interface MaterialMotion {
   /** 该材质是否允许弹性曲线(纸/水泥等物理上不成立 → suppress) */
   spring: 'allow' | 'suppress';
-  /** 材质专属动效签名标识,供签名类动画消费(如玻璃的高光流动) */
-  signature: 'none' | 'liquid-flow';
+  /** 材质专属动效签名标识,供签名类动画消费;当前无签名类动画。 */
+  signature: 'none';
 }
 
 export interface MaterialCategory {
@@ -49,26 +48,39 @@ export interface MaterialCategory {
   effect?: 'glass';
 }
 
-/** 默认实色:所有角色走主题基线,不写任何表面变量。 */
+/**
+ * 默认实色:表面走主题基线,不加模糊/纹理/投影。
+ * 导航/上下文/操作面板取背景色(比 card 暗一档),内容面卡保持 card,
+ * 成员气泡取 secondary —— 三级明度差承担全部层次,符合实色语言。
+ * 浅色下 background 与 card 同为白,层次仍由边框承担,无副作用。
+ */
 const SOLID: MaterialCategory = {
   id: 'solid',
   label: '默认实色',
-  roles: {},
+  roles: {
+    'nav-panel': { bg: 'var(--background)' },
+    'context-panel': { bg: 'var(--background)' },
+    action: { bg: 'var(--background)' },
+  },
+  components: {
+    '--component-content-shadow': 'none',
+  },
   motion: { spring: 'allow', signature: 'none' },
 };
 
 /**
- * 液态玻璃的 Web 近似:导航/上下文统一厚度,操作面更轻,浮层提高遮蔽。
- * 阅读与输入仍走组件基线,避免玻璃叠玻璃;表面不播放装饰动画,唯环境
- * 光斑在根画布上缓慢漂移(时长经 pace 缩放,减少档压平),见 globals.css。
- * 曲面轮光与环境色由全局材质规则补充,不改变任何布局几何。
+ * 毛玻璃:经典 Gaussian backdrop 模糊 + Vibrancy(模糊后提饱和),对应旧 macOS
+ * 的 NSVisualEffectView。不做 SVG 位移折射、曲面轮光或漂移动画:这些既非旧
+ * 毛玻璃的视觉特征,也是大面积面板上的合成负担。环境光斑静止在根画布上,
+ * 只作为被模糊的底材;高光收敛为 1px 半透明白边,不随指针移动。
+ * 阅读区保持实色,输入面接近实色以独立悬浮,避免"背后一块模糊"。
  */
-const GLASS: MaterialCategory = {
-  id: 'glass',
-  label: '玻璃',
+const FROSTED: MaterialCategory = {
+  id: 'frosted',
+  label: '毛玻璃',
   effect: 'glass',
   components: {
-    // 玻璃物性:圆润的裁切与低阻尼回弹按压是玻璃物理身份的一部分。
+    // 圆润裁切与低阻尼回弹按压是玻璃物性,与视觉风格无关,继续随材质走。
     '--component-control-radius': 'var(--radius-lg)',
     '--component-card-radius': '0.75rem',
     '--component-chip-radius': '0.375rem',
@@ -91,38 +103,30 @@ const GLASS: MaterialCategory = {
     '--component-nav-current-bg': 'var(--component-selection-bg)',
     '--component-nav-selected-bg': 'var(--component-selection-bg)',
     '--component-nav-state-shadow': 'var(--component-selection-shadow)',
-    '--component-content-bg': 'color-mix(in oklch, var(--card) 92%, transparent)',
-    '--component-environment-image': 'radial-gradient(ellipse at 0% 0%, color-mix(in oklch, var(--info) 22%, transparent), transparent 52%), radial-gradient(ellipse at 100% 18%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 55%), radial-gradient(ellipse at 80% 100%, color-mix(in oklch, var(--success) 12%, transparent), transparent 48%)',
-    '--component-light-image': 'radial-gradient(ellipse at var(--glass-x, 25%) var(--glass-y, 0%), rgb(255 255 255 / 4%), transparent 65%), linear-gradient(160deg, rgb(255 255 255 / 2%), transparent 38%, rgb(0 0 0 / 2%))',
-    '--component-light-rim': 'color-mix(in oklch, var(--border) 48%, transparent)',
-    '--component-light-edge': 'inset 0 1px 0 rgb(255 255 255 / 7%), inset 0 -1px 0 rgb(0 0 0 / 8%)',
-    '--component-light-depth': '0 8px 28px rgb(0 0 0 / 9%), 0 2px 5px rgb(0 0 0 / 4%)',
+    '--component-content-bg': 'color-mix(in oklch, var(--card) 96%, transparent)',
+    // 静态低饱和光斑:Vibrancy 的底材,不是液态玻璃的多色环境光。
+    '--component-environment-image': 'radial-gradient(ellipse at 4% 2%, color-mix(in oklch, var(--info) 10%, transparent), transparent 50%), radial-gradient(ellipse at 96% 16%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 54%), radial-gradient(ellipse at 78% 96%, color-mix(in oklch, var(--success) 6%, transparent), transparent 46%)',
+    '--component-light-rim': 'color-mix(in oklch, var(--border) 58%, transparent)',
   },
   roles: {
     'nav-panel': {
-      bg: 'color-mix(in oklch, var(--card) 54%, transparent)',
-      blur: 'blur(24px) saturate(1.45)',
-      refraction: { strength: 18, edge: 24, blur: 1.5 },
+      bg: 'color-mix(in oklch, var(--card) 58%, transparent)',
+      blur: 'blur(24px) saturate(1.35)',
     },
     'context-panel': {
-      bg: 'color-mix(in oklch, var(--card) 54%, transparent)',
-      blur: 'blur(24px) saturate(1.45)',
-      refraction: { strength: 18, edge: 24, blur: 1.5 },
+      bg: 'color-mix(in oklch, var(--card) 58%, transparent)',
+      blur: 'blur(24px) saturate(1.35)',
     },
     action: {
       bg: 'color-mix(in oklch, var(--card) 46%, transparent)',
-      image: 'var(--glass-light)',
-      blur: 'blur(20px) saturate(1.5)',
-      refraction: { strength: 20, edge: 26, blur: 3 },
+      blur: 'blur(20px) saturate(1.4)',
     },
     input: {
-      bg: 'color-mix(in oklch, var(--card) 82%, transparent)',
-      refraction: { strength: 10, edge: 12, blur: 0.8 },
+      bg: 'color-mix(in oklch, var(--card) 96%, transparent)',
     },
     overlay: {
-      bg: 'color-mix(in oklch, var(--popover) 84%, transparent)',
-      blur: 'blur(28px) saturate(1.3)',
-      refraction: { strength: 14, edge: 20, blur: 3 },
+      bg: 'color-mix(in oklch, var(--popover) 88%, transparent)',
+      blur: 'blur(28px) saturate(1.25)',
     },
   },
   motion: { spring: 'allow', signature: 'none' },
@@ -136,8 +140,9 @@ const PAPER: MaterialCategory = {
   id: 'paper', label: '纸质',
   components: {
     '--component-control-radius': '4px',
-    '--component-panel-radius': '7px',
-    '--component-card-radius': '0.75rem',
+    // 纸质转角取更紧的裁切感:panel 6 / card 8(原 7 / 12),比实色更方。
+    '--component-panel-radius': '6px',
+    '--component-card-radius': '8px',
     '--component-chip-radius': '4px',
     '--component-button-press-scale': '1',
     '--component-nav-current-bg': 'color-mix(in oklch, var(--primary) 9%, var(--card))',
@@ -226,7 +231,7 @@ const VIVID: MaterialCategory = {
 
 export const MATERIAL_CATEGORIES = freezeConfiguration({
   solid: SOLID,
-  glass: GLASS,
+  frosted: FROSTED,
   paper: PAPER,
   vivid: VIVID,
 } satisfies Record<string, MaterialCategory>);

@@ -232,7 +232,7 @@ function selectCodeSize(value: unknown) {
             <div>
               <h3 class="text-sm font-semibold">材质</h3>
               <p class="mt-1 text-xs text-muted-foreground">
-                玻璃作用于导航、上下文面板、会话操作区与菜单弹窗；阅读区保持实色，效果不可用时自动回落。圆角与按压触感随材质内化，不随预设改变。
+                毛玻璃用高斯模糊加提饱和处理导航、面板、会话操作区与菜单弹窗；阅读区保持实色，输入框独立不透底，效果不可用时自动回落。圆角与按压触感随材质内化，不随预设改变。
               </p>
             </div>
             <ToggleGroup presentation="segmented"

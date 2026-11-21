@@ -2016,12 +2016,10 @@ html[data-material-spring='suppress'] {
   -webkit-backdrop-filter: var(--surface-action-blur, none);
 }
 
-/* 玻璃专属环境画布:底色留在 body(html 无自有背景,body 的背景传播到
+/* 毛玻璃专属环境画布:底色留在 body(html 无自有背景,body 的背景传播到
    画布,于是根元素的负层级伪元素恰好落在画布底色之上、全部内容之下)。
-   多色光斑绘在根伪元素上缓慢漂移:transform 动画走合成器,不触发重绘,
-   不改变表面取样几何(玻璃 backdrop 从同一画布取样);放大出血避免漂移露边。
-   时长经 --motion-pace 缩放(简洁档 160s 单程,柔和更慢、灵动更快),
-   减少档由全局 kill-switch 压平;表面受光仍只由交互驱动,不循环扫光。 */
+   低饱和光斑静止在根伪元素上,只作 Vibrancy 的模糊底材;不播放漂移、
+   不做曲面折射,避免大面积 backdrop 每帧重新取样。 */
 html[data-material-effect='glass'] body {
   background-color: color-mix(in oklab, var(--muted) 40%, var(--background));
 }
@@ -2029,69 +2027,25 @@ html[data-material-effect='glass'] body {
 html[data-material-effect='glass']::before {
   content: '';
   position: fixed;
-  inset: -8%;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
   background-image: var(--component-environment-image);
-  animation: glass-environment-drift calc(160s * var(--motion-pace, 1)) ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-@keyframes glass-environment-drift {
-  from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.02); }
-  to { transform: translate3d(1.2%, 0.8%, 0) scale(1.05); }
 }
 
 html[data-material-effect='glass'] .app-shell {
   background: transparent;
 }
 
-/* 静态受光只留低强度明暗,不画整圈白线。交互光源由 glass-light.ts
-   按局部坐标阻尼跟随,不播放循环扫光、不改变布局或正文几何。 */
+/* 高光收敛为 1px 半透明白边 + 一层极轻投影:旧 macOS 毛玻璃的静态层次,
+   不随指针移动,不叠加曲面内高光。 */
 html[data-material-effect='glass'] {
   --glass-rim: var(--component-light-rim);
-  --glass-depth: var(--component-light-depth);
-  --glass-edge: var(--component-light-edge);
-  --glass-light: var(--component-light-image);
 }
 
 html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay']) {
   border-color: var(--glass-rim);
-  box-shadow: var(--glass-edge), var(--glass-depth);
-}
-
-html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel']) {
-  background-image: var(--glass-light);
-}
-
-/* 上下文面板提供局部边缘绘制坐标;导航/操作区/浮层本来已有 sticky、
-   relative 或 fixed 定位,不覆盖它们。掏空遮罩使高光只落在一像素曲面边缘,
-   不覆盖文字,不拦截拖拽或点击。不支持遮罩合成时只保留基础表面。 */
-html[data-material-effect='glass'] [data-surface='context-panel'] {
-  position: relative;
-}
-
-@supports (mask-composite: exclude) or (-webkit-mask-composite: xor) {
-  html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay'])::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    pointer-events: none;
-    background:
-      radial-gradient(var(--component-highlight-radius) circle at var(--glass-x, 25%) var(--glass-y, 0%), var(--component-highlight-color), transparent 75%),
-      radial-gradient(240px circle at calc(100% - var(--glass-x, 25%)) calc(100% - var(--glass-y, 0%)), rgb(255 255 255 / 18%), transparent 70%);
-    -webkit-mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
-    mask: linear-gradient(white 0 0) content-box, linear-gradient(white 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: calc(var(--component-highlight-rest) + var(--glass-energy, 0) * (1 - var(--component-highlight-rest)));
-  }
-}
-
-html[data-motion='reduced'][data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay'])::after {
-  content: none;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
 }
 
 /* 传送到 body 的浮层同样消费角色变量;实色模式不命中这条规则,
@@ -2103,17 +2057,15 @@ html[data-material] [data-surface='overlay'] {
   -webkit-backdrop-filter: var(--surface-overlay-blur, none);
 }
 
-/* 输入控件的遮蔽强于外层玻璃,前景始终清晰;仅独立控件启用折射,
-   嵌在玻璃面板内的控件沿用父层光学以免多重采样。 */
+/* 输入面接近实色、独立悬浮,不复用父层操作区的模糊,避免出现"背后一块模糊"。 */
 html[data-material] [data-surface='input']:not([data-slot='input-group-control']) {
   background-color: var(--surface-input-bg, var(--card));
 }
 
-/* 折射增强统一按角色启用:SVG 只处理 backdrop,前景不参与位移。
-   未生成滤镜/非 Chromium/降低透明度时保留上方普通玻璃或实色回退。 */
-html[data-material-effect='glass'] [data-glass-refraction='ready'] {
-  backdrop-filter: var(--glass-refraction);
-  -webkit-backdrop-filter: var(--glass-refraction);
+/* 毛玻璃下输入框用更淡的主题边框,去掉顶缘那条显眼的深色描边;
+   聚焦/错误态由 InputGroup 的 ring 与 border-ring/destructive 覆盖,边界仍清晰。 */
+html[data-material-effect='glass'] [data-surface='input']:not([data-slot='input-group-control']) {
+  border-color: var(--component-surface-border);
 }
 
 /* 纸质画布只提供平静底色;纹理与厚度由角色表面承载。 */
@@ -2328,6 +2280,13 @@ html[data-density='loose'] {
   color: var(--foreground);
   box-shadow: var(--component-choice-shadow);
   transition: background-color var(--component-feedback-duration), border-color var(--component-feedback-duration), box-shadow var(--component-feedback-duration);
+}
+/* 覆盖组件里 spacing=0 的固定 rounded-md/rounded-none:分段按钮圆角一律取
+   材质变量,与外框(control-radius + track-padding)同心,不随材质错位。 */
+[data-slot='toggle-group'][data-presentation='segmented'] > [data-slot='toggle-group-item'],
+[data-slot='toggle-group'][data-presentation='segmented'] > [data-slot='toggle-group-item']:first-child,
+[data-slot='toggle-group'][data-presentation='segmented'] > [data-slot='toggle-group-item']:last-child {
+  border-radius: var(--component-control-radius);
 }
 [data-presentation='segmented'] > [data-slot='toggle-group-item']:hover {
   background: var(--component-choice-hover-bg);

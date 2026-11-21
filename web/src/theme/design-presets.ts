@@ -24,12 +24,12 @@ export const DESIGN_PRESETS = freezeConfiguration({
       material: getMaterialCategory('solid'), behavior: { preference: 'system' }, layout: { density: 'standard' },
     },
   },
-  'liquid-glass': {
-    id: 'liquid-glass', label: '液态玻璃', dimensions: {
+  'frosted-glass': {
+    id: 'frosted-glass', label: '毛玻璃', dimensions: {
       style: { themePack: 'classic', colorMode: 'system' },
-      typography: {}, material: getMaterialCategory('glass'),
+      typography: {}, material: getMaterialCategory('frosted'),
       behavior: { preference: 'soft' },
-      layout: { density: 'standard', tokens: { '--component-choice-track-padding': '4px', '--component-choice-gap': '4px' } },
+      layout: { density: 'standard' },
     },
   },
   paper: {
@@ -56,7 +56,7 @@ export function isDesignPresetId(value: unknown): value is DesignPresetId {
   return typeof value === 'string' && Object.hasOwn(DESIGN_PRESETS, value);
 }
 export function legacyDesignPreset(material: unknown): DesignPresetId {
-  return material === 'glass' ? 'liquid-glass' : material === 'paper' ? 'paper' : 'classic';
+  return material === 'glass' || material === 'frosted' ? 'frosted-glass' : material === 'paper' ? 'paper' : 'classic';
 }
 export function getDesignPreset(id: unknown): DesignPreset {
   return DESIGN_PRESETS[isDesignPresetId(id) ? id : 'classic'];

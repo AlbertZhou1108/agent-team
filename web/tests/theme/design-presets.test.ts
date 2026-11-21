@@ -4,7 +4,7 @@ import type { MaterialId } from '@/theme/materials';
 import { COMPONENT_DEFAULTS } from '@/theme/component-contract';
 import { DESIGN_PRESETS, isPresetModified, resolveComponentDesign, type DesignPreset } from '@/theme/design-presets';
 
-const resolve = (presetId = 'liquid-glass', material = 'glass', density: 'standard' | 'compact' | 'loose' = 'standard') => resolveComponentDesign({ presetId, material, density });
+const resolve = (presetId = 'frosted-glass', material = 'frosted', density: 'standard' | 'compact' | 'loose' = 'standard') => resolveComponentDesign({ presetId, material, density });
 
 describe('five-dimension component configuration', () => {
   it('replaces the complete applied output across repeated preset switches', () => {
@@ -12,7 +12,7 @@ describe('five-dimension component configuration', () => {
     const root = { dataset: {} as Record<string, string>, style: { setProperty: (key: string, value: string) => values.set(key, value) } };
     vi.stubGlobal('document', { documentElement: root });
     try {
-      for (const id of ['liquid-glass', 'paper', 'vivid', 'classic', 'vivid', 'paper', 'liquid-glass'] as const) {
+      for (const id of ['frosted-glass', 'paper', 'vivid', 'classic', 'vivid', 'paper', 'frosted-glass'] as const) {
         const material = DESIGN_PRESETS[id].dimensions.material.id;
         const output = resolve(id, material);
         applyComponentDesign({ designPreset: id, materialPreference: material, density: 'standard' }, output);
@@ -88,13 +88,15 @@ describe('five-dimension component configuration', () => {
       expect(values.has('--surface-input-shadow')).toBe(true);
       expect(values.has('--surface-overlay-shadow')).toBe(true);
       applyMaterial('solid');
-      expect([...values.keys()].filter(key => key.startsWith('--surface-'))).toEqual([]);
+      // paper 的层级阴影必须清干净;solid 只写自己的明度阶梯(bg),不残留 shadow。
+      expect([...values.keys()].filter(key => key.startsWith('--surface-') && key.endsWith('-shadow'))).toEqual([]);
+      expect(values.get('--surface-nav-panel-bg')).toBe('var(--background)');
     } finally { vi.unstubAllGlobals(); }
   });
   it('isolates nested role recipes and every axis between resolutions', () => {
     const baseline = resolve();
     const changed = resolve();
-    changed.material.roles['nav-panel']!.refraction!.strength = 999;
+    changed.material.roles['nav-panel']!.bg = 'rgb(999 0 0)';
     changed.material.motion.signature = 'none';
     changed.dimensions.material['--component-control-radius'] = '99px';
     changed.variables['--component-content-bg'] = 'red';
@@ -104,14 +106,14 @@ describe('five-dimension component configuration', () => {
   it('keeps editing a glass preset local to that preset across all five axes', () => {
     const paper = resolve('paper', 'paper');
     const classic = resolve('classic', 'solid');
-    const custom: DesignPreset = structuredClone(DESIGN_PRESETS['liquid-glass']);
+    const custom: DesignPreset = structuredClone(DESIGN_PRESETS['frosted-glass']);
     custom.dimensions.style.tokens = { '--component-nav-marker-width': '4px' };
     custom.dimensions.typography['--component-title-font-size'] = '1.5rem';
     custom.dimensions.material.roles['nav-panel']!.bg = 'transparent';
     custom.dimensions.material.components!['--component-control-radius'] = '19px';
     custom.dimensions.behavior.tokens = { '--component-feedback-duration': '0.5s' };
     custom.dimensions.layout.tokens = { '--component-panel-gap': '22px' };
-    const output = resolveComponentDesign({ presetId: custom.id, preset: custom, material: 'glass', density: 'standard' });
+    const output = resolveComponentDesign({ presetId: custom.id, preset: custom, material: 'frosted', density: 'standard' });
     expect(output.variables['--component-nav-marker-width']).toBe('4px');
     expect(output.variables['--component-title-font-size']).toBe('1.5rem');
     expect(output.variables['--component-panel-gap']).toBe('22px');
@@ -125,7 +127,7 @@ describe('five-dimension component configuration', () => {
     expect(Object.isFrozen(COMPONENT_DEFAULTS.style)).toBe(true);
     expect(Object.isFrozen(COMPONENT_DEFAULTS.material)).toBe(true);
     expect(Object.isFrozen(DESIGN_PRESETS.paper.dimensions)).toBe(true);
-    expect(Object.isFrozen(DESIGN_PRESETS['liquid-glass'].dimensions.material.roles['nav-panel']!.refraction)).toBe(true);
+    expect(Object.isFrozen(DESIGN_PRESETS['frosted-glass'].dimensions.material.roles['nav-panel']!)).toBe(true);
   });
   it('owns every variable in exactly one dimension and always emits the complete contract', () => {
     const keys = Object.values(COMPONENT_DEFAULTS).flatMap(Object.keys);
@@ -136,12 +138,12 @@ describe('five-dimension component configuration', () => {
     }
   });
   it('changes only layout when the user overrides density', () => {
-    const standard = resolve(), compact = resolve('liquid-glass', 'glass', 'compact');
+    const standard = resolve(), compact = resolve('frosted-glass', 'frosted', 'compact');
     for (const axis of ['style', 'typography', 'material', 'behavior'] as const) expect(compact.dimensions[axis]).toEqual(standard.dimensions[axis]);
     expect(compact.dimensions.layout).not.toEqual(standard.dimensions.layout);
   });
   it('replaces only material recipes when overriding the preset material', () => {
-    const glass = resolve(), solid = resolve('liquid-glass', 'solid');
+    const glass = resolve(), solid = resolve('frosted-glass', 'solid');
     expect(solid.material.id).toBe('solid');
     expect(solid.dimensions.style).toEqual(glass.dimensions.style);
     expect(solid.dimensions.behavior).toEqual(glass.dimensions.behavior);
@@ -151,15 +153,29 @@ describe('five-dimension component configuration', () => {
     expect(solid.variables['--component-button-press-scale']).toBe('0.98');
   });
   it('carries material physics (radius, press) with the material, not the preset', () => {
-    const glassOnPaperPreset = resolve('paper', 'glass');
+    const glassOnPaperPreset = resolve('paper', 'frosted');
     expect(glassOnPaperPreset.variables['--component-control-radius']).toBe('var(--radius-lg)');
     expect(glassOnPaperPreset.variables['--component-button-press-scale']).toBe('0.97');
-    const paperOnGlassPreset = resolve('liquid-glass', 'paper');
+    const paperOnGlassPreset = resolve('frosted-glass', 'paper');
     expect(paperOnGlassPreset.variables['--component-control-radius']).toBe('4px');
-    expect(paperOnGlassPreset.variables['--component-panel-radius']).toBe('7px');
+    expect(paperOnGlassPreset.variables['--component-panel-radius']).toBe('6px');
+  });
+  it('uses Gaussian blur with vibrancy and no refraction optics', () => {
+    const frosted = resolve('frosted-glass', 'frosted');
+    expect(frosted.material.id).toBe('frosted');
+    expect(frosted.material.effect).toBe('glass');
+    for (const role of ['nav-panel', 'context-panel', 'action', 'overlay'] as const) {
+      const finish = frosted.material.roles[role]!;
+      expect(finish.blur).toContain('blur(');
+      expect(finish.blur).toContain('saturate(');
+      expect(finish).not.toHaveProperty('refraction');
+    }
+    // 输入面接近实色,不把父层操作区的模糊透上来。
+    expect(frosted.material.roles.input!.bg).toContain('96%');
+    expect(frosted.variables['--component-light-image']).toBeUndefined();
   });
   it('falls back only the effects that need unavailable backdrop support', () => {
-    const glass = resolveComponentDesign({ presetId: 'liquid-glass', material: 'glass', density: 'loose', effectsUsable: false });
+    const glass = resolveComponentDesign({ presetId: 'frosted-glass', material: 'frosted', density: 'loose', effectsUsable: false });
     expect(glass.material.id).toBe('solid');
     expect(glass.dimensions.layout['--component-control-height']).toBe('40px');
     const paper = resolveComponentDesign({ presetId: 'paper', material: 'paper', density: 'standard', effectsUsable: false });
@@ -218,13 +234,13 @@ describe('isPresetModified', () => {
   it('reports no deviation while every user axis matches the selected preset', () => {
     expect(isPresetModified('classic', axes())).toBe(false);
     expect(isPresetModified('paper', { colorMode: 'system', themePack: 'ivory', materialPreference: 'paper', motionPreference: 'simple', density: 'standard' })).toBe(false);
-    expect(isPresetModified('liquid-glass', { colorMode: 'system', themePack: 'classic', materialPreference: 'glass', motionPreference: 'soft', density: 'standard' })).toBe(false);
+    expect(isPresetModified('frosted-glass', { colorMode: 'system', themePack: 'classic', materialPreference: 'frosted', motionPreference: 'soft', density: 'standard' })).toBe(false);
   });
   it('reports deviation as soon as any user axis leaves the preset recipe', () => {
     expect(isPresetModified('classic', axes({ colorMode: 'dark' }))).toBe(true);
-    expect(isPresetModified('classic', axes({ materialPreference: 'glass' }))).toBe(true);
+    expect(isPresetModified('classic', axes({ materialPreference: 'frosted' }))).toBe(true);
     expect(isPresetModified('classic', axes({ themePack: 'forest' }))).toBe(true);
-    expect(isPresetModified('liquid-glass', axes({ motionPreference: 'lively' }))).toBe(true);
+    expect(isPresetModified('frosted-glass', axes({ motionPreference: 'lively' }))).toBe(true);
     expect(isPresetModified('paper', axes({ density: 'compact' }))).toBe(true);
   });
   it('compares against classic when the stored preset id is unknown', () => {
