@@ -4,6 +4,7 @@ import { Brain, ChevronDown } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
 import { identityColor } from '@/features/messages/identity';
 import { Surface } from '@/components/surface';
+import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import {
   buildRunRows,
   elapsedLabel,
@@ -104,7 +105,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
     <!-- 折叠态仅在还有补充信息时占第二行。 -->
     <p v-if="collapsed && headerSummary" class="run-card-summary">{{ headerSummary }}</p>
 
-    <template v-if="!collapsed">
+    <CollapseReveal :show="!collapsed">
       <p v-if="single?.tool" class="run-card-tool">{{ toolActionLabel(single.tool, groupNames) }}</p>
       <!-- 单路:展开即完整明细,思考直接跟随当前动作显示。 -->
       <div v-if="single" class="run-card-list">
@@ -151,14 +152,16 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
               {{ toolActionLabel(row.tool, groupNames) }}
             </span>
           </button>
-          <div
-            v-if="preferences.showReasoning && row.reasoning && openReasoning === row.key"
-            class="run-reasoning"
+          <CollapseReveal
+            v-if="preferences.showReasoning && row.reasoning"
+            :show="openReasoning === row.key"
           >
-            <ReasoningScroller :key="row.key" :text="row.reasoning" />
-          </div>
+            <div class="run-reasoning">
+              <ReasoningScroller :key="row.key" :text="row.reasoning" />
+            </div>
+          </CollapseReveal>
         </div>
       </div>
-    </template>
+    </CollapseReveal>
   </Surface>
 </template>

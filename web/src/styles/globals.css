@@ -776,12 +776,17 @@
   width: 40px;
   height: 3px;
   content: '';
+  transition: width var(--component-feedback-duration) var(--component-layout-easing);
 }
 
 .agent-composer-resize-handle:hover::before,
 .agent-composer-resize-handle:focus-visible::before,
 .agent-ai-composer.is-resizing .agent-composer-resize-handle::before {
   width: 52px;
+}
+
+.agent-ai-composer.is-resizing .agent-composer-resize-handle::before {
+  transition: none;
 }
 
 .agent-ai-composer.is-resizing {
@@ -1198,6 +1203,7 @@ button {
   color: var(--muted-foreground);
   font-size: 0.75rem;
   cursor: pointer;
+  transition: color var(--component-feedback-duration);
 }
 
 .run-card-toggle:hover {
@@ -1229,6 +1235,7 @@ button {
   font-size: 0.75rem;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--component-feedback-duration);
 }
 
 .run-row:hover {

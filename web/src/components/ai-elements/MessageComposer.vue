@@ -203,7 +203,7 @@ function keyboardResize(event: KeyboardEvent) {
     <button
       v-if="collapsedAttachmentCount"
       type="button"
-      class="mb-1 flex items-center gap-1 rounded-(--component-chip-radius) border border-dashed px-2 py-0.5 text-xs text-muted-foreground outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
+      class="mb-1 flex items-center gap-1 rounded-(--component-chip-radius) border border-dashed px-2 py-0.5 text-xs text-muted-foreground transition-colors outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
       aria-label="展开输入区管理附件"
       @click="expand"
     >
@@ -327,7 +327,7 @@ function keyboardResize(event: KeyboardEvent) {
           >上传失败</span>
           <button
             type="button"
-            class="shrink-0 rounded-(--component-chip-radius) p-0.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="shrink-0 rounded-(--component-chip-radius) p-0.5 transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
             :aria-label="`移除附件 ${attachment.name}`"
             :title="`移除附件 ${attachment.name}`"
             @click="emit('removeAttachment', attachment.localId)"

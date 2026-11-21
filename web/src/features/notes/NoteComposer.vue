@@ -85,7 +85,7 @@ defineExpose({ focusInput });
     <CollapsibleTrigger v-show="!expanded" as-child>
       <button
         type="button"
-        class="flex w-full min-w-0 items-center gap-2 rounded-(--component-control-radius) border border-input px-3 py-2 text-start text-sm outline-none transition-[color,box-shadow] hover:bg-(--state-hover) focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3"
+        class="flex w-full min-w-0 items-center gap-2 rounded-(--component-control-radius) border border-input px-3 py-2 text-start text-sm outline-none transition-[color,background-color,border-color,box-shadow] hover:bg-(--state-hover) focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3"
       >
         <NotebookPen class="size-4 shrink-0 text-muted-foreground" />
         <span

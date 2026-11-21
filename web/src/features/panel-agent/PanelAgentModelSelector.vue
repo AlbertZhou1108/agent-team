@@ -145,7 +145,7 @@ function modalityLabel(model: CatalogModel) {
       <template v-if="view === 'panel'">
         <button
           type="button"
-          class="flex w-full items-center gap-2 border-b px-3 py-3 text-left hover:bg-accent"
+          class="flex w-full items-center gap-2 border-b px-3 py-3 text-left transition-colors hover:bg-accent"
           :disabled="hosts.length <= 1"
           @click="view = 'provider'"
         >
@@ -164,7 +164,7 @@ function modalityLabel(model: CatalogModel) {
               v-for="model in selectedHost?.catalog.models ?? []"
               :key="model.key"
               type="button"
-              class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm hover:bg-accent"
+              class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm transition-colors hover:bg-accent"
               @click="selectedHost && selectModel(selectedHost, model)"
             >
               <span class="min-w-0 flex-1 truncate">{{ model.label }}</span>
@@ -205,7 +205,7 @@ function modalityLabel(model: CatalogModel) {
       <template v-else>
         <button
           type="button"
-          class="flex w-full items-center gap-2 border-b px-3 py-3 text-left hover:bg-accent"
+          class="flex w-full items-center gap-2 border-b px-3 py-3 text-left transition-colors hover:bg-accent"
           @click="view = 'panel'"
         >
           <ChevronLeft class="text-muted-foreground" />
@@ -216,7 +216,7 @@ function modalityLabel(model: CatalogModel) {
             v-for="host in hosts"
             :key="host.host"
             type="button"
-            class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm hover:bg-accent"
+            class="flex w-full items-center gap-2 rounded-(--component-control-radius) px-2 py-2 text-left text-sm transition-colors hover:bg-accent"
             @click="chooseHost(host)"
           >
             <span class="min-w-0 flex-1 truncate">{{ hostLabel(host.host) }}</span>
