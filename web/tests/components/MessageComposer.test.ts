@@ -140,4 +140,11 @@ describe('MessageComposer 交互（组件级）', () => {
     expect(withAttachment.text()).toContain('note.txt');
     expect(withAttachment.text()).toContain('上传中…');
   });
+
+  it('展开态与收起态共用输入面，不在外层再包一层 action 黑色底框', () => {
+    const wrapper = mountComposer();
+    const form = wrapper.get('form.agent-ai-composer');
+    expect(form.attributes('data-surface')).toBeUndefined();
+    expect(wrapper.get('[data-slot="input-group"]').attributes('data-surface')).toBe('input');
+  });
 });

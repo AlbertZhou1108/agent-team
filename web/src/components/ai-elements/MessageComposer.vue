@@ -13,7 +13,6 @@ import {
   InputGroupTextarea,
 } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
-import { Surface } from '@/components/surface';
 import { ATTACHMENT_ACCEPT } from '@/shared/attachment-types';
 import { useUiStore } from '@/stores/ui';
 export type ComposerAttachmentStatus = 'uploading' | 'ready' | 'failed';
@@ -269,7 +268,8 @@ function keyboardResize(event: KeyboardEvent) {
       @change="onFileChange"
     />
   </form>
-  <Surface v-else role="action" as="form"
+  <form
+    v-else
     :class="cn('agent-ai-composer content-appear', resizing && 'is-resizing', dragging && 'is-dragging')"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
@@ -412,7 +412,7 @@ function keyboardResize(event: KeyboardEvent) {
         :aria-label="'选择附件文件'"
         @change="onFileChange"
       />
-    </Surface>
+    </form>
 </template>
 
 <style scoped>
