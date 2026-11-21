@@ -1,4 +1,4 @@
-// 数据目录 schema 版本号:新库/旧库统一标记、过新版本拒绝、重开幂等。
+// 数据目录 schema 版本号、增量迁移与持久化耐久策略:新库/旧库统一标记、过新版本拒绝、重开幂等。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -293,4 +293,290 @@ test('a database created by a newer schema is rejected instead of being opened',
   store.close();
 
   assert.throws(() => new Store(directory), /更新版本/);
+});
+
+test('store keeps WAL durability at NORMAL so per-event commits do not fsync', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  try {
+    assert.equal(store.get('PRAGMA journal_mode').journal_mode, 'wal');
+    // SQLite 的 synchronous 取值:0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA
+    assert.equal(store.get('PRAGMA synchronous').synchronous, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test('a v5 database gains the notes table and indexes on reopen', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run('DROP TABLE notes');
+  store.setSchemaVersion(5);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'"));
+  const indexes = store.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='notes'").map(row => row.name);
+  assert.ok(indexes.includes('notes_state'));
+  assert.ok(indexes.includes('notes_archived'));
+  store.close();
+});
+
+test('notes reject unknown states and tolerate an empty table', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  assert.deepEqual(store.all('SELECT * FROM notes'), []);
+  store.run(
+    "INSERT INTO notes(id,title,body,state,created,updated) VALUES('a','t','b','active',?,?)",
+    NOW,
+    NOW,
+  );
+  assert.throws(() => store.run(
+    "INSERT INTO notes(id,title,body,state,created,updated) VALUES('b','t','b','doing',?,?)",
+    NOW,
+    NOW,
+  ), /CHECK/);
+  store.close();
+});
+
+test('a v7 database gains the optional source team without touching existing notes', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO notes(id,title,body,state,created,updated) VALUES('a','t','b','active',?,?)", NOW, NOW);
+  store.run('DROP INDEX IF EXISTS notes_source_team');
+  store.run('ALTER TABLE notes DROP COLUMN source_team_id');
+  store.setSchemaVersion(7);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(store.all('PRAGMA table_info(notes)').some(column => column.name === 'source_team_id'));
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'") && store.get("SELECT 1 FROM sqlite_master WHERE type='index' AND name='notes_source_team'"));
+  assert.equal(store.get("SELECT source_team_id FROM notes WHERE id='a'").source_team_id, null, '历史笔记一律无来源');
+  store.close();
+});
+
+test('notes keep no foreign key to groups so deleting a team cannot cascade into private notes', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  const column = store.all('PRAGMA table_info(notes)').find(item => item.name === 'source_team_id');
+  assert.ok(column, 'source_team_id 必须存在');
+  assert.equal(column.notnull, 0, '无来源是合法状态');
+  assert.deepEqual(store.all('PRAGMA foreign_key_list(notes)'), [], '来源是裸 id，刻意不加外键');
+  store.close();
+});
+
+test('a v9 database gains tag columns, the tag registry and the pinned index on reopen', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO notes(id,title,body,state,created,updated) VALUES('a','t','b','active',?,?)", NOW, NOW);
+  store.setSchemaVersion(9);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const columns = store.all('PRAGMA table_info(notes)').map(column => column.name);
+  assert.ok(columns.includes('tags'), 'tags JSON 列必须存在');
+  assert.ok(columns.includes('pinned_at'), 'pinned_at 列必须存在');
+  const restored = store.get("SELECT tags,pinned_at FROM notes WHERE id='a'");
+  assert.equal(restored.tags, '[]', '历史笔记默认无标签');
+  assert.equal(restored.pinned_at, null, '历史笔记默认未置顶');
+  assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_tags'"));
+  const tagIndexes = store.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='notes'").map(row => row.name);
+  assert.ok(tagIndexes.includes('notes_pinned'));
+  store.run("INSERT INTO note_tags(id,name,color,created) VALUES('t1','重要','#22c55e',?)", NOW);
+  assert.throws(() => store.run("INSERT INTO note_tags(id,name,color,created) VALUES('t2','重要',NULL,?)", NOW), /UNIQUE/);
+  store.close();
+});
+
+test('v10 databases gain plan tables and agent_tasks.revision', t => {
+  const directory = tempDir(t);
+  const legacy = new Store(directory);
+  legacy.db.exec(`DROP TABLE plan_events;
+    DROP TABLE message_step_refs;
+    ALTER TABLE agent_tasks DROP COLUMN revision;
+    PRAGMA user_version=10;`);
+  legacy.db.close();
+
+  const upgraded = new Store(directory);
+  assert.equal(upgraded.schemaVersion(), SCHEMA_VERSION);
+  assert.ok(upgraded.all("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plan_events'").length);
+  assert.ok(upgraded.all("SELECT 1 FROM sqlite_master WHERE type='table' AND name='message_step_refs'").length);
+  assert.ok(upgraded.all('PRAGMA table_info(agent_tasks)').some(column => column.name === 'revision'));
+  upgraded.db.close();
+});
+
+function downgradeToV19(store) {
+  store.db.exec(`DROP TABLE workspace_events;
+    DROP TABLE team_controller_relations;
+    DROP TABLE desktop_applications;`);
+  const dropped = new Set(['app_id', 'surface', 'controller_cwd', 'controller_cwd_updated']);
+  const info = store.all('PRAGMA table_info(external_client_bindings)').filter(column => !dropped.has(column.name));
+  const names = info.map(column => column.name);
+  const primaryKey = info.filter(column => column.pk > 0).map(column => column.name);
+  store.transaction(() => {
+    store.db.exec('ALTER TABLE external_client_bindings RENAME TO bindings_v20_tmp');
+    const columnSql = info.map(column =>
+      `${column.name} ${column.type}${column.notnull ? ' NOT NULL' : ''}${column.dflt_value !== null ? ` DEFAULT ${column.dflt_value}` : ''}`,
+    ).join(', ');
+    store.db.exec(`CREATE TABLE external_client_bindings(${columnSql}${primaryKey.length ? `, PRIMARY KEY(${primaryKey.join(',')})` : ''})`);
+    store.db.exec(`INSERT INTO external_client_bindings(${names.join(',')}) SELECT ${names.join(',')} FROM bindings_v20_tmp`);
+    store.db.exec('DROP TABLE bindings_v20_tmp');
+  });
+  store.db.exec('ALTER TABLE groups DROP COLUMN workspace_pending');
+  store.db.exec('ALTER TABLE groups DROP COLUMN workspace_revision');
+  store.setSchemaVersion(19);
+}
+
+test('a fresh database carries the v20 desktop artifacts', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const bindingColumns = store.all('PRAGMA table_info(external_client_bindings)').map(column => column.name);
+  for (const column of ['app_id', 'surface', 'controller_cwd', 'controller_cwd_updated']) {
+    assert.ok(bindingColumns.includes(column), `external_client_bindings 缺少 ${column}`);
+  }
+  const groupColumns = store.all('PRAGMA table_info(groups)').map(column => column.name);
+  for (const column of ['workspace_pending', 'workspace_revision']) {
+    assert.ok(groupColumns.includes(column), `groups 缺少 ${column}`);
+  }
+  for (const table of ['desktop_applications', 'team_controller_relations', 'workspace_events']) {
+    assert.ok(store.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table), `缺少 ${table}`);
+  }
+  store.close();
+});
+
+test('a v19 database migrates without loss and seeds controller relations from seats', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO external_principals(id,name,created,updated) VALUES('p1','本机用户',?,?)", NOW, NOW);
+  store.run(
+    `INSERT INTO external_client_bindings(id,principal_id,name,host,command,key_hash,session,declared_capabilities,status,created,updated)
+     VALUES('b1','p1','主控会话','codex','codex','hash-b1','thread-1','["session.deliver","turn.observe"]','active',?,?)`,
+    NOW, NOW,
+  );
+  store.run("INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES('g1','G','/tmp/w1',NULL,?,NULL,'read-only',0)", NOW);
+  store.run(
+    `INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,controller_binding_id,state,original_lead_id,revision,updated)
+     VALUES('g1','external_agent','p1','b1','active',NULL,3,?)`,
+    NOW,
+  );
+  store.run("INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g1','成员','fake','member')");
+  store.run("INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,session,key,created,updated) VALUES('c1','g1','m1',NULL,'pair:lead','native-1','k1',?,?)", NOW, NOW);
+  store.run("INSERT INTO messages(id,group_id,sender,recipient,kind,text,created) VALUES('msg1','g1','p1','m1','send','派工',?)", NOW);
+  downgradeToV19(store);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const binding = store.get('SELECT * FROM external_client_bindings WHERE id=?', 'b1');
+  assert.equal(binding.session, 'thread-1');
+  assert.deepEqual(JSON.parse(binding.declared_capabilities), ['session.deliver', 'turn.observe']);
+  assert.equal(binding.surface, 'cli');
+  assert.equal(store.get('SELECT text FROM messages WHERE id=?', 'msg1').text, '派工');
+  assert.equal(store.get('SELECT session FROM conversations WHERE id=?', 'c1').session, 'native-1');
+  assert.equal(store.get('SELECT workspace FROM groups WHERE id=?', 'g1').workspace, '/tmp/w1');
+  assert.equal(store.get('SELECT workspace_revision FROM groups WHERE id=?', 'g1').workspace_revision, 0);
+  const relation = store.get('SELECT * FROM team_controller_relations WHERE group_id=? AND binding_id=?', 'g1', 'b1');
+  assert.equal(relation.principal_id, 'p1');
+  assert.equal(relation.origin, 'creator');
+  assert.equal(relation.revision, 3);
+  store.close();
+});
+
+test('a migrated v19 database keeps desktop state usable for new writes', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", '/tmp/w1', NOW);
+  downgradeToV19(store);
+  store.close();
+
+  store = new Store(directory);
+  store.run(
+    `INSERT INTO desktop_applications(id,kind,surface,install_path,engine_path,readiness,created,updated)
+     VALUES('app1','codex','desktop','/Applications/ChatGPT.app','/engine','available',?,?)`,
+    NOW, NOW,
+  );
+  store.run('UPDATE groups SET workspace_pending=? WHERE id=?', '/tmp/w2', 'g1');
+  store.run(
+    "INSERT INTO workspace_events(group_id,kind,from_path,to_path,revision,created) VALUES('g1','pending','/tmp/w1','/tmp/w2',1,?)",
+    NOW,
+  );
+  assert.equal(store.get('SELECT workspace_pending FROM groups WHERE id=?', 'g1').workspace_pending, '/tmp/w2');
+  assert.equal(store.get("SELECT count(*) AS count FROM workspace_events WHERE group_id='g1'").count, 1);
+  store.close();
+});
+
+function downgradeToV22(store) {
+  store.transaction(() => {
+    store.db.exec(`ALTER TABLE desktop_applications RENAME TO desktop_applications_v23_tmp;
+      CREATE TABLE desktop_applications(
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('codex','dsh','claude')),
+        surface TEXT NOT NULL DEFAULT 'desktop' CHECK(surface IN ('cli','desktop')),
+        install_path TEXT,
+        engine_path TEXT,
+        engine_version TEXT,
+        readiness TEXT NOT NULL DEFAULT 'unavailable' CHECK(readiness IN ('available','unavailable')),
+        pull_only INTEGER NOT NULL DEFAULT 0,
+        controller_state TEXT,
+        engine_state TEXT,
+        diagnostics TEXT,
+        fingerprint TEXT,
+        verified_at TEXT,
+        lifecycle_note TEXT,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL,
+        user_disabled INTEGER NOT NULL DEFAULT 0,
+        disabled_reason TEXT,
+        bundle_version TEXT,
+        UNIQUE(kind,surface,install_path));
+      INSERT INTO desktop_applications SELECT * FROM desktop_applications_v23_tmp;
+      DROP TABLE desktop_applications_v23_tmp;`);
+  });
+  store.setSchemaVersion(22);
+}
+
+test('a v22 database widens the desktop kind enum without losing rows', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run(
+    `INSERT INTO desktop_applications(id,kind,surface,install_path,bundle_version,readiness,pull_only,verified_at,created,updated)
+     VALUES('app1','codex','desktop','/Applications/ChatGPT.app','26.1111.71704','available',1,?, ?, ?)`,
+    '2026-11-20T00:00:00.000Z', NOW, NOW,
+  );
+  downgradeToV22(store);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const row = store.get('SELECT * FROM desktop_applications WHERE id=?', 'app1');
+  assert.equal(row.kind, 'codex');
+  assert.equal(row.readiness, 'available');
+  assert.equal(row.pull_only, 1);
+  assert.equal(row.bundle_version, '26.1111.71704');
+  store.run(
+    `INSERT INTO desktop_applications(id,kind,surface,install_path,created,updated)
+     VALUES('app2','zcode','desktop','/Applications/ZCode.app',?,?)`,
+    NOW, NOW,
+  );
+  assert.throws(
+    () => store.run(
+      `INSERT INTO desktop_applications(id,kind,surface,install_path,created,updated)
+       VALUES('app3','workbuddy','desktop','/x',?,?)`,
+      NOW, NOW,
+    ),
+    /CHECK/,
+  );
+  store.close();
+});
+
+test('a fresh database carries the widened kind enum directly', t => {
+  const directory = tempDir(t);
+  const store = new Store(directory);
+  const tableSql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='desktop_applications'").sql;
+  assert.match(tableSql, /'zcode'/);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  store.close();
 });

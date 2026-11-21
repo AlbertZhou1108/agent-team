@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { Store } from '../../store.mjs';
 import * as externalAgg from '../../aggregates/external-control.mjs';
 import * as teamsAgg from '../../aggregates/teams.mjs';
+import { SURFACES, surfaceFollowsConversation } from '../../hosts/definitions.mjs';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
@@ -176,4 +177,14 @@ test('desktop application registry upserts per installation and records one user
     /未知应用就绪状态/,
   );
   store.close();
+});
+
+test('桌面连接跟随会话当前目录', () => {
+  assert.equal(surfaceFollowsConversation(SURFACES.desktop), true);
+});
+
+test('CLI 与未知连接不跟随会话目录', () => {
+  assert.equal(surfaceFollowsConversation(SURFACES.cli), false);
+  assert.equal(surfaceFollowsConversation(undefined), false);
+  assert.equal(surfaceFollowsConversation('desktopish'), false);
 });

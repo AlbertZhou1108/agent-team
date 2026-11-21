@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILTIN_THEME_PACKS } from '@/theme/builtin';
 import { validateThemeTokens, TOKEN_KEYS } from '@/theme/tokens';
 import { parseThemePackJson, stripJsonComments, THEME_FILE_MAX } from '@/theme/validate';
+import { THEME_TEMPLATE_JSON } from '@/theme/template';
 
 const base = BUILTIN_THEME_PACKS[0]!.light;
 
@@ -75,6 +76,18 @@ describe('parseThemePackJson', () => {
   });
   it('超大小文件被拒绝', () => {
     expect(parseThemePackJson('x'.repeat(THEME_FILE_MAX + 1)).ok).toBe(false);
+  });
+});
+
+describe('THEME_TEMPLATE_JSON', () => {
+  it('样板经注释剥离后必须能完整通过解析(防样板漂移)', () => {
+    const result = parseThemePackJson(THEME_TEMPLATE_JSON);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.pack.name).toBe('我的主题');
+      expect(Object.keys(result.pack.light).length).toBe(29);
+      expect(Object.keys(result.pack.dark).length).toBe(29);
+    }
   });
 });
 

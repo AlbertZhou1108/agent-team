@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { readDshApiKey, dshProcessEnv } from '../../member/dsh/credentials.mjs';
 import { runDshCatalogProbe } from '../../member/dsh/index.mjs';
 import { dshWakeEnv, wakeDshSession } from '../../member/dsh/wake.mjs';
@@ -101,4 +102,44 @@ process.stdout.write(JSON.stringify({ type: 'final', text: 'ok' }) + '\\n');
 
   assert.equal(result.state, 'started');
   assert.equal(readFileSync(seen, 'utf8'), 'sk-wake-injected');
+});
+
+test('DSH catalog waits for stdout completion and defers exit outside the write callback', async () => {
+  const timers = [];
+  const writes = [];
+  const exits = [];
+  const source = readFileSync(new URL('../../member/dsh/model-catalog.mjs', import.meta.url), 'utf8');
+  const apply = runInNewContext(source.replace('export const inject', 'const inject').replace('export function apply', 'function apply') + '; apply;', {
+    process: { stdout: { write: (text, callback) => writes.push({ text, callback }) }, exit: code => exits.push(code) },
+    setTimeout: (callback, delay) => { const timer = { callback, delay }; timers.push(timer); return timer; },
+    clearTimeout: () => {},
+  });
+  apply({
+    llm: { listProviders: () => [{ id: 'fixture', name: 'Fixture' }], listModels: async () => [{ id: 'model' }], resolveModelInfo: async () => ({ id: 'model', name: 'Model' }) },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'fixture', model: 'model' }) },
+    on: () => {},
+  });
+  await timers.find(timer => timer.delay === 1000).callback();
+  assert.equal(writes.length, 1);
+  const catalog = JSON.parse(writes[0].text.trim().slice('AGENT_TEAM_DSH_MODEL_CATALOG '.length));
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.providers[0].models[0].key, 'fixture/model');
+  assert.equal(timers.filter(timer => timer.delay === 50).length, 0);
+  writes[0].callback();
+  assert.deepEqual(exits, []);
+  const exitTimer = timers.find(timer => timer.delay === 50);
+  assert.ok(exitTimer);
+  exitTimer.callback();
+  assert.deepEqual(exits, [0]);
+});
+
+test('DSH 目录探测写入 patch 的插件模块路径必须真实存在', () => {
+  const source = readFileSync(new URL('../../member/dsh/index.mjs', import.meta.url), 'utf8');
+  const base = new URL('../../member/dsh/index.mjs', import.meta.url);
+  const refs = [...source.matchAll(/new URL\('(\.\/[^']+)'/g)].map(match => match[1]);
+  assert.ok(refs.length > 0, 'index.mjs 应至少引用一个相对插件模块');
+  assert.ok(source.includes("'agent-team-model-catalog'"), '目录探测应插入 agent-team 模型目录插件');
+  for (const ref of refs) {
+    assert.ok(existsSync(new URL(ref, base)), `引用的插件模块不存在: ${ref}`);
+  }
 });

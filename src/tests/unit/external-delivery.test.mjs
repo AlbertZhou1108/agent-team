@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deliverExternalWake, externalWakePlan } from '../../external-delivery.mjs';
+import { wakeBackoffMs } from '../../control-plane.mjs';
 
 const binding = {
   status: 'active',
@@ -76,4 +77,12 @@ test('a changed wake fingerprint blocks automatic wake until explicit retest', a
   assert.equal(result.supported, true);
   assert.equal(result.state, 'failed');
   assert.match(result.reason, /重新执行验证/);
+});
+
+test('wake backoff grows then stops', () => {
+  assert.equal(wakeBackoffMs(1), 60_000);
+  assert.equal(wakeBackoffMs(2), 5 * 60_000);
+  assert.equal(wakeBackoffMs(3), 15 * 60_000);
+  assert.equal(wakeBackoffMs(4), null);
+  assert.equal(wakeBackoffMs(0), null);
 });
