@@ -48,7 +48,8 @@ Native desktop capabilities follow **progressive enhancement**: preload injects 
 | `guide/` | User and technical documentation (`guide/en/` for English) |
 | `assets/readme/` & `assets/architecture/` | README screenshots/illustrations and exported architecture diagrams |
 | `work/` | Local runtime data (gitignored; never wipe user data) |
-| `docs/` | Gitignored local working notes (`docs/adr/` is tracked) |
+| `docs/` | Gitignored local working notes and process artifacts |
+| `adr/` | Architecture decision records (tracked) |
 
 ## Verification Gates
 
