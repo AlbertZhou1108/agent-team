@@ -13,7 +13,7 @@ export { default as ItemSeparator } from "./ItemSeparator.vue"
 export { default as ItemTitle } from "./ItemTitle.vue"
 
 export const itemVariants = cva(
-  "group/item flex items-center border border-transparent text-sm rounded-md transition-colors [a]:hover:bg-(--state-hover) [a]:transition-colors flex-wrap outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
+  "group/item flex items-center border border-transparent text-sm rounded-(--component-chip-radius) transition-colors [a]:hover:bg-(--state-hover) [a]:transition-colors flex-wrap outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
   {
     variants: {
       variant: {
@@ -39,9 +39,9 @@ export const itemMediaVariants = cva(
     variants: {
       variant: {
         default: "bg-transparent",
-        icon: "size-8 border rounded-sm bg-muted [&_svg:not([class*='size-'])]:size-4",
+        icon: "size-8 border rounded-(--component-chip-radius) bg-muted [&_svg:not([class*='size-'])]:size-4",
         image:
-          "size-10 rounded-sm overflow-hidden [&_img]:size-full [&_img]:object-cover",
+          "size-10 rounded-(--component-chip-radius) overflow-hidden [&_img]:size-full [&_img]:object-cover",
       },
     },
     defaultVariants: {

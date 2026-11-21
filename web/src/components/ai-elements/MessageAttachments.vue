@@ -100,7 +100,7 @@ const truncatedContent = computed(() => {
       <button
         v-if="attachment.availability === 'available' && attachment.mediaType.startsWith('image/')"
         type="button"
-        class="block max-w-full overflow-hidden rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        class="block max-w-full overflow-hidden rounded-(--component-chip-radius) border outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         :aria-label="`查看图片附件 ${attachment.name}`"
         :title="`${attachment.name}（点击查看大图）`"
         @click="openImage(attachment)"
@@ -115,7 +115,7 @@ const truncatedContent = computed(() => {
       <button
         v-else-if="attachment.availability === 'available'"
         type="button"
-        class="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
+        class="flex items-center gap-1.5 rounded-(--component-chip-radius) border px-2 py-1.5 text-xs outline-none hover:bg-(--state-hover) focus-visible:ring-2 focus-visible:ring-ring/50"
         :aria-label="`预览文本附件 ${attachment.name}`"
         :title="`${attachment.name}（${formatAttachmentSize(attachment.size)}，点击预览）`"
         @click="openText(attachment)"
@@ -126,7 +126,7 @@ const truncatedContent = computed(() => {
       </button>
       <span
         v-else
-        class="flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-xs text-muted-foreground"
+        class="flex items-center gap-1.5 rounded-(--component-chip-radius) border border-dashed px-2 py-1.5 text-xs text-muted-foreground"
         :title="`附件 ${attachment.name} 的文件已缺失`"
       >
         <FileWarning class="size-4 shrink-0" />
@@ -156,14 +156,14 @@ const truncatedContent = computed(() => {
       <img
         :src="api.attachmentUrl(currentImage.id)"
         :alt="currentImage.name"
-        class="max-h-[82vh] max-w-[92vw] rounded-md object-contain"
+        class="max-h-[82vh] max-w-[92vw] rounded-(--component-card-radius) object-contain"
       />
-      <div class="mt-2 flex items-center justify-center gap-2 text-xs text-white/85">
+      <div class="mt-2 flex items-center justify-center gap-2 text-xs text-(--component-image-scrim-fg)/85">
         <Button
           v-if="imageAttachments.length > 1"
           variant="outline"
           size="icon-xs"
-          class="border-white/30 bg-black/40 text-white hover:bg-black/60"
+          class="border-(--component-image-scrim-fg)/30 bg-(--component-image-scrim-bg)/40 text-(--component-image-scrim-fg) hover:bg-(--component-image-scrim-bg)/60"
           :disabled="!canPrevImage"
           aria-label="上一张图片"
           @click="stepImage(-1)"
@@ -171,14 +171,14 @@ const truncatedContent = computed(() => {
           <ChevronLeft />
         </Button>
         <span class="max-w-64 truncate" :title="currentImage.name">{{ currentImage.name }}</span>
-        <span class="text-white/60">{{ formatAttachmentSize(currentImage.size) }}</span>
-        <span v-if="imageAttachments.length > 1" class="text-white/60 tabular-nums">
+        <span class="text-(--component-image-scrim-fg)/60">{{ formatAttachmentSize(currentImage.size) }}</span>
+        <span v-if="imageAttachments.length > 1" class="text-(--component-image-scrim-fg)/60 tabular-nums">
           {{ imageIndex + 1 }} / {{ imageAttachments.length }}
         </span>
         <Button
           variant="outline"
           size="icon-xs"
-          class="border-white/30 bg-black/40 text-white hover:bg-black/60"
+          class="border-(--component-image-scrim-fg)/30 bg-(--component-image-scrim-bg)/40 text-(--component-image-scrim-fg) hover:bg-(--component-image-scrim-bg)/60"
           :aria-label="`下载 ${currentImage.name}`"
           :title="`下载 ${currentImage.name}`"
           @click="downloadAttachment(currentImage)"
@@ -189,7 +189,7 @@ const truncatedContent = computed(() => {
           v-if="imageAttachments.length > 1"
           variant="outline"
           size="icon-xs"
-          class="border-white/30 bg-black/40 text-white hover:bg-black/60"
+          class="border-(--component-image-scrim-fg)/30 bg-(--component-image-scrim-bg)/40 text-(--component-image-scrim-fg) hover:bg-(--component-image-scrim-bg)/60"
           :disabled="!canNextImage"
           aria-label="下一张图片"
           @click="stepImage(1)"
@@ -241,7 +241,7 @@ const truncatedContent = computed(() => {
       </p>
       <pre
         v-else-if="textPreview.state === 'ready' || textPreview.state === 'truncated'"
-        class="scrollbar-thin max-h-[60vh] overflow-y-auto wrap-anywhere rounded-md border bg-muted/40 p-3 font-mono text-xs leading-5 whitespace-pre-wrap"
+        class="scrollbar-thin max-h-[60vh] overflow-y-auto wrap-anywhere rounded-(--component-card-radius) border bg-muted/40 p-3 font-mono text-xs leading-5 whitespace-pre-wrap"
       >{{ truncatedContent }}</pre>
       <p v-else class="py-6 text-sm text-muted-foreground">
         文件超过 {{ Math.round(TEXT_PREVIEW_LIMIT / 1024) }} KB，不在对话内预览；点上方"下载"查看全文。

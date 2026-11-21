@@ -135,7 +135,7 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
         <TelemetryDistribution title="模型排行" :rows="data.models ?? []" :selected="filters.model" @select="id=>filter('model',id,data!.models.find(t=>t.id===id)!.name)" />
       </div>
       <Card size="compact"><CardHeader><CardTitle>消耗构成</CardTitle></CardHeader><CardContent class="flex flex-col gap-4">
-        <div class="flex h-5 overflow-hidden rounded-md" role="img" aria-label="Token 消耗构成">
+        <div class="flex h-5 overflow-hidden rounded-(--component-chip-radius)" role="img" aria-label="Token 消耗构成">
           <div v-for="(item,i) in composition" :key="item.key" :style="{width:`${compositionTotal ? (item.value??0)/compositionTotal*100 : 0}%`,background:compositionColors[i]}" :title="`${item.label}：${number(item.value)}`" />
         </div>
         <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="(item,i) in composition" :key="item.key" class="flex flex-col gap-1"><dt class="flex items-center gap-2 text-sm text-muted-foreground"><span class="size-2 rounded-full" :style="{background:compositionColors[i]}" />{{item.label}}</dt><dd class="tabular-nums">{{number(item.value)}} <span v-if="item.value!==null && compositionTotal" class="text-xs text-muted-foreground">{{(item.value/compositionTotal*100).toFixed(1)}}%</span></dd></div></dl>

@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { identityColor } from '@/features/messages/identity';
+import { identityColor, identityForeground } from '@/features/messages/identity';
 import ExpandableText from './ExpandableText.vue';
 import LoadingDots from './LoadingDots.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
@@ -57,6 +57,7 @@ const useMarkdown = computed(() => props.markdown && !(props.message.kind === 's
 
 // 身份色以显示名为 key(群内唯一),让并发发言的成员一眼可辨。
 const identity = computed(() => identityColor(props.message.senderName));
+const identityFg = identityForeground();
 
 const icon = computed(() => {
   if (props.message.kind === 'system') return Megaphone;
@@ -84,7 +85,7 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
   >
     <Avatar v-if="message.kind === 'send' && !compact" aria-hidden="true">
       <AvatarFallback
-        :style="{ backgroundColor: identity, color: 'white' }"
+        :style="{ backgroundColor: identity, color: identityFg }"
       >{{ message.senderName.slice(0, 1) }}</AvatarFallback>
     </Avatar>
     <div

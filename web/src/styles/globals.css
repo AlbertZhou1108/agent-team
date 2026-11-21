@@ -2297,11 +2297,13 @@ html[data-density='loose'] {
 }
 .conversation-header h1 { font-size: var(--component-title-font-size); }
 
+[data-slot='tabs-trigger'] {
+  border-radius: var(--component-control-radius);
+}
 [data-slot='tabs-trigger'][data-state='active'] {
   background: var(--component-tab-active-bg);
   color: var(--component-selection-fg);
   border-color: var(--component-tab-active-border);
-  border-radius: var(--component-control-radius);
   box-shadow: var(--component-tab-active-shadow);
 }
 

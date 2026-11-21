@@ -206,8 +206,8 @@ function onTab(value: string | number) {
       <ul class="mt-1 flex flex-col gap-0.5">
         <li v-for="row in controllers" :key="`${row.binding_name}-${row.updated}`" class="flex items-center gap-1.5">
           <span :class="row.active ? 'text-foreground' : 'text-muted-foreground'" class="truncate">{{ row.binding_name ?? '未知连接' }}</span>
-          <span v-if="row.active" class="shrink-0 rounded bg-primary/10 px-1 text-[10px] text-primary">当前</span>
-          <span v-else class="shrink-0 text-[10px] text-muted-foreground">只读</span>
+          <span v-if="row.active" class="shrink-0 rounded bg-primary/10 px-1 text-[length:var(--component-micro-font-size)] text-primary">当前</span>
+          <span v-else class="shrink-0 text-[length:var(--component-micro-font-size)] text-muted-foreground">只读</span>
         </li>
       </ul>
     </div>

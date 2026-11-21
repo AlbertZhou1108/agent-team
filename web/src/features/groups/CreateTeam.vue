@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { NoteBlock } from '@/components/ui/note-block';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from '@/components/ui/select';
 import HostStatuses from '@/features/settings/HostStatuses.vue';
 import { buildTeamSummary } from './team-summary';
@@ -77,7 +78,7 @@ async function submit() {
             <Field><FieldLabel for="team-directory">工作文件夹</FieldLabel><div class="flex gap-2"><Input id="team-directory" v-model="form.workspace" :disabled="busy || form.submitted" placeholder="选择文件夹或粘贴路径" /><Button type="button" variant="outline" :disabled="busy || picking || form.submitted" @click="chooseDirectory">选择</Button></div></Field>
             <Field><FieldLabel>文件访问范围</FieldLabel><Select v-model="form.policy" :disabled="busy || form.submitted"><SelectTrigger aria-label="文件访问范围"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="communication">仅沟通</SelectItem><SelectItem value="read-only">只读</SelectItem><SelectItem value="workspace-write">允许修改工作文件夹</SelectItem></SelectGroup></SelectContent></Select><FieldDescription>团队说明和聊天中的确认不会改变此权限。</FieldDescription></Field>
           </FieldGroup>
-          <div v-if="confirming && !form.group" class="rounded-lg border p-4 text-sm">
+          <NoteBlock v-if="confirming && !form.group" class="p-4">
             <p class="font-medium">确认创建以下团队？</p>
             <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
               <dt class="text-muted-foreground">名称</dt><dd>{{ summary.name }}</dd>
@@ -90,7 +91,7 @@ async function submit() {
               <Button type="button" :disabled="busy" @click="submit">确认创建</Button>
               <Button type="button" variant="ghost" :disabled="busy" @click="confirming = false">返回修改</Button>
             </div>
-          </div>
+          </NoteBlock>
           <p v-if="form.submitted && !form.group && !busy" class="text-sm text-muted-foreground">创建结果尚未确认，请重试同一请求以找回结果。</p>
           <Alert v-if="form.group"><AlertDescription>团队已创建。需求发送未确认时，再次提交会使用同一请求重试，不会重新建群。<RouterLink :to="`/groups/${form.group.id}`">进入团队</RouterLink></AlertDescription></Alert>
           <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>

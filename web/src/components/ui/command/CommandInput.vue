@@ -33,7 +33,7 @@ const { filterState } = useCommand()
       v-model="filterState.search"
       data-slot="command-input"
       auto-focus
-      :class="cn('placeholder:text-muted-foreground flex h-10 min-w-0 flex-1 rounded-md bg-transparent py-3 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50', props.class)"
+      :class="cn('placeholder:text-muted-foreground flex h-10 min-w-0 flex-1 rounded-(--component-control-radius) bg-transparent py-3 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50', props.class)"
     />
     <slot name="suffix" />
   </div>

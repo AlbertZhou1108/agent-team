@@ -283,7 +283,7 @@ function bindGapRef(element: Element | ComponentPublicInstance | null) {
                       <ItemContent>
                         <button
                           type="button"
-                          class="flex min-w-0 flex-col gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          class="flex min-w-0 flex-col gap-3 rounded-(--component-card-radius) text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           @click="selectCard(row)"
                         >
                           <span class="flex min-w-0 flex-col gap-1">

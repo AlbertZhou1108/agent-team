@@ -16,13 +16,13 @@ const disabled = ref(false);
 
 <template>
   <div class="appearance-sample" aria-label="设计预设组件预览">
-    <Surface role="nav-panel" class="flex min-w-0 flex-col gap-2 rounded-lg border p-2">
+    <Surface role="nav-panel" class="flex min-w-0 flex-col gap-2 border p-2">
       <SidebarEntry title="预览导航" current>导航项</SidebarEntry>
       <SidebarEntry title="预览分组" :expanded="open" controls="appearance-sample-disclosure" @activate="open = !open">分组</SidebarEntry>
       <CollapseReveal id="appearance-sample-disclosure" :show="open"><span class="px-2 text-xs text-muted-foreground">分组内容</span></CollapseReveal>
     </Surface>
     <div class="flex min-w-0 flex-col gap-2">
-      <Surface role="action" class="relative rounded-lg border p-3"><span class="text-sm">会话操作区</span></Surface>
+      <Surface role="action" class="relative rounded-(--component-panel-radius) border p-3"><span class="text-sm">会话操作区</span></Surface>
       <Card size="compact"><CardContent class="text-sm">内容表面</CardContent></Card>
       <ToggleGroup presentation="segmented" type="single" model-value="on" variant="outline" aria-label="状态预览">
         <ToggleGroupItem value="on">选中</ToggleGroupItem>

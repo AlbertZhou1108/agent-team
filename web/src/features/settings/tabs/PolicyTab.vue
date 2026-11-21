@@ -379,7 +379,7 @@ watch(
                   <div
                     v-for="preset in listedPresets"
                     :key="preset.id"
-                    class="flex items-center gap-2 rounded-md border p-2 shadow-xs"
+                    class="flex items-center gap-2 rounded-(--component-chip-radius) border p-2"
                     :class="isPresetSelected(preset)
                       ? 'border-input bg-accent text-accent-foreground'
                       : 'border-input bg-transparent hover:bg-(--state-hover)'"

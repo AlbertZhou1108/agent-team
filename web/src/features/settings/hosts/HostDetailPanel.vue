@@ -18,6 +18,7 @@ import {
 import { Disclosure } from '@/components/ui/disclosure';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
+import { NoteBlock } from '@/components/ui/note-block';
 import {
   availabilityLabel,
   availabilityVariant,
@@ -182,10 +183,10 @@ async function installCli() {
     </Empty>
 
     <template v-if="application">
-      <div class="rounded-md border border-border bg-muted/30 p-4">
+      <NoteBlock class="p-4">
         <p class="text-sm font-medium">{{ banner.title }}</p>
         <p class="mt-1 text-xs text-muted-foreground">{{ banner.description }}</p>
-      </div>
+      </NoteBlock>
 
       <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div class="flex flex-col gap-3">
@@ -223,10 +224,10 @@ async function installCli() {
               </ItemActions>
             </Item>
           </ItemGroup>
-          <div class="rounded-md border border-border p-4 text-xs text-muted-foreground">
+          <NoteBlock class="p-4 text-xs text-muted-foreground">
             <p class="font-medium text-foreground">说明</p>
             <p class="mt-1">桌面主控用于指挥团队；内置引擎用于执行成员任务；CLI 适配器状态按探测结果展示。</p>
-          </div>
+          </NoteBlock>
         </div>
 
         <div class="flex flex-col gap-3">
@@ -259,7 +260,7 @@ async function installCli() {
               <Alert v-if="failures" class="mt-3" variant="destructive">
                 <AlertDescription>{{ failures }}</AlertDescription>
               </Alert>
-              <div v-if="installResult" class="mt-3 rounded-md border p-2 text-xs text-muted-foreground">
+              <NoteBlock v-if="installResult" class="mt-3 p-2 text-xs text-muted-foreground">
                 <p>{{ installResult.nextStep }}</p>
                 <Disclosure v-if="installResult.manual && installResult.mcpConfig">
                   <template #summary>粘贴到桌面应用 Profile 的 MCP 配置</template>
@@ -267,7 +268,7 @@ async function installCli() {
                 </Disclosure>
                 <p v-if="installResult.configPath">已写入：<code>{{ installResult.configPath }}</code></p>
                 <p v-if="installResult.backupPath">配置备份：<code>{{ installResult.backupPath }}</code></p>
-              </div>
+              </NoteBlock>
             </ItemContent>
           </Item>
         </div>
@@ -282,7 +283,7 @@ async function installCli() {
           </DialogTitle>
           <DialogDescription>{{ detailCapability?.detail?.description }}</DialogDescription>
         </DialogHeader>
-        <pre class="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">{{ detailCapability?.detail?.body }}</pre>
+        <NoteBlock as="pre" class="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words p-3 text-xs text-muted-foreground">{{ detailCapability?.detail?.body }}</NoteBlock>
         <DialogFooter>
           <Button type="button" variant="outline" @click="detailCapability = null">关闭</Button>
         </DialogFooter>

@@ -664,7 +664,7 @@ function submitRenameFolder() {
               </template>
               <p
                 v-if="dragging === 'team' && !folderTeams(entry.item.id).length && !ui.sidebarCollapsed"
-                class="m-2 flex min-h-12 items-center justify-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground"
+                class="m-2 flex min-h-12 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
               >
                 拖入团队
               </p>

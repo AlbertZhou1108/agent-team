@@ -4,6 +4,7 @@ import { CircleCheck, CircleOff, ClipboardList, Radio } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
 import { Disclosure } from '@/components/ui/disclosure';
+import { NoteBlock } from '@/components/ui/note-block';
 import TaskPlanSteps from './TaskPlanSteps.vue';
 import { buildTaskPanelModel } from './task-panel-model';
 import type { AgentTasksView, Member, PanelAgent } from '@/shared/api/raw-types';
@@ -47,12 +48,12 @@ const stateMeta = {
       <p v-else class="text-xs text-muted-foreground">
         {{ model.current ? '当前计划为空。' : (model.historical.length ? '当前任期尚未建立计划，上一任期计划已归档。' : '当前任期尚未建立计划。') }}
       </p>
-      <div v-if="model.cancelled.length" class="flex flex-col gap-1 rounded-md border border-border/60 p-2">
+      <NoteBlock v-if="model.cancelled.length" class="flex flex-col gap-1 p-2">
         <p class="text-xs font-medium text-muted-foreground">已取消的步骤</p>
         <p v-for="item in model.cancelled" :key="item.key" class="text-xs leading-5">
           「{{ item.text }}」<span v-if="item.affectedNames.length" class="text-muted-foreground"> · 影响：{{ item.affectedNames.join('、') }}</span>
         </p>
-      </div>
+      </NoteBlock>
     </section>
 
     <!-- 历史计划:只出现仍有子任务挂靠的冻结快照;默认折叠。 -->

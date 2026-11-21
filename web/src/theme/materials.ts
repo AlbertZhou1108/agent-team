@@ -70,6 +70,8 @@ const GLASS: MaterialCategory = {
   components: {
     // 玻璃物性:圆润的裁切与低阻尼回弹按压是玻璃物理身份的一部分。
     '--component-control-radius': 'var(--radius-lg)',
+    '--component-card-radius': '0.75rem',
+    '--component-chip-radius': '0.375rem',
     '--component-button-press-scale': '0.97',
     '--component-selection-bg': 'light-dark(color-mix(in oklch, var(--card) 90%, transparent), color-mix(in oklch, var(--foreground) 10%, transparent))',
     '--component-selection-fg': 'var(--foreground)',
@@ -135,6 +137,8 @@ const PAPER: MaterialCategory = {
   components: {
     '--component-control-radius': '4px',
     '--component-panel-radius': '7px',
+    '--component-card-radius': '0.75rem',
+    '--component-chip-radius': '4px',
     '--component-button-press-scale': '1',
     '--component-nav-current-bg': 'color-mix(in oklch, var(--primary) 9%, var(--card))',
     '--component-nav-selected-bg': 'color-mix(in oklch, var(--primary) 13%, var(--card))',
@@ -180,6 +184,8 @@ const VIVID: MaterialCategory = {
   components: {
     '--component-control-radius': '14px',
     '--component-panel-radius': '22px',
+    '--component-card-radius': '16px',
+    '--component-chip-radius': '10px',
     '--component-button-press-scale': '0.98',
     '--component-selection-bg': 'var(--accent)',
     '--component-selection-fg': 'var(--accent-foreground)',

@@ -3,6 +3,10 @@ import { freezeConfiguration } from './configuration-data';
 export const COMPONENT_DEFAULTS = freezeConfiguration({
   style: {
     '--component-nav-marker-width': '2px',
+    // 图片浮层控件压印层:叠在任意亮度的图片之上,对比度不依赖主题,
+    // 用黑白原语 + 透明度修饰符表达,不随明暗模式切换。
+    '--component-image-scrim-fg': 'rgb(255 255 255)',
+    '--component-image-scrim-bg': 'rgb(0 0 0)',
   },
   typography: {
     '--component-control-font-size': '0.875rem',
@@ -11,12 +15,18 @@ export const COMPONENT_DEFAULTS = freezeConfiguration({
     '--component-disclosure-font-size': '0.875rem',
     '--component-card-title-font-size': '1rem',
     '--component-card-compact-title-font-size': '0.875rem',
+    '--component-micro-font-size': '0.625rem',
   },
   material: {
     // 物性键:圆角与按压幅度是材质的物理身份,随材质内化(玻璃圆润回弹、
     // 纸质哑光轻压),预设不得通过 style/behavior 差量改写。
+    // 圆角是一套随材质的刻度:panel(面板/内容面)>card(面内嵌卡/消息卡)>
+    // control(按钮/输入)>chip(徽章/菜单项/小件)。组件按语义取档,
+    // 不写静态 Tailwind 档位;rounded-xs 保留给不随材质的微装饰(箭头等)。
     '--component-control-radius': 'var(--radius-md)',
     '--component-panel-radius': 'var(--radius-lg)',
+    '--component-card-radius': '0.75rem',
+    '--component-chip-radius': '0.375rem',
     '--component-button-press-scale': '0.98',
     '--component-selection-bg': 'var(--accent)',
     '--component-selection-fg': 'var(--accent-foreground)',
