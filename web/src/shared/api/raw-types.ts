@@ -983,7 +983,10 @@ export interface TeamDirectiveReceipt {
   operationId: string;
   messageId: string;
   seq: number;
+  /** 接收者 id，不是给人看的。展示名见 recipientName。 */
   recipient: string;
+  /** 接收者显示名：接口只给 id，由消息流按同一个 id 补出，不落库。 */
+  recipientName?: string | null;
   created: string;
   status: 'queued' | 'delivered' | 'failed' | 'unknown';
   error: string | null;

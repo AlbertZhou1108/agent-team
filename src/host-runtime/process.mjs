@@ -1,12 +1,71 @@
 import { spawnHost as spawn, stopHost } from './subprocess.mjs';
 import { createInterface } from 'node:readline';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sandboxMode } from '../hosts/policies.mjs';
 import { nodeRunner } from '../runtime.mjs';
 
 export const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+
+/** 堆栈帧与加载器内部行:对用户没有诊断价值,只会在聊天里刷屏。 */
+const STACK_FRAME = /^(?:at\s|\S+\s+\(node:|node:|file:\/\/\/\S*\/node_modules\/)/;
+/** 能代表根因的行;找不到时退回 stderr 第一行。 */
+const ROOT_CAUSE_HINT = /\b(?:error|failed|cannot find|not found|insufficient|quota|unauthori[sz]ed|forbidden|denied|refused|timed?\s?out|invalid)\b/i;
+/** Node 的错误输出常带 `Error [ERR_X]: ...`,代码比前面的模块前缀更有信息量。 */
+const ERROR_CODE = /Error\s*\[([A-Z][A-Z0-9_]+)\]\s*:\s*(.+)$/;
+/** 强根因标记:出现时从标记处起头,丢掉前面「探测了什么」这类过程日志。 */
+const STRONG_HINT = /\b(?:QUOTA|Insufficient Balance|Unauthorized|Forbidden|PERMISSION_DENIED|invalid api key|EACCES|ENOENT)\b/i;
+
+/** 长绝对路径压成 `…/文件名`:保留可辨认的落点,不占半屏宽度。 */
+function compactPaths(text) {
+  return text
+    .replace(/file:\/\/\/\S+/g, match => `…/${match.split('/').pop()}`)
+    .replace(/\/(?:[\w.@+-]+\/){3,}([\w.@+-]+)/g, (_, name) => `…/${name}`);
+}
+
+/** 去掉尾部不成对的右括号:删掉 request_id 一类片段后常留下悬空括号。 */
+function trimUnbalanced(text) {
+  let open = (text.match(/\(/g) ?? []).length;
+  let close = (text.match(/\)/g) ?? []).length;
+  let out = text;
+  while (close > open && /\)\s*$/.test(out)) {
+    out = out.replace(/\)\s*$/, '');
+    close -= 1;
+  }
+  return out;
+}
+
+/**
+ * 把宿主 stderr 压成一句能读的话:丢掉堆栈帧,优先取含根因关键词的行,
+ * 抽出错误代码、从强原因处起头、压平空白与长路径后按上限截断。
+ * 完整 stderr 由调用方另存,排查时仍可取回。
+ */
+export function summarizeHostStderr(stderr, { max = 160 } = {}) {
+  const kept = String(stderr ?? '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !STACK_FRAME.test(line));
+  if (!kept.length) return '';
+  const primary = kept.find(line => ROOT_CAUSE_HINT.test(line)) ?? kept[0];
+  const extra = kept.filter(line => line !== primary && ROOT_CAUSE_HINT.test(line)).length;
+  const flat = primary.replace(/\s+/g, ' ');
+  const code = flat.match(ERROR_CODE);
+  let brief = code ? `${code[1]}: ${code[2]}` : flat;
+  const strong = brief.match(STRONG_HINT);
+  if (!code && strong && strong.index > 0) {
+    // 从最近的括号/方括号开始,避免留下半截前缀;切得太碎就保留整行。
+    const open = Math.max(brief.lastIndexOf('(', strong.index), brief.lastIndexOf('[', strong.index));
+    const candidate = brief.slice(open >= 0 && strong.index - open < 60 ? open + 1 : strong.index);
+    if (candidate.length >= 12) brief = candidate;
+  }
+  brief = trimUnbalanced(compactPaths(brief)
+    .replace(/\s*\(request_id:[^)]*\)/gi, '')
+    .replace(/[\s(]+$/, ''));
+  const cut = brief.length > max ? `${brief.slice(0, max - 1).trimEnd()}…` : brief;
+  return extra ? `${cut}(另有 ${extra} 处同类错误)` : cut;
+}
 
 /**
  * MCP server 的启动命令会被写进宿主配置，由宿主自己的进程 spawn。
@@ -86,7 +145,13 @@ export function runJsonProcess(command, args, { workspace, signal, onEvent, onRo
       signal.removeEventListener('abort', kill);
       if (signal.aborted) return reject(new Error('回合已中断'));
       if (failure) return reject(failure);
-      if (code !== 0) return reject(new Error(`${command} 退出 (${code ?? reason})：${stderr || '请检查宿主认证、权限与额度'}`));
+      if (code !== 0) {
+        const summary = summarizeHostStderr(stderr) || '请检查宿主认证、权限与额度';
+        const error = new Error(`${basename(command)} 退出 (${code ?? reason})：${summary}`);
+        // 完整 stderr 留在 error.detail:通知只显示摘要,排查时还能拿到原文。
+        error.detail = stderr.trim();
+        return reject(error);
+      }
       resolve();
     });
   });

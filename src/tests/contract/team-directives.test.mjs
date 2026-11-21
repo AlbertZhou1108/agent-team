@@ -54,8 +54,12 @@ test('busy lead queues the next directive and keeps both messages in coordinatio
 });
 test('delivery failure is visible and does not turn retrying HTTP into duplicate dispatch',async t=>{
  const f=await setup(t,async()=>{throw Error('host unavailable')});const body={text:'hello',operationId:'failed',controllerId:f.group.lead};
+ const systemNotices=async()=>{const rows=await(await fetch(new URL(`/api/messages?group=${f.group.id}`,f.server.url))).json();return rows.filter(m=>m.kind==='system').length};
+ const before=await systemNotices();
  const receipt=await(await f.send(body)).json();await until(()=>!f.server.bus.running.size);await tick();
  assert.equal((await f.read())[0].status,'failed');assert.match((await f.read())[0].error,/host unavailable/);
+ // 失败状态由气泡下方的回执标签承载,消息流里不再追加一条系统通知(同一条消息说两遍)。
+ assert.equal(await systemNotices(),before);
  assert.equal((await(await f.send(body)).json()).messageId,receipt.messageId);assert.equal(f.calls.length,1);
 });
 test('controller change rejects stale submissions; panel takeover routes to its coordination and private stays untouched',async t=>{

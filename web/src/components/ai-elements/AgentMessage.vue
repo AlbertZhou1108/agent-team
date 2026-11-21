@@ -3,6 +3,9 @@ import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { computed, inject, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { referenceContext, parseReferences } from '@/features/messages/references';
+import { tidyNoticeText } from '@/features/messages/system-notice';
+import { formatAbsoluteTime, formatMessageTime } from '@/shared/message-time';
+import { useNowMinute } from '@/shared/use-now-minute';
 import { Bot, Quote, Copy, Ellipsis, Megaphone, MessageSquareText } from '@lucide/vue';
 import MessageAttachments from './MessageAttachments.vue';
 import { useClipboard } from '@vueuse/core';
@@ -42,16 +45,14 @@ const references=inject(referenceContext,null);
 const route=useRoute();
 const router=useRouter();
 const quoted=computed(()=>parseReferences(props.message.text));
+// 历史投递失败通知里嵌着内部 UUID,展示时清掉;非 system 正文原样保留。
+const bodyText=computed(()=>props.message.kind==='system'?tidyNoticeText(quoted.value.text):quoted.value.text);
 function quote(){references?.add({id:props.message.id,seq:props.message.seq,sender:props.message.senderName,text:props.message.text});}
 async function reveal(id:string){const {interaction: _interaction,...rest}=route.query;await router.replace({query:{...rest,message:id}});await nextTick();document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'center'});}
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
 
-// 构造 Intl.DateTimeFormat 的成本远高于格式化本身;消息行大列表要反复渲染,提到模块级复用。
-const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-});
+// 全站共享一个分钟级时钟:页面常开跨过午夜时,昨天的消息不能还标成今天。
+const now = useNowMinute();
 
 const useMarkdown = computed(() => props.markdown && !(props.message.kind === 'send' && props.message.senderIsUser));
 
@@ -66,8 +67,8 @@ const icon = computed(() => {
 });
 
 const timestamp = computed(() => new Date(props.message.createdAt));
-const time = computed(() => timeFormatter.format(timestamp.value));
-const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
+const time = computed(() => formatMessageTime(timestamp.value, now.value));
+const timeTitle = computed(() => formatAbsoluteTime(timestamp.value));
 </script>
 
 <template>
@@ -192,9 +193,10 @@ const timeTitle = computed(() => timestamp.value.toLocaleString('zh-CN'));
         <ExpandableText
           v-if="message.text || !props.pending"
           class="message-body text-sm leading-7"
-          :text="quoted.text"
+          :text="bodyText"
+          :lines="message.kind === 'system' ? 2 : 6"
         >
-          <MarkdownRenderer v-if="useMarkdown" :content="quoted.text" :defer="Boolean(pending)" />
+          <MarkdownRenderer v-if="useMarkdown" :content="bodyText" :defer="Boolean(pending)" />
         </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
         <MessageAttachments v-if="message.attachments?.length" :attachments="message.attachments" />

@@ -1381,6 +1381,102 @@ button {
   padding-inline: 0 var(--message-avatar-column);
 }
 
+/* 回执标签：5 种状态共用同一套骨架和同一套展开动效。
+   平时都只留一颗 22px 图标圆，hover / 键盘焦点才展开文字，消息流因此安静。
+   "能不能点"只体现在光标和点击行为上，外观、尺寸、动效完全一致。 */
+.message-receipt-tag {
+  --receipt-tone: var(--muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in oklch, var(--receipt-tone) 32%, transparent);
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--receipt-tone) 12%, transparent);
+  color: var(--receipt-tone);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color var(--component-feedback-duration) var(--motion-ease-out, ease-out),
+    border-color var(--component-feedback-duration) var(--motion-ease-out, ease-out),
+    color var(--component-feedback-duration) var(--motion-ease-out, ease-out);
+}
+
+/* hover 一视同仁：五种状态都会回应，形状和位置不变。
+   两档差得够开才看得见——早先 12%→24% 的底色在浅色与深色主题下都太接近。 */
+.message-receipt-tag:hover {
+  background: color-mix(in oklch, var(--receipt-tone) 30%, transparent);
+  border-color: color-mix(in oklch, var(--receipt-tone) 78%, transparent);
+}
+
+.message-receipt-tag[data-tone='neutral'] {
+  --receipt-tone: var(--muted-foreground);
+}
+.message-receipt-tag[data-tone='success'] {
+  --receipt-tone: var(--success);
+}
+.message-receipt-tag[data-tone='warning'] {
+  --receipt-tone: var(--warning);
+}
+.message-receipt-tag[data-tone='danger'] {
+  --receipt-tone: var(--destructive);
+}
+.message-receipt-tag[data-tone='info'] {
+  --receipt-tone: var(--info);
+}
+
+.message-receipt-tag > svg {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
+/* 只有可点的标签换光标；不可点的保持默认，点击无反应，也不进 Tab 序列。 */
+.message-receipt-tag[data-interactive] {
+  cursor: pointer;
+}
+
+.message-receipt-tag:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--receipt-tone) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* 收起时压的是 grid 轨道而不是内容宽度：0fr→1fr 过渡的正是文字的真实宽度。
+   早先用固定 max-width（0→12em）时，文字早就到位、过渡还在空转，
+   观感上比写出来的时长更快，也看不出减速。 */
+.receipt-extra {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns var(--component-disclosure-duration) var(--component-disclosure-easing),
+    opacity var(--component-content-duration) var(--component-content-easing);
+}
+
+/* 展开对五种状态一视同仁：不可点的只是点不了，展开的样子和可点的没有区别。 */
+.message-receipt-tag:hover .receipt-extra,
+.message-receipt-tag:focus-visible .receipt-extra {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+
+.receipt-extra-inner {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 间距挂在文字上而不是容器的 padding 上：轨道收到 0 时，
+   内联 padding 仍会撑出 4px，收起态就不是 22px 了。 */
+.receipt-label {
+  padding-left: 4px;
+}
+
 /* 同发送者连续消息的后续条:占位与头像等宽,正文保持缩进对齐。 */
 .message-avatar-gap {
   flex: none;

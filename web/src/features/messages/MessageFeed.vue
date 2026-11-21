@@ -9,9 +9,9 @@ import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import ConversationOutline from './ConversationOutline.vue';
 import MessageTrace from '@/components/ai-elements/MessageTrace.vue';
 import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
-import { Badge } from '@/components/ui/badge';
-import type { Interaction } from '@/shared/api/raw-types';
-import { directiveStatus } from './directive-status';
+import type { Interaction, TeamDirectiveReceipt } from '@/shared/api/raw-types';
+import MessageReceipt from './MessageReceipt.vue';
+import DeliveryFailureDialog from './DeliveryFailureDialog.vue';
 import type { StreamView } from './adapters';
 import { buildMessageGroups, isSystemStack } from './message-groups';
 import { Button } from '@/components/ui/button';
@@ -119,6 +119,16 @@ const renderGroups = computed(() =>
   })),
 );
 const receipts = computed(() => Object.fromEntries((props.directives ?? []).map(r => [r.messageId, r])));
+// 投递详情只留一个弹窗实例：回执标签散落在消息流里，各自挂一个 Dialog 太重。
+const activeReceipt = ref<TeamDirectiveReceipt | null>(null);
+const receiptOpen = ref(false);
+function openReceipt(receipt: TeamDirectiveReceipt) {
+  // 回执里只有接收者 id。名字属于展示层：同一 id 的接收者名消息流里已经有了，
+  // 打开时补一次，弹窗才不会把 UUID 当人名显示。
+  const recipientName = props.messages.find(message => message.id === receipt.messageId)?.recipientName;
+  activeReceipt.value = { ...receipt, recipientName };
+  receiptOpen.value = true;
+}
 // 哪些消息可以展开执行轨迹:轨迹的单位是消息,每条消息对应它自己那次发送的
 // 事件段。系统通知、用户发言、以及后端查不到回合来源的消息都不提供入口——
 // 展开只会是「没有可用的执行轨迹」。
@@ -279,15 +289,12 @@ const messageIds = computed(() => {
             :interaction="interaction"
             class="mt-2"
           />
-          <p
+          <MessageReceipt
             v-if="receipts[message.id]"
-            class="message-receipt"
-            :class="message.senderIsUser && 'message-receipt--end'"
-            aria-live="polite"
-          >
-            <Badge variant="outline">{{ directiveStatus(receipts[message.id]!) }}</Badge>
-            <span v-if="receipts[message.id]!.error">{{ receipts[message.id]!.error }}</span>
-          </p>
+            :receipt="receipts[message.id]!"
+            :align="message.senderIsUser ? 'end' : 'start'"
+            @open="openReceipt"
+          />
         </div>
       </template>
       <template v-else>
@@ -333,15 +340,12 @@ const messageIds = computed(() => {
             :anchor="anchorOf(message)"
             class="mt-2"
           />
-          <p
+          <MessageReceipt
             v-if="receipts[message.id]"
-            class="message-receipt"
-            :class="message.senderIsUser && 'message-receipt--end'"
-            aria-live="polite"
-          >
-            <Badge variant="outline">{{ directiveStatus(receipts[message.id]!) }}</Badge>
-            <span v-if="receipts[message.id]!.error">{{ receipts[message.id]!.error }}</span>
-          </p>
+            :receipt="receipts[message.id]!"
+            :align="message.senderIsUser ? 'end' : 'start'"
+            @open="openReceipt"
+          />
         </div>
       </template>
     </div>
@@ -356,6 +360,6 @@ const messageIds = computed(() => {
       <PanelState :icon="MessagesSquare" title="暂无消息" />
     </slot>
 
-
+    <DeliveryFailureDialog v-model:open="receiptOpen" :receipt="activeReceipt" />
   </ConversationPanel>
 </template>

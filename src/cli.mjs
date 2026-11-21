@@ -224,6 +224,8 @@ async function main() {
   const server = await startServer({ directory, port: Number(values.port), configFile: values.hosts });
   console.log(`Agent Team ${version}\n面板：${server.url}\n数据目录：${directory}`);
   server.bus.on('notice', notice => stderr.write(`\n[系统通知] ${notice.text}\n`));
+  // 投递失败不再写进消息流（状态看回执标签），命令行仍要能看见。
+  server.bus.on('delivery-failure', failure => stderr.write(`\n[投递失败] ${failure.reason}\n`));
   let shuttingDown;
   const shutdown = () => shuttingDown ??= (async () => { readline?.close(); await server.close(); })();
   process.once('SIGTERM', () => shutdown().then(() => process.exit(0)));

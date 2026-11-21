@@ -106,8 +106,14 @@ export class MessageDispatch {
     }, [input.message, ...(input.additionalMessages ?? []), ...input.notes]).catch(error => {
       messagesAgg.setDeliveryError(this.bus.store, entry, error.message);
       if (this.bus.closing) return;
-      const accepted = messagesAgg.deliveryAccepted(this.bus.store, entry);
-      this.bus.notify(endpoint.group_id, input.message.sender, `消息 ${input.message.id} 发给成员 ${endpoint.member_id} 的会话失败：${error.message}。${accepted ? '宿主已经接受输入；请查看宿主记录决定是否另发消息。' : '不会自动重试；核实后可用 /retry 明确重试。'}`);
+      // 失败状态由气泡下方的回执标签承载（点开是完整原文）；不再往消息流写第二条通知,
+      // 否则同一条消息有两处呈现,报错又被铺回聊天里。事件只给命令行观察,不落库。
+      this.bus.emit('delivery-failure', {
+        groupId: endpoint.group_id,
+        messageId: input.message.id,
+        reason: error.message,
+        accepted: messagesAgg.deliveryAccepted(this.bus.store, entry),
+      });
     });
   }
   // Panel 主控协作会话投递:与成员投递同构(turnInput 构造、legacy 回落、accepted/error 写点)。
@@ -162,12 +168,13 @@ export class MessageDispatch {
   failPanelDelivery(session, input, entry, error) {
     messagesAgg.setDeliveryError(this.bus.store, entry, error.message);
     if (this.bus.closing) return;
-    const sender = messagesAgg.senderOf(this.bus.store, input.message.id);
-    if (sender) {
-      const notice = messagesAgg.append(this.bus.store, session.group_id, 'system', sender, 'system',
-        `消息 ${input.message.id} 发给 Panel Agent 的会话失败：${error.message}。不会自动重试。`);
-      this.bus.emit('notice', notice);
-    }
+    // 与成员投递失败同口径:状态看回执标签,事件只给命令行,不写进消息流。
+    this.bus.emit('delivery-failure', {
+      groupId: session.group_id,
+      messageId: input.message.id,
+      reason: error.message,
+      accepted: messagesAgg.deliveryAccepted(this.bus.store, entry),
+    });
   }
   // Panel 私聊互动答复投递:答复消息已先行落库,这里只负责发起回合。
   deliverPanelPrivate(entry) {

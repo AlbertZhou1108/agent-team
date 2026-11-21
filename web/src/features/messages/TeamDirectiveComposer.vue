@@ -38,7 +38,7 @@ async function send() {
       class="flex flex-wrap items-center gap-2 px-4 text-xs text-muted-foreground"
       aria-live="polite"
     >
-      <Badge v-if="latest" variant="outline">{{ directiveStatus(latest) }}</Badge>
+      <Badge v-if="latest" variant="outline">{{ directiveStatus(latest).label }}</Badge>
       <span v-if="archived">团队已归档，不能发送消息。</span>
     </div>
     <Alert v-if="entry.error" variant="destructive" class="mx-4 w-auto">

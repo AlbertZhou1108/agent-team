@@ -115,14 +115,15 @@ test('private user input and final text are absent from shared records and panel
   const snapshot = JSON.stringify(bus.snapshot()); assert.ok(!snapshot.includes('private')); assert.ok(!snapshot.includes('"key"'));
 });
 
-test('ordinary failure reports honestly and does not automatically retry', async t => {
+test('ordinary failure is recorded without a notice and does not automatically retry', async t => {
   let attempts = 0;
   const { bus, members } = fixture(t, async () => { attempts++; throw new Error('host unavailable'); });
   const [lead, one] = members; await until(() => bus.running.size === 0);
   await tools(bus, lead)('send', { to: one.id, text: 'delivery' });
   await until(() => bus.store.get('SELECT error FROM outbox')?.error);
   bus.pump(); await tick(); assert.equal(attempts, 1);
-  assert.equal(bus.store.get("SELECT kind FROM messages WHERE sender='system'").kind, 'system');
+  // 失败已在 outbox 留痕、且不会自己重投；消息流里不再补一条系统通知（状态看回执）。
+  assert.equal(bus.store.all("SELECT kind FROM messages WHERE sender='system'").length, 0);
 });
 
 test('restart recovers identical persisted input with stable message and note ids', async t => {
