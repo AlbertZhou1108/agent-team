@@ -114,7 +114,7 @@ HTTP endpoints enforce Host, cross-site, method, and loopback checks, plus Origi
 | Storage & Aggregates | [store.mjs](../../src/store.mjs), [aggregates/](../../src/aggregates/), [archive-snapshots.mjs](../../src/archive-snapshots.mjs) |
 | Panel Sessions, Requests & Lifecycle | [panel-sessions.mjs](../../src/panel-sessions.mjs), [team-requests.mjs](../../src/team-requests.mjs), [group-lifecycle.mjs](../../src/group-lifecycle.mjs) |
 | Notes & Prompts | [notes.mjs](../../src/notes.mjs), [notes-prompt.mjs](../../src/notes-prompt.mjs) |
-| Frontend & Desktop Shell | [GroupWorkspacePage.vue](../../web/src/pages/GroupWorkspacePage.vue), [electron/main.mjs](../../electron/main.mjs), [DESIGN.md](../../DESIGN.md) |
+| Frontend & Desktop Shell | [GroupWorkspacePage.vue](../../web/src/pages/GroupWorkspacePage.vue), [electron/main.mjs](../../electron/main.mjs), [docs/DESIGN.md](../../docs/DESIGN.md) |
 
 `src/bus.mjs` acts as a **facade**, delegating implementations to `src/bus/` (mirroring `panel-sessions.mjs` + `panel/` and `telemetry.mjs` + `telemetry/`). Roughly 95 one-line forwarding methods keep over a thousand `bus.xxx(` call sites insulated from collaborator refactors; new logic should land in collaborators with only a matching one-line forwarder on the facade.
 

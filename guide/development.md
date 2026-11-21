@@ -1,6 +1,6 @@
 # 开发、测试与发行构建
 
-[返回产品介绍](../README.md) · [English](en/development.md) · [架构](architecture.md) · [前端设计](../DESIGN.md)
+[返回产品介绍](../README.md) · [English](en/development.md) · [架构](architecture.md) · [前端设计](../docs/DESIGN.md)
 
 ## 环境与源码运行
 
@@ -48,8 +48,7 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 | `guide/` | 正式使用与技术文档 |
 | `assets/readme/` | 产品介绍使用的插画和实机截图 |
 | `work/` | 本地运行数据，不入库，不清理已有用户数据 |
-| `docs/` | gitignored 的本地开发过程材料（含流程产物），不作为公开文档目录 |
-| `adr/` | 架构决策记录（ADR），入库资产 |
+| `docs/` | 文档目录：默认 gitignore 过程材料；例外入库资产（如 `docs/adr/`、`docs/DESIGN.md`）在 `.gitignore` 显式声明 |
 
 ## 检查
 
@@ -67,7 +66,7 @@ npm run build
 node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 ```
 
-前端统一遵循 [DESIGN.md](../DESIGN.md)。shadcn-vue 工程根是 `web/`，CLI 必须在那里运行；优先已有组件与语义 token。
+前端统一遵循 [docs/DESIGN.md](../docs/DESIGN.md)。shadcn-vue 工程根是 `web/`，CLI 必须在那里运行；优先已有组件与语义 token。
 
 ## 制作发行包
 

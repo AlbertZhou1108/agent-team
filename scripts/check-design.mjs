@@ -124,7 +124,7 @@ const CHECKS = [
 const problems = [];
 
 /**
- * 卡片套卡片(DESIGN.md「避免卡片中反复嵌套卡片」)。
+ * 卡片套卡片(docs/DESIGN.md「避免卡片中反复嵌套卡片」)。
  * 只看模板:同层出现第二个卡片面(含 Disclosure 的 card 变体)即违例 ——
  * 区域内应该用分区标题、分割线与间距,而不是再造一层边框。
  * 分层组件的自身实现(components/ui)不在检查范围内。

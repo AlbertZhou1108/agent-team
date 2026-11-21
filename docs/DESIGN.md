@@ -116,13 +116,13 @@ Agent Team 是用于组织团队协作、推进任务和理解执行过程的工
 
 | 现有位置 | 现有职责与扩展约束 |
 | --- | --- |
-| [preferences.ts](web/src/stores/preferences.ts) | 本地偏好与持久化；新增字段提供默认值与旧数据迁移 |
-| [tokens.ts](web/src/theme/tokens.ts) | 主题包颜色及兼容变量契约；radius 保留旧主题兼容，组件形状由材质配置消费 |
-| [resolve.ts](web/src/theme/resolve.ts) | 主题解析与经典主题回落；保持已存在的兼容语义 |
-| [application.ts](web/src/theme/application.ts)、[apply.ts](web/src/theme/apply.ts) | 统一外观应用入口；解析设计预设及组件五维配置，同时应用明暗、主题、材质、动效、密度与阅读 |
-| [motion.ts](web/src/shared/motion.ts) | 共享减少动效判断；JS 侧动效决策的唯一同源依据 |
-| [globals.css](web/src/styles/globals.css) | 全局语义映射、布局、排版与当前动效规则；新增共享样式仍在此收敛 |
-| [SettingsPage.vue](web/src/features/settings/SettingsPage.vue)、[tabs/](web/src/features/settings/tabs/) | 当前设置入口；页面只负责分区导航与入参转发，外观/通用/工具/模型策略/团队管理五个分区各自落在 `tabs/` 下的独立组件 |
+| [preferences.ts](../web/src/stores/preferences.ts) | 本地偏好与持久化；新增字段提供默认值与旧数据迁移 |
+| [tokens.ts](../web/src/theme/tokens.ts) | 主题包颜色及兼容变量契约；radius 保留旧主题兼容，组件形状由材质配置消费 |
+| [resolve.ts](../web/src/theme/resolve.ts) | 主题解析与经典主题回落；保持已存在的兼容语义 |
+| [application.ts](../web/src/theme/application.ts)、[apply.ts](../web/src/theme/apply.ts) | 统一外观应用入口；解析设计预设及组件五维配置，同时应用明暗、主题、材质、动效、密度与阅读 |
+| [motion.ts](../web/src/shared/motion.ts) | 共享减少动效判断；JS 侧动效决策的唯一同源依据 |
+| [globals.css](../web/src/styles/globals.css) | 全局语义映射、布局、排版与当前动效规则；新增共享样式仍在此收敛 |
+| [SettingsPage.vue](../web/src/features/settings/SettingsPage.vue)、[tabs/](../web/src/features/settings/tabs/) | 当前设置入口；页面只负责分区导航与入参转发，外观/通用/工具/模型策略/团队管理五个分区各自落在 `tabs/` 下的独立组件 |
 
 不直接给现有主题上传格式追加材质、动效等必填键。当前上传校验拒绝未知变量，修改契约必须显式设计版本与迁移。现有主题 radius 继续兼容；组件圆角与按压触感由共享材质配置决定，不通过预设的样式或行为差量改写，也不直接移除旧主题字段。
 

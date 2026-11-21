@@ -114,7 +114,7 @@ HTTP 接口保留 Host、跨站、请求方法及回环地址绑定检查，写�
 | 存储与聚合边界 | [store.mjs](../src/store.mjs)、[aggregates/](../src/aggregates/)、[archive-snapshots.mjs](../src/archive-snapshots.mjs) |
 | 私人会话、请求与回执 | [panel-sessions.mjs](../src/panel-sessions.mjs)、[team-requests.mjs](../src/team-requests.mjs)、[group-lifecycle.mjs](../src/group-lifecycle.mjs) |
 | 随心记（笔记与提示词） | [notes.mjs](../src/notes.mjs)、[notes-prompt.mjs](../src/notes-prompt.mjs) |
-| 前端与桌面壳 | [GroupWorkspacePage.vue](../web/src/pages/GroupWorkspacePage.vue)、[electron/main.mjs](../electron/main.mjs)、[DESIGN.md](../DESIGN.md) |
+| 前端与桌面壳 | [GroupWorkspacePage.vue](../web/src/pages/GroupWorkspacePage.vue)、[electron/main.mjs](../electron/main.mjs)、[docs/DESIGN.md](../docs/DESIGN.md) |
 
 `src/bus.mjs` 是门面，实现拆在 `src/bus/`，与 `panel-sessions.mjs` + `panel/`、`telemetry.mjs` + `telemetry/` 同构。`Bus` 类本身是**门面**：约 95 条一行转发（`panelAgent`、`members`、`executeTool` …）为的是让一千多处 `bus.xxx(` 调用点不必关心协作者怎么拆。新增能力时优先落在对应协作者上，门面只补一条同名转发，不要把业务逻辑写回门面。
 

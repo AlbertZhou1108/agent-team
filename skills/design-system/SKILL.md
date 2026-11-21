@@ -5,7 +5,7 @@ description: AgentTeam 前端设计体系操作手册：写或改 web/src 的页
 
 # AgentTeam 设计体系速用手册
 
-设计基线在 `DESIGN.md`（产品气质与规则），契约在 `web/src/theme/component-contract.ts`（约 70 个 `--component-*` 变量），材质规格在 `web/src/theme/materials.ts`（材质 × 表面角色）。本手册只回答"写代码时要 X 用 Y"。
+设计基线在 `docs/DESIGN.md`（产品气质与规则），契约在 `web/src/theme/component-contract.ts`（约 70 个 `--component-*` 变量），材质规格在 `web/src/theme/materials.ts`（材质 × 表面角色）。本手册只回答"写代码时要 X 用 Y"。
 
 ## 自查（每次改完 web/src 都跑）
 

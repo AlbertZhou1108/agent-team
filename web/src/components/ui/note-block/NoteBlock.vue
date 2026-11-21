@@ -3,7 +3,7 @@ import type { Component, HTMLAttributes } from 'vue';
 import { cn } from 'cn';
 
 /**
- * 弱提示/次级信息块:区域内的底色分组,不造边框卡片(DESIGN.md「区域内
+ * 弱提示/次级信息块:区域内的底色分组,不造边框卡片(docs/DESIGN.md「区域内
  * 用小标题、分割线与间距」)。底色 + card 档圆角是体系配方,内距与布局
  * 由调用方 class 提供;承载代码/原始载荷时经 as="pre" 保留等宽排版。
  */

@@ -1,6 +1,6 @@
 # Development, Testing & Release Packaging
 
-[Back to README](../../README.en.md) · [简体中文](../development.md) · [Architecture](architecture.md) · [Design Baseline](../../DESIGN.md)
+[Back to README](../../README.en.md) · [简体中文](../development.md) · [Architecture](architecture.md) · [Design Baseline](../../docs/DESIGN.md)
 
 ## Environment & Running from Source
 
@@ -48,8 +48,7 @@ Native desktop capabilities follow **progressive enhancement**: preload injects 
 | `guide/` | User and technical documentation (`guide/en/` for English) |
 | `assets/readme/` & `assets/architecture/` | README screenshots/illustrations and exported architecture diagrams |
 | `work/` | Local runtime data (gitignored; never wipe user data) |
-| `docs/` | Gitignored local working notes and process artifacts |
-| `adr/` | Architecture decision records (tracked) |
+| `docs/` | Documentation directory: gitignored by default for local working notes and process artifacts; tracked exceptions (e.g. `docs/adr/`, `docs/DESIGN.md`) are explicitly allowlisted in `.gitignore` |
 
 ## Verification Gates
 
@@ -67,7 +66,7 @@ Manual live-host verification (consumes real host auth and quota):
 node --disable-warning=ExperimentalWarning scripts/verify-collaboration.mjs
 ```
 
-Frontend UI follows [DESIGN.md](../../DESIGN.md), with `web/` as the `shadcn-vue` workspace root.
+Frontend UI follows [docs/DESIGN.md](../../docs/DESIGN.md), with `web/` as the `shadcn-vue` workspace root.
 
 ## Release Packaging
 
