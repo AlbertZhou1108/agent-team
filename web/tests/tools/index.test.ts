@@ -21,20 +21,23 @@ describe('内置工具注册表', () => {
       // 同一槽位最多声明一次。
       expect(new Set(slots).size).toBe(slots.length);
       for (const slot of slots) expect(TOOL_SLOTS).toContain(slot);
-      // 左导航是全局位置:必须是 global 工具且带路由。
+      // 左导航是全局位置:必须是 global 工具且声明路由或动作。
       for (const mount of tool.mounts) {
         if (mount.slot === 'left-nav') {
           expect(tool.scope).toBe('global');
-          expect(mount.routeName).toBeTruthy();
+          expect(Boolean(mount.routeName || mount.action)).toBe(true);
         }
       }
     }
   });
 
   it('首批工具的挂载位置符合设计意图', () => {
-    // 协调遥测只进工具页;详情卡片与左栏组件是保留通路,暂无内置消费者。
+    // 协调遥测只进工具页;全局搜索以动作型左导航挂载;随心记双端挂载。
     const coordination = builtinTool('builtin.coordination')!;
     expect(coordination.mounts.map(mount => mount.slot)).toEqual(['right-tools']);
+    const search = builtinTool('builtin.search')!;
+    expect(search.mounts.map(mount => mount.slot)).toEqual(['left-nav']);
+    expect(search.mounts[0]?.action).toBe('open-search');
     const notes = builtinTool('builtin.notes')!;
     expect(notes.mounts.map(mount => mount.slot)).toEqual(['left-nav', 'right-tools']);
   });
@@ -115,16 +118,28 @@ describe('activeMounts', () => {
 });
 
 describe('navToolEntries', () => {
-  it('left-nav 挂载生成导航条目,激活态由路由名判定', () => {
+  it('left-nav 挂载生成导航条目,包含动作型全局搜索与路由型随心记', () => {
     const entries = navToolEntries({}, 'notes');
     expect(entries).toEqual([
+      { id: 'builtin.search', action: 'open-search', label: '全局搜索', icon: expect.anything(), current: false },
       { id: 'builtin.notes', routeName: 'notes', label: '随心记', icon: expect.anything(), current: true },
     ]);
+    const searchActive = navToolEntries({}, undefined, { searchOpen: true });
+    expect(searchActive[0]?.current).toBe(true);
+    expect(searchActive[1]?.current).toBe(false);
   });
 
   it('禁用后导航条目消失;团队级工具不进左导航', () => {
-    expect(navToolEntries({ disabled: { 'builtin.notes': true } })).toEqual([]);
+    expect(navToolEntries({ disabled: { 'builtin.search': true } }).map(entry => entry.id)).toEqual(['builtin.notes']);
+    expect(navToolEntries({ disabled: { 'builtin.notes': true, 'builtin.search': true } })).toEqual([]);
     const ids = navToolEntries({}).map(entry => entry.id);
     expect(ids).not.toContain('builtin.coordination');
+  });
+
+  it('遵循 left-nav 槽位排序', () => {
+    const entries = navToolEntries({
+      order: { 'left-nav': ['builtin.notes:left-nav', 'builtin.search:left-nav'] },
+    });
+    expect(entries.map(entry => entry.id)).toEqual(['builtin.notes', 'builtin.search']);
   });
 });

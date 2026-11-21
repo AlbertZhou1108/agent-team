@@ -14,14 +14,22 @@ function load(): {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
     return {
-      sections: { pinned: saved.sections?.pinned === true, ungrouped: saved.sections?.ungrouped === true },
-      folders: Array.isArray(saved.folders) ? saved.folders : [],
+      sections: {
+        pinned: typeof saved.sections?.pinned === 'boolean' ? saved.sections.pinned : true,
+        ungrouped: typeof saved.sections?.ungrouped === 'boolean' ? saved.sections.ungrouped : true,
+      },
+      folders: Array.isArray(saved.folders)
+        ? saved.folders.map((folder: Folder) => ({
+            ...folder,
+            collapsed: typeof folder.collapsed === 'boolean' ? folder.collapsed : true,
+          }))
+        : [],
       teams: saved.teams ?? {},
       order: saved.order ?? [],
       homePinned: Array.isArray(saved.homePinned) ? saved.homePinned : [],
       homeOrder: Array.isArray(saved.homeOrder) ? saved.homeOrder : [],
     };
-  } catch { return { sections: { pinned: false, ungrouped: false }, folders: [], teams: {}, order: [], homePinned: [], homeOrder: [] }; }
+  } catch { return { sections: { pinned: true, ungrouped: true }, folders: [], teams: {}, order: [], homePinned: [], homeOrder: [] }; }
 }
 export const useTeamOrganization = defineStore('team-organization', {
   state: load,
@@ -31,7 +39,7 @@ export const useTeamOrganization = defineStore('team-organization', {
     createFolder(name: string) {
       if (!name.trim()) return;
       const id = crypto.randomUUID();
-      this.folders.push({ id, name: name.trim() });
+      this.folders.push({ id, name: name.trim(), collapsed: true });
       this.persist();
       return id;
     },

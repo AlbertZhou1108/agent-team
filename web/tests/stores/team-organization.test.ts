@@ -80,15 +80,26 @@ it('reorders folders and teams while preserving selected block order and members
   expect(store.order).toEqual(['target', 'one', 'two', 'last']);
 });
 
- it('persists independent pinned and ungrouped section collapse states', () => {
+ it('persists independent pinned and ungrouped section collapse states (default collapsed)', () => {
    const store = useTeamOrganization();
-   expect(store.sections).toEqual({ pinned: false, ungrouped: false });
+   expect(store.sections).toEqual({ pinned: true, ungrouped: true });
    store.toggleSection('pinned');
    setActivePinia(createPinia());
    const restored = useTeamOrganization();
-   expect(restored.sections).toEqual({ pinned: true, ungrouped: false });
+   expect(restored.sections).toEqual({ pinned: false, ungrouped: true });
    restored.toggleSection('ungrouped');
-   expect(restored.sections).toEqual({ pinned: true, ungrouped: true });
+   expect(restored.sections).toEqual({ pinned: false, ungrouped: false });
+ });
+
+ it('creates folders collapsed by default while respecting persisted expanded folders', () => {
+   const store = useTeamOrganization();
+   const folder = store.createFolder('前端开发')!;
+   expect(store.folders[0]?.collapsed).toBe(true);
+   store.toggleFolder(folder);
+   expect(store.folders[0]?.collapsed).toBe(false);
+   setActivePinia(createPinia());
+   const restored = useTeamOrganization();
+   expect(restored.folders[0]?.collapsed).toBe(false);
  });
 
 describe('拖拽归属语义', () => {
@@ -135,11 +146,11 @@ describe('拖拽归属语义', () => {
   it('expandFolder 与 expandSection 只在折叠时改变状态', () => {
     const store = useTeamOrganization();
     const folder = store.createFolder('F')!;
-    store.toggleFolder(folder);
+    expect(store.folders[0]?.collapsed).toBe(true);
     store.expandFolder(folder);
     expect(store.folders[0]?.collapsed).toBe(false);
 
-    store.toggleSection('pinned');
+    expect(store.sections.pinned).toBe(true);
     store.expandSection('pinned');
     expect(store.sections.pinned).toBe(false);
 
@@ -166,9 +177,7 @@ describe('拖拽归属语义', () => {
   it('展开动作会持久化', () => {
     const store = useTeamOrganization();
     const folder = store.createFolder('F')!;
-    store.toggleFolder(folder);
     store.expandFolder(folder);
-    store.toggleSection('pinned');
     store.expandSection('pinned');
 
     setActivePinia(createPinia());

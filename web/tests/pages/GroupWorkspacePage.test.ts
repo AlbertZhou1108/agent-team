@@ -34,7 +34,12 @@ vi.mock('@/features/messages/read-marker', async () => ({
 vi.mock('@/features/productivity/use-unread-index', async () => {
   const { ref } = await import('vue');
   return {
-    useUnreadIndex: () => ({ panelTotal: ref(2), panelByTeam: ref(new Map()) }),
+    useUnreadIndex: () => ({
+      panelTotal: ref(2),
+      panelByTeam: ref(new Map()),
+      groupByTeam: ref(new Map()),
+      activityByTeam: ref(new Map()),
+    }),
   };
 });
 
@@ -42,7 +47,19 @@ vi.mock('@/app/layouts/GroupSidebar.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return {
     default: defineComponent({
-      props: ['groups', 'currentGroupId', 'homeActive', 'toolEntries', 'agentActive', 'agentUnreadCount', 'settingsActive'],
+      props: [
+        'groups',
+        'members',
+        'currentGroupId',
+        'homeActive',
+        'toolEntries',
+        'agentActive',
+        'agentUnreadCount',
+        'settingsActive',
+        'secondaryOpen',
+        'groupUnreadByTeam',
+        'activityByTeam',
+      ],
       setup: (props) => () =>
         h('aside', {
           'data-testid': 'group-sidebar',
@@ -50,6 +67,7 @@ vi.mock('@/app/layouts/GroupSidebar.vue', async () => {
           'data-home-active': String(props.homeActive),
           'data-agent-active': String(props.agentActive),
           'data-settings-active': String(props.settingsActive),
+          'data-secondary-open': String(props.secondaryOpen),
           'data-unread': String(props.agentUnreadCount),
         }),
     }),
@@ -254,7 +272,8 @@ describe('group workspace page SSR smoke', () => {
     expect(html).toContain('data-group-id="g1"');
     expect(html).toContain('data-testid="team-context-panel"');
     expect(html).toContain('data-panel="collaboration"');
-    expect(html).toContain('aria-label="调整左侧栏宽度"');
+    expect(html).toContain('secondary-is-open');
+    expect(html).toContain('aria-label="调整二级面板宽度（从右侧拖动）"');
     expect(html).toContain('aria-label="调整右侧栏宽度"');
     // 右侧栏未弹出时没有移动端遮罩。
     expect(html).not.toContain('inspector-backdrop');
@@ -273,23 +292,26 @@ describe('group workspace page SSR smoke', () => {
     expect(html).not.toContain('workspace-shell');
   });
 
-  it('renders the home directory (TeamHome) when no team is selected', async () => {
+  it('renders the home directory (TeamHome) when no team is selected and hides secondary resize handle', async () => {
     const { html } = await render('/groups', { group: ref(undefined), sidebarGroupId: ref(undefined) });
     expect(html).toContain('data-testid="team-home"');
     expect(html).toContain('data-groups="1"');
     expect(html).toContain('data-loading="false"');
     expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-home-active="true"/);
+    expect(html).not.toContain('aria-label="调整二级面板宽度（从右侧拖动）"');
     expect(html).not.toContain('workspace-shell');
   });
 
-  it('routes the panel-agent page to PanelAgentPanel with the agent sidebar active', async () => {
+  it('routes the panel-agent page to PanelAgentPanel with the agent sidebar active and hides secondary panel', async () => {
     const { html } = await render('/agent', {
       group: ref(undefined),
       isPanelAgentRoute: ref(true),
     });
     expect(html).toContain('data-testid="panel-agent-page"');
     expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-agent-active="true"/);
+    expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-secondary-open="false"/);
     expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-unread="2"/);
+    expect(html).not.toContain('aria-label="调整二级面板宽度（从右侧拖动）"');
     expect(html).not.toContain('data-testid="team-home"');
   });
 

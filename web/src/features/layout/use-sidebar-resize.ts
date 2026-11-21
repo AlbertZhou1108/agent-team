@@ -1,7 +1,10 @@
 import { ref } from 'vue';
 import { useUiStore } from '@/stores/ui';
 
-/** 左右栏拖拽/键盘调整宽度 + 持久化；与页面布局解耦，便于单独测试。 */
+/** 一级图标栏固定宽度（px），不参与宽度拖拽。 */
+const PRIMARY_RAIL_WIDTH = 64;
+
+/** 二级面板与右栏拖拽/键盘调整宽度 + 持久化；与页面布局解耦，便于单独测试。 */
 export function useSidebarResize() {
   const ui = useUiStore();
   const resizing = ref(false);
@@ -12,12 +15,8 @@ export function useSidebarResize() {
   function resizeWidth(side: 'left' | 'right', width: number) {
     const other =
       side === 'left'
-        ? ui.contextCollapsed
-          ? 60
-          : ui.contextWidth
-        : ui.sidebarCollapsed
-          ? 76
-          : ui.sidebarWidth;
+        ? (ui.contextCollapsed ? 60 : ui.contextWidth) + PRIMARY_RAIL_WIDTH
+        : PRIMARY_RAIL_WIDTH + ui.sidebarWidth;
     const max = Math.max(
       side === 'left' ? 180 : 280,
       window.innerWidth - other - 420,

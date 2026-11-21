@@ -3,6 +3,7 @@ import { useRoute } from 'vue-router';
 import { toast } from 'vue-sonner';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
+import { useUiStore } from '@/stores/ui';
 import {
   reuseMessageViews,
   toMessageViews,
@@ -23,6 +24,7 @@ export function useTeamDerived(
   const route = useRoute();
   const preferences = usePreferencesStore();
   const directiveState = useTeamDirectiveStore();
+  const ui = useUiStore();
   const { groupId, selectedSessionId, activeTab, contextPanel } = options;
 
   const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
@@ -227,7 +229,9 @@ export function useTeamDerived(
   // 工具模块：左导航条目与启用状态全部由注册表 + 用户偏好推导。
   const notesTool = builtinTool('builtin.notes')!;
   const navToolEntries = computed(() =>
-    navToolEntriesFor(preferences.toolModules, route.name as string | undefined),
+    navToolEntriesFor(preferences.toolModules, route.name as string | undefined, {
+      searchOpen: ui.searchOpen,
+    }),
   );
   const notesPageComponent = computed(
     () => notesTool.mounts.find((mount) => mount.slot === 'left-nav')!.component,

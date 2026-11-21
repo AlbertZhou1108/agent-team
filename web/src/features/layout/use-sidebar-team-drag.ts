@@ -30,6 +30,8 @@ export interface SidebarTeamDragOptions {
   dragIds: (id: string) => string[];
   /** 投放结果，由调用方落到 store 并处理展开。 */
   applyAction: (action: SidebarDropAction) => void;
+  /** 是否启用团队/文件夹重排；为 false 时仅支持批量拖入容器（文件夹/置顶/未分组）。默认 true。 */
+  allowReorder?: boolean;
 }
 
 export interface SidebarTeamDrag {
@@ -91,6 +93,7 @@ function overDraggedRow(input: { clientX: number; clientY: number }, ids: string
 }
 
 export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeamDrag {
+  const allowReorder = options.allowReorder !== false;
   const bindings = usePddBindings();
   const dragging = ref<'team' | 'folder'>();
   const draggingIds = ref<string[]>([]);
@@ -211,7 +214,7 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
   }
 
   const stopMonitor = monitorForElements({
-    canMonitor: ({ source }) => isTeamDrag(source) || isTeamFolderDrag(source),
+    canMonitor: ({ source }) => isTeamDrag(source) || (allowReorder && isTeamFolderDrag(source)),
     onDragStart: ({ source }) => {
       const parsed = dragSource(source);
       if (!parsed) return;
@@ -254,43 +257,51 @@ export function useSidebarTeamDrag(options: SidebarTeamDragOptions): SidebarTeam
   });
 
   const bindTeamRow: SidebarTeamDrag['bindTeamRow'] = (id, element, previous) => {
-    bindings.bind(`team:${id}`, element, el => combine(
-      draggable({
+    bindings.bind(`team:${id}`, element, el => {
+      const dragHandle = draggable({
         element: el,
         getInitialData: () => {
           const ids = options.dragIds(id);
           gapHeight.value = measureTeamBlock(ids);
           return { type: TEAM_DRAG_TYPE, ids };
         },
-      }),
-      dropTargetForElements({
-        element: el,
-        canDrop: ({ source }) => isTeamDrag(source) && !teamIdsFrom(source).includes(id),
-        getData: () => ({ kind: 'team', id }),
-        getDropEffect: () => 'move',
-      }),
-    ), previous);
+      });
+      if (!allowReorder) return dragHandle;
+      return combine(
+        dragHandle,
+        dropTargetForElements({
+          element: el,
+          canDrop: ({ source }) => isTeamDrag(source) && !teamIdsFrom(source).includes(id),
+          getData: () => ({ kind: 'team', id }),
+          getDropEffect: () => 'move',
+        }),
+      );
+    }, previous);
   };
 
   const bindFolderHeading: SidebarTeamDrag['bindFolderHeading'] = (id, element, previous) => {
-    bindings.bind(`folder-heading:${id}`, element, el => combine(
-      draggable({
-        element: el,
-        getInitialData: () => {
-          const section = el.closest('.team-folder');
-          gapHeight.value = (section ?? el).getBoundingClientRect().height;
-          return { type: TEAM_FOLDER_DRAG_TYPE, folderId: id };
-        },
-      }),
-      dropTargetForElements({
+    bindings.bind(`folder-heading:${id}`, element, el => {
+      const target = dropTargetForElements({
         element: el,
         canDrop: ({ source, input }) => (isTeamDrag(source)
           && !overDraggedRow(input, teamIdsFrom(source)))
-          || (isTeamFolderDrag(source) && folderIdFrom(source) !== id),
+          || (allowReorder && isTeamFolderDrag(source) && folderIdFrom(source) !== id),
         getData: () => ({ kind: 'folder', id }),
         getDropEffect: () => 'move',
-      }),
-    ), previous);
+      });
+      if (!allowReorder) return target;
+      return combine(
+        draggable({
+          element: el,
+          getInitialData: () => {
+            const section = el.closest('.team-folder');
+            gapHeight.value = (section ?? el).getBoundingClientRect().height;
+            return { type: TEAM_FOLDER_DRAG_TYPE, folderId: id };
+          },
+        }),
+        target,
+      );
+    }, previous);
   };
 
   const bindFolderBlock: SidebarTeamDrag['bindFolderBlock'] = (id, element, previous) => {

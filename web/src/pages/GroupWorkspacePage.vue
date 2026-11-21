@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useUiStore } from '@/stores/ui';
+import { usePreferencesStore } from '@/stores/preferences';
 import { api } from '@/shared/api/client';
 import { builtinTool } from '@/tools';
 import { toStreamMessageViews } from '@/features/messages/adapters';
@@ -41,7 +42,23 @@ import type { InspectorTab } from '@/features/sessions/types';
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
+const preferences = usePreferencesStore();
+const compactScreen = useMediaQuery('(max-width: 760px)');
 const groupId = computed(() => routeString(route.params.groupId));
+const secondaryOpen = ref(Boolean(groupId.value) || route.name === 'create-team');
+watch(
+  [groupId, () => route.name],
+  ([id, name]) => {
+    secondaryOpen.value = Boolean(id) || name === 'create-team';
+  },
+);
+watch(
+  () => ui.searchOpen,
+  (open) => {
+    if (open) secondaryOpen.value = false;
+  },
+);
+const secondaryVisible = computed(() => secondaryOpen.value && !compactScreen.value);
 provide('result-scope', computed(() => groupId.value ? { group: groupId.value } : route.name === 'panel-agent' ? { panel: '1' } : null));
 watch(() => route.query.interaction, (value) => {
   if (!routeString(value) || (!route.query.session && !route.query.pair)) return;
@@ -146,11 +163,20 @@ function openPanelAgent() {
 
 // 工具模块:左导航条目与启用状态全部由注册表 + 用户偏好推导。
 function openTool(id: string) {
-  // 路由属于 left-nav 挂载:工具的其他形态(浮层/内嵌)没有自己的页面。
-  const routeName = builtinTool(id)?.mounts.find((mount) => mount.slot === 'left-nav')?.routeName;
-  if (!routeName || route.name === routeName) return;
+  const mount = builtinTool(id)?.mounts.find((item) => item.slot === 'left-nav');
+  if (!mount) return;
+  if (mount.action === 'open-search') {
+    if (!preferences.toolModules.disabled[id]) ui.searchOpen = true;
+    return;
+  }
+  if (!mount.routeName || route.name === mount.routeName) return;
   ui.closeInspector();
-  router.push({ name: routeName });
+  router.push({ name: mount.routeName });
+}
+
+function openCreateTeam() {
+  ui.closeInspector();
+  router.push({ name: 'create-team' });
 }
 
 function openSettingsPage() {
@@ -188,25 +214,45 @@ function setContextPanel(panel: ContextPanel) {
   replaceQuery({ panel });
 }
 
-const archiveConfirm = ref<{ id: string; name: string } | null>(null);
+const archiveConfirm = ref<{ ids: string[]; title: string } | null>(null);
 
-function archiveTeam(teamId: string) {
-  const team = allGroups.value.find((item) => item.id === teamId);
-  if (!team) return;
-  archiveConfirm.value = { id: team.id, name: team.name };
+function archiveTeams(teamIds: string[]) {
+  const targets = teamIds
+    .map(id => allGroups.value.find(item => item.id === id))
+    .filter((team): team is NonNullable<typeof team> => Boolean(team));
+  if (!targets.length) return;
+  archiveConfirm.value = {
+    ids: targets.map(team => team.id),
+    title: targets.length === 1 ? `归档“${targets[0]!.name}”？` : `归档这 ${targets.length} 个团队？`,
+  };
 }
 
 async function runArchiveTeam() {
   const request = archiveConfirm.value;
   if (!request) return;
   archiveConfirm.value = null;
-  try {
-    await api.archiveTeam(request.id);
+  const archivedIds: string[] = [];
+  let lastError: unknown;
+  for (const id of request.ids) {
+    try {
+      await api.archiveTeam(id);
+      archivedIds.push(id);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (archivedIds.length) {
     await refreshResources();
-    if (groupId.value === request.id) router.push({ name: 'group' });
-    toast.success(`已归档 ${request.name}`);
-  } catch (error) {
-    toast.error('归档团队失败', { description: String(error) });
+    if (groupId.value && archivedIds.includes(groupId.value)) router.push({ name: 'group' });
+    if (archivedIds.length === 1) {
+      const name = allGroups.value.find(item => item.id === archivedIds[0])?.name ?? archivedIds[0];
+      toast.success(`已归档 ${name}`);
+    } else {
+      toast.success(`已归档 ${archivedIds.length} 个团队`);
+    }
+  }
+  if (lastError) {
+    toast.error('归档团队失败', { description: String(lastError) });
   }
 }
 
@@ -219,7 +265,7 @@ function onMemberModelSaved() {
   <div
     class="app-shell"
     :class="{
-      'sidebar-is-collapsed': ui.sidebarCollapsed,
+      'secondary-is-open': secondaryVisible,
       'is-resizing': resizing,
     }"
     :style="{
@@ -228,26 +274,31 @@ function onMemberModelSaved() {
     }"
   >
     <GroupSidebar
+      v-model:secondary-open="secondaryOpen"
       :groups="groups"
+      :members="members"
       :current-group-id="sidebarGroupId"
       :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
       :tool-entries="navToolEntries"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
+      :group-unread-by-team="unreadIndex.groupByTeam?.value"
+      :activity-by-team="unreadIndex.activityByTeam?.value"
       @select="selectGroup"
-      @archive="archiveTeam"
+      @create-team="openCreateTeam"
+      @archive="archiveTeams"
       @activate-tool="openTool"
       @open-agent="openPanelAgent"
       @open-settings="openSettingsPage"
     />
 
     <div
-      v-if="!ui.sidebarCollapsed"
+      v-if="secondaryVisible"
       class="sidebar-resize-handle left-resize-handle"
       role="separator"
       tabindex="0"
-      aria-label="调整左侧栏宽度"
+      aria-label="调整二级面板宽度（从右侧拖动）"
       aria-orientation="vertical"
       :aria-valuenow="ui.sidebarWidth"
       :aria-valuemin="180"
@@ -398,7 +449,7 @@ function onMemberModelSaved() {
     </main>
     <ConfirmDialog
       :open="archiveConfirm !== null"
-      :title="`归档“${archiveConfirm?.name ?? ''}”？`"
+      :title="archiveConfirm?.title ?? ''"
       description="归档后团队不再接收消息或启动任务。"
       confirm-text="归档"
       destructive

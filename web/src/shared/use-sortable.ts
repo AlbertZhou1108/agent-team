@@ -23,6 +23,8 @@ export interface SortableOptions {
   canDrag: (id: string) => boolean;
   canTarget: (id: string) => boolean;
   axis: () => 'x' | 'y';
+  /** 可选作用域：不同 scope 的列表之间互不接受拖拽投放（例如一级栏固定区与插件区隔离）。 */
+  scope?: string;
   /** 可选的拖拽源选择器：命中项内部某一行作为拖拽源（拖拽影像只显示该行），投放目标仍是整项。 */
   dragElementSelector?: () => string | undefined;
   onReorder: (id: string, targetId: string, after: boolean) => void;
@@ -42,8 +44,10 @@ type DropLocation = {
   dropTargets: Array<{ element: Element; data: TargetData }>;
 };
 
-function isSortPayload(source: ElementDragPayload): boolean {
-  return source.data.type === SORT_DRAG_TYPE && typeof source.data.id === 'string';
+function isSortPayload(source: ElementDragPayload, scope?: string): boolean {
+  return source.data.type === SORT_DRAG_TYPE
+    && typeof source.data.id === 'string'
+    && source.data.scope === scope;
 }
 
 export function useSortable(options: SortableOptions): Sortable {
@@ -205,9 +209,9 @@ export function useSortable(options: SortableOptions): Sortable {
   }
 
   const stopMonitor = monitorForElements({
-    canMonitor: ({ source }) => isSortPayload(source),
+    canMonitor: ({ source }) => isSortPayload(source, options.scope),
     onDragStart: ({ source }) => {
-      if (!isSortPayload(source)) return;
+      if (!isSortPayload(source, options.scope)) return;
       const id = String(source.data.id);
       if (!options.ids().includes(id)) return;
       // 先冻结几何，再进入拖拽态：之后空位怎么移动都不反过来影响命中判定。
@@ -219,13 +223,13 @@ export function useSortable(options: SortableOptions): Sortable {
       setPreview(sourcePreview(id, heightOf(itemElements.get(id) ?? source.element)));
     },
     onDrag: ({ source, location }) => {
-      if (isSortPayload(source)) updatePreview(source, location.current);
+      if (isSortPayload(source, options.scope)) updatePreview(source, location.current);
     },
     onDropTargetChange: ({ source, location }) => {
-      if (isSortPayload(source)) updatePreview(source, location.current);
+      if (isSortPayload(source, options.scope)) updatePreview(source, location.current);
     },
     onDrop: ({ source, location }) => {
-      if (!isSortPayload(source) || location.current.dropTargets.length === 0) {
+      if (!isSortPayload(source, options.scope) || location.current.dropTargets.length === 0) {
         clearPreview();
         return;
       }
@@ -265,7 +269,7 @@ export function useSortable(options: SortableOptions): Sortable {
         : el;
       const dropTarget = dropTargetForElements({
         element: el,
-        canDrop: ({ source }) => isSortPayload(source)
+        canDrop: ({ source }) => isSortPayload(source, options.scope)
           && source.data.id !== id
           && options.canTarget(id),
         getData: () => ({ kind: 'sort-item', id }),
@@ -276,7 +280,7 @@ export function useSortable(options: SortableOptions): Sortable {
         draggable({
           element: dragElement,
           canDrag: () => options.canDrag(id),
-          getInitialData: () => ({ type: SORT_DRAG_TYPE, id }),
+          getInitialData: () => ({ type: SORT_DRAG_TYPE, id, scope: options.scope }),
         }),
         dropTarget,
       );
@@ -286,7 +290,7 @@ export function useSortable(options: SortableOptions): Sortable {
   const bindGap: Sortable['bindGap'] = (element, previous) => {
     bindings.bind('sort-gap', element, el => dropTargetForElements({
       element: el,
-      canDrop: ({ source }) => isSortPayload(source),
+      canDrop: ({ source }) => isSortPayload(source, options.scope),
       getData: () => ({ kind: 'sort-gap' }),
       getDropEffect: () => 'move',
     }), previous);

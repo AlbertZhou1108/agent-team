@@ -1,0 +1,821 @@
+<script setup lang="ts">
+import type { ComponentPublicInstance } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus,
+  Plus,
+  Search,
+  X,
+} from '@lucide/vue';
+import type { Group, Member } from '@/shared/api/raw-types';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { CollapseReveal } from '@/components/ui/collapse-reveal';
+import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useTeamOrganization } from '@/stores/team-organization';
+import {
+  applyTeamClick,
+  containerOf,
+  type ContainerKey,
+  type SidebarDropAction,
+} from '@/features/layout/sidebar-drag';
+import { useSidebarTeamDrag } from '@/features/layout/use-sidebar-team-drag';
+import {
+  filterTeamsByQuery,
+  formatActiveTime,
+  recentTeams,
+  sortFoldersByName,
+  sortTeamsByActivity,
+  teamActiveTimestamp,
+  teamAvatarColor,
+} from '@/features/layout/team-activity';
+import TeamMenu from './TeamMenu.vue';
+
+type TeamSegment = 'all' | 'pinned' | 'folders' | 'ungrouped';
+
+const SEGMENTS: ReadonlyArray<{ id: TeamSegment; label: string }> = [
+  { id: 'all', label: '全部' },
+  { id: 'pinned', label: '置顶' },
+  { id: 'folders', label: '文件夹' },
+  { id: 'ungrouped', label: '未分组' },
+];
+
+const props = withDefaults(
+  defineProps<{
+    groups: Group[];
+    members?: Member[];
+    currentGroupId?: string;
+    groupUnreadByTeam?: ReadonlyMap<string, number>;
+    activityByTeam?: ReadonlyMap<string, number>;
+  }>(),
+  {
+    members: () => [],
+  },
+);
+
+const emit = defineEmits<{
+  select: [id: string];
+  createTeam: [];
+  archive: [ids: string[]];
+}>();
+
+const org = useTeamOrganization();
+const searchQuery = ref('');
+const segment = ref<TeamSegment>('all');
+const creatingFolder = ref(false);
+const newFolderName = ref('');
+const renamingFolder = ref<{ id: string; name: string }>();
+
+const selected = ref<string[]>([]);
+const anchor = ref<string>();
+const selectionContainer = ref<ContainerKey>();
+
+const hasQuery = computed(() => searchQuery.value.trim().length > 0);
+const filteredGroups = computed(() =>
+  filterTeamsByQuery(props.groups, props.members, searchQuery.value),
+);
+
+const memberCounts = computed(() => {
+  const counts = new Map<string, number>();
+  for (const member of props.members) {
+    if (member.removed) continue;
+    counts.set(member.group_id, (counts.get(member.group_id) ?? 0) + 1);
+  }
+  return counts;
+});
+
+function memberCountFor(groupId: string): number {
+  return memberCounts.value.get(groupId) ?? 0;
+}
+
+function unreadFor(groupId: string): number {
+  return props.groupUnreadByTeam?.get(groupId) ?? 0;
+}
+
+function unreadLabel(count: number): string {
+  return count > 99 ? '99+' : String(count);
+}
+
+function activeLabelFor(group: Group): string {
+  return formatActiveTime(teamActiveTimestamp(group, props.activityByTeam));
+}
+
+const sortedFolders = computed(() => sortFoldersByName(org.folders));
+
+const pinnedTeams = computed(() =>
+  sortTeamsByActivity(
+    filteredGroups.value.filter(group => org.teams[group.id]?.pinned),
+    props.activityByTeam,
+  ),
+);
+
+const ungroupedTeams = computed(() =>
+  sortTeamsByActivity(
+    filteredGroups.value.filter(
+      group =>
+        !org.teams[group.id]?.pinned &&
+        !org.folders.some(folder => folder.id === org.teams[group.id]?.folder),
+    ),
+    props.activityByTeam,
+  ),
+);
+
+function teamsInFolder(folderId: string): Group[] {
+  return sortTeamsByActivity(
+    filteredGroups.value.filter(
+      group => !org.teams[group.id]?.pinned && org.teams[group.id]?.folder === folderId,
+    ),
+    props.activityByTeam,
+  );
+}
+
+const visibleFolders = computed(() => {
+  if (!hasQuery.value) return sortedFolders.value;
+  return sortedFolders.value.filter(folder => teamsInFolder(folder.id).length > 0);
+});
+
+const recentList = computed(() =>
+  recentTeams(props.groups, props.activityByTeam, org.order, 8),
+);
+
+const showPinnedSection = computed(() => {
+  if (segment.value !== 'all' && segment.value !== 'pinned') return false;
+  return pinnedTeams.value.length > 0 || dragging.value === 'team';
+});
+
+const showFoldersSection = computed(() => {
+  if (segment.value !== 'all' && segment.value !== 'folders') return false;
+  return visibleFolders.value.length > 0;
+});
+
+const showUngroupedSection = computed(() => {
+  if (segment.value !== 'all' && segment.value !== 'ungrouped') return false;
+  return ungroupedTeams.value.length > 0 || dragging.value === 'team';
+});
+
+function isFolderExpanded(folder: { collapsed?: boolean }): boolean {
+  return hasQuery.value || folder.collapsed !== true;
+}
+
+function containerOfTeam(id: string): ContainerKey {
+  return containerOf(id, org.teams[id]);
+}
+
+function visibleIdsOf(container: ContainerKey | undefined): string[] {
+  if (!container) return [];
+  if (container === 'pinned') {
+    return pinnedTeams.value.map(group => group.id);
+  }
+  if (container === 'root') {
+    return ungroupedTeams.value.map(group => group.id);
+  }
+  const folderId = container.slice('folder:'.length);
+  const folder = org.folders.find(item => item.id === folderId);
+  return folder && isFolderExpanded(folder)
+    ? teamsInFolder(folderId).map(group => group.id)
+    : [];
+}
+
+watch(
+  () => props.currentGroupId,
+  (id) => {
+    selected.value = id ? [id] : [];
+    anchor.value = id;
+    selectionContainer.value = id ? containerOfTeam(id) : undefined;
+  },
+  { immediate: true },
+);
+
+function clearSelection() {
+  selected.value = [];
+  anchor.value = undefined;
+  selectionContainer.value = undefined;
+}
+
+function pruneSelection() {
+  if (!selected.value.length) return;
+  const visible = visibleIdsOf(selectionContainer.value);
+  selected.value = selected.value.filter(id => visible.includes(id));
+  if (anchor.value && !selected.value.includes(anchor.value)) {
+    anchor.value = selected.value[0];
+  }
+  if (!selected.value.length) selectionContainer.value = undefined;
+}
+
+function selectTeam(id: string, event: MouseEvent) {
+  const container = containerOfTeam(id);
+  const result = applyTeamClick({
+    id,
+    container,
+    selection: selected.value,
+    selectionContainer: selectionContainer.value,
+    anchor: anchor.value,
+    visibleIds: visibleIdsOf(container),
+    currentGroupId: props.currentGroupId,
+    shiftKey: event.shiftKey,
+    toggleKey: event.metaKey || event.ctrlKey,
+  });
+  selected.value = result.selected;
+  anchor.value = result.anchor;
+  selectionContainer.value = result.selected.length ? container : undefined;
+  if (result.navigate) emit('select', id);
+}
+
+function dragIds(id: string): string[] {
+  const container = containerOfTeam(id);
+  if (!selected.value.includes(id) || selectionContainer.value !== container) {
+    selected.value = [id];
+    anchor.value = id;
+    selectionContainer.value = container;
+  }
+  const visible = visibleIdsOf(container);
+  const ordered = visible.filter(item => selected.value.includes(item));
+  return ordered.length ? ordered : [id];
+}
+
+function applyAction(action: SidebarDropAction) {
+  switch (action.kind) {
+    case 'move-teams': {
+      if (action.folderId) {
+        org.appendTo(action.ids, { folder: action.folderId, pinned: false });
+        org.expandFolder(action.folderId);
+        selectionContainer.value = `folder:${action.folderId}`;
+      } else {
+        org.appendTo(action.ids, { pinned: false });
+        org.expandSection('ungrouped');
+        selectionContainer.value = 'root';
+      }
+      break;
+    }
+    case 'pin-teams': {
+      org.appendTo(action.ids, { pinned: true });
+      org.expandSection('pinned');
+      selectionContainer.value = 'pinned';
+      break;
+    }
+    default:
+      return;
+  }
+  const first = action.ids.find(id => selected.value.includes(id)) ?? action.ids[0];
+  if (first) anchor.value = first;
+}
+
+const {
+  bindTeamRow,
+  bindFolderHeading,
+  bindFolderBlock,
+  bindPinnedZone,
+  bindRootZone,
+  dragging,
+  draggingIds,
+  dropZone,
+} = useSidebarTeamDrag({
+  dragIds,
+  applyAction,
+  allowReorder: false,
+});
+
+const refBinders = new Map<string, (element: Element | ComponentPublicInstance | null) => void>();
+function stableRef(
+  key: string,
+  bind: (element: Element | null, previous?: Element | null) => void,
+) {
+  let fn = refBinders.get(key);
+  if (!fn) {
+    let current: Element | null = null;
+    fn = (element) => {
+      if (element instanceof HTMLElement) {
+        current = element;
+        bind(element);
+        return;
+      }
+      const previous = current;
+      current = null;
+      bind(null, previous);
+    };
+    refBinders.set(key, fn);
+  }
+  return fn;
+}
+
+const pinnedZoneRef = stableRef('pinned', bindPinnedZone);
+const rootZoneRef = stableRef('root', bindRootZone);
+
+function teamCardRef(id: string) {
+  return stableRef(`team:${id}`, (el, prev) => bindTeamRow(id, el, prev));
+}
+
+function folderBlockRef(id: string) {
+  return stableRef(`folder-block:${id}`, (el, prev) => bindFolderBlock(id, el, prev));
+}
+
+function folderHeadingRef(id: string) {
+  return stableRef(`folder-heading:${id}`, (el, prev) => bindFolderHeading(id, el, prev));
+}
+
+function containerDropZone(zone: string) {
+  return dropZone.value === zone ? 'true' : undefined;
+}
+
+function toggleFolder(id: string) {
+  org.toggleFolder(id);
+  pruneSelection();
+}
+
+function submitCreateFolder() {
+  const id = org.createFolder(newFolderName.value);
+  if (!id) return;
+  newFolderName.value = '';
+  creatingFolder.value = false;
+}
+
+function beginRenameFolder(id: string, name: string) {
+  renamingFolder.value = { id, name };
+}
+
+function submitRenameFolder() {
+  if (!renamingFolder.value) return;
+  org.renameFolder(renamingFolder.value.id, renamingFolder.value.name);
+  renamingFolder.value = undefined;
+}
+
+function requestArchiveFor(teamId: string) {
+  const ids =
+    selected.value.length > 1 && selected.value.includes(teamId)
+      ? [...selected.value]
+      : [teamId];
+  emit('archive', ids);
+}
+
+function archiveSelected() {
+  if (!selected.value.length) return;
+  emit('archive', [...selected.value]);
+}
+
+function onDocumentPointerDown(event: PointerEvent) {
+  if (event.button !== 0 || !selected.value.length) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest('.team-row')) return;
+  if (target.closest('[data-batch-toolbar="true"]')) return;
+  if (target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]')) return;
+  clearSelection();
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && selected.value.length) clearSelection();
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown);
+  document.addEventListener('keydown', onDocumentKeydown);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  document.removeEventListener('keydown', onDocumentKeydown);
+});
+</script>
+
+<template>
+  <div class="secondary-panel" data-testid="team-secondary-panel">
+    <!-- 标题行：团队 + 数量 + 新建文件夹 / + 新建 -->
+    <div class="flex items-center justify-between gap-2 px-1">
+      <div class="flex min-w-0 items-baseline gap-1.5">
+        <h2 class="truncate text-sm font-semibold tracking-tight text-foreground">团队</h2>
+        <span class="text-xs text-muted-foreground tabular-nums">{{ groups.length }}</span>
+      </div>
+      <div class="flex shrink-0 items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="新建团队文件夹"
+              title="新建文件夹"
+              @click="creatingFolder = !creatingFolder"
+            >
+              <FolderPlus class="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">新建文件夹</TooltipContent>
+        </Tooltip>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 gap-1 px-2 text-xs"
+          aria-label="新建团队"
+          @click="emit('createTeam')"
+        >
+          <Plus class="size-3.5" />
+          新建
+        </Button>
+      </div>
+    </div>
+
+    <!-- 新建文件夹表单 -->
+    <form
+      v-if="creatingFolder"
+      class="mt-2 flex flex-col gap-2 px-1"
+      @submit.prevent="submitCreateFolder"
+    >
+      <Input
+        v-model="newFolderName"
+        class="h-8 text-xs"
+        aria-label="文件夹名称"
+        placeholder="文件夹名称"
+        maxlength="60"
+        @keydown.esc="creatingFolder = false"
+      />
+      <div class="flex gap-1.5">
+        <Button size="sm" type="submit" class="h-7 px-2.5 text-xs">创建</Button>
+        <Button size="sm" variant="ghost" type="button" class="h-7 px-2 text-xs" @click="creatingFolder = false">取消</Button>
+      </div>
+    </form>
+
+    <!-- 搜索框 -->
+    <div class="relative mt-2.5 px-1">
+      <Search class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      <Input
+        v-model="searchQuery"
+        class="h-8 pl-7 pr-7 text-xs"
+        placeholder="搜索团队、成员..."
+        aria-label="搜索团队或成员"
+      />
+      <button
+        v-if="hasQuery"
+        type="button"
+        class="absolute top-1/2 right-2.5 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded-(--component-chip-radius) text-muted-foreground hover:text-foreground"
+        aria-label="清除搜索"
+        @click="searchQuery = ''"
+      >
+        <X class="size-3" />
+      </button>
+    </div>
+
+    <!-- 分段筛选：全部 / 置顶 / 文件夹 / 未分组 -->
+    <div
+      role="tablist"
+      aria-label="团队分组筛选"
+      class="mt-2.5 grid grid-cols-4 gap-0.5 rounded-(--component-control-radius) bg-muted/50 p-0.5"
+    >
+      <button
+        v-for="tab in SEGMENTS"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="segment === tab.id"
+        :data-active="segment === tab.id ? 'true' : undefined"
+        class="team-segment-tab"
+        @click="segment = tab.id"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+
+    <!-- 最近访问（仅在「全部」标签页出现；横向滚动，复用项目共享滚动条） -->
+    <div v-if="segment === 'all' && !hasQuery && recentList.length" class="mt-3 px-1">
+      <div class="text-2xs font-medium text-muted-foreground">最近访问</div>
+      <div
+        class="recent-teams-strip scrollbar-thin mt-1.5 flex items-center gap-2 overflow-x-auto pb-1.5"
+        aria-label="最近访问团队"
+      >
+        <Tooltip v-for="team in recentList" :key="team.id">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="recent-team-avatar"
+              :data-current="team.id === currentGroupId ? 'true' : undefined"
+              :aria-label="`打开团队 ${team.name}`"
+              :title="team.name"
+              :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+              @click="emit('select', team.id)"
+            >
+              {{ team.name.slice(0, 1) }}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ team.name }}</TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+
+    <!-- 多选批量操作条：支持拖动选中项入文件夹与批量归档 -->
+    <div
+      v-if="selected.length > 1"
+      data-batch-toolbar="true"
+      class="mt-2 flex items-center justify-between gap-2 rounded-(--component-chip-radius) bg-muted/60 px-2.5 py-1.5 text-xs"
+    >
+      <span class="truncate text-foreground tabular-nums">已选 {{ selected.length }} 个团队</span>
+      <div class="flex shrink-0 items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 gap-1 px-2 text-xs"
+          aria-label="批量归档已选团队"
+          @click="archiveSelected"
+        >
+          <Archive class="size-3.5" />
+          归档
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 px-1.5 text-xs text-muted-foreground"
+          aria-label="取消多选"
+          @click="clearSelection"
+        >
+          取消
+        </Button>
+      </div>
+    </div>
+
+    <!-- 团队列表（统一文件夹语义：置顶 → 文件夹按名称 → 未分组；组内按活跃时间） -->
+    <nav
+      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-0.5"
+      aria-label="团队列表"
+    >
+      <!-- 置顶（直接展示团队卡片，不折叠） -->
+      <section
+        v-if="showPinnedSection"
+        :ref="pinnedZoneRef"
+        class="team-group-section"
+        data-section-kind="pinned"
+        :data-drop-container="containerDropZone('pinned')"
+      >
+        <div class="team-section-heading">
+          <span class="truncate">置顶</span>
+          <span class="text-muted-foreground">·</span>
+          <span class="text-muted-foreground tabular-nums">{{ pinnedTeams.length }}</span>
+        </div>
+        <div class="team-card-list">
+          <div
+            v-for="team in pinnedTeams"
+            :key="team.id"
+            :ref="teamCardRef(team.id)"
+            class="team-row team-card-wrap"
+            :class="{ 'team-row-selected': selected.includes(team.id) }"
+            :data-team-id="team.id"
+            :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
+          >
+            <button
+              type="button"
+              class="team-card"
+              :data-current="team.id === currentGroupId ? 'true' : undefined"
+              :data-selected="selected.includes(team.id) ? 'true' : undefined"
+              :aria-current="team.id === currentGroupId ? 'page' : undefined"
+              :aria-pressed="selected.includes(team.id)"
+              :title="team.name"
+              @click="selectTeam(team.id, $event)"
+            >
+              <span
+                class="team-card-avatar"
+                :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                aria-hidden="true"
+              >{{ team.name.slice(0, 1) }}</span>
+              <span class="min-w-0 flex-1 text-left">
+                <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                  {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+                </span>
+              </span>
+              <Badge
+                v-if="unreadFor(team.id) > 0"
+                variant="default"
+                class="shrink-0 tabular-nums"
+                :aria-label="`${unreadFor(team.id)} 条未读`"
+              >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
+            </button>
+            <div class="team-card-menu">
+              <TeamMenu
+                :id="team.id"
+                :name="team.name"
+                :archived="team.state === 'archived'"
+                @archive="requestArchiveFor(team.id)"
+              />
+            </div>
+          </div>
+          <p
+            v-if="dragging === 'team' && !pinnedTeams.length"
+            class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
+          >
+            拖入置顶
+          </p>
+        </div>
+      </section>
+
+      <!-- 文件夹（按名称排序） -->
+      <template v-if="showFoldersSection">
+        <section
+          v-for="folder in visibleFolders"
+          :key="folder.id"
+          :ref="folderBlockRef(folder.id)"
+          class="team-group-section team-folder"
+          :class="{ 'team-folder-collapsed': !isFolderExpanded(folder) }"
+          data-section-kind="folder"
+          :data-folder-id="folder.id"
+          :data-drop-container="containerDropZone(`folder:${folder.id}`)"
+        >
+          <div :ref="folderHeadingRef(folder.id)" class="team-folder-row">
+            <button
+              type="button"
+              class="team-folder-trigger"
+              :aria-expanded="isFolderExpanded(folder)"
+              :aria-controls="`sidebar-folder-${folder.id}`"
+              @click="toggleFolder(folder.id)"
+            >
+              <component :is="isFolderExpanded(folder) ? ChevronDown : ChevronRight" class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span class="truncate">{{ folder.name }}</span>
+              <span class="text-muted-foreground">·</span>
+              <span class="text-muted-foreground tabular-nums">{{ teamsInFolder(folder.id).length }}</span>
+            </button>
+            <TeamMenu
+              :id="folder.id"
+              :name="folder.name"
+              folder
+              @rename="beginRenameFolder(folder.id, folder.name)"
+            />
+          </div>
+
+          <form
+            v-if="renamingFolder?.id === folder.id"
+            class="my-1 ml-3 flex flex-col gap-1.5"
+            @submit.prevent="submitRenameFolder"
+          >
+            <Input
+              v-model="renamingFolder.name"
+              class="h-8 text-xs"
+              :aria-label="`重命名文件夹 ${folder.name}`"
+              maxlength="60"
+              @keydown.esc="renamingFolder = undefined"
+            />
+            <div class="flex gap-1.5">
+              <Button size="sm" type="submit" class="h-7 px-2.5 text-xs">保存</Button>
+              <Button size="sm" variant="ghost" type="button" class="h-7 px-2 text-xs" @click="renamingFolder = undefined">取消</Button>
+            </div>
+          </form>
+
+          <CollapseReveal :id="`sidebar-folder-${folder.id}`" :show="isFolderExpanded(folder)">
+            <div class="team-card-list team-folder-cards">
+              <div
+                v-for="team in teamsInFolder(folder.id)"
+                :key="team.id"
+                :ref="teamCardRef(team.id)"
+                class="team-row team-card-wrap"
+                :class="{ 'team-row-selected': selected.includes(team.id) }"
+                :data-team-id="team.id"
+                :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
+              >
+                <button
+                  type="button"
+                  class="team-card"
+                  :data-current="team.id === currentGroupId ? 'true' : undefined"
+                  :data-selected="selected.includes(team.id) ? 'true' : undefined"
+                  :aria-current="team.id === currentGroupId ? 'page' : undefined"
+                  :aria-pressed="selected.includes(team.id)"
+                  :title="team.name"
+                  @click="selectTeam(team.id, $event)"
+                >
+                  <span
+                    class="team-card-avatar"
+                    :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                    aria-hidden="true"
+                  >{{ team.name.slice(0, 1) }}</span>
+                  <span class="min-w-0 flex-1 text-left">
+                    <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                    <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                      {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+                    </span>
+                  </span>
+                  <Badge
+                    v-if="unreadFor(team.id) > 0"
+                    variant="default"
+                    class="shrink-0 tabular-nums"
+                    :aria-label="`${unreadFor(team.id)} 条未读`"
+                  >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
+                </button>
+                <div class="team-card-menu">
+                  <TeamMenu
+                    :id="team.id"
+                    :name="team.name"
+                    :archived="team.state === 'archived'"
+                    @archive="requestArchiveFor(team.id)"
+                  />
+                </div>
+              </div>
+              <p
+                v-if="dragging === 'team' && !teamsInFolder(folder.id).length"
+                class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
+              >
+                拖入团队
+              </p>
+            </div>
+          </CollapseReveal>
+        </section>
+      </template>
+
+      <!-- 未分组（直接展示团队卡片，不折叠） -->
+      <section
+        v-if="showUngroupedSection"
+        :ref="rootZoneRef"
+        class="team-group-section team-root-drop"
+        data-section-kind="ungrouped"
+        :data-drop-container="containerDropZone('root')"
+      >
+        <div class="team-section-heading">
+          <span class="truncate">未分组</span>
+          <span class="text-muted-foreground">·</span>
+          <span class="text-muted-foreground tabular-nums">{{ ungroupedTeams.length }}</span>
+        </div>
+        <div class="team-card-list">
+          <div
+            v-for="team in ungroupedTeams"
+            :key="team.id"
+            :ref="teamCardRef(team.id)"
+            class="team-row team-card-wrap"
+            :class="{ 'team-row-selected': selected.includes(team.id) }"
+            :data-team-id="team.id"
+            :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
+          >
+            <button
+              type="button"
+              class="team-card"
+              :data-current="team.id === currentGroupId ? 'true' : undefined"
+              :data-selected="selected.includes(team.id) ? 'true' : undefined"
+              :aria-current="team.id === currentGroupId ? 'page' : undefined"
+              :aria-pressed="selected.includes(team.id)"
+              :title="team.name"
+              @click="selectTeam(team.id, $event)"
+            >
+              <span
+                class="team-card-avatar"
+                :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                aria-hidden="true"
+              >{{ team.name.slice(0, 1) }}</span>
+              <span class="min-w-0 flex-1 text-left">
+                <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                  {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+                </span>
+              </span>
+              <Badge
+                v-if="unreadFor(team.id) > 0"
+                variant="default"
+                class="shrink-0 tabular-nums"
+                :aria-label="`${unreadFor(team.id)} 条未读`"
+              >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
+            </button>
+            <div class="team-card-menu">
+              <TeamMenu
+                :id="team.id"
+                :name="team.name"
+                :archived="team.state === 'archived'"
+                @archive="requestArchiveFor(team.id)"
+              />
+            </div>
+          </div>
+          <p
+            v-if="dragging === 'team' && !ungroupedTeams.length"
+            class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
+          >
+            拖入未分组
+          </p>
+        </div>
+      </section>
+
+      <!-- 空态 -->
+      <p
+        v-if="!groups.length"
+        class="px-2 py-4 text-xs text-muted-foreground"
+      >
+        还没有团队。可点击右上「新建」创建。
+      </p>
+      <p
+        v-else-if="hasQuery && !filteredGroups.length"
+        class="px-2 py-4 text-xs text-muted-foreground"
+      >
+        没有匹配的团队或成员。
+      </p>
+      <p
+        v-else-if="segment === 'folders' && !visibleFolders.length"
+        class="px-2 py-4 text-xs text-muted-foreground"
+      >
+        还没有文件夹。可点击右上文件夹图标新建。
+      </p>
+      <p
+        v-else-if="segment === 'pinned' && !pinnedTeams.length && dragging !== 'team'"
+        class="px-2 py-4 text-xs text-muted-foreground"
+      >
+        还没有置顶团队。
+      </p>
+      <p
+        v-else-if="segment === 'ungrouped' && !ungroupedTeams.length && dragging !== 'team'"
+        class="px-2 py-4 text-xs text-muted-foreground"
+      >
+        没有未分组团队。
+      </p>
+    </nav>
+  </div>
+</template>

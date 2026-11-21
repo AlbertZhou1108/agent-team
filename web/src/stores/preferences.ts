@@ -21,6 +21,26 @@ import { TOOL_SLOTS, builtinTool, type ToolSlot } from '@/tools';
 
 export type ColorMode = 'dark' | 'light' | 'system';
 
+/** 一级导航固定区骨架项 id 与默认顺序。 */
+export const PRIMARY_NAV_IDS = ['home', 'team', 'agent'] as const;
+export type PrimaryNavId = (typeof PRIMARY_NAV_IDS)[number];
+
+function normalizePrimaryNavOrder(value: unknown): PrimaryNavId[] {
+  const valid = new Set<string>(PRIMARY_NAV_IDS);
+  const picked: PrimaryNavId[] = [];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === 'string' && valid.has(item) && !picked.includes(item as PrimaryNavId)) {
+        picked.push(item as PrimaryNavId);
+      }
+    }
+  }
+  for (const id of PRIMARY_NAV_IDS) {
+    if (!picked.includes(id)) picked.push(id);
+  }
+  return picked;
+}
+
 /** 选中主题时缓存的包数据:刷新首帧在请求返回前同步应用,避免闪默认主题。 */
 export interface ThemePackSnapshot {
   light: ThemeTokens;
@@ -53,6 +73,7 @@ interface PreferencesState {
   showRawPayloads: boolean;
   refreshInterval: number;
   toolModules: ToolModulesState;
+  primaryNavOrder: PrimaryNavId[];
 }
 
 const storageKey = 'agent-team:preferences';
@@ -139,6 +160,7 @@ function load(): PreferencesState {
     showRawPayloads: false,
     refreshInterval: 2000,
     toolModules: { disabled: {}, hidden: {}, order: {}, pinned: {} },
+    primaryNavOrder: [...PRIMARY_NAV_IDS],
   };
   try {
     const saved = JSON.parse(
@@ -181,6 +203,7 @@ function load(): PreferencesState {
       showRawPayloads: saved.showRawPayloads ?? fallback.showRawPayloads,
       refreshInterval: saved.refreshInterval ?? fallback.refreshInterval,
       toolModules: loadToolModules(saved.toolModules),
+      primaryNavOrder: normalizePrimaryNavOrder(saved.primaryNavOrder),
     };
   } catch {
     return fallback;
@@ -273,6 +296,10 @@ export const usePreferencesStore = defineStore('preferences', {
       const next = current.filter(item => item !== key);
       if (pinned) next.push(key);
       this.toolModules.pinned[slot] = next;
+      this.persist();
+    },
+    setPrimaryNavOrder(order: PrimaryNavId[]) {
+      this.primaryNavOrder = normalizePrimaryNavOrder(order);
       this.persist();
     },
   },

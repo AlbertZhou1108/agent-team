@@ -220,6 +220,12 @@ describe('five-dimension component configuration', () => {
     expect(fallback.variables['--component-control-radius']).toBe('var(--radius-md)');
     expect(fallback.variables['--component-content-shadow']).toBe(COMPONENT_DEFAULTS.material['--component-content-shadow']);
   });
+  it('gives default solid segmented choices and active tabs dark-mode separation', () => {
+    const classic = resolve('classic', 'solid');
+    expect(classic.variables['--component-choice-selected-bg']).toContain('light-dark(');
+    expect(classic.variables['--component-choice-selected-border']).toContain('light-dark(');
+    expect(classic.variables['--component-tab-active-bg']).toContain('light-dark(');
+  });
 });
 
 describe('isPresetModified', () => {

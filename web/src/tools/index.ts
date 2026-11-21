@@ -1,5 +1,5 @@
 import type { Component } from 'vue';
-import { NotebookPen } from '@lucide/vue';
+import { NotebookPen, Search } from '@lucide/vue';
 import NotesWorkspace from '@/features/notes/NotesWorkspace.vue';
 import NotesQuickInput from '@/features/notes/NotesQuickInput.vue';
 import TelemetryCoordinationTool from '@/features/telemetry/TelemetryCoordinationTool.vue';
@@ -10,14 +10,15 @@ import TelemetryCoordinationTool from '@/features/telemetry/TelemetryCoordinatio
  * 本文件同时是契约、内置注册表与解析层;阶段 2 引入外部安装包时再拆。
  *
  * 位置只有两个,槽位也只有两个:
- * - left-nav     左导航入口(点击打开工具页面)
+ * - left-nav     左导航入口(点击导航到工具页面,或触发动作型挂载如打开弹层)
  * - right-tools  右栏固定的「工具」标签页:每个工具一个可折叠区块,堆叠展示
  *
  * 工具只提供内容组件,入口的按钮/标签/折叠区块外壳由宿主渲染 —— 形态与内容解耦。
  *
  * 边界(有意收窄):只有「可选、自包含、禁用后核心无损」的功能才做成工具
  * ——禁用它,面板的核心工作(通过会话协调 Agent)毫发无损。会话流、输入区、
- * 团队管理、设置、Panel Agent、全局搜索是面板骨架,永不模块化;外部工具
+ * 团队管理、设置、Panel Agent 是面板骨架,永不模块化;全局搜索以动作型
+ * left-nav 挂载工具化,禁用后热键与入口一并停用且核心无损。外部工具
  * (阶段 2)也只进这些槽位,不提供路由级扩展或消息流协议接入。
  *
  * 注意与 `src/tools.mjs`(Agent 可调用的 send/tasks_set 等工具)无关。
@@ -26,6 +27,7 @@ import TelemetryCoordinationTool from '@/features/telemetry/TelemetryCoordinatio
 export const TOOL_SLOTS = ['left-nav', 'right-tools'] as const;
 export type ToolSlot = (typeof TOOL_SLOTS)[number];
 export type ToolScope = 'global' | 'team';
+export type ToolMountAction = 'open-search';
 
 /** 设置页与提示里对槽位的统一称呼。 */
 export const TOOL_SLOT_LABELS: Record<ToolSlot, string> = {
@@ -35,10 +37,12 @@ export const TOOL_SLOT_LABELS: Record<ToolSlot, string> = {
 
 export interface ToolMount {
   slot: ToolSlot;
-  /** 该挂载点渲染的内容组件,统一 props { groupId?: string }。 */
-  component: Component;
-  /** 仅 left-nav:点击导航到的路由名。 */
+  /** 该挂载点渲染的内容组件,统一 props { groupId?: string };动作型 left-nav 挂载不单独渲染页面组件,可省略。 */
+  component?: Component;
+  /** 仅 left-nav:点击导航到的路由名(与 action 二选一)。 */
   routeName?: string;
+  /** 仅 left-nav:动作型挂载(打开弹层等,不跳路由)。 */
+  action?: ToolMountAction;
 }
 
 export interface ToolDefinition {
@@ -61,6 +65,18 @@ const coordinationTool: ToolDefinition = {
   mounts: [{ slot: 'right-tools', component: TelemetryCoordinationTool }],
 };
 
+const searchTool: ToolDefinition = {
+  id: 'builtin.search',
+  name: '全局搜索',
+  description: '跨团队搜索页面、设置、成员与消息（⌘K / Ctrl+K）。',
+  scope: 'global',
+  mounts: [
+    // 全局搜索弹层在 App.vue 单实例常驻，此处仅声明动作型左导航入口，避免与 GlobalSearch 形成循环依赖。
+    { slot: 'left-nav', action: 'open-search' },
+  ],
+  icon: Search,
+};
+
 const notesTool: ToolDefinition = {
   id: 'builtin.notes',
   name: '随心记',
@@ -74,7 +90,7 @@ const notesTool: ToolDefinition = {
 };
 
 /** 内置工具随应用发布、不可卸载,只有启用/禁用状态(照内置主题"不进库"先例)。 */
-export const BUILTIN_TOOLS: readonly ToolDefinition[] = [coordinationTool, notesTool];
+export const BUILTIN_TOOLS: readonly ToolDefinition[] = [coordinationTool, searchTool, notesTool];
 
 export function builtinTool(id: string): ToolDefinition | undefined {
   return BUILTIN_TOOLS.find(tool => tool.id === id);
@@ -142,26 +158,33 @@ export function activeMounts(
     });
 }
 
-/** 左导航条目:left-nav 挂载生成,激活态由当前路由名判定。 */
+/** 左导航条目:left-nav 挂载生成,路由型按路由名判激活,动作型按弹层态判激活。 */
 export interface ToolNavEntry {
   id: string;
-  routeName: string;
+  routeName?: string;
+  action?: ToolMountAction;
   label: string;
   icon?: Component;
   current: boolean;
 }
 
 export function navToolEntries(
-  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean> },
+  prefs: ToolUserState | { disabled?: Record<string, boolean>; hidden?: Record<string, boolean>; order?: Record<string, string[]>; pinned?: Record<string, string[]> },
   currentRouteName?: string,
+  options?: { searchOpen?: boolean },
 ): ToolNavEntry[] {
   return activeMounts('left-nav', prefs)
-    .filter(({ mount }) => Boolean(mount.routeName))
+    .filter(({ mount }) => Boolean(mount.routeName || mount.action))
     .map(({ tool, mount }) => ({
       id: tool.id,
-      routeName: mount.routeName!,
+      ...(mount.routeName ? { routeName: mount.routeName } : {}),
+      ...(mount.action ? { action: mount.action } : {}),
       label: tool.name,
       icon: tool.icon,
-      current: mount.routeName === currentRouteName,
+      current: mount.routeName
+        ? mount.routeName === currentRouteName
+        : mount.action === 'open-search'
+          ? Boolean(options?.searchOpen)
+          : false,
     }));
 }

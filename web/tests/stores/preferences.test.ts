@@ -53,6 +53,7 @@ describe('preferences appearance', () => {
       showRawPayloads: true,
       refreshInterval: 5000,
       toolModules: { disabled: {}, hidden: {}, order: {}, pinned: {} },
+      primaryNavOrder: ['home', 'team', 'agent'],
     });
   });
 
@@ -225,6 +226,41 @@ describe('preferences appearance', () => {
     const store = usePreferencesStore();
     expect(store.designPreset).toBe('classic');
     expect(store.density).toBe('loose');
+  });
+
+  it('persists builtin.search disable/hide state and left-nav order', () => {
+    const written: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => written.push(value),
+    });
+    const store = usePreferencesStore();
+    store.setToolEnabled('builtin.search', false);
+    store.setMountHidden('builtin.search', 'left-nav', true);
+    store.setToolOrder('left-nav', ['builtin.notes:left-nav', 'builtin.search:left-nav']);
+    expect(store.toolModules.disabled['builtin.search']).toBe(true);
+    expect(store.toolModules.hidden['builtin.search:left-nav']).toBe(true);
+    expect(store.toolModules.order['left-nav']).toEqual(['builtin.notes:left-nav', 'builtin.search:left-nav']);
+    const saved = written.at(-1)!;
+    stubStorage(saved);
+    setActivePinia(createPinia());
+    const restored = usePreferencesStore();
+    expect(restored.toolModules.disabled['builtin.search']).toBe(true);
+    expect(restored.toolModules.hidden['builtin.search:left-nav']).toBe(true);
+    expect(restored.toolModules.order['left-nav']).toEqual(['builtin.notes:left-nav', 'builtin.search:left-nav']);
+  });
+
+  it('normalizes and persists primaryNavOrder without dropping fixed items', () => {
+    const written: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => JSON.stringify({ primaryNavOrder: ['agent', 'bogus', 'agent'] }),
+      setItem: (_key: string, value: string) => written.push(value),
+    });
+    const store = usePreferencesStore();
+    expect(store.primaryNavOrder).toEqual(['agent', 'home', 'team']);
+    store.setPrimaryNavOrder(['team', 'home', 'agent']);
+    expect(store.primaryNavOrder).toEqual(['team', 'home', 'agent']);
+    expect(JSON.parse(written.at(-1)!).primaryNavOrder).toEqual(['team', 'home', 'agent']);
   });
 
 });

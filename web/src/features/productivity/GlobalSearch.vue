@@ -39,8 +39,14 @@ import {
   type SearchEntry,
 } from './navigation';
 import { usePanelAgentStore } from '@/stores/panel-agent';
+import { usePreferencesStore } from '@/stores/preferences';
 const ui = useUiStore();
+const preferences = usePreferencesStore();
 const router = useRouter();
+const searchEnabled = computed(() => !preferences.toolModules.disabled['builtin.search']);
+watch(searchEnabled, (enabled) => {
+  if (!enabled && ui.searchOpen) ui.searchOpen = false;
+});
 const term = ref('');
 const debounced = ref('');
 const group = ref('all');
@@ -219,6 +225,7 @@ function createTeam() {
   open({ id: 'create', label: '创建团队', path: '/agent' });
 }
 function hotkey(event: KeyboardEvent) {
+  if (!searchEnabled.value) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
     ui.searchOpen = !ui.searchOpen;
@@ -231,7 +238,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <Dialog v-model:open="ui.searchOpen">
+  <Dialog v-if="searchEnabled" v-model:open="ui.searchOpen">
     <DialogContent class="sm:max-w-2xl">
       <DialogHeader
         ><DialogTitle>全局搜索</DialogTitle

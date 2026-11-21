@@ -848,16 +848,16 @@ button {
 .app-shell {
   display: grid;
   background: color-mix(in oklab, var(--muted) 40%, var(--background));
-  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
+  grid-template-columns: calc(64px + var(--component-sidebar-inset, 12px) * 2) minmax(0, 1fr);
   min-height: 100vh;
 }
 
-.app-shell.sidebar-is-collapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
+.app-shell.secondary-is-open {
+  grid-template-columns: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 12px) * 2) minmax(0, 1fr);
 }
 
 .group-sidebar {
-  /* 与右栏同语言:浮起的圆角卡片,不再全高直角贴边。
+  /* 与右栏同语言:浮起的圆角卡片,两栏合在一块 nav-panel 表面内,避免嵌套重复模糊/纹理。
      高度用 dvh 而非 vh:跟随真实可见视口(宿主浏览器收缩 chrome 时
      vh 会大于可见区,卡片下方会露出一段页面底色)。 */
   position: sticky;
@@ -866,12 +866,247 @@ button {
   display: flex;
   height: calc(100dvh - var(--component-sidebar-inset, 12px) * 2);
   min-width: 0;
-  flex-direction: column;
+  flex-direction: row;
   margin: var(--component-sidebar-inset, 12px);
   border: 1px solid var(--border);
   border-radius: var(--component-panel-radius, var(--radius, 0.5rem));
-  padding: 20px 12px;
+  padding: 0;
   overflow: hidden;
+}
+
+.primary-rail {
+  display: flex;
+  width: 64px;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.primary-nav {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-nav-zone {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.primary-nav-item {
+  width: 100%;
+  cursor: grab;
+}
+
+.primary-nav-item:active {
+  cursor: grabbing;
+}
+
+.primary-nav-separator {
+  width: 28px;
+  flex: none;
+  margin: 2px 0;
+}
+
+.primary-sort-gap {
+  width: 100%;
+  flex: none;
+}
+
+.primary-rail [data-component='navigation-item'] {
+  width: 44px;
+  height: 40px;
+  flex: none;
+  padding: 0;
+  justify-content: center;
+}
+
+/* 一级图标栏选中态仅用底色区分，不渲染左侧竖条指示器。 */
+.primary-rail [data-component='navigation-item'][data-current='true']::before {
+  display: none;
+}
+
+.secondary-panel {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 14px 12px;
+  border-inline-start: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.team-segment-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--component-chip-radius);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition: background-color var(--component-feedback-duration), color var(--component-feedback-duration);
+}
+
+.team-segment-tab:hover {
+  color: var(--foreground);
+}
+
+.team-segment-tab[data-active='true'] {
+  background: var(--component-nav-current-bg);
+  color: var(--component-selection-fg);
+}
+
+.recent-team-avatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  color: var(--component-image-scrim-fg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: transform var(--component-feedback-duration), border-color var(--component-feedback-duration);
+}
+
+.recent-team-avatar:hover {
+  transform: scale(1.05);
+}
+
+.recent-team-avatar[data-current='true'] {
+  border-color: var(--primary);
+}
+
+.team-group-section {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--component-chip-radius);
+}
+
+.team-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.team-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 6px 4px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.team-folder-trigger {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px;
+  border-radius: var(--component-chip-radius);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-align: left;
+  transition: background-color var(--component-feedback-duration), color var(--component-feedback-duration);
+}
+
+.team-folder-trigger:hover {
+  background: var(--state-hover);
+  color: var(--foreground);
+}
+
+.team-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 6px;
+}
+
+.team-folder-cards {
+  padding-inline-start: 10px;
+}
+
+.team-card-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  position: relative;
+}
+
+.team-card {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 32px 9px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--component-card-radius);
+  background: color-mix(in oklch, var(--muted) 42%, transparent);
+  transition: background-color var(--component-feedback-duration), border-color var(--component-feedback-duration);
+}
+
+.team-card:hover {
+  background: var(--state-hover);
+}
+
+.team-card:active {
+  background: var(--state-pressed);
+}
+
+.team-card[data-selected='true'] {
+  background: var(--component-nav-selected-bg);
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+.team-card[data-current='true'] {
+  background: var(--component-nav-current-bg);
+  border-color: var(--component-nav-current-border);
+}
+
+.team-card-avatar {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--component-image-scrim-fg);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.team-card-menu {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--component-feedback-duration);
+}
+
+.team-card-wrap:hover .team-card-menu,
+.team-card-wrap:focus-within .team-card-menu {
+  opacity: 1;
 }
 
 /* 折叠动画所在的滚动容器:常驻滚动条槽位,避免内容增减时滚动条
@@ -879,7 +1114,8 @@ button {
 .agent-side,
 .panel-side-scroll,
 .context-scroll,
-.team-home {
+.team-home,
+.team-navigation {
   scrollbar-gutter: stable;
 }
 
@@ -892,17 +1128,14 @@ button {
   display: none;
 }
 
-.group-sidebar-collapsed {
-  align-items: center;
-  padding-inline: 8px;
-}
-
 .sidebar-actions {
   display: flex;
   width: 100%;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 10px;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
 }
 
 .sidebar-unread-count {
@@ -922,14 +1155,6 @@ button {
 [data-component='navigation-item'][data-collapsed='true'] {
   padding-inline: 0;
   justify-content: center;
-}
-
-.group-sidebar-collapsed .sidebar-actions > button {
-  justify-content: center;
-}
-
-.group-sidebar-collapsed .sidebar-actions {
-  margin-top: auto;
 }
 
 .member-card {
@@ -1540,7 +1765,7 @@ button {
 
 @media (max-width: 760px) {
   .app-shell,
-  .app-shell.sidebar-is-collapsed {
+  .app-shell.secondary-is-open {
     grid-template-columns: minmax(0, 1fr);
     /* 单列时两行各自 auto 会被 align-content: stretch 拉伸:多余空间塞给第一行，
        顶部导航下方凭空多出几百像素空白。显式行定义 + start 让主内容紧跟导航。 */
@@ -1548,57 +1773,68 @@ button {
     align-content: start;
   }
 
-  .group-sidebar,
-  .group-sidebar-collapsed {
-    /* 窄屏侧栏压成一条顶部导航:图标入口一行排开，团队列表交给主页。 */
+  .group-sidebar {
+    /* 窄屏一级栏压成一条顶部横向图标条:固定区/插件区以竖线分隔，团队列表交给主页。 */
     position: relative;
+    top: 0;
     height: auto;
     align-self: start;
     max-height: none;
     flex-direction: row;
     align-items: center;
-    gap: 4px;
+    padding: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .primary-rail {
+    width: 100%;
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
     padding: 8px 10px;
     overflow-x: auto;
     overflow-y: hidden;
   }
 
-  .group-sidebar > div:first-child {
-    flex: none;
-    padding-inline: 0;
-  }
-
-  .group-sidebar nav[aria-label='主导航'] {
+  .primary-nav {
+    width: auto;
     flex: none;
     flex-direction: row;
+    align-items: center;
     gap: 6px;
-    margin-top: 0;
   }
 
-  .group-sidebar nav[aria-label='主导航'] > div {
+  .primary-nav-zone {
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .primary-nav-item {
     width: auto;
   }
 
-  /* 折叠态把导航项挤到只剩图标宽度;顶部条里需要给足点击区域。 */
-  .group-sidebar nav[aria-label='主导航'] [data-component='navigation-item'] {
-    min-inline-size: 36px;
-    min-block-size: 36px;
+  .primary-nav-separator {
+    width: 1px;
+    height: 22px;
+    margin: 0 2px;
   }
 
-  .group-sidebar .sidebar-actions {
+  .primary-rail [data-component='navigation-item'] {
+    width: 36px;
+    height: 36px;
+  }
+
+  .primary-rail .sidebar-actions {
     width: auto;
     flex: none;
     flex-direction: row;
     margin-top: 0;
     margin-inline-start: auto;
-  }
-
-  .group-sidebar .sidebar-actions > div {
-    width: auto;
-  }
-
-  .group-sidebar > button:last-child {
-    display: none;
+    padding-top: 0;
   }
 
   main {
@@ -1656,34 +1892,41 @@ button {
 .sidebar-resize-handle {
   display: none;
 }
-@media (min-width: 1280px) {
-  .app-shell,
-  .workspace-shell {
+@media (min-width: 761px) {
+  .app-shell {
     position: relative;
   }
-  .sidebar-resize-handle {
+  .left-resize-handle {
+    /* 仅挂在二级面板右缘（一级栏 64px + 二级栏宽 + 左外边距），不画竖线，悬停切换 col-resize 光标。 */
     display: block;
-    position: absolute;
-    top: 0;
-    bottom: 0;
+    position: fixed;
+    left: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 12px) - 4px);
+    top: var(--component-sidebar-inset, 12px);
+    bottom: var(--component-sidebar-inset, 12px);
     width: 8px;
     z-index: 25;
     cursor: col-resize;
     touch-action: none;
   }
-  .left-resize-handle {
-    /* 卡片右边缘位于列宽减去 12px 外边距处，8px 热区居中覆盖边缘。 */
-    left: calc(var(--sidebar-width, 248px) - 16px);
-    top: 12px;
-    bottom: 12px;
-    position: fixed;
-  }
-  .right-resize-handle {
-    right: calc(var(--context-width, 360px) + 3px);
-  }
   .is-resizing {
     cursor: col-resize;
     user-select: none;
+  }
+}
+@media (min-width: 1280px) {
+  .workspace-shell {
+    position: relative;
+  }
+  .right-resize-handle {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(var(--context-width, 360px) + 3px);
+    width: 8px;
+    z-index: 25;
+    cursor: col-resize;
+    touch-action: none;
   }
 }
 
@@ -2277,9 +2520,9 @@ html[data-density='loose'] {
   border: 1px solid var(--component-choice-border);
   border-radius: var(--component-control-radius);
   background: var(--component-choice-bg);
-  color: var(--foreground);
+  color: var(--muted-foreground);
   box-shadow: var(--component-choice-shadow);
-  transition: background-color var(--component-feedback-duration), border-color var(--component-feedback-duration), box-shadow var(--component-feedback-duration);
+  transition: background-color var(--component-feedback-duration), color var(--component-feedback-duration), border-color var(--component-feedback-duration), box-shadow var(--component-feedback-duration);
 }
 /* 覆盖组件里 spacing=0 的固定 rounded-md/rounded-none:分段按钮圆角一律取
    材质变量,与外框(control-radius + track-padding)同心,不随材质错位。 */
@@ -2290,6 +2533,7 @@ html[data-density='loose'] {
 }
 [data-presentation='segmented'] > [data-slot='toggle-group-item']:hover {
   background: var(--component-choice-hover-bg);
+  color: var(--foreground);
 }
 [data-presentation='segmented'] > [data-slot='toggle-group-item'][data-state='on'] {
   background: var(--component-choice-selected-bg);

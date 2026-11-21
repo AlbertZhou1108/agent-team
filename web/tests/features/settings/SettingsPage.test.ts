@@ -70,6 +70,13 @@ describe('settings page', () => {
     }
   });
 
+  it('tools tab lists builtin.search toggle derived from BUILTIN_TOOLS', async () => {
+    const { html } = await render(SettingsPage, '/settings?section=tools');
+    expect(html).toContain('全局搜索');
+    expect(html).toContain('启用全局搜索');
+    expect(html).toContain('显示「全局搜索」的左导航入口');
+  });
+
   // 宿主详情是独立页面：进入后标签栏和通用分区其余小节都不应再出现。
   it('renders the host detail as its own page and hides the tab list', async () => {
     const { html } = await render(SettingsPage, '/settings?section=general&host=codex');
