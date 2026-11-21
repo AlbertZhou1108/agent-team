@@ -32,6 +32,7 @@ const COMPONENT_VARIABLES = new Set([...readFileSync(join(srcDir, 'theme/compone
 const EXEMPT_PATHS = [
   /\.test\./,
   /shared\/team-colors\.ts/,
+  /features\/messages\/identity\.ts/,
 ];
 
 const CHECKS = [
@@ -71,6 +72,21 @@ const CHECKS = [
     name: '十六进制色值字面量(应消费语义令牌)',
     // 覆盖 3/4/6/8 位写法:#fff、#ffff、#ffffff、#ffffff80 都算绕过。
     pattern: /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/,
+    scopes: ['components', 'features', 'pages', 'app'],
+  },
+  {
+    name: 'Tailwind 调色板类(应消费语义令牌)',
+    // zinc-500、red-600 这类静态调色板不跟主题、不跟明暗;黑白同理
+    // (叠图控件压印层走 --component-image-scrim-* ,见组件契约 style 维度)。
+    pattern: /\b(?:text|bg|border|ring|fill|stroke|from|to|via|outline|decoration|accent|caret|shadow|divide|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-\d+)?(?:\/\d+)?\b|\b(?:text|bg|border|ring|shadow|outline|divide|placeholder)-(?:black|white)(?:\/\d+)?\b/,
+    scopes: ['components', 'features', 'pages', 'app'],
+  },
+  {
+    name: '静态圆角档位(应消费 --component-*-radius 刻度)',
+    // 圆角是材质刻度(panel>card>control>chip,随材质表取值),组件按语义档
+    // 消费 rounded-(--component-*-radius);rounded-full/none 是形状不是刻度,
+    // rounded-xs 保留给不随材质的微装饰(tooltip 箭头等几何软化)。
+    pattern: /\brounded-(?:sm|md|lg|xl|2xl|3xl)\b/,
     scopes: ['components', 'features', 'pages', 'app'],
   },
   {
