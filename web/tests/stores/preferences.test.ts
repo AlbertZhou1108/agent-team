@@ -132,6 +132,11 @@ describe('preferences appearance', () => {
     store.setMountHidden('builtin.coordination', 'right-tools', false);
     expect(store.toolModules.hidden).toEqual({});
     expect(JSON.parse(written.at(-1)!).toolModules.hidden).toEqual({});
+
+    store.setMountHidden('builtin.coordination', 'team-tabs', true);
+    expect(store.toolModules.hidden['builtin.coordination:team-tabs']).toBe(true);
+    store.setMountHidden('builtin.coordination', 'team-tabs', false);
+    expect(store.toolModules.hidden).toEqual({});
   });
 
   it('toggles and persists tool enablement', () => {

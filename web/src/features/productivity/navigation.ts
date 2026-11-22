@@ -1,21 +1,13 @@
-export type SearchEntry = {
-  id: string;
-  label: string;
-  path: string;
-  keywords?: string;
-};
+import type { SearchEntry } from '@/plugins/types';
+
+export type { SearchEntry };
+
 export const navigationEntries: SearchEntry[] = [
   {
     id: 'home',
     label: '主页',
     path: '/groups',
     keywords: '首页 待处理 运行活动 统计 摘要',
-  },
-  {
-    id: 'notes',
-    label: '随心记',
-    path: '/notes',
-    keywords: '想法 记录 笔记 灵感 备忘 随手记 待办',
   },
   {
     id: 'agent',
@@ -51,6 +43,21 @@ export const navigationEntries: SearchEntry[] = [
       }[label!] ?? ''),
   })),
 ];
+/**
+ * 剔除归属已禁用插件的条目。最近访问来自 localStorage，旧记录可能缺 pluginId，
+ * 因此按 id 回查所有插件静态条目补齐归属。
+ */
+export function withoutDisabledPlugins<T extends SearchEntry>(
+  entries: T[],
+  disabled: Record<string, boolean>,
+  knownPluginEntries: readonly SearchEntry[] = [],
+): T[] {
+  return entries.filter((entry) => {
+    const pluginId =
+      entry.pluginId ?? knownPluginEntries.find((item) => item.id === entry.id)?.pluginId;
+    return !pluginId || !disabled[pluginId];
+  });
+}
 export function matchingEntries(entries: SearchEntry[], query: string) {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return entries.filter((entry) =>

@@ -156,3 +156,7 @@ A private idea record, owned by the user rather than any team. Three states only
 A note may carry a **source team** (`source_team_id`): the team context it was written in. Source is a historical fact used for display and filtering — not ownership. It never cascades (deleting a team leaves the note), never grants access, and never enters the prompt. A source whose team no longer exists shows as 团队已删除.
 _Avoid_: 待办卡片、想法任务、笔记状态（不要给它加执行状态）、归属团队（来源不是归属）
 
+
+**Plugin / 插件**:
+An optional, self-contained panel feature (e.g. 全局搜索, 随心记) that declares where it appears through **mounts** (`left-nav` entry, `right-tools` block). The user may disable a whole plugin or hide individual mounts; disabling one must leave core panel work (conversations, team management, settings, Panel Agent) intact, and every entry it contributes (navigation, search entries, hotkeys) disappears with it. Built-in plugins ship with the app and cannot be uninstalled. Code identifiers currently live in `web/src/tools` as `Tool*`; the rename is folded into contract v3.
+_Avoid_: 工具（与 Agent 可调用的工具面 `src/tools/` 撞名）、扩展、模块

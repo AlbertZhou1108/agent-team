@@ -124,6 +124,16 @@ const selectedNote = computed<Note | null>(() => {
     ?? pinnedNotes.value.find(note => note.id === selectedId.value)
     ?? null;
 });
+// 深链(?note=<id>)指向已完成或已归档笔记时，自动切到对应状态页签以免列表与详情脱节。
+watch(
+  () => detailQuery.data.value,
+  (note) => {
+    if (note && note.id === selectedId.value && !saving.value && note.state !== filter.value) {
+      filter.value = note.state;
+    }
+  },
+  { immediate: true },
+);
 const listError = computed(() => (notesQuery.error.value as Error | null)?.message ?? '');
 
 async function refresh() {

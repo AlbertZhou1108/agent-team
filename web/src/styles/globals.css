@@ -2598,7 +2598,9 @@ html[data-density='loose'] {
   height: 1rem;
 }
 [data-part='disclosure-indicator'] {
-  transition: transform var(--component-disclosure-duration) var(--component-disclosure-easing);
+  transition:
+    transform var(--component-disclosure-duration) var(--component-disclosure-easing),
+    rotate var(--component-disclosure-duration) var(--component-disclosure-easing);
 }
 [aria-expanded='true'] > [data-slot='item-actions'] > [data-part='disclosure-indicator'] { transform: rotate(90deg); }
 /* 内容面唯一标记:data-component='content-surface'。Card.vue 自带该标记,

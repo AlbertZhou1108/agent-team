@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { BUILTIN_TOOLS, TOOL_SLOT_LABELS } from '@/tools';
+import { BUILTIN_PLUGINS, PLUGIN_SLOT_LABELS } from '@/plugins';
 import { usePreferencesStore } from '@/stores/preferences';
 
 const preferences = usePreferencesStore();
@@ -14,7 +14,7 @@ const preferences = usePreferencesStore();
             </p>
             <div class="mt-1 divide-y divide-border">
             <div
-              v-for="tool in BUILTIN_TOOLS"
+              v-for="tool in BUILTIN_PLUGINS"
               :key="tool.id"
               class="flex flex-col gap-3 py-3 first:pt-0"
               :class="{ 'opacity-60': preferences.toolModules.disabled[tool.id] }"
@@ -44,11 +44,11 @@ const preferences = usePreferencesStore();
                   :key="mount.slot"
                   class="flex items-center justify-between gap-3"
                 >
-                  <span class="text-xs text-muted-foreground">{{ TOOL_SLOT_LABELS[mount.slot] }}</span>
+                  <span class="text-xs text-muted-foreground">{{ PLUGIN_SLOT_LABELS[mount.slot] }}</span>
                   <Switch
                     :model-value="!preferences.toolModules.hidden[`${tool.id}:${mount.slot}`]"
                     class="shrink-0"
-                    :aria-label="`显示「${tool.name}」的${TOOL_SLOT_LABELS[mount.slot]}`"
+                    :aria-label="`显示「${tool.name}」的${PLUGIN_SLOT_LABELS[mount.slot]}`"
                     @update:model-value="preferences.setMountHidden(tool.id, mount.slot, !Boolean($event))"
                   />
                 </div>

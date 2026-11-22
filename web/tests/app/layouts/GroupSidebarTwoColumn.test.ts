@@ -5,7 +5,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { nextTick, ref } from 'vue';
 import { NotebookPen, Search } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
-import GlobalSearch from '@/features/productivity/GlobalSearch.vue';
+import App from '@/App.vue';
 import { useTeamOrganization } from '@/stores/team-organization';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useUiStore } from '@/stores/ui';
@@ -28,6 +28,7 @@ vi.mock('@tanstack/vue-query', async () => {
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  RouterView: { render: () => null },
 }));
 
 const sampleGroups: Group[] = [
@@ -385,17 +386,18 @@ describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近
   });
 });
 
-describe('全局搜索工具禁用与跨区拖拽隔离', () => {
-  it('禁用 builtin.search 后 ⌘K / Ctrl+K 不再打开搜索弹层', async () => {
+describe('全局搜索插件禁用与跨区拖拽隔离', () => {
+  it('禁用 builtin.search 后弹层卸载且 ⌘K / Ctrl+K 不再打开搜索弹层', async () => {
+    stubMediaQuery();
     const preferences = usePreferencesStore();
     const ui = useUiStore();
-    const wrapper = mount(GlobalSearch);
+    const wrapper = mount(App);
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true }));
     await nextTick();
     expect(ui.searchOpen).toBe(true);
 
-    // 禁用全局搜索工具后自动关闭，且 ⌘K 不再打开。
+    // 禁用全局搜索插件后浮层卸载并关闭 searchOpen，且 ⌘K 不再打开。
     preferences.setToolEnabled('builtin.search', false);
     await nextTick();
     expect(ui.searchOpen).toBe(false);

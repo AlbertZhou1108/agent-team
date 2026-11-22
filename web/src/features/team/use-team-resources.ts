@@ -29,7 +29,7 @@ export function useTeamResources(options: TeamResourcesOptions) {
     // 路由投影
     isPanelAgentRoute: derived.isPanelAgentRoute,
     isSettingsRoute: derived.isSettingsRoute,
-    isNotesRoute: derived.isNotesRoute,
+    activePluginRoute: derived.activePluginRoute,
     sidebarGroupId: derived.sidebarGroupId,
     currentModelPolicy: derived.currentModelPolicy,
     modelPolicyDefaults: queries.modelPolicyDefaults,
@@ -69,11 +69,9 @@ export function useTeamResources(options: TeamResourcesOptions) {
     tasksQuery: queries.tasksQuery,
     agentTasksView: queries.agentTasksView,
     sessionQuery: queries.sessionQuery,
-    // 工具导航
-    notesTool: derived.notesTool,
-    navToolEntries: derived.navToolEntries,
-    notesPageComponent: derived.notesPageComponent,
-    notesEnabled: derived.notesEnabled,
+    // 插件槽位与导航
+    navPluginEntries: derived.navPluginEntries,
+    teamTabMounts: derived.teamTabMounts,
     // 动作
     modelPolicySaved: actions.modelPolicySaved,
     restoreArchivedTeam: actions.restoreArchivedTeam,

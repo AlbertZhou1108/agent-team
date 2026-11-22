@@ -24,7 +24,7 @@ import PanelState from '@/components/panel/PanelState.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
 import TeamMembersPanel from './TeamMembersPanel.vue';
-import { mountKey, type MountedTool } from '@/tools';
+import { mountKey, type MountedPlugin } from '@/plugins';
 import { useUiStore } from '@/stores/ui';
 import { useToolOrder } from './use-tool-order';
 import { contextTabs, type ContextPanel } from './types';
@@ -61,6 +61,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:panel': [value: ContextPanel];
   'open-trace': [sessionId: string];
+  'open-usage': [memberId: string];
   retry: [];
   close: [];
   'member-model-saved': [];
@@ -75,13 +76,13 @@ const {
   closeTool,
 } = useToolOrder(() => props.groupId);
 
-type ToolEntry = { id: string; entry: MountedTool };
+type ToolEntry = { id: string; entry: MountedPlugin };
 type ToolRow = SortItem<ToolEntry>;
 
 const toolsRoot = ref<HTMLElement | null>(null);
 const toolEntries = computed<ToolEntry[]>(() =>
   toolsPanelMounts.value.map((entry) => ({
-    id: mountKey(entry.tool.id, 'right-tools'),
+    id: mountKey(entry.plugin.id, 'right-tools'),
     entry,
   })),
 );
@@ -105,37 +106,32 @@ function attachTool(row: ToolRow, element: Element | ComponentPublicInstance | n
   if (row.item) sortable.bindItem(row.item.id, element instanceof HTMLElement ? element : null);
 }
 function toolName(row: ToolRow): string {
-  return row.item?.entry.tool.name ?? '';
+  return row.item?.entry.plugin.name ?? '';
 }
 function toolPinned(row: ToolRow): boolean {
-  return row.item ? isPinned(row.item.entry.tool.id) : false;
+  return row.item ? isPinned(row.item.entry.plugin.id) : false;
 }
 function togglePinRow(row: ToolRow) {
-  if (row.item) togglePin(row.item.entry.tool.id);
+  if (row.item) togglePin(row.item.entry.plugin.id);
 }
 function closeRow(row: ToolRow) {
-  if (row.item) closeTool(row.item.entry.tool.id, row.item.entry.tool.name);
+  if (row.item) closeTool(row.item.entry.plugin.id, row.item.entry.plugin.name);
 }
 function toolComponent(row: ToolRow) {
-  return row.item ? row.item.entry.mount.component : null;
+  const mount = row.item?.entry.mount;
+  return mount && mount.slot === 'right-tools' ? mount.component : null;
 }
 function bindGapRef(element: Element | ComponentPublicInstance | null) {
   sortable.bindGap(element instanceof HTMLElement ? element : null);
 }
 
-// 工具卡片展开态按 mountKey 记忆，跨 tab 切换不重置；点击成员用量摘要时自动展开协调遥测。
+// 工具卡片展开态按 mountKey 记忆，跨 tab 切换不重置。
 const toolOpenMap = ref<Record<string, boolean>>({});
-const focusedTelemetryMemberId = ref<string | undefined>(undefined);
 function isToolOpen(key: string): boolean {
   return Boolean(toolOpenMap.value[key]);
 }
 function setToolOpen(key: string, open: boolean) {
   toolOpenMap.value = { ...toolOpenMap.value, [key]: open };
-}
-function openMemberUsage(memberId: string) {
-  focusedTelemetryMemberId.value = memberId;
-  setToolOpen(mountKey('builtin.coordination', 'right-tools'), true);
-  emit('update:panel', 'tools');
 }
 
 // 工具操作菜单受控，确保按 Escape 时立即关闭。
@@ -162,7 +158,6 @@ onBeforeUnmount(() => {
 const controllers = ref<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>([]);
 watch(() => props.groupId, async (id) => {
   toolOpenMap.value = {};
-  focusedTelemetryMemberId.value = undefined;
   openMenuId.value = null;
   if (!id) { controllers.value = []; return; }
   try { controllers.value = await api.getTeamControllers(id); } catch { controllers.value = []; }
@@ -272,7 +267,7 @@ function onTab(value: string | number) {
             :running-member-ids="runningMemberIds"
             :paused-member-ids="pausedMemberIds"
             @edit-model="openMemberModelDialog"
-            @open-usage="openMemberUsage"
+            @open-usage="emit('open-usage', $event)"
             @open-trace="emit('open-trace', $event)"
           />
         </div>
@@ -340,7 +335,6 @@ function onTab(value: string | number) {
                   <component
                     :is="toolComponent(row)"
                     :group-id="groupId"
-                    :selected-member-id="row.item.entry.tool.id === 'builtin.coordination' ? focusedTelemetryMemberId : undefined"
                   />
                 </div>
               </Disclosure>

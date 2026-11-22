@@ -121,7 +121,7 @@ function modelSummary(member: Member): string {
             type="button"
             class="inline-flex items-center gap-2 rounded-(--component-chip-radius) border border-border bg-muted/40 px-2 py-1 text-xs text-foreground tabular-nums transition-colors hover:bg-accent"
             :aria-label="`查看 ${member.name} 的完整用量`"
-            title="在「工具 → 协调遥测」中查看完整用量"
+            title="在「协调遥测」中查看完整用量"
             @click="emit('openUsage', member.id)"
           >
             <span class="inline-flex items-center gap-1">

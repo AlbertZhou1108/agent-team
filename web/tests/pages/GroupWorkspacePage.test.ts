@@ -202,7 +202,7 @@ function makeResources(overrides: Record<string, unknown> = {}) {
     refreshResources: vi.fn(),
     isPanelAgentRoute: ref(false),
     isSettingsRoute: ref(false),
-    isNotesRoute: ref(false),
+    activePluginRoute: ref(null),
     sidebarGroupId: ref('g1'),
     currentModelPolicy: ref(undefined),
     modelPolicyDefaults: ref(undefined),
@@ -255,10 +255,8 @@ function makeResources(overrides: Record<string, unknown> = {}) {
     contextError: ref(null),
     retryContext: vi.fn(),
     loadInspectorMore: vi.fn(),
-    notesTool: { name: '随心记', mounts: [] },
-    navToolEntries: ref([]),
-    notesPageComponent: defineComponent(() => () => h('div', { 'data-testid': 'notes-page' })),
-    notesEnabled: ref(true),
+    navPluginEntries: ref([]),
+    teamTabMounts: ref([]),
     modelPolicySaved: vi.fn(),
     restoreArchivedTeam: vi.fn(),
   };
@@ -343,13 +341,59 @@ describe('group workspace page SSR smoke', () => {
     expect(html).not.toContain('data-testid="team-home"');
   });
 
-  it('renders the disabled-tool placeholder for notes when the tool is off', async () => {
+  it('renders the disabled-plugin placeholder when a plugin route is off', async () => {
     const { html } = await render('/notes', {
-      isNotesRoute: ref(true),
-      notesEnabled: ref(false),
+      activePluginRoute: ref({
+        plugin: { id: 'builtin.notes', name: '随心记' },
+        route: {
+          name: 'notes',
+          path: '/notes',
+          component: defineComponent(() => () => h('div', { 'data-testid': 'notes-page' })),
+        },
+        enabled: false,
+      }),
     });
     expect(html).toContain('「随心记」已在设置中禁用。');
     expect(html).not.toContain('data-testid="notes-page"');
+  });
+
+  it('renders team-tabs separator and plugin tab only when teamTabMounts is non-empty, and falls back to chat when disabled', async () => {
+    const DummyTab = defineComponent({
+      props: ['groupId', 'selectedMemberId'],
+      setup: (props) => () =>
+        h('div', {
+          'data-testid': 'dummy-team-tab',
+          'data-group-id': props.groupId,
+          'data-member-id': props.selectedMemberId ?? '',
+        }),
+    });
+
+    // 无激活 team-tabs 时不渲染分割线。
+    const empty = await render('/groups/g1');
+    expect(empty.html).not.toContain('data-testid="team-tabs-separator"');
+
+    // 有激活 team-tabs 且处于 ?view=plugin:builtin.coordination 时：展示分割线、插件标签并渲染主区组件，右侧隐藏会话切换器。
+    const mounts = ref([
+      {
+        plugin: { id: 'builtin.coordination', name: '协调遥测' },
+        mount: { slot: 'team-tabs', component: DummyTab, provides: 'member-usage' },
+      },
+    ]);
+    const active = await render('/groups/g1?view=plugin:builtin.coordination&member=m2', {
+      teamTabMounts: mounts,
+    });
+    expect(active.html).toContain('data-testid="team-tabs-separator"');
+    expect(active.html).toContain('协调遥测');
+    expect(active.html).toContain('data-custom-body="true"');
+    expect(active.html).toContain('data-testid="dummy-team-tab"');
+    expect(active.html).toContain('data-member-id="m2"');
+
+    // 插件被禁用/隐藏导致 teamTabMounts 为空时，?view=plugin:builtin.coordination 自动回退到对话视图。
+    const fallback = await render('/groups/g1?view=plugin:builtin.coordination', {
+      teamTabMounts: ref([]),
+    });
+    expect(fallback.html).toContain('data-custom-body="false"');
+    expect(fallback.html).not.toContain('data-testid="dummy-team-tab"');
   });
 
   it('renders the settings page on the settings route', async () => {

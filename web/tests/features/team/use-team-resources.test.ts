@@ -62,7 +62,7 @@ const DERIVED_KEYS = [
   'group',
   'isPanelAgentRoute',
   'isSettingsRoute',
-  'isNotesRoute',
+  'activePluginRoute',
   'sidebarGroupId',
   'currentModelPolicy',
   'currentControllerId',
@@ -86,10 +86,8 @@ const DERIVED_KEYS = [
   'contextError',
   'retryContext',
   'loadInspectorMore',
-  'notesTool',
-  'navToolEntries',
-  'notesPageComponent',
-  'notesEnabled',
+  'navPluginEntries',
+  'teamTabMounts',
 ] as const;
 const ACTION_KEYS = ['modelPolicySaved', 'restoreArchivedTeam'] as const;
 

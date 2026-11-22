@@ -21,7 +21,7 @@ import { withGap } from '@/shared/sort-preview';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { usePreferencesStore, type PrimaryNavId } from '@/stores/preferences';
 import { useTeamOrganization } from '@/stores/team-organization';
-import { mountKey } from '@/tools';
+import { mountKey } from '@/plugins';
 import { cn } from '@/lib/utils';
 import SidebarEntry from './SidebarEntry.vue';
 import TeamSecondaryPanel from './TeamSecondaryPanel.vue';

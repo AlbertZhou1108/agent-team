@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { SlidersHorizontal } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { api } from '@/shared/api/client';
+import { PLUGIN_SEARCH_CONTEXT_KEY } from '@/plugins/types';
 import {
   Dialog,
   DialogContent,
@@ -35,17 +36,17 @@ import {
 } from '@/components/ui/select';
 import {
   navigationEntries,
+  withoutDisabledPlugins,
   matchingEntries,
   type SearchEntry,
 } from './navigation';
 import { usePanelAgentStore } from '@/stores/panel-agent';
-import { usePreferencesStore } from '@/stores/preferences';
 const ui = useUiStore();
-const preferences = usePreferencesStore();
 const router = useRouter();
-const searchEnabled = computed(() => !preferences.toolModules.disabled['builtin.search']);
-watch(searchEnabled, (enabled) => {
-  if (!enabled && ui.searchOpen) ui.searchOpen = false;
+const pluginSearch = inject(PLUGIN_SEARCH_CONTEXT_KEY, {
+  providers: computed(() => []),
+  disabled: computed(() => ({})),
+  allStaticEntries: [],
 });
 const term = ref('');
 const debounced = ref('');
@@ -80,8 +81,17 @@ const directory = useQuery({
   queryFn: ({ signal }) => api.directory(signal),
   enabled: computed(() => ui.searchOpen),
 });
-const entries = computed(() => [
+const staticEntries = computed(() => [
   ...navigationEntries,
+  ...pluginSearch.providers.value.flatMap((provider) =>
+    (provider.static ?? []).map((entry) => ({
+      ...entry,
+      pluginId: entry.pluginId ?? provider.pluginId,
+    })),
+  ),
+]);
+const entries = computed(() => [
+  ...staticEntries.value,
   ...(groups.data.value ?? []).map((g) => ({
     id: g.id,
     label: g.name,
@@ -106,7 +116,7 @@ const shortcutGroups = computed(() =>
       label: '页面',
       items: shortcuts.value.filter(
         (e) =>
-          navigationEntries.some((n) => n.id === e.id) &&
+          staticEntries.value.some((n) => n.id === e.id) &&
           !e.id.startsWith('setting-'),
       ),
     },
@@ -164,7 +174,49 @@ const messages = useQuery({
   },
   refetchOnWindowFocus: false,
 });
+const queryProviders = computed(() =>
+  pluginSearch.providers.value.filter((provider) => Boolean(provider.query)),
+);
+const providerHits = useQuery({
+  queryKey: computed(() => [
+    'workspace-search-providers',
+    debounced.value,
+    queryProviders.value.map((provider) => provider.id),
+  ]),
+  enabled: computed(
+    () =>
+      ui.searchOpen &&
+      Boolean(debounced.value) &&
+      queryProviders.value.length > 0,
+  ),
+  queryFn: async ({ signal }) => {
+    const groups = await Promise.all(
+      queryProviders.value.map(async (provider) => {
+        try {
+          const hits = await provider.query!(debounced.value, signal);
+          return {
+            id: provider.id,
+            heading: provider.heading,
+            pluginId: provider.pluginId,
+            hits,
+          };
+        } catch (error) {
+          if (signal.aborted) throw error;
+          return {
+            id: provider.id,
+            heading: provider.heading,
+            pluginId: provider.pluginId,
+            hits: [],
+          };
+        }
+      }),
+    );
+    return groups.filter((groupHit) => groupHit.hits.length > 0);
+  },
+  refetchOnWindowFocus: false,
+});
 const recent = ref<SearchEntry[]>([]);
+const knownLabelEntries = [...navigationEntries, ...pluginSearch.allStaticEntries];
 try {
   const value = JSON.parse(
     localStorage.getItem('agent-team:recent-navigation') ?? '[]',
@@ -180,12 +232,20 @@ try {
       )
       .map((entry) => ({
         ...entry,
-        label: navigationEntries.find((item) => item.id === entry.id)?.label ?? entry.label,
+        label: knownLabelEntries.find((item) => item.id === entry.id)?.label ?? entry.label,
       }))
       .slice(0, 5);
 } catch {
   /* optional history */
 }
+// 只在展示层过滤：禁用期间保留原记录，重新启用插件后最近访问随之恢复。
+const visibleRecent = computed(() =>
+  withoutDisabledPlugins(
+    recent.value,
+    pluginSearch.disabled.value,
+    pluginSearch.allStaticEntries,
+  ),
+);
 async function open(entry: SearchEntry) {
   const person = directory.data.value?.members.find((m) => m.id === entry.id);
   if (person) {
@@ -224,21 +284,13 @@ function createTeam() {
   if (!panel.draft.trim()) panel.setDraft('请帮我创建一个新团队。');
   open({ id: 'create', label: '创建团队', path: '/agent' });
 }
-function hotkey(event: KeyboardEvent) {
-  if (!searchEnabled.value) return;
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault();
-    ui.searchOpen = !ui.searchOpen;
-  }
-}
-onMounted(() => window.addEventListener('keydown', hotkey));
 onBeforeUnmount(() => {
   clearTimeout(timer);
-  window.removeEventListener('keydown', hotkey);
+  ui.searchOpen = false;
 });
 </script>
 <template>
-  <Dialog v-if="searchEnabled" v-model:open="ui.searchOpen">
+  <Dialog v-model:open="ui.searchOpen">
     <DialogContent class="sm:max-w-2xl">
       <DialogHeader
         ><DialogTitle>全局搜索</DialogTitle
@@ -317,11 +369,11 @@ onBeforeUnmount(() => {
         </FieldGroup>
         <Separator v-if="advanced" />
         <CommandList>
-          <CommandGroup v-if="!term && recent.length" heading="最近访问"
+          <CommandGroup v-if="!term && visibleRecent.length" heading="最近访问"
             ><template #heading
               ><Badge variant="secondary">最近访问</Badge></template
             ><CommandItem
-              v-for="entry in recent"
+              v-for="entry in visibleRecent"
               :key="entry.path"
               :value="`recent-${entry.id}`"
               @select="open(entry)"
@@ -332,7 +384,7 @@ onBeforeUnmount(() => {
             v-for="(category, index) in shortcutGroups"
             :key="category.label"
           >
-            <CommandSeparator v-if="index > 0 || (!term && recent.length)" />
+            <CommandSeparator v-if="index > 0 || (!term && visibleRecent.length)" />
             <CommandGroup :heading="category.label">
               <template #heading
                 ><span class="flex items-center justify-between gap-2"
@@ -356,6 +408,40 @@ onBeforeUnmount(() => {
               >创建团队…</CommandItem
             ></CommandGroup
           >
+          <template v-if="term && term.trim() === debounced">
+            <template v-for="groupHit in providerHits.data.value ?? []" :key="groupHit.id">
+              <CommandSeparator />
+              <CommandGroup :heading="groupHit.heading">
+                <template #heading>
+                  <span class="flex items-center justify-between gap-2">
+                    <Badge variant="secondary">{{ groupHit.heading }}</Badge>
+                    <span>{{ groupHit.hits.length }}</span>
+                  </span>
+                </template>
+                <CommandItem
+                  v-for="hit in groupHit.hits"
+                  :key="`${groupHit.id}-${hit.id}`"
+                  :value="`${groupHit.id}-${hit.id}`"
+                  @select="
+                    open({
+                      id: `${groupHit.id}:${hit.id}`,
+                      label: hit.label,
+                      path: hit.path,
+                      pluginId: groupHit.pluginId,
+                    })
+                  "
+                >
+                  <span class="flex min-w-0 flex-col gap-0.5">
+                    <span class="flex items-center gap-2">
+                      <span class="truncate font-medium">{{ hit.label }}</span>
+                      <span v-if="hit.meta" class="shrink-0 text-xs text-muted-foreground">{{ hit.meta }}</span>
+                    </span>
+                    <span v-if="hit.description" class="line-clamp-1 text-xs text-muted-foreground">{{ hit.description }}</span>
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            </template>
+          </template>
           <CommandSeparator v-if="term" /><CommandGroup
             v-if="term"
             heading="消息"

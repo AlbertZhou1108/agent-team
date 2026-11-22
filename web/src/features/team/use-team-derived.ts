@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
@@ -8,7 +8,11 @@ import {
   reuseMessageViews,
   toMessageViews,
 } from '@/features/messages/adapters';
-import { builtinTool, navToolEntries as navToolEntriesFor } from '@/tools';
+import {
+  activeMounts,
+  activePluginRoute as activePluginRouteFor,
+  navPluginEntries as navPluginEntriesFor,
+} from '@/plugins';
 import type { TeamQueriesOptions } from './use-team-queries';
 import type { TeamQueries } from './use-team-queries';
 
@@ -22,6 +26,7 @@ export function useTeamDerived(
   queries: TeamQueries,
 ) {
   const route = useRoute();
+  const router = useRouter();
   const preferences = usePreferencesStore();
   const directiveState = useTeamDirectiveStore();
   const ui = useUiStore();
@@ -29,7 +34,9 @@ export function useTeamDerived(
 
   const isPanelAgentRoute = computed(() => route.name === 'panel-agent');
   const isSettingsRoute = computed(() => route.name === 'settings');
-  const isNotesRoute = computed(() => route.name === 'notes');
+  const activePluginRoute = computed(() =>
+    activePluginRouteFor(route.name as string | undefined, preferences.toolModules),
+  );
 
   const groups = computed(() =>
     queries.allGroups.value.filter((team) => team.state !== 'archived'),
@@ -226,18 +233,15 @@ export function useTeamDerived(
       : (queries.turnsQuery.error.value ?? (options.detailsVisible.value ? queries.sessionQuery.error.value : undefined)),
   );
 
-  // 工具模块：左导航条目与启用状态全部由注册表 + 用户偏好推导。
-  const notesTool = builtinTool('builtin.notes')!;
-  const navToolEntries = computed(() =>
-    navToolEntriesFor(preferences.toolModules, route.name as string | undefined, {
-      searchOpen: ui.searchOpen,
+  // 插件模块：左导航与团队顶栏标签均由注册表 + 用户偏好统一推导，宿主不写死插件 id。
+  const navPluginEntries = computed(() =>
+    navPluginEntriesFor(preferences.toolModules, route.name as string | undefined, {
+      router,
+      ui,
     }),
   );
-  const notesPageComponent = computed(
-    () => notesTool.mounts.find((mount) => mount.slot === 'left-nav')!.component,
-  );
-  const notesEnabled = computed(
-    () => !preferences.toolModules.disabled[notesTool.id],
+  const teamTabMounts = computed(() =>
+    activeMounts('team-tabs', preferences.toolModules),
   );
 
   /** 「加载更早回合」:按完整回合向前翻,失败只弹 toast。 */
@@ -252,7 +256,7 @@ export function useTeamDerived(
   return {
     isPanelAgentRoute,
     isSettingsRoute,
-    isNotesRoute,
+    activePluginRoute,
     groups,
     archivedGroups,
     group,
@@ -278,10 +282,8 @@ export function useTeamDerived(
     contextError,
     retryContext,
     inspectorError,
-    notesTool,
-    navToolEntries,
-    notesPageComponent,
-    notesEnabled,
+    navPluginEntries,
+    teamTabMounts,
     loadInspectorMore,
   };
 }

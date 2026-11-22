@@ -17,7 +17,7 @@ import {
   type ReadingWidth,
 } from '@/theme/apply';
 import type { ThemeTokens } from '@/theme/tokens';
-import { TOOL_SLOTS, builtinTool, type ToolSlot } from '@/tools';
+import { PLUGIN_SLOTS, builtinPlugin, type PluginSlot } from '@/plugins';
 
 export type ColorMode = 'dark' | 'light' | 'system';
 
@@ -100,13 +100,13 @@ function loadToolModules(value: unknown): ToolModulesState {
       ? Object.entries(input as Record<string, unknown>)
       : [];
   const knownId = (key: string) => {
-    const [toolId] = key.split(':');
-    return Boolean(builtinTool(toolId));
+    const [pluginId] = key.split(':');
+    return Boolean(builtinPlugin(pluginId));
   };
   const disabled = Object.fromEntries(
     entries(record.disabled).filter(
       (entry): entry is [string, boolean] =>
-        typeof entry[1] === 'boolean' && Boolean(builtinTool(entry[0])),
+        typeof entry[1] === 'boolean' && Boolean(builtinPlugin(entry[0])),
     ),
   );
   const hidden = Object.fromEntries(
@@ -114,18 +114,18 @@ function loadToolModules(value: unknown): ToolModulesState {
       (entry): entry is [string, boolean] =>
         typeof entry[1] === 'boolean' &&
         knownId(entry[0]) &&
-        (TOOL_SLOTS as readonly string[]).includes(entry[0].split(':')[1] ?? ''),
+        (PLUGIN_SLOTS as readonly string[]).includes(entry[0].split(':')[1] ?? ''),
     ),
   );
-  // 顺序表的键是槽位名,值内的挂载键必须工具与槽位都已知。
+  // 顺序表的键是槽位名,值内的挂载键必须插件与槽位都已知。
   const knownMountKey = (key: string) => {
-    const [toolId, slot] = key.split(':');
-    return Boolean(builtinTool(toolId)) && (TOOL_SLOTS as readonly string[]).includes(slot ?? '');
+    const [pluginId, slot] = key.split(':');
+    return Boolean(builtinPlugin(pluginId)) && (PLUGIN_SLOTS as readonly string[]).includes(slot ?? '');
   };
   const order = Object.fromEntries(
     entries(record.order)
       .filter((entry): entry is [string, unknown[]] =>
-        (TOOL_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
+        (PLUGIN_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
       .map(([slot, list]) => [
         slot,
         list.filter((item): item is string => typeof item === 'string' && knownMountKey(item)),
@@ -134,7 +134,7 @@ function loadToolModules(value: unknown): ToolModulesState {
   const pinned = Object.fromEntries(
     entries(record.pinned)
       .filter((entry): entry is [string, unknown[]] =>
-        (TOOL_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
+        (PLUGIN_SLOTS as readonly string[]).includes(entry[0]) && Array.isArray(entry[1]))
       .map(([slot, list]) => [
         slot,
         list.filter((item): item is string => typeof item === 'string' && knownMountKey(item)),
@@ -280,18 +280,18 @@ export const usePreferencesStore = defineStore('preferences', {
       else this.toolModules.disabled[id] = true;
       this.persist();
     },
-    setMountHidden(toolId: string, slot: ToolSlot, hidden: boolean) {
-      const key = `${toolId}:${slot}`;
+    setMountHidden(pluginId: string, slot: PluginSlot, hidden: boolean) {
+      const key = `${pluginId}:${slot}`;
       if (hidden) this.toolModules.hidden[key] = true;
       else delete this.toolModules.hidden[key];
       this.persist();
     },
-    setToolOrder(slot: ToolSlot, keys: string[]) {
+    setToolOrder(slot: PluginSlot, keys: string[]) {
       this.toolModules.order[slot] = keys;
       this.persist();
     },
     /** 置顶/取消置顶只动这一层,不碰用户拖出来的顺序。 */
-    setToolPinned(slot: ToolSlot, key: string, pinned: boolean) {
+    setToolPinned(slot: PluginSlot, key: string, pinned: boolean) {
       const current = this.toolModules.pinned[slot] ?? [];
       const next = current.filter(item => item !== key);
       if (pinned) next.push(key);

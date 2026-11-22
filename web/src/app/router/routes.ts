@@ -1,4 +1,12 @@
 import type { RouteRecordRaw } from 'vue-router';
+import { collectPluginRoutes } from '@/plugins';
+
+const pluginRoutes: RouteRecordRaw[] = collectPluginRoutes().map(({ plugin, route }) => ({
+  path: route.path,
+  name: route.name,
+  component: () => import('@/pages/GroupWorkspacePage.vue'),
+  meta: { pluginId: plugin.id },
+}));
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -20,11 +28,7 @@ export const routes: RouteRecordRaw[] = [
     name: 'group',
     component: () => import('@/pages/GroupWorkspacePage.vue'),
   },
-  {
-    path: '/notes',
-    name: 'notes',
-    component: () => import('@/pages/GroupWorkspacePage.vue'),
-  },
+  ...pluginRoutes,
   {
     path: '/settings',
     name: 'settings',

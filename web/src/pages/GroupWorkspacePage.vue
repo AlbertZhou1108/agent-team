@@ -20,10 +20,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { api } from '@/shared/api/client';
-import { builtinTool } from '@/tools';
+import {
+  BUILTIN_PLUGINS,
+  builtinPlugin,
+  findPluginCommand,
+  type MountedPlugin,
+} from '@/plugins';
 import { toStreamMessageViews } from '@/features/messages/adapters';
 import {
   teamConversationAfterSend,
@@ -78,21 +84,13 @@ watch(() => route.query.interaction, (value) => {
   delete query.pair;
   void router.replace({ query });
 }, { immediate: true });
-type WorkspaceView = 'chat' | 'trace' | 'events';
-const workspaceTabs: Array<{ value: WorkspaceView; label: string }> = [
+type WorkspaceView = 'chat' | 'trace' | 'events' | `plugin:${string}`;
+const workspaceTabs: Array<{ value: 'chat' | 'trace' | 'events'; label: string }> = [
   { value: 'chat', label: '对话' },
   { value: 'trace', label: '轨迹' },
   { value: 'events', label: '原始事件' },
 ];
 const selectedSessionId = computed(() => teamConversationSession(route.query));
-const workspaceView = computed<WorkspaceView>(() => {
-  const view = routeString(route.query.view);
-  if (view === 'trace' || view === 'events' || view === 'chat') return view;
-  // 兼容旧深链（?panel=details / ?panel=sessions）：自动映射到主区轨迹标签页。
-  const legacyPanel = routeString(route.query.panel);
-  if (legacyPanel === 'details' || legacyPanel === 'sessions') return 'trace';
-  return 'chat';
-});
 const activeTab = computed<InspectorTab>(() => 'trace');
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
@@ -104,8 +102,15 @@ const contextPanel = computed<ContextPanel>(() => {
 });
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
-// 执行轨迹已迁至中间主区，仅当主区位于「轨迹」或「原始事件」时拉取回合摘要。
-const detailsVisible = computed(() => workspaceView.value === 'trace' || workspaceView.value === 'events');
+const detailsVisible = computed(() => {
+  const view = routeString(route.query.view);
+  if (view === 'trace' || view === 'events') return true;
+  if (!view) {
+    const legacyPanel = routeString(route.query.panel);
+    return legacyPanel === 'details' || legacyPanel === 'sessions';
+  }
+  return false;
+});
 const traceSearchQuery = ref('');
 watch(groupId, () => { traceSearchQuery.value = ''; });
 
@@ -113,7 +118,7 @@ const resources = useTeamResources({ groupId, selectedSessionId, activeTab, cont
 const {
   allGroups, groups, archivedGroups, group, members, actors, overview, agentTasksView,
   navigationState, workspaceState, refreshResources, isPanelAgentRoute,
-  isSettingsRoute, isNotesRoute, sidebarGroupId, currentModelPolicy,
+  isSettingsRoute, activePluginRoute, sidebarGroupId, currentModelPolicy,
   modelPolicyDefaults, homeRunningByGroup, runningEndpoints, currentControllerId,
   currentController, pausedMemberIds, currentMembers, currentEndpoints,
   currentSessionBindings, selectedEndpoint, selectedPair,
@@ -122,10 +127,32 @@ const {
   messagesQuery, directivesQuery,
   interactionsQuery, messageViews, turnSummaries, unaffiliatedEvents,
   turnsQuery, inspectorHasNextPage, inspectorFetchingNextPage,
-  inspectorError, contextError, retryContext, loadInspectorMore, notesTool,
-  navToolEntries, notesPageComponent, notesEnabled, modelPolicySaved,
+  inspectorError, contextError, retryContext, loadInspectorMore,
+  navPluginEntries, teamTabMounts, modelPolicySaved,
   restoreArchivedTeam,
 } = resources;
+
+const activeTeamTabMount = computed<MountedPlugin | null>(() => {
+  const view = routeString(route.query.view);
+  if (!view.startsWith('plugin:')) return null;
+  const pluginId = view.slice('plugin:'.length);
+  return teamTabMounts.value.find((entry) => entry.plugin.id === pluginId) ?? null;
+});
+const activeTeamTabComponent = computed(() => {
+  const mount = activeTeamTabMount.value?.mount;
+  return mount && mount.slot === 'team-tabs' ? mount.component : null;
+});
+const workspaceView = computed<WorkspaceView>(() => {
+  const view = routeString(route.query.view);
+  if (view === 'trace' || view === 'events' || view === 'chat') return view;
+  if (view.startsWith('plugin:')) {
+    return activeTeamTabMount.value ? (view as WorkspaceView) : 'chat';
+  }
+  // 兼容旧深链（?panel=details / ?panel=sessions）：自动映射到主区轨迹标签页。
+  const legacyPanel = routeString(route.query.panel);
+  if (legacyPanel === 'details' || legacyPanel === 'sessions') return 'trace';
+  return 'chat';
+});
 
 // 团队流与页面同生命周期切换；消息落库后的清理在组合式函数内部完成。
 const { activeStreams: activeTeamStreaming } = useTeamStream({
@@ -186,17 +213,25 @@ function openPanelAgent() {
   router.push({ name: 'panel-agent' });
 }
 
-// 工具模块:左导航条目与启用状态全部由注册表 + 用户偏好推导。
+// 插件模块：左导航条目统一按注册表声明的 route / command 分发。
 function openTool(id: string) {
-  const mount = builtinTool(id)?.mounts.find((item) => item.slot === 'left-nav');
-  if (!mount) return;
-  if (mount.action === 'open-search') {
-    if (!preferences.toolModules.disabled[id]) ui.searchOpen = true;
+  const plugin = builtinPlugin(id);
+  const mount = plugin?.mounts.find((item) => item.slot === 'left-nav');
+  if (!plugin || !mount || mount.slot !== 'left-nav') return;
+  if ('command' in mount) {
+    if (preferences.toolModules.disabled[id]) return;
+    findPluginCommand(plugin, mount.command)?.run({ router, ui });
     return;
   }
-  if (!mount.routeName || route.name === mount.routeName) return;
+  if (route.name === mount.route) return;
   ui.closeInspector();
-  router.push({ name: mount.routeName });
+  router.push({ name: mount.route });
+}
+
+function teamTabLabel(entry: MountedPlugin): string {
+  return entry.mount.slot === 'team-tabs' && entry.mount.label
+    ? entry.mount.label
+    : entry.plugin.name;
 }
 
 function openCreateTeam() {
@@ -224,13 +259,35 @@ function defaultTraceSessionId(): string {
 }
 
 function setWorkspaceView(view: WorkspaceView) {
-  const nextSession =
-    view === 'chat'
-      ? selectedSessionId.value || undefined
-      : (selectedSessionId.value || defaultTraceSessionId() || undefined);
+  const isFixed = view === 'chat' || view === 'trace' || view === 'events';
+  const nextSession = isFixed
+    ? (view === 'chat'
+        ? selectedSessionId.value || undefined
+        : (selectedSessionId.value || defaultTraceSessionId() || undefined))
+    : selectedSessionId.value || undefined;
   replaceQuery({
     view: view === 'chat' ? undefined : view,
     session: nextSession,
+    member: undefined,
+    panel: contextPanel.value,
+    tab: undefined,
+  });
+}
+
+function openMemberUsage(memberId: string) {
+  const target = teamTabMounts.value.find(
+    (entry) => entry.mount.slot === 'team-tabs' && entry.mount.provides === 'member-usage',
+  );
+  if (!target) {
+    const owner = BUILTIN_PLUGINS.find((plugin) =>
+      plugin.mounts.some((mount) => mount.slot === 'team-tabs' && mount.provides === 'member-usage'),
+    );
+    toast.info(`「${owner?.name ?? '协调遥测'}」已在设置中关闭`);
+    return;
+  }
+  replaceQuery({
+    view: `plugin:${target.plugin.id}`,
+    member: memberId,
     panel: contextPanel.value,
     tab: undefined,
   });
@@ -331,8 +388,8 @@ function onMemberModelSaved() {
       :groups="groups"
       :members="members"
       :current-group-id="sidebarGroupId"
-      :home-active="!isPanelAgentRoute && !isSettingsRoute && !isNotesRoute && !group"
-      :tool-entries="navToolEntries"
+      :home-active="!isPanelAgentRoute && !isSettingsRoute && !activePluginRoute && !group"
+      :tool-entries="navPluginEntries"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
       :settings-active="isSettingsRoute"
@@ -375,10 +432,10 @@ function onMemberModelSaved() {
       />
       <Card v-else-if="groupId && !group" class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">正在读取团队…</CardContent></Card>
       <CreateTeam v-else-if="route.name === 'create-team'" />
-      <!-- 工具页面:启用时渲染工具组件,禁用时保留路由但给出占位。 -->
-      <template v-else-if="isNotesRoute">
-        <component :is="notesPageComponent" v-if="notesEnabled" />
-        <Card v-else class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">「{{ notesTool.name }}」已在设置中禁用。</CardContent></Card>
+      <!-- 插件页面：启用时渲染插件路由组件，禁用时保留路由并展示统一占位。 -->
+      <template v-else-if="activePluginRoute">
+        <component :is="activePluginRoute.route.component" v-if="activePluginRoute.enabled" />
+        <Card v-else class="m-4"><CardContent class="p-6 text-sm text-muted-foreground">「{{ activePluginRoute.plugin.name }}」已在设置中禁用。</CardContent></Card>
       </template>
       <TeamHome
         v-else-if="!group && !isPanelAgentRoute"
@@ -430,7 +487,7 @@ function onMemberModelSaved() {
             <Button variant="outline" size="sm" class="xl:hidden" @click="ui.openInspector()"><PanelRightOpen />群信息</Button>
           </template>
           <template #status>
-            <Alert v-if="inspectorError && workspaceView !== 'chat'" variant="destructive" class="mx-4 mb-2 w-auto"><AlertDescription>{{ inspectorError.message }}</AlertDescription></Alert>
+            <Alert v-if="inspectorError && (workspaceView === 'trace' || workspaceView === 'events')" variant="destructive" class="mx-4 mb-2 w-auto"><AlertDescription>{{ inspectorError.message }}</AlertDescription></Alert>
           </template>
           <template #context>
             <div
@@ -452,8 +509,30 @@ function onMemberModelSaved() {
                 >
                   {{ tab.label }}
                 </button>
+                <template v-if="teamTabMounts.length">
+                  <Separator
+                    orientation="vertical"
+                    class="mx-1 h-3.5! self-center"
+                    data-testid="team-tabs-separator"
+                  />
+                  <button
+                    v-for="entry in teamTabMounts"
+                    :key="entry.plugin.id"
+                    type="button"
+                    role="tab"
+                    :aria-selected="workspaceView === `plugin:${entry.plugin.id}`"
+                    class="relative px-2.5 py-1 text-xs font-medium transition-colors"
+                    :class="workspaceView === `plugin:${entry.plugin.id}`
+                      ? 'text-foreground after:absolute after:inset-x-1 after:-bottom-2 after:h-0.5 after:bg-primary'
+                      : 'text-muted-foreground hover:text-foreground'"
+                    :data-team-tab-plugin="entry.plugin.id"
+                    @click="setWorkspaceView(`plugin:${entry.plugin.id}`)"
+                  >
+                    {{ teamTabLabel(entry) }}
+                  </button>
+                </template>
               </div>
-              <div class="flex flex-wrap items-center gap-2">
+              <div v-if="!activeTeamTabMount" class="flex flex-wrap items-center gap-2">
                 <SessionSwitcher
                   :endpoints="currentEndpoints"
                   :members="members"
@@ -477,8 +556,14 @@ function onMemberModelSaved() {
             </div>
           </template>
           <template #body>
+            <component
+              :is="activeTeamTabComponent"
+              v-if="activeTeamTabComponent"
+              :group-id="group.id"
+              :selected-member-id="routeString(route.query.member) || undefined"
+            />
             <TeamTraceWorkspace
-              v-if="workspaceView !== 'chat'"
+              v-else-if="workspaceView === 'trace' || workspaceView === 'events'"
               :mode="workspaceView"
               :endpoints="currentEndpoints"
               :endpoint="selectedEndpoint"
@@ -543,6 +628,7 @@ function onMemberModelSaved() {
           :current-endpoints="currentEndpoints"
           @update:panel="setContextPanel"
           @open-trace="openMemberTrace"
+          @open-usage="openMemberUsage"
           @retry="retryContext"
           @close="closeContextPanel"
           @member-model-saved="onMemberModelSaved"
