@@ -4,6 +4,7 @@ const storageKey = 'agent-team:ui';
 
 function load() {
   try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     return {
       sidebarCollapsed: false,
       contextCollapsed: false,
@@ -14,10 +15,16 @@ function load() {
       composerHeight: 96,
       composerCollapsed: true,
       noteComposerCollapsed: true,
-      ...JSON.parse(localStorage.getItem(storageKey) ?? '{}'),
+      ...saved,
+      // 日期分组 key 必须是纯字符串数组;坏的旧值不让整页加载失败。
+      noteCollapsedGroups: Array.isArray(saved.noteCollapsedGroups)
+        ? saved.noteCollapsedGroups.filter((key: unknown): key is string => typeof key === 'string')
+        : [],
+      // 高度只认有限数字;范围由输入框自己按视口再夹一次。
+      noteComposerHeight: Number.isFinite(saved.noteComposerHeight) ? saved.noteComposerHeight : 128,
     };
   } catch {
-    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true, noteComposerCollapsed: true };
+    return { sidebarWidth: 248, contextWidth: 360, composerHeight: 96, sidebarCollapsed: false, contextCollapsed: false, inspectorOpen: false, inspectorWidth: 440, composerCollapsed: true, noteComposerCollapsed: true, noteComposerHeight: 128, noteCollapsedGroups: [] };
   }
 }
 
@@ -34,6 +41,8 @@ export const useUiStore = defineStore('ui', {
         composerHeight: this.composerHeight,
         composerCollapsed: this.composerCollapsed,
         noteComposerCollapsed: this.noteComposerCollapsed,
+        noteComposerHeight: this.noteComposerHeight,
+        noteCollapsedGroups: this.noteCollapsedGroups,
       }));
     },
     toggleSidebar() {

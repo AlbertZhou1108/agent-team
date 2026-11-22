@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Pin as PinIcon, Search as SearchIcon, NotebookPen } from '@lucide/vue';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
-import { Button } from '@/components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Disclosure } from '@/components/ui/disclosure';
@@ -17,6 +18,7 @@ import { useSentinelLoad } from '@/shared/use-sentinel-load';
 import { NOTE_DRAG_TYPE } from '@/shared/pdd-drag';
 import { usePddBindings } from '@/shared/use-pdd-bindings';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
+import { useUiStore } from '@/stores/ui';
 import { motionDurationMs, MOTION_EASING, prefersReducedMotion } from '@/shared/motion';
 import { cn } from '@/lib/utils';
 import {
@@ -103,10 +105,11 @@ const teamLabel = computed(() => {
 /* 交互镜像左侧栏团队列表:普通点击=重置选区并打开详情;shift+点击=区间并集;
    Cmd/Ctrl=间断切换;拖拽把整个选区带走,投到批量卡片或侧栏 Panel Agent。 */
 
+const ui = useUiStore();
 const selected = ref<string[]>([]);
 const anchor = ref<string>();
-// 折叠是会话内状态:切筛选/搜索后分组重排,保留旧 key 没有意义。
-const collapsedGroups = ref(new Set<string>());
+// 折叠状态跟人走:key 是日期(或 __pinned__),刷新后仍回到上次展开/收起的样子。
+const collapsedGroups = computed(() => new Set(ui.noteCollapsedGroups));
 // 可见序 = 未折叠的置顶面板 + 未折叠日期分组。折叠内容的笔记不参与区间选择。
 const visibleIds = computed(() => {
   const ids: string[] = [];
@@ -305,10 +308,12 @@ onBeforeUnmount(() => {
 
 /* ------------------------------ 日期分组折叠 ------------------------------ */
 
-// 折叠是会话内状态:切筛选/搜索后分组重排,保留旧 key 没有意义。
 function toggleGroup(key: string, open: boolean) {
-  if (open) collapsedGroups.value.delete(key);
-  else collapsedGroups.value.add(key);
+  const next = new Set(ui.noteCollapsedGroups);
+  if (open) next.delete(key);
+  else next.add(key);
+  ui.noteCollapsedGroups = [...next];
+  ui.persist();
 }
 watch(() => [...collapsedGroups.value], pruneSelection);
 
@@ -326,20 +331,20 @@ useSentinelLoad({
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <div class="flex flex-wrap items-center gap-2">
-      <div class="flex items-center gap-1" role="tablist" aria-label="记录状态">
-        <Button
-          v-for="state in filters"
-          :key="state"
-          size="sm"
-          :variant="state === filter ? 'secondary' : 'ghost'"
-          role="tab"
-          :aria-selected="state === filter"
-          @click="emit('update:filter', state)"
-        >
+      <ToggleGroup
+        presentation="segmented"
+        type="single"
+        :model-value="filter"
+        variant="outline"
+        size="sm"
+        aria-label="记录状态"
+        @update:model-value="value => { if (value) emit('update:filter', value as NoteState) }"
+      >
+        <ToggleGroupItem v-for="state in filters" :key="state" :value="state">
           {{ noteStateLabel(state) }}
           <span class="text-xs text-muted-foreground tabular-nums">{{ counts[state] }}</span>
-        </Button>
-      </div>
+        </ToggleGroupItem>
+      </ToggleGroup>
       <!-- 级联筛选:先选维度(团队/标签),值下拉跟随维度切换;维度切换互斥清空另一侧。 -->
       <Select
         :model-value="dimension"
@@ -415,52 +420,58 @@ useSentinelLoad({
           </span>
           <Badge variant="outline">{{ pinned.length }} 条</Badge>
         </template>
-        <ul class="flex flex-col pt-1">
+        <ul class="flex flex-col gap-2 pt-1">
           <li v-for="note in pinned" :key="note.id">
-            <button
-              type="button"
-              :ref="el => bindRowDraggable(el, note, 'pinned')"
-              :data-note-id="note.id"
-              :data-selected="selected.includes(note.id) ? 'true' : undefined"
-              :class="cn(
-                'note-row flex w-full min-w-0 cursor-grab flex-col gap-1 rounded-(--component-control-radius) px-2 py-2 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing',
-                note.id === selectedId && 'bg-accent/70',
-              )"
-              :aria-current="note.id === selectedId ? 'true' : undefined"
-              :aria-pressed="selected.includes(note.id) ? 'true' : undefined"
-              @click="toggleSelect(note, $event)"
+            <Card
+              size="compact"
+              class="gap-0 py-0"
+              :class="note.id === selectedId && 'ring-1 ring-primary/50'"
             >
-              <span class="flex min-w-0 items-center gap-2">
-                <PinIcon class="size-3 shrink-0 text-muted-foreground" />
-                <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
-                <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
-                <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
-              </span>
-              <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
-                  {{ noteSourceLabel(note) }}
-                </Badge>
-                <span
-                  v-for="tag in noteTagChips(note)"
-                  :key="tag.id"
-                  class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
-                  :title="tag.name"
-                >
-                  <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
-                  {{ tag.name }}
+              <button
+                type="button"
+                :ref="el => bindRowDraggable(el, note, 'pinned')"
+                :data-note-id="note.id"
+                :data-selected="selected.includes(note.id) ? 'true' : undefined"
+                :class="cn(
+                  'note-row flex w-full min-w-0 cursor-grab flex-col gap-1 rounded-(--component-panel-radius) px-3 py-2.5 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing',
+                  note.id === selectedId && 'bg-accent/50',
+                )"
+                :aria-current="note.id === selectedId ? 'true' : undefined"
+                :aria-pressed="selected.includes(note.id) ? 'true' : undefined"
+                @click="toggleSelect(note, $event)"
+              >
+                <span class="flex min-w-0 items-center gap-2">
+                  <PinIcon class="size-3 shrink-0 text-muted-foreground" />
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
+                  <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
+                  <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
                 </span>
-                <span
-                  v-if="note.tags.length > 3"
-                  class="shrink-0 text-muted-foreground"
-                  :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
-                >+{{ note.tags.length - 3 }}</span>
-                <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
-                <span v-if="note.todos.length" class="shrink-0 tabular-nums">
-                  {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
+                    {{ noteSourceLabel(note) }}
+                  </Badge>
+                  <span
+                    v-for="tag in noteTagChips(note)"
+                    :key="tag.id"
+                    class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
+                    :title="tag.name"
+                  >
+                    <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
+                    {{ tag.name }}
+                  </span>
+                  <span
+                    v-if="note.tags.length > 3"
+                    class="shrink-0 text-muted-foreground"
+                    :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
+                  >+{{ note.tags.length - 3 }}</span>
+                  <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
+                  <span v-if="note.todos.length" class="shrink-0 tabular-nums">
+                    {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                  </span>
+                  <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
                 </span>
-                <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
-              </span>
-            </button>
+              </button>
+            </Card>
           </li>
         </ul>
       </Disclosure>
@@ -475,51 +486,57 @@ useSentinelLoad({
           <span class="text-xs font-medium text-muted-foreground">{{ group.label }}</span>
           <Badge variant="outline">{{ group.notes.length }} 条</Badge>
         </template>
-        <ul class="flex flex-col pt-1">
+        <ul class="flex flex-col gap-2 pt-1">
           <li v-for="note in group.notes" :key="note.id">
-            <button
-              type="button"
-              :ref="el => bindRowDraggable(el, note, 'day')"
-              :data-note-id="note.id"
-              :data-selected="selected.includes(note.id) ? 'true' : undefined"
-              :class="cn(
-                'note-row flex w-full min-w-0 cursor-grab flex-col gap-1 rounded-(--component-control-radius) px-2 py-2 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing',
-                note.id === selectedId && 'bg-accent/70',
-              )"
-              :aria-current="note.id === selectedId ? 'true' : undefined"
-              :aria-pressed="selected.includes(note.id) ? 'true' : undefined"
-              @click="toggleSelect(note, $event)"
+            <Card
+              size="compact"
+              class="gap-0 py-0"
+              :class="note.id === selectedId && 'ring-1 ring-primary/50'"
             >
-              <span class="flex min-w-0 items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
-                <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
-                <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
-              </span>
-              <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
-                  {{ noteSourceLabel(note) }}
-                </Badge>
-                <span
-                  v-for="tag in noteTagChips(note)"
-                  :key="tag.id"
-                  class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
-                  :title="tag.name"
-                >
-                  <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
-                  {{ tag.name }}
+              <button
+                type="button"
+                :ref="el => bindRowDraggable(el, note, 'day')"
+                :data-note-id="note.id"
+                :data-selected="selected.includes(note.id) ? 'true' : undefined"
+                :class="cn(
+                  'note-row flex w-full min-w-0 cursor-grab flex-col gap-1 rounded-(--component-panel-radius) px-3 py-2.5 text-start transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing',
+                  note.id === selectedId && 'bg-accent/50',
+                )"
+                :aria-current="note.id === selectedId ? 'true' : undefined"
+                :aria-pressed="selected.includes(note.id) ? 'true' : undefined"
+                @click="toggleSelect(note, $event)"
+              >
+                <span class="flex min-w-0 items-center gap-2">
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ note.title || '无标题' }}</span>
+                  <Badge v-if="note.state !== 'active'" variant="outline">{{ noteStateLabel(note.state) }}</Badge>
+                  <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{{ formatNoteTime(note.updated) }}</span>
                 </span>
-                <span
-                  v-if="note.tags.length > 3"
-                  class="shrink-0 text-muted-foreground"
-                  :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
-                >+{{ note.tags.length - 3 }}</span>
-                <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
-                <span v-if="note.todos.length" class="shrink-0 tabular-nums">
-                  {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Badge v-if="noteSourceLabel(note)" variant="outline" class="shrink-0">
+                    {{ noteSourceLabel(note) }}
+                  </Badge>
+                  <span
+                    v-for="tag in noteTagChips(note)"
+                    :key="tag.id"
+                    class="flex shrink-0 items-center gap-1 rounded-full border border-input px-1.5 py-0.5"
+                    :title="tag.name"
+                  >
+                    <span v-if="tag.color" class="size-1.5 rounded-full" :style="{ backgroundColor: tag.color }" aria-hidden="true" />
+                    {{ tag.name }}
+                  </span>
+                  <span
+                    v-if="note.tags.length > 3"
+                    class="shrink-0 text-muted-foreground"
+                    :title="note.tags.slice(3).map(id => props.tags.find(tag => tag.id === id)?.name ?? '').filter(Boolean).join('、')"
+                  >+{{ note.tags.length - 3 }}</span>
+                  <span class="min-w-0 flex-1 truncate">{{ noteExcerpt(note) }}</span>
+                  <span v-if="note.todos.length" class="shrink-0 tabular-nums">
+                    {{ note.todos.filter(todo => todo.done).length }}/{{ note.todos.length }}
+                  </span>
+                  <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
                 </span>
-                <span v-if="note.due" class="shrink-0">{{ note.due }}</span>
-              </span>
-            </button>
+              </button>
+            </Card>
           </li>
         </ul>
       </Disclosure>
