@@ -51,8 +51,16 @@ const groupId = computed(() => routeString(route.params.groupId));
 const secondaryOpen = ref(Boolean(groupId.value) || route.name === 'create-team');
 watch(
   [groupId, () => route.name],
-  ([id, name]) => {
-    secondaryOpen.value = Boolean(id) || name === 'create-team';
+  ([id, name], [prevId, prevName]) => {
+    const isTeamRoute = Boolean(id) || name === 'create-team';
+    const wasTeamRoute = Boolean(prevId) || prevName === 'create-team';
+    if (!isTeamRoute) {
+      secondaryOpen.value = false;
+      return;
+    }
+    if (!wasTeamRoute) {
+      secondaryOpen.value = true;
+    }
   },
 );
 watch(

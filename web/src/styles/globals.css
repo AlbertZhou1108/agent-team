@@ -950,12 +950,25 @@ button {
 }
 
 .secondary-panel {
+  position: relative;
   display: flex;
   min-width: 0;
   flex: 1;
   flex-direction: column;
   padding: 14px 12px;
   border-inline-start: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.secondary-panel-collapse-float[data-surface='overlay'] {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: 12px;
+  z-index: 10;
+  display: inline-flex;
+  border: 1px solid var(--component-surface-border);
+  border-radius: 9999px;
+  background-color: var(--surface-overlay-bg, var(--popover));
   overflow: hidden;
 }
 
@@ -1087,14 +1100,15 @@ button {
   background: var(--state-pressed);
 }
 
-.team-card[data-selected='true'] {
-  background: var(--component-nav-selected-bg);
-  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
-}
-
 .team-card[data-current='true'] {
   background: var(--component-nav-current-bg);
   border-color: var(--component-nav-current-border);
+}
+
+.team-card[data-selected='true']:not([data-current='true']),
+.team-navigation[data-multi-select='true'] .team-card[data-selected='true'] {
+  background: var(--component-nav-selected-bg);
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
 }
 
 .team-card-avatar {

@@ -78,29 +78,23 @@ export function filterTeamsByQuery(
   });
 }
 
-/** 最近访问快捷头像列表：优先活跃时间，若无活动记录则回落 org.order / 创建时间，不新增存储。 */
+/** 最近访问快捷头像列表：按最近访问 ID 顺序匹配现存未归档团队，最多保留 limit 个（默认 9 个）。 */
 export function recentTeams(
   groups: readonly Group[],
-  activityByTeam?: ReadonlyMap<string, number>,
-  order?: readonly string[],
-  limit = 8,
+  recentIds: readonly string[],
+  limit = 9,
 ): Group[] {
-  const hasActivity = Boolean(activityByTeam && groups.some(g => (activityByTeam.get(g.id) ?? 0) > 0));
-  if (hasActivity) {
-    return sortTeamsByActivity(groups, activityByTeam).slice(0, limit);
+  if (!recentIds.length || limit <= 0) return [];
+  const byId = new Map(groups.map(group => [group.id, group]));
+  const result: Group[] = [];
+  const seen = new Set<string>();
+  for (const id of recentIds) {
+    if (seen.has(id)) continue;
+    const group = byId.get(id);
+    if (!group) continue;
+    seen.add(id);
+    result.push(group);
+    if (result.length >= limit) break;
   }
-  if (order?.length) {
-    const orderMap = new Map(order.map((id, idx) => [id, idx]));
-    return [...groups]
-      .sort((a, b) => {
-        const ai = orderMap.get(a.id);
-        const bi = orderMap.get(b.id);
-        if (ai !== undefined && bi !== undefined) return ai - bi;
-        if (ai !== undefined) return -1;
-        if (bi !== undefined) return 1;
-        return teamActiveTimestamp(b) - teamActiveTimestamp(a);
-      })
-      .slice(0, limit);
-  }
-  return sortTeamsByActivity(groups).slice(0, limit);
+  return result;
 }

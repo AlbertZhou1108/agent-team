@@ -5,12 +5,15 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  ChevronsLeft,
   FolderPlus,
+  Pin,
   Plus,
   Search,
   X,
 } from '@lucide/vue';
 import type { Group, Member } from '@/shared/api/raw-types';
+import { Surface } from '@/components/surface';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
@@ -61,6 +64,7 @@ const emit = defineEmits<{
   select: [id: string];
   createTeam: [];
   archive: [ids: string[]];
+  collapse: [];
 }>();
 
 const org = useTeamOrganization();
@@ -139,12 +143,12 @@ const visibleFolders = computed(() => {
 });
 
 const recentList = computed(() =>
-  recentTeams(props.groups, props.activityByTeam, org.order, 8),
+  recentTeams(props.groups, org.recentIds, 9),
 );
 
 const showPinnedSection = computed(() => {
   if (segment.value !== 'all' && segment.value !== 'pinned') return false;
-  return pinnedTeams.value.length > 0 || dragging.value === 'team';
+  return pinnedTeams.value.length > 0;
 });
 
 const showFoldersSection = computed(() => {
@@ -161,6 +165,14 @@ function isFolderExpanded(folder: { collapsed?: boolean }): boolean {
   return hasQuery.value || folder.collapsed !== true;
 }
 
+function isSectionExpanded(section: 'pinned' | 'ungrouped'): boolean {
+  if (segment.value !== 'all' || hasQuery.value) return true;
+  if (section === 'ungrouped' && dragging.value === 'team' && !ungroupedTeams.value.length) {
+    return true;
+  }
+  return !org.sections[section];
+}
+
 function containerOfTeam(id: string): ContainerKey {
   return containerOf(id, org.teams[id]);
 }
@@ -168,10 +180,10 @@ function containerOfTeam(id: string): ContainerKey {
 function visibleIdsOf(container: ContainerKey | undefined): string[] {
   if (!container) return [];
   if (container === 'pinned') {
-    return pinnedTeams.value.map(group => group.id);
+    return isSectionExpanded('pinned') ? pinnedTeams.value.map(group => group.id) : [];
   }
   if (container === 'root') {
-    return ungroupedTeams.value.map(group => group.id);
+    return isSectionExpanded('ungrouped') ? ungroupedTeams.value.map(group => group.id) : [];
   }
   const folderId = container.slice('folder:'.length);
   const folder = org.folders.find(item => item.id === folderId);
@@ -222,7 +234,15 @@ function selectTeam(id: string, event: MouseEvent) {
   selected.value = result.selected;
   anchor.value = result.anchor;
   selectionContainer.value = result.selected.length ? container : undefined;
-  if (result.navigate) emit('select', id);
+  if (result.navigate) {
+    org.recordVisit(id);
+    emit('select', id);
+  }
+}
+
+function selectRecentTeam(id: string) {
+  org.recordVisit(id);
+  emit('select', id);
 }
 
 function dragIds(id: string): string[] {
@@ -326,6 +346,11 @@ function toggleFolder(id: string) {
   pruneSelection();
 }
 
+function toggleSection(section: 'pinned' | 'ungrouped') {
+  org.toggleSection(section);
+  pruneSelection();
+}
+
 function submitCreateFolder() {
   const id = org.createFolder(newFolderName.value);
   if (!id) return;
@@ -349,6 +374,19 @@ function requestArchiveFor(teamId: string) {
       ? [...selected.value]
       : [teamId];
   emit('archive', ids);
+}
+
+const allSelectedPinned = computed(
+  () => selected.value.length > 0 && selected.value.every(id => Boolean(org.teams[id]?.pinned)),
+);
+
+function togglePinSelected() {
+  if (!selected.value.length) return;
+  const ids = [...selected.value];
+  const nextPinned = !allSelectedPinned.value;
+  org.setPinned(ids, nextPinned);
+  if (nextPinned) org.expandSection('pinned');
+  clearSelection();
 }
 
 function archiveSelected() {
@@ -492,7 +530,7 @@ onBeforeUnmount(() => {
               :aria-label="`打开团队 ${team.name}`"
               :title="team.name"
               :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
-              @click="emit('select', team.id)"
+              @click="selectRecentTeam(team.id)"
             >
               {{ team.name.slice(0, 1) }}
             </button>
@@ -502,18 +540,28 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 多选批量操作条：支持拖动选中项入文件夹与批量归档 -->
+    <!-- 多选批量操作条：支持拖动选中项入文件夹、批量置顶与批量归档 -->
     <div
       v-if="selected.length > 1"
       data-batch-toolbar="true"
-      class="mt-2 flex items-center justify-between gap-2 rounded-(--component-chip-radius) bg-muted/60 px-2.5 py-1.5 text-xs"
+      class="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-(--component-chip-radius) bg-muted/60 px-2.5 py-1.5 text-xs"
     >
       <span class="truncate text-foreground tabular-nums">已选 {{ selected.length }} 个团队</span>
       <div class="flex shrink-0 items-center gap-1">
         <Button
           size="sm"
           variant="ghost"
-          class="h-6 gap-1 px-2 text-xs"
+          class="h-6 gap-1 px-1.5 text-xs"
+          :aria-label="allSelectedPinned ? '批量取消置顶已选团队' : '批量置顶已选团队'"
+          @click="togglePinSelected"
+        >
+          <Pin class="size-3.5" />
+          {{ allSelectedPinned ? '取消置顶' : '置顶' }}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 gap-1 px-1.5 text-xs"
           aria-label="批量归档已选团队"
           @click="archiveSelected"
         >
@@ -534,76 +582,88 @@ onBeforeUnmount(() => {
 
     <!-- 团队列表（统一文件夹语义：置顶 → 文件夹按名称 → 未分组；组内按活跃时间） -->
     <nav
-      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-0.5"
+      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-0.5 pb-14"
+      :data-multi-select="selected.length > 1 ? 'true' : undefined"
       aria-label="团队列表"
     >
-      <!-- 置顶（直接展示团队卡片，不折叠） -->
+      <!-- 置顶（「全部」视图支持收起/展开并持久化；独立筛选页直接展示） -->
       <section
         v-if="showPinnedSection"
         :ref="pinnedZoneRef"
         class="team-group-section"
+        :class="{ 'team-folder-collapsed': !isSectionExpanded('pinned') }"
         data-section-kind="pinned"
         :data-drop-container="containerDropZone('pinned')"
       >
-        <div class="team-section-heading">
+        <div v-if="segment === 'all'" class="team-folder-row">
+          <button
+            type="button"
+            class="team-folder-trigger"
+            :aria-expanded="isSectionExpanded('pinned')"
+            aria-controls="sidebar-section-pinned"
+            @click="toggleSection('pinned')"
+          >
+            <component :is="isSectionExpanded('pinned') ? ChevronDown : ChevronRight" class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span class="truncate">置顶</span>
+            <span class="text-muted-foreground">·</span>
+            <span class="text-muted-foreground tabular-nums">{{ pinnedTeams.length }}</span>
+          </button>
+        </div>
+        <div v-else class="team-section-heading">
           <span class="truncate">置顶</span>
           <span class="text-muted-foreground">·</span>
           <span class="text-muted-foreground tabular-nums">{{ pinnedTeams.length }}</span>
         </div>
-        <div class="team-card-list">
-          <div
-            v-for="team in pinnedTeams"
-            :key="team.id"
-            :ref="teamCardRef(team.id)"
-            class="team-row team-card-wrap"
-            :class="{ 'team-row-selected': selected.includes(team.id) }"
-            :data-team-id="team.id"
-            :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
-          >
-            <button
-              type="button"
-              class="team-card"
-              :data-current="team.id === currentGroupId ? 'true' : undefined"
-              :data-selected="selected.includes(team.id) ? 'true' : undefined"
-              :aria-current="team.id === currentGroupId ? 'page' : undefined"
-              :aria-pressed="selected.includes(team.id)"
-              :title="team.name"
-              @click="selectTeam(team.id, $event)"
+        <CollapseReveal id="sidebar-section-pinned" :show="isSectionExpanded('pinned')">
+          <div class="team-card-list">
+            <div
+              v-for="team in pinnedTeams"
+              :key="team.id"
+              :ref="teamCardRef(team.id)"
+              class="team-row team-card-wrap"
+              :class="{ 'team-row-selected': selected.includes(team.id) }"
+              :data-team-id="team.id"
+              :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
             >
-              <span
-                class="team-card-avatar"
-                :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
-                aria-hidden="true"
-              >{{ team.name.slice(0, 1) }}</span>
-              <span class="min-w-0 flex-1 text-left">
-                <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
-                <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
-                  {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+              <button
+                type="button"
+                class="team-card"
+                :data-current="team.id === currentGroupId ? 'true' : undefined"
+                :data-selected="selected.includes(team.id) ? 'true' : undefined"
+                :aria-current="team.id === currentGroupId ? 'page' : undefined"
+                :aria-pressed="selected.includes(team.id)"
+                :title="team.name"
+                @click="selectTeam(team.id, $event)"
+              >
+                <span
+                  class="team-card-avatar"
+                  :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                  aria-hidden="true"
+                >{{ team.name.slice(0, 1) }}</span>
+                <span class="min-w-0 flex-1 text-left">
+                  <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                  <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                    {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+                  </span>
                 </span>
-              </span>
-              <Badge
-                v-if="unreadFor(team.id) > 0"
-                variant="default"
-                class="shrink-0 tabular-nums"
-                :aria-label="`${unreadFor(team.id)} 条未读`"
-              >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
-            </button>
-            <div class="team-card-menu">
-              <TeamMenu
-                :id="team.id"
-                :name="team.name"
-                :archived="team.state === 'archived'"
-                @archive="requestArchiveFor(team.id)"
-              />
+                <Badge
+                  v-if="unreadFor(team.id) > 0"
+                  variant="default"
+                  class="shrink-0 tabular-nums"
+                  :aria-label="`${unreadFor(team.id)} 条未读`"
+                >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
+              </button>
+              <div class="team-card-menu">
+                <TeamMenu
+                  :id="team.id"
+                  :name="team.name"
+                  :archived="team.state === 'archived'"
+                  @archive="requestArchiveFor(team.id)"
+                />
+              </div>
             </div>
           </div>
-          <p
-            v-if="dragging === 'team' && !pinnedTeams.length"
-            class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
-          >
-            拖入置顶
-          </p>
-        </div>
+        </CollapseReveal>
       </section>
 
       <!-- 文件夹（按名称排序） -->
@@ -716,73 +776,90 @@ onBeforeUnmount(() => {
         </section>
       </template>
 
-      <!-- 未分组（直接展示团队卡片，不折叠） -->
+      <!-- 未分组（「全部」视图支持收起/展开并持久化；独立筛选页直接展示） -->
       <section
         v-if="showUngroupedSection"
         :ref="rootZoneRef"
         class="team-group-section team-root-drop"
+        :class="{ 'team-folder-collapsed': !isSectionExpanded('ungrouped') }"
         data-section-kind="ungrouped"
         :data-drop-container="containerDropZone('root')"
       >
-        <div class="team-section-heading">
+        <div v-if="segment === 'all'" class="team-folder-row">
+          <button
+            type="button"
+            class="team-folder-trigger"
+            :aria-expanded="isSectionExpanded('ungrouped')"
+            aria-controls="sidebar-section-ungrouped"
+            @click="toggleSection('ungrouped')"
+          >
+            <component :is="isSectionExpanded('ungrouped') ? ChevronDown : ChevronRight" class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span class="truncate">未分组</span>
+            <span class="text-muted-foreground">·</span>
+            <span class="text-muted-foreground tabular-nums">{{ ungroupedTeams.length }}</span>
+          </button>
+        </div>
+        <div v-else class="team-section-heading">
           <span class="truncate">未分组</span>
           <span class="text-muted-foreground">·</span>
           <span class="text-muted-foreground tabular-nums">{{ ungroupedTeams.length }}</span>
         </div>
-        <div class="team-card-list">
-          <div
-            v-for="team in ungroupedTeams"
-            :key="team.id"
-            :ref="teamCardRef(team.id)"
-            class="team-row team-card-wrap"
-            :class="{ 'team-row-selected': selected.includes(team.id) }"
-            :data-team-id="team.id"
-            :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
-          >
-            <button
-              type="button"
-              class="team-card"
-              :data-current="team.id === currentGroupId ? 'true' : undefined"
-              :data-selected="selected.includes(team.id) ? 'true' : undefined"
-              :aria-current="team.id === currentGroupId ? 'page' : undefined"
-              :aria-pressed="selected.includes(team.id)"
-              :title="team.name"
-              @click="selectTeam(team.id, $event)"
+        <CollapseReveal id="sidebar-section-ungrouped" :show="isSectionExpanded('ungrouped')">
+          <div class="team-card-list">
+            <div
+              v-for="team in ungroupedTeams"
+              :key="team.id"
+              :ref="teamCardRef(team.id)"
+              class="team-row team-card-wrap"
+              :class="{ 'team-row-selected': selected.includes(team.id) }"
+              :data-team-id="team.id"
+              :data-dragging="draggingIds.includes(team.id) ? 'true' : undefined"
             >
-              <span
-                class="team-card-avatar"
-                :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
-                aria-hidden="true"
-              >{{ team.name.slice(0, 1) }}</span>
-              <span class="min-w-0 flex-1 text-left">
-                <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
-                <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
-                  {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+              <button
+                type="button"
+                class="team-card"
+                :data-current="team.id === currentGroupId ? 'true' : undefined"
+                :data-selected="selected.includes(team.id) ? 'true' : undefined"
+                :aria-current="team.id === currentGroupId ? 'page' : undefined"
+                :aria-pressed="selected.includes(team.id)"
+                :title="team.name"
+                @click="selectTeam(team.id, $event)"
+              >
+                <span
+                  class="team-card-avatar"
+                  :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                  aria-hidden="true"
+                >{{ team.name.slice(0, 1) }}</span>
+                <span class="min-w-0 flex-1 text-left">
+                  <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                  <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
+                    {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
+                  </span>
                 </span>
-              </span>
-              <Badge
-                v-if="unreadFor(team.id) > 0"
-                variant="default"
-                class="shrink-0 tabular-nums"
-                :aria-label="`${unreadFor(team.id)} 条未读`"
-              >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
-            </button>
-            <div class="team-card-menu">
-              <TeamMenu
-                :id="team.id"
-                :name="team.name"
-                :archived="team.state === 'archived'"
-                @archive="requestArchiveFor(team.id)"
-              />
+                <Badge
+                  v-if="unreadFor(team.id) > 0"
+                  variant="default"
+                  class="shrink-0 tabular-nums"
+                  :aria-label="`${unreadFor(team.id)} 条未读`"
+                >{{ unreadLabel(unreadFor(team.id)) }}</Badge>
+              </button>
+              <div class="team-card-menu">
+                <TeamMenu
+                  :id="team.id"
+                  :name="team.name"
+                  :archived="team.state === 'archived'"
+                  @archive="requestArchiveFor(team.id)"
+                />
+              </div>
             </div>
+            <p
+              v-if="dragging === 'team' && !ungroupedTeams.length"
+              class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
+            >
+              拖入未分组
+            </p>
           </div>
-          <p
-            v-if="dragging === 'team' && !ungroupedTeams.length"
-            class="m-1 flex min-h-10 items-center justify-center rounded-(--component-chip-radius) border border-dashed border-border px-3 text-xs text-muted-foreground"
-          >
-            拖入未分组
-          </p>
-        </div>
+        </CollapseReveal>
       </section>
 
       <!-- 空态 -->
@@ -817,5 +894,25 @@ onBeforeUnmount(() => {
         没有未分组团队。
       </p>
     </nav>
+
+    <!-- 右下角浮动收起按钮：复用 overlay 表面，由一级栏「团队」图标重新展开 -->
+    <Surface role="overlay" class="secondary-panel-collapse-float">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="rounded-full text-muted-foreground hover:text-foreground"
+            aria-label="收起团队面板"
+            title="收起团队面板"
+            data-testid="team-secondary-collapse-btn"
+            @click="emit('collapse')"
+          >
+            <ChevronsLeft class="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">收起团队面板</TooltipContent>
+      </Tooltip>
+    </Surface>
   </div>
 </template>

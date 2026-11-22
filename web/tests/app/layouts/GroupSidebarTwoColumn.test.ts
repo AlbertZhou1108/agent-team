@@ -13,6 +13,7 @@ import { useSortable, SORT_DRAG_TYPE } from '@/shared/use-sortable';
 import {
   filterTeamsByQuery,
   formatActiveTime,
+  recentTeams,
   sortFoldersByName,
   sortTeamsByActivity,
 } from '@/features/layout/team-activity';
@@ -173,8 +174,8 @@ describe('GroupSidebar 两栏导航', () => {
   });
 });
 
-describe('TeamSecondaryPanel 新设计：固定排序、文件夹折叠、筛选与多选批量归档', () => {
-  it('按 置顶 → 文件夹按名称 → 未分组 展示，置顶与未分组直接展开展示，命名文件夹默认折叠且持久化', async () => {
+describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近访问 9 项、浮动收起与多选批量归档', () => {
+  it('按 置顶 → 文件夹按名称 → 未分组 展示，三者均支持收起/展开且默认折叠并持久化', async () => {
     const org = useTeamOrganization();
     org.togglePin('g-pin-old');
     org.togglePin('g-pin-new');
@@ -195,15 +196,28 @@ describe('TeamSecondaryPanel 新设计：固定排序、文件夹折叠、筛选
       'ungrouped',
     ]);
 
-    // 置顶与未分组不使用折叠按钮，直接展示卡片且按活跃时间降序。
-    expect(panel.find('[data-section-kind="pinned"] .team-folder-trigger').exists()).toBe(false);
-    expect(panel.find('[data-section-kind="ungrouped"] .team-folder-trigger').exists()).toBe(false);
+    // 置顶、文件夹、未分组均具备折叠按钮且默认折叠，组内按活跃时间降序。
+    const pinnedTrigger = panel.get('[data-section-kind="pinned"] .team-folder-trigger');
+    const ungroupedTrigger = panel.get('[data-section-kind="ungrouped"] .team-folder-trigger');
+    expect(pinnedTrigger.attributes('aria-expanded')).toBe('false');
+    expect(ungroupedTrigger.attributes('aria-expanded')).toBe('false');
+
+    await pinnedTrigger.trigger('click');
+    await ungroupedTrigger.trigger('click');
+    expect(pinnedTrigger.attributes('aria-expanded')).toBe('true');
+    expect(ungroupedTrigger.attributes('aria-expanded')).toBe('true');
+    expect(org.sections).toEqual({ pinned: false, ungrouped: false });
     expect(
       panel.findAll('[data-section-kind="pinned"] [data-team-id]').map(el => el.attributes('data-team-id')),
     ).toEqual(['g-pin-new', 'g-pin-old']);
     expect(
       panel.findAll('[data-section-kind="ungrouped"] [data-team-id]').map(el => el.attributes('data-team-id')),
     ).toEqual(['g-root-2', 'g-root-1']);
+
+    // 再次点击可收起并持久化。
+    await pinnedTrigger.trigger('click');
+    expect(pinnedTrigger.attributes('aria-expanded')).toBe('false');
+    expect(org.sections.pinned).toBe(true);
 
     // 命名文件夹按名称排序且默认折叠，点击后展开并持久化。
     const folderTriggers = panel.findAll('[data-section-kind="folder"] .team-folder-trigger');
@@ -221,6 +235,69 @@ describe('TeamSecondaryPanel 新设计：固定排序、文件夹折叠、筛选
     const recentStrip = panel.get('.recent-teams-strip');
     expect(recentStrip.classes()).toContain('overflow-x-auto');
     expect(recentStrip.classes()).toContain('scrollbar-thin');
+  });
+
+  it('最近访问随切换团队即时更新顺序、最多保留 9 个且过滤已归档团队', async () => {
+    const manyGroups: Group[] = Array.from({ length: 11 }, (_, idx) => ({
+      id: `team-${idx + 1}`,
+      name: `团队${idx + 1}`,
+      workspace: `/tmp/t-${idx + 1}`,
+      lead: 'm1',
+      created: '2026-11-21T10:00:00Z',
+    }));
+
+    const wrapper = mountSidebar({
+      groups: manyGroups,
+      currentGroupId: 'team-1',
+    });
+    const panel = wrapper.get('[data-testid="team-secondary-panel"]');
+
+    const recentIds = () =>
+      panel.findAll('.recent-team-avatar').map(btn => btn.attributes('title'));
+
+    expect(recentIds()).toEqual(['团队1']);
+
+    // 依次切换到 team-2..team-11，最新访问排在首位且总量上限为 9 个。
+    for (let i = 2; i <= 11; i += 1) {
+      await wrapper.setProps({ currentGroupId: `team-${i}` });
+      await nextTick();
+    }
+    expect(recentIds()).toEqual([
+      '团队11', '团队10', '团队9', '团队8', '团队7', '团队6', '团队5', '团队4', '团队3',
+    ]);
+
+    // 再次点击较早访问的团队（team-5）时，移到最前位且不重复。
+    await panel.get('.recent-team-avatar[title="团队5"]').trigger('click');
+    expect(wrapper.emitted('select')).toEqual([['team-5']]);
+    await nextTick();
+    expect(recentIds()).toEqual([
+      '团队5', '团队11', '团队10', '团队9', '团队8', '团队7', '团队6', '团队4', '团队3',
+    ]);
+
+    // 若团队被归档移除出 groups，自动从最近访问过滤掉。
+    await wrapper.setProps({
+      groups: manyGroups.filter(g => g.id !== 'team-10'),
+    });
+    await nextTick();
+    expect(recentIds()).toEqual([
+      '团队5', '团队11', '团队9', '团队8', '团队7', '团队6', '团队4', '团队3',
+    ]);
+  });
+
+  it('右下角浮动收起按钮可收起团队二级面板，点击一级「团队」图标重新展开', async () => {
+    const wrapper = mountSidebar();
+    const rail = wrapper.get('[data-testid="primary-rail"]');
+    const collapseBtn = wrapper.get('[data-testid="team-secondary-collapse-btn"]');
+
+    expect(collapseBtn.attributes('aria-label')).toBe('收起团队面板');
+    await collapseBtn.trigger('click');
+    expect(wrapper.find('[data-testid="team-secondary-panel"]').exists()).toBe(false);
+    expect(wrapper.emitted('update:secondaryOpen')).toEqual([[false]]);
+
+    // 点击最左一级图标栏的「团队」图标重新展开。
+    await rail.get('[data-primary-id="team"] [data-component="navigation-item"]').trigger('click');
+    expect(wrapper.find('[data-testid="team-secondary-panel"]').exists()).toBe(true);
+    expect(wrapper.emitted('update:secondaryOpen')).toEqual([[false], [true]]);
   });
 
   it('支持按团队名与成员名搜索，以及分段筛选切换（最近访问仅在「全部」标签页出现）', async () => {
@@ -245,6 +322,7 @@ describe('TeamSecondaryPanel 新设计：固定排序、文件夹折叠、筛选
     const tabs = panel.findAll('[role="tab"]');
     await tabs[1]!.trigger('click');
     expect(panel.findAll('[data-section-kind]').map(el => el.attributes('data-section-kind'))).toEqual(['pinned']);
+    expect(panel.find('[data-section-kind="pinned"] .collapse-reveal').attributes('data-open')).toBe('true');
     expect(panel.find('.recent-teams-strip').exists()).toBe(false);
 
     await tabs[2]!.trigger('click');
@@ -257,19 +335,51 @@ describe('TeamSecondaryPanel 新设计：固定排序、文件夹折叠、筛选
     expect(panel.find('.recent-teams-strip').exists()).toBe(true);
   });
 
-  it('保留 Shift/Cmd 多选并支持批量归档', async () => {
+  it('保留 Shift/Cmd 多选，置顶为空时不显示占位并支持多选工具栏批量置顶/取消置顶与批量归档', async () => {
+    const org = useTeamOrganization();
+    org.expandSection('ungrouped');
     const wrapper = mountSidebar({
       groups: sampleGroups.slice(4),
       currentGroupId: 'g-root-2',
     });
     const panel = wrapper.get('[data-testid="team-secondary-panel"]');
+    expect(panel.find('[data-section-kind="pinned"]').exists()).toBe(false);
+
+    const nav = panel.get('.team-navigation');
+    expect(nav.attributes('data-multi-select')).toBeUndefined();
+
     const cards = panel.findAll('[data-section-kind="ungrouped"] .team-card');
     expect(cards).toHaveLength(2);
 
-    // Cmd/Ctrl 点击第二张卡片加入选区。
+    // Cmd/Ctrl 点击第二张卡片加入选区：当前团队卡与新选中卡同具 data-selected，且 nav 标明多选态。
     await cards[1]!.trigger('click', { metaKey: true });
+    expect(nav.attributes('data-multi-select')).toBe('true');
+    expect(cards[0]!.attributes('data-current')).toBe('true');
+    expect(cards[0]!.attributes('data-selected')).toBe('true');
+    expect(cards[1]!.attributes('data-selected')).toBe('true');
     expect(panel.get('[data-batch-toolbar="true"]').text()).toContain('已选 2 个团队');
 
+    // 点击批量置顶后进入置顶分组（自动展开）并清空选区。
+    await panel.get('[aria-label="批量置顶已选团队"]').trigger('click');
+    expect(org.teams['g-root-2']?.pinned).toBe(true);
+    expect(org.teams['g-root-1']?.pinned).toBe(true);
+    expect(org.sections.pinned).toBe(false);
+    expect(panel.find('[data-batch-toolbar="true"]').exists()).toBe(false);
+    expect(panel.findAll('[data-section-kind="pinned"] .team-card')).toHaveLength(2);
+
+    // 在置顶分组中再次多选，按钮切换为「取消置顶」，点击后恢复到未分组。
+    const pinnedCards = panel.findAll('[data-section-kind="pinned"] .team-card');
+    await pinnedCards[0]!.trigger('click');
+    await pinnedCards[1]!.trigger('click', { metaKey: true });
+    await panel.get('[aria-label="批量取消置顶已选团队"]').trigger('click');
+    expect(org.teams['g-root-2']?.pinned).toBeUndefined();
+    expect(org.teams['g-root-1']?.pinned).toBeUndefined();
+    expect(panel.find('[data-section-kind="pinned"]').exists()).toBe(false);
+
+    // 重新多选并验证批量归档。
+    const ungroupedCards = panel.findAll('[data-section-kind="ungrouped"] .team-card');
+    await ungroupedCards[0]!.trigger('click');
+    await ungroupedCards[1]!.trigger('click', { metaKey: true });
     await panel.get('[aria-label="批量归档已选团队"]').trigger('click');
     expect(wrapper.emitted('archive')).toEqual([[['g-root-2', 'g-root-1']]]);
   });
@@ -352,5 +462,6 @@ describe('全局搜索工具禁用与跨区拖拽隔离', () => {
     expect(formatActiveTime(now - 26 * 3_600_000, now)).toBe('昨天');
 
     expect(filterTeamsByQuery(sampleGroups, sampleMembers, '林主持').map(g => g.id)).toEqual(['g-pin-new']);
+    expect(recentTeams(sampleGroups, ['g-be', 'missing', 'g-fe', 'g-be']).map(g => g.id)).toEqual(['g-be', 'g-fe']);
   });
 });

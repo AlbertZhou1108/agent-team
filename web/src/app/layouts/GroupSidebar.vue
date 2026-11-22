@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { Bot, House, Settings2, Users } from '@lucide/vue';
@@ -20,6 +20,7 @@ import { useSortable } from '@/shared/use-sortable';
 import { withGap } from '@/shared/sort-preview';
 import { useNoteHandoffStore } from '@/stores/note-handoff';
 import { usePreferencesStore, type PrimaryNavId } from '@/stores/preferences';
+import { useTeamOrganization } from '@/stores/team-organization';
 import { mountKey } from '@/tools';
 import { cn } from '@/lib/utils';
 import SidebarEntry from './SidebarEntry.vue';
@@ -65,6 +66,23 @@ const emit = defineEmits<{
 }>();
 
 const preferences = usePreferencesStore();
+const org = useTeamOrganization();
+
+let lastRecordedGroupId: string | undefined;
+watch(
+  [() => props.currentGroupId, () => props.groups],
+  ([id, groups]) => {
+    if (!id) {
+      lastRecordedGroupId = undefined;
+      return;
+    }
+    if (id !== lastRecordedGroupId && groups.some(group => group.id === id)) {
+      lastRecordedGroupId = id;
+      org.recordVisit(id);
+    }
+  },
+  { immediate: true },
+);
 // 窄屏把一级栏压成顶部横向图标条:不渲染二级面板，团队列表交给主页。
 const compact = useMediaQuery('(max-width: 760px)');
 const tooltipSide = computed<'bottom' | 'right'>(() => (compact.value ? 'bottom' : 'right'));
@@ -239,6 +257,13 @@ function activatePlugin(toolId: string) {
 function activateSettings() {
   setSecondaryOpen(false);
   emit('openSettings');
+}
+
+function handleSelectTeam(id: string) {
+  if (id && props.groups.some(group => group.id === id)) {
+    org.recordVisit(id);
+  }
+  emit('select', id);
 }
 
 function fixedAriaLabel(id: PrimaryNavId): string {
@@ -426,9 +451,10 @@ function fixedTitle(id: PrimaryNavId): string {
         :current-group-id="currentGroupId"
         :group-unread-by-team="groupUnreadByTeam"
         :activity-by-team="activityByTeam"
-        @select="emit('select', $event)"
+        @select="handleSelectTeam"
         @create-team="emit('createTeam')"
         @archive="emit('archive', $event)"
+        @collapse="setSecondaryOpen(false)"
       />
     </Surface>
   </TooltipProvider>

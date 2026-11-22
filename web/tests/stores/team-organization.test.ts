@@ -186,3 +186,43 @@ describe('拖拽归属语义', () => {
     expect(restored.sections.pinned).toBe(false);
   });
 });
+
+describe('最近访问记录', () => {
+  it('置顶去重、最多保留 9 个最近访问团队并持久化', () => {
+    const store = useTeamOrganization();
+    for (let i = 1; i <= 10; i += 1) {
+      store.recordVisit(`g-${i}`);
+    }
+    expect(store.recentIds).toEqual([
+      'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-4', 'g-3', 'g-2',
+    ]);
+
+    // 再次访问已有项应移至首位而不重复，空白 ID 忽略。
+    store.recordVisit('g-4');
+    store.recordVisit('   ');
+    expect(store.recentIds).toEqual([
+      'g-4', 'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-3', 'g-2',
+    ]);
+
+    setActivePinia(createPinia());
+    const restored = useTeamOrganization();
+    expect(restored.recentIds).toEqual([
+      'g-4', 'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-3', 'g-2',
+    ]);
+  });
+
+  it('setPinned 支持批量置顶与取消置顶并保留原文件夹与颜色', () => {
+    const store = useTeamOrganization();
+    const folder = store.createFolder('分组')!;
+    store.move(['a', 'b'], folder);
+    store.color('a', '#22c55e');
+
+    store.setPinned(['a', 'b'], true);
+    expect(store.teams.a).toEqual({ folder, color: '#22c55e', pinned: true });
+    expect(store.teams.b).toEqual({ folder, pinned: true });
+
+    store.setPinned(['a', 'b'], false);
+    expect(store.teams.a).toEqual({ folder, color: '#22c55e' });
+    expect(store.teams.b).toEqual({ folder });
+  });
+});

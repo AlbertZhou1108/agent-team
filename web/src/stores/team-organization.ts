@@ -3,11 +3,29 @@ import { defineStore } from 'pinia';
 type Folder = { id: string; name: string; color?: string; collapsed?: boolean };
 type TeamMeta = { folder?: string; color?: string; pinned?: boolean };
 const key = 'agent-team:organization';
+const MAX_RECENT_TEAMS = 9;
+
+function sanitizeRecentIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const id = item.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+    if (result.length >= MAX_RECENT_TEAMS) break;
+  }
+  return result;
+}
+
 function load(): {
   sections: { pinned: boolean; ungrouped: boolean };
   folders: Folder[];
   teams: Record<string, TeamMeta>;
   order: string[];
+  recentIds: string[];
   homePinned: string[];
   homeOrder: string[];
 } {
@@ -26,10 +44,11 @@ function load(): {
         : [],
       teams: saved.teams ?? {},
       order: saved.order ?? [],
+      recentIds: sanitizeRecentIds(saved.recentIds),
       homePinned: Array.isArray(saved.homePinned) ? saved.homePinned : [],
       homeOrder: Array.isArray(saved.homeOrder) ? saved.homeOrder : [],
     };
-  } catch { return { sections: { pinned: true, ungrouped: true }, folders: [], teams: {}, order: [], homePinned: [], homeOrder: [] }; }
+  } catch { return { sections: { pinned: true, ungrouped: true }, folders: [], teams: {}, order: [], recentIds: [], homePinned: [], homeOrder: [] }; }
 }
 export const useTeamOrganization = defineStore('team-organization', {
   state: load,
@@ -142,6 +161,15 @@ export const useTeamOrganization = defineStore('team-organization', {
       this.persist();
     },
     togglePin(id: string) { this.teams[id] = { ...this.teams[id], pinned: !this.teams[id]?.pinned }; this.persist(); },
+    setPinned(ids: string[], pinned: boolean) {
+      for (const id of ids) {
+        const meta = { ...this.teams[id] };
+        if (pinned) meta.pinned = true;
+        else delete meta.pinned;
+        this.teams[id] = meta;
+      }
+      this.persist();
+    },
     toggleHomePin(id: string) {
       this.homePinned = this.homePinned.includes(id)
         ? this.homePinned.filter(item => item !== id)
@@ -149,5 +177,11 @@ export const useTeamOrganization = defineStore('team-organization', {
       this.persist();
     },
     toggleFolder(id: string) { const folder = this.folders.find(item => item.id === id); if (folder) folder.collapsed = !folder.collapsed; this.persist(); },
+    recordVisit(id: string) {
+      const trimmed = id.trim();
+      if (!trimmed || this.recentIds[0] === trimmed) return;
+      this.recentIds = [trimmed, ...this.recentIds.filter(item => item !== trimmed)].slice(0, MAX_RECENT_TEAMS);
+      this.persist();
+    },
   },
 });
