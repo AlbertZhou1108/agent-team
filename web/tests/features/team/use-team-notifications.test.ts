@@ -3,7 +3,10 @@ import { nextTick, ref } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import type { TeamQueries, TeamQueriesOptions } from '@/features/team/use-team-queries';
 import type { TeamDerived } from '@/features/team/use-team-derived';
-import { useTeamNotifications } from '@/features/team/use-team-notifications';
+import {
+  resetTeamNotificationBaselines,
+  useTeamNotifications,
+} from '@/features/team/use-team-notifications';
 import { ApiError } from '@/shared/api/client';
 import { useConnectionStore } from '@/stores/connection';
 
@@ -12,7 +15,11 @@ const routeState = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn() },
 }));
 const notify = vi.hoisted(() => ({ notifyInteraction: vi.fn() }));
-const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+}));
 const apiMock = vi.hoisted(() => ({
   sessionTarget: vi.fn(async (_groupId: string, _memberId: string, _context: string) => ({ id: 'session-1' })),
   restoreTeam: vi.fn(async (_teamId: string) => {}),
@@ -59,7 +66,7 @@ function makeQueries() {
       hasNextPage: ref(false),
       fetchNextPage: vi.fn(),
     },
-    detailQuery: { error: ref<unknown>(null) },
+    detailQuery: { data: ref<unknown>(undefined), error: ref<unknown>(null) },
     sessionQuery: { error: ref<unknown>(null) },
     refreshResources: vi.fn(async () => {}),
   };
@@ -97,10 +104,12 @@ function notificationsOf(
 }
 
 beforeEach(() => {
+  resetTeamNotificationBaselines();
   routeState.route = { name: 'group', query: {} };
   routeState.router.push.mockReset();
   routeState.router.replace.mockReset();
   notify.notifyInteraction.mockReset();
+  toastMock.info.mockReset();
   toastMock.success.mockReset();
   toastMock.error.mockReset();
   apiMock.sessionTarget.mockClear();
@@ -199,5 +208,110 @@ describe('team notifications and recovery side effects', () => {
     apiMock.restoreTeam.mockRejectedValueOnce(new Error('boom'));
     await actions.restoreArchivedTeam({ id: 'g3', name: '失败团队' } as never);
     expect(toastMock.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies controller and workspace changes once per team and ignores cross-page/team navigation', async () => {
+    const queries = makeQueries();
+    const options = makeOptions();
+    const currentController = ref<{ id: string; name: string } | null>({
+      id: 'lead-1',
+      name: '主 Agent',
+    });
+    const derived = {
+      groups: ref([{ id: 'g1' }, { id: 'g2' }]),
+      // 模拟 detail 尚未就绪时 derived.currentController 先回落到 lead，再变成 panel_agent 的瞬态。
+      currentController,
+    } as unknown as TeamDerived;
+    notificationsOf(options, queries, derived);
+
+    // 首次载入被 Panel Agent 接管的团队：不误报主控已变更。
+    queries.detailQuery.data.value = {
+      id: 'g1',
+      workspace: '/repo-a',
+      workspace_pending: null,
+      controller: { id: 'panel-1', name: 'Panel Agent' },
+    };
+    currentController.value = { id: 'panel-1', name: 'Panel Agent' };
+    await nextTick();
+    expect(toastMock.info).not.toHaveBeenCalled();
+
+    // 切去其它页面（groupId 清空，detail 清空）再切回同一团队，不重复提示。
+    options.groupId.value = '';
+    queries.detailQuery.data.value = undefined;
+    currentController.value = null;
+    await nextTick();
+
+    options.groupId.value = 'g1';
+    currentController.value = { id: 'lead-1', name: '主 Agent' };
+    await nextTick();
+    queries.detailQuery.data.value = {
+      id: 'g1',
+      workspace: '/repo-a',
+      workspace_pending: null,
+      controller: { id: 'panel-1', name: 'Panel Agent' },
+    };
+    currentController.value = { id: 'panel-1', name: 'Panel Agent' };
+    await nextTick();
+    expect(toastMock.info).not.toHaveBeenCalled();
+
+    // 切到另一个不同主控、不同工作目录的团队再切回，不误报。
+    options.groupId.value = 'g2';
+    queries.detailQuery.data.value = {
+      id: 'g2',
+      workspace: '/repo-b',
+      workspace_pending: null,
+      controller: { id: 'lead-2', name: '主 Agent B' },
+    };
+    await nextTick();
+    options.groupId.value = 'g1';
+    queries.detailQuery.data.value = {
+      id: 'g1',
+      workspace: '/repo-a',
+      workspace_pending: null,
+      controller: { id: 'panel-1', name: 'Panel Agent' },
+    };
+    await nextTick();
+    expect(toastMock.info).not.toHaveBeenCalled();
+
+    // 同一团队真正发生主控接管与目录变更：各提示一次。
+    queries.detailQuery.data.value = {
+      id: 'g1',
+      workspace: '/repo-a-new',
+      workspace_pending: '/repo-a-next',
+      controller: { id: 'ext-1', name: 'DSH Desktop' },
+    };
+    await nextTick();
+    expect(toastMock.info).toHaveBeenCalledTimes(3);
+    expect(toastMock.info).toHaveBeenNthCalledWith(
+      1,
+      '主控已变更',
+      expect.objectContaining({ description: expect.stringContaining('DSH Desktop') }),
+    );
+    expect(toastMock.info).toHaveBeenNthCalledWith(
+      2,
+      '工作目录已变更',
+      expect.any(Object),
+    );
+    expect(toastMock.info).toHaveBeenNthCalledWith(
+      3,
+      '目录切换待生效',
+      expect.any(Object),
+    );
+
+    // 再次离开并切回（即便重新挂载 composable），不重复提示同一主控或待生效目录。
+    toastMock.info.mockClear();
+    options.groupId.value = '';
+    queries.detailQuery.data.value = undefined;
+    await nextTick();
+    options.groupId.value = 'g1';
+    notificationsOf(options, queries, derived);
+    queries.detailQuery.data.value = {
+      id: 'g1',
+      workspace: '/repo-a-new',
+      workspace_pending: '/repo-a-next',
+      controller: { id: 'ext-1', name: 'DSH Desktop' },
+    };
+    await nextTick();
+    expect(toastMock.info).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,19 @@ import type { Group } from '@/shared/api/raw-types';
 import type { TeamQueries, TeamQueriesOptions } from './use-team-queries';
 import type { TeamDerived } from './use-team-derived';
 
+// 按团队记住已观测到的权威主控与工作目录状态：
+// 切换团队、往返其它页面或组件重建时，不重复弹出历史变更提示。
+const observedControllerByGroup = new Map<string, string>();
+const observedWorkspaceByGroup = new Map<string, string>();
+const observedPendingWorkspaceByGroup = new Map<string, string | null>();
+
+/** 仅供测试重置跨调用的团队变更提示基线。 */
+export function resetTeamNotificationBaselines() {
+  observedControllerByGroup.clear();
+  observedWorkspaceByGroup.clear();
+  observedPendingWorkspaceByGroup.clear();
+}
+
 /**
  * 团队工作区的副作用层：连接状态上报、新互动卡通知、消息锚点续载、路由纠偏，
  * 以及需要「刷新全部工作区资源」的动作（保存模型策略、恢复归档团队）。
@@ -31,48 +44,47 @@ export function useTeamNotifications(
       connection.online();
   });
 
-  // 主控变更:别的连接接管后提示当前视图转只读,避免用户以为还能继续派发。
-  let lastControllerId: string | null = null;
+  // 主控 / 工作目录变更：只以当前团队已对齐的详情快照为准，按团队记录基线。
+  // 不消费 derived.currentController 的 lead 兜底，避免从其它页面切回被接管团队时
+  // 因详情尚未返回先落回 lead 再变成接管者而反复误报「主控已变更」。
   watch(
-    () => derived.currentController?.value ?? null,
-    (controller) => {
-      const id = controller?.id ?? null;
-      if (lastControllerId && id && id !== lastControllerId) {
-        toast.info('主控已变更', {
-          description: `${controller?.name ?? '新的连接'} 已接管该团队，当前视图转为只读。`,
-        });
-      }
-      lastControllerId = id;
-    },
-    { immediate: true },
-  );
+    [groupId, () => queries.detailQuery?.data?.value ?? null],
+    ([currentGroupId, detail]) => {
+      if (!currentGroupId || !detail || detail.id !== currentGroupId) return;
 
-  // 工作目录变更:旧会话不复用,新派发走新目录。
-  let lastWorkspace: string | null = null;
-  watch(
-    () => queries.detailQuery?.data?.value?.workspace ?? null,
-    (workspace) => {
-      if (lastWorkspace && workspace && workspace !== lastWorkspace) {
-        toast.info('工作目录已变更', {
-          description: '旧会话不会复用，新的派发将使用新目录。',
-        });
+      const controllerId = detail.controller?.id ?? null;
+      if (controllerId) {
+        const previousControllerId = observedControllerByGroup.get(currentGroupId);
+        observedControllerByGroup.set(currentGroupId, controllerId);
+        if (previousControllerId && previousControllerId !== controllerId) {
+          toast.info('主控已变更', {
+            description: `${detail.controller?.name ?? '新的连接'} 已接管该团队，当前视图转为只读。`,
+          });
+        }
       }
-      lastWorkspace = workspace;
-    },
-  );
 
-  // 目录切换待生效:有成员回合在跑时,新派发会等待。
-  let lastPendingWorkspace: string | null = null;
-  watch(
-    () => queries.detailQuery?.data?.value?.workspace_pending ?? null,
-    (pending) => {
-      if (pending && pending !== lastPendingWorkspace) {
+      const workspace = detail.workspace ?? null;
+      if (workspace) {
+        const previousWorkspace = observedWorkspaceByGroup.get(currentGroupId);
+        observedWorkspaceByGroup.set(currentGroupId, workspace);
+        if (previousWorkspace && previousWorkspace !== workspace) {
+          toast.info('工作目录已变更', {
+            description: '旧会话不会复用，新的派发将使用新目录。',
+          });
+        }
+      }
+
+      const pendingWorkspace = detail.workspace_pending ?? null;
+      const previousPendingWorkspace =
+        observedPendingWorkspaceByGroup.get(currentGroupId) ?? null;
+      observedPendingWorkspaceByGroup.set(currentGroupId, pendingWorkspace);
+      if (pendingWorkspace && pendingWorkspace !== previousPendingWorkspace) {
         toast.info('目录切换待生效', {
           description: '有成员回合在运行，新派发会等待当前回合结束。',
         });
       }
-      lastPendingWorkspace = pending;
     },
+    { immediate: true },
   );
 
   // 新互动卡等待答复时提醒；点击跳到卡片所在视图，已在目标页则不跳转。
