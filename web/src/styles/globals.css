@@ -972,28 +972,6 @@ button {
   overflow: hidden;
 }
 
-.team-segment-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  padding: 0 6px;
-  border-radius: var(--component-chip-radius);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  color: var(--muted-foreground);
-  transition: background-color var(--component-feedback-duration), color var(--component-feedback-duration);
-}
-
-.team-segment-tab:hover {
-  color: var(--foreground);
-}
-
-.team-segment-tab[data-active='true'] {
-  background: var(--component-nav-current-bg);
-  color: var(--component-selection-fg);
-}
-
 .recent-team-avatar {
   display: inline-flex;
   width: 32px;
@@ -2626,10 +2604,10 @@ html[data-density='loose'] {
 }
 .conversation-header h1 { font-size: var(--component-title-font-size); }
 
-[data-slot='tabs-trigger'] {
+[data-slot='tabs-trigger']:not([data-variant='underline']) {
   border-radius: var(--component-control-radius);
 }
-[data-slot='tabs-trigger'][data-state='active'] {
+[data-slot='tabs-trigger']:not([data-variant='underline'])[data-state='active'] {
   background: var(--component-tab-active-bg);
   color: var(--component-selection-fg);
   border-color: var(--component-tab-active-border);

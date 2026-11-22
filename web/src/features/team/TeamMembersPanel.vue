@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Coins, Database, Radio, Users } from '@lucide/vue';
 import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
+import { SectionBlock } from '@/components/panel';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,10 +69,11 @@ function modelSummary(member: Member): string {
     <PanelState v-if="!members.length" :icon="Users" title="暂无成员" />
 
     <div v-else class="flex min-w-0 flex-col gap-2.5">
-      <section
+      <SectionBlock
         v-for="member in members"
         :key="member.id"
-        class="flex min-w-0 flex-col gap-2 rounded-(--component-card-radius) border border-border bg-background/40 p-3"
+        :container="false"
+        class="gap-2 p-3"
         :data-testid="`member-card-${member.id}`"
       >
         <div class="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -158,7 +160,7 @@ function modelSummary(member: Member): string {
             查看轨迹
           </Button>
         </div>
-      </section>
+      </SectionBlock>
     </div>
   </div>
 </template>

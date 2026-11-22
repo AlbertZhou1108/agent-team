@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue';
-import { ChevronDown, Gauge, Users } from '@lucide/vue';
+import { computed, ref, watch } from 'vue';
+import { Gauge, Users } from '@lucide/vue';
+import { MetricCard, SectionBlock } from '@/components/panel';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { CollapseReveal } from '@/components/ui/collapse-reveal';
+import { DisclosureFooter } from '@/components/ui/disclosure';
 import { Progress } from '@/components/ui/progress';
 import {
   useCoordinationTelemetryQuery,
@@ -51,7 +51,6 @@ const coordinationQuery = useCoordinationTelemetryQuery(
 const membersQuery = useMembersTelemetryQuery(() => props.groupId || undefined);
 
 const coordMetricsOpen = ref(false);
-const coordMetricsId = `coord-all-metrics-${useId()}`;
 const selectedId = ref(props.selectedMemberId ?? '');
 
 watch(
@@ -188,17 +187,11 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
     data-testid="telemetry-coordination-workspace"
   >
     <!-- 第一层：协调会话总用量概览带 -->
-    <section class="flex min-w-0 flex-col gap-3 rounded-(--component-card-radius) border border-border bg-background/40 p-3.5">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-xs font-semibold tracking-wide text-muted-foreground">
-          协调会话总用量（主 Agent 统一调度）
-        </h2>
-        <span class="text-xs text-muted-foreground tabular-nums">
-          {{ coordBatchCount }} 个协调回合 · {{ coordSessionCount }} 个物理 session · 更新
-          {{ formatTimestamp(coordData?.generatedAt ?? null) }}
-        </span>
-      </div>
-
+    <SectionBlock
+      title="协调会话总用量（主 Agent 统一调度）"
+      :meta="`${coordBatchCount} 个协调回合 · ${coordSessionCount} 个物理 session · 更新 ${formatTimestamp(coordData?.generatedAt ?? null)}`"
+      :container="false"
+    >
       <PanelState v-if="coordinationQuery.isPending.value" loading title="正在读取协调遥测" />
       <Alert v-else-if="coordinationQuery.error.value" variant="destructive">
         <AlertDescription>读取协调遥测失败：{{ coordErrorMessage }}</AlertDescription>
@@ -212,66 +205,36 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
       <template v-else>
         <!-- 4 列核心 KPI -->
         <div class="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
-          <div class="flex min-w-0 flex-col gap-1 rounded-(--component-control-radius) border border-border bg-card/60 p-3">
-            <span class="text-xs text-muted-foreground">协调总 Token</span>
-            <span
-              class="text-lg font-semibold tabular-nums"
-              :title="metricDisplay(coordTotals.totalTokens, 'totalTokens')"
-            >{{ compactNumber(numeric(coordTotals.totalTokens)) }}</span>
-            <span class="text-xs text-muted-foreground tabular-nums">
-              输入 {{ compactNumber(numeric(coordTotals.inputTokensTotal)) }} · 输出
-              {{ compactNumber(numeric(coordTotals.outputTokens)) }}
-            </span>
-          </div>
+          <MetricCard
+            label="协调总 Token"
+            :value="compactNumber(numeric(coordTotals.totalTokens))"
+            :value-title="metricDisplay(coordTotals.totalTokens, 'totalTokens')"
+            :subtitle="`输入 ${compactNumber(numeric(coordTotals.inputTokensTotal))} · 输出 ${compactNumber(numeric(coordTotals.outputTokens))}`"
+          />
 
-          <div class="flex min-w-0 flex-col gap-1.5 rounded-(--component-control-radius) border border-border bg-card/60 p-3">
-            <div class="flex items-center justify-between gap-2 text-xs">
-              <span class="text-muted-foreground">缓存读取占比</span>
-              <span class="font-semibold tabular-nums">{{
-                metricDisplay(coordTotals.cacheReadRatio, 'cacheReadRatio')
-              }}</span>
-            </div>
-            <Progress
-              :model-value="coordCachePercent ?? 0"
-              :aria-label="`缓存读取占比 ${metricDisplay(coordTotals.cacheReadRatio, 'cacheReadRatio')}`"
-              class="h-1.5"
-            />
-            <span class="text-xs text-muted-foreground tabular-nums">
-              缓存读 {{ compactNumber(numeric(coordTotals.cacheReadTokens)) }} / 输入
-              {{ compactNumber(numeric(coordTotals.inputTokensTotal)) }}
-            </span>
-          </div>
+          <MetricCard
+            label="缓存读取占比"
+            :value="metricDisplay(coordTotals.cacheReadRatio, 'cacheReadRatio')"
+            :progress="coordCachePercent ?? 0"
+            :progress-label="`缓存读取占比 ${metricDisplay(coordTotals.cacheReadRatio, 'cacheReadRatio')}`"
+            :subtitle="`缓存读 ${compactNumber(numeric(coordTotals.cacheReadTokens))} / 输入 ${compactNumber(numeric(coordTotals.inputTokensTotal))}`"
+          />
 
-          <div class="flex min-w-0 flex-col gap-1 rounded-(--component-control-radius) border border-border bg-card/60 p-3">
-            <span class="text-xs text-muted-foreground">框架执行耗时</span>
-            <span class="text-lg font-semibold tabular-nums">{{
-              compactDuration(numeric(coordTotals.executionWallMs))
-            }}</span>
-            <span class="text-xs text-muted-foreground tabular-nums">
-              宿主回合耗时 {{ compactDuration(numeric(coordTotals.hostTurnWallMs)) }}
-            </span>
-          </div>
+          <MetricCard
+            label="框架执行耗时"
+            :value="compactDuration(numeric(coordTotals.executionWallMs))"
+            :subtitle="`宿主回合耗时 ${compactDuration(numeric(coordTotals.hostTurnWallMs))}`"
+          />
 
-          <div class="flex min-w-0 flex-col gap-1.5 rounded-(--component-control-radius) border border-border bg-card/60 p-3">
-            <div class="flex items-center justify-between gap-2 text-xs">
-              <span class="text-muted-foreground">主控上下文水位</span>
-              <span class="font-semibold tabular-nums">{{
-                coordContext
-                  ? contextMetricDisplay(coordContext.lastRequestInputRatio, 'lastRequestInputRatio')
-                  : '—'
-              }}</span>
-            </div>
-            <Progress
-              :model-value="coordContextPercent ?? 0"
-              aria-label="主控上下文水位"
-              class="h-1.5"
-            />
-            <span class="text-xs text-muted-foreground tabular-nums">
-              最近输入
-              {{ compactNumber(numeric(coordContext?.lastRequestInputTokens)) }} / 容量
-              {{ compactNumber(numeric(coordContext?.contextWindowTokens)) }}
-            </span>
-          </div>
+          <MetricCard
+            label="主控上下文水位"
+            :value="coordContext
+              ? contextMetricDisplay(coordContext.lastRequestInputRatio, 'lastRequestInputRatio')
+              : '—'"
+            :progress="coordContextPercent ?? 0"
+            progress-label="主控上下文水位"
+            :subtitle="`最近输入 ${compactNumber(numeric(coordContext?.lastRequestInputTokens))} / 容量 ${compactNumber(numeric(coordContext?.contextWindowTokens))}`"
+          />
         </div>
 
         <!-- 构成比例条 + 可展开 9 项指标 + 底部右下角展开/收起按钮 -->
@@ -290,15 +253,12 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
             />
           </div>
 
-          <CollapseReveal
-            :id="coordMetricsId"
-            :show="coordMetricsOpen"
-            data-testid="coord-all-metrics-reveal"
+          <DisclosureFooter
+            v-model:open="coordMetricsOpen"
+            reveal-test-id="coord-all-metrics-reveal"
+            toggle-test-id="coord-toggle-all"
           >
-            <div
-              class="pb-2"
-              data-testid="coord-all-metrics"
-            >
+            <div data-testid="coord-all-metrics">
               <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 border-t border-border pt-2 text-xs tabular-nums @xl:grid-cols-3">
                 <div
                   v-for="key in METRIC_KEYS"
@@ -312,51 +272,33 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
                 </div>
               </dl>
             </div>
-          </CollapseReveal>
-
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
-            <div v-if="coordSegments.length" class="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span
-                v-for="seg in coordSegments"
-                :key="seg.key"
-                class="inline-flex items-center gap-1.5"
-              >
-                <span class="size-2 rounded-full" :style="{ background: seg.color }" />
-                {{ seg.label }} {{ compactNumber(seg.value) }} ({{ seg.percent.toFixed(1) }}%)
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="xs"
-              class="ms-auto text-xs text-muted-foreground hover:text-foreground"
-              :aria-expanded="coordMetricsOpen"
-              :aria-controls="coordMetricsId"
-              data-testid="coord-toggle-all"
-              @click="coordMetricsOpen = !coordMetricsOpen"
-            >
-              {{ coordMetricsOpen ? '收起' : '展开' }}
-              <ChevronDown
-                data-part="disclosure-indicator"
-                class="size-3.5"
-                :class="coordMetricsOpen && 'rotate-180'"
-                aria-hidden="true"
-              />
-            </Button>
-          </div>
+            <template #footer-start>
+              <div v-if="coordSegments.length" class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span
+                  v-for="seg in coordSegments"
+                  :key="seg.key"
+                  class="inline-flex items-center gap-1.5"
+                >
+                  <span class="size-2 rounded-full" :style="{ background: seg.color }" />
+                  {{ seg.label }} {{ compactNumber(seg.value) }} ({{ seg.percent.toFixed(1) }}%)
+                </span>
+              </div>
+            </template>
+          </DisclosureFooter>
         </div>
       </template>
-    </section>
+    </SectionBlock>
 
     <!-- 第二层：左右双栏主从区 -->
     <div class="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-12">
       <!-- 左栏 5 列：成员开销排行 + 来源分析 -->
       <div class="flex min-w-0 flex-col gap-3 @3xl:col-span-5">
-        <section class="flex min-w-0 flex-col gap-2.5 rounded-(--component-card-radius) border border-border bg-background/40 p-3.5">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
-              成员开销排行（{{ rankedMembers.length }}）
-            </h3>
-          </div>
+        <SectionBlock
+          :heading-level="3"
+          :title="`成员开销排行（${rankedMembers.length}）`"
+          :container="false"
+          class="gap-2.5"
+        >
 
           <PanelState v-if="membersQuery.isPending.value" loading title="正在读取成员遥测" />
           <Alert v-else-if="membersQuery.error.value" variant="destructive">
@@ -404,24 +346,22 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
               </div>
             </button>
           </div>
-        </section>
+        </SectionBlock>
 
-        <section
-          v-if="membersData"
-          class="rounded-(--component-card-radius) border border-border bg-background/40 p-3.5"
-        >
+        <SectionBlock v-if="membersData" :container="false">
           <TelemetrySourceSubtotals
             :subtotals="membersData.sourceAnalysis.actors"
             :merged-batch-ids="membersData.sourceAnalysis.mergedBatchIds"
             :shared-source-batch-ids="membersData.sourceAnalysis.sharedSourceBatchIds"
             :note="membersData.sourceAnalysis.note"
           />
-        </section>
+        </SectionBlock>
       </div>
 
       <!-- 右栏 7 列：选中成员执行详情 -->
-      <section
-        class="flex min-w-0 flex-col gap-4 rounded-(--component-card-radius) border border-border bg-background/40 p-4 @3xl:col-span-7"
+      <SectionBlock
+        :container="false"
+        class="gap-4 p-4 @3xl:col-span-7"
         data-testid="telemetry-member-detail"
       >
         <PanelState
@@ -487,22 +427,17 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
           <!-- 区块 B：全部 9 项遥测指标（直接平铺） -->
           <div class="flex flex-col gap-2">
             <h4 class="text-xs font-semibold text-muted-foreground">全部遥测指标（9 项）</h4>
-            <dl class="grid grid-cols-2 gap-2.5 text-xs tabular-nums @md:grid-cols-3">
-              <div
+            <div class="grid grid-cols-2 gap-2.5 @md:grid-cols-3">
+              <MetricCard
                 v-for="key in METRIC_KEYS"
                 :key="key"
-                class="flex flex-col gap-0.5 rounded-(--component-control-radius) border border-border bg-card/60 px-3 py-2"
+                size="sm"
+                :label="METRIC_LABELS[key]"
+                :value="metricDisplay(selectedMember.totals[key], key)"
+                :value-title="metricTitle(selectedMember.totals, key)"
                 :data-metric-key="key"
-              >
-                <dt class="text-muted-foreground">{{ METRIC_LABELS[key] }}</dt>
-                <dd
-                  class="text-sm font-semibold text-foreground"
-                  :title="metricTitle(selectedMember.totals, key)"
-                >
-                  {{ metricDisplay(selectedMember.totals[key], key) }}
-                </dd>
-              </div>
-            </dl>
+              />
+            </div>
           </div>
 
           <!-- 区块 C：物理 Session 累计 -->
@@ -541,7 +476,7 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
             </div>
           </div>
         </template>
-      </section>
+      </SectionBlock>
     </div>
   </div>
 </template>

@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTeamOrganization } from '@/stores/team-organization';
 import {
@@ -495,24 +496,21 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 分段筛选：全部 / 置顶 / 文件夹 / 未分组 -->
-    <div
-      role="tablist"
-      aria-label="团队分组筛选"
-      class="mt-2.5 grid grid-cols-4 gap-0.5 rounded-(--component-control-radius) bg-muted/50 p-0.5"
-    >
-      <button
-        v-for="tab in SEGMENTS"
-        :key="tab.id"
-        type="button"
-        role="tab"
-        :aria-selected="segment === tab.id"
-        :data-active="segment === tab.id ? 'true' : undefined"
-        class="team-segment-tab"
-        @click="segment = tab.id"
+    <Tabs v-model="segment" class="gap-0">
+      <TabsList
+        aria-label="团队分组筛选"
+        class="mt-2.5 grid h-auto w-full grid-cols-4 gap-0.5 rounded-(--component-control-radius) bg-muted/50 p-0.5"
       >
-        {{ tab.label }}
-      </button>
-    </div>
+        <TabsTrigger
+          v-for="tab in SEGMENTS"
+          :key="tab.id"
+          :value="tab.id"
+          class="h-6.5 px-1.5 text-2xs font-medium"
+        >
+          {{ tab.label }}
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
 
     <!-- 最近访问（仅在「全部」标签页出现；横向滚动，复用项目共享滚动条） -->
     <div v-if="segment === 'all' && !hasQuery && recentList.length" class="mt-3 px-1">

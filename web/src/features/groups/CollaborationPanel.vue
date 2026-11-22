@@ -7,6 +7,7 @@ import { Undo2 } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { SectionBlock } from '@/components/panel';
 import PanelState from '@/components/panel/PanelState.vue';
 import TasksPanel from './TasksPanel.vue';
 import { countTaskStates } from './task-panel-model';
@@ -108,14 +109,15 @@ async function restoreTeam() {
         </div>
       </section>
 
-      <section
+      <SectionBlock
         v-if="!hasTasks"
-        class="flex items-center justify-between gap-2 rounded-(--component-card-radius) border border-border px-3 py-2.5"
+        :heading-level="3"
+        compact
+        :container="false"
+        title="任务面板"
+        meta="暂无任务"
         data-testid="overview-tasks-empty"
-      >
-        <h3 class="text-sm font-semibold text-foreground">任务面板</h3>
-        <span class="text-xs text-muted-foreground">暂无任务</span>
-      </section>
+      />
       <Disclosure v-else class="overview-tasks group" default-open>
         <template #summary>
           <h3 class="text-sm font-semibold text-foreground">
@@ -158,14 +160,15 @@ async function restoreTeam() {
         </div>
       </section>
 
-      <section
+      <SectionBlock
         v-if="!charter && !charterQuery.isPending.value"
-        class="flex items-center justify-between gap-2 rounded-(--component-card-radius) border border-border px-3 py-2.5"
+        :heading-level="3"
+        compact
+        :container="false"
+        title="团队说明"
+        meta="暂无说明"
         data-testid="overview-charter-empty"
-      >
-        <h3 class="text-sm font-semibold text-foreground">团队说明</h3>
-        <span class="text-xs text-muted-foreground">暂无说明</span>
-      </section>
+      />
       <section v-else class="flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-foreground">
           团队说明

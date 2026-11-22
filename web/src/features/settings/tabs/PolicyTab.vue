@@ -196,11 +196,6 @@ function presetState(preset: ModelPolicyPreset) {
 function isPresetSelected(preset: ModelPolicyPreset) {
   return presetState(preset) !== null;
 }
-const activePresetName = computed(() => {
-  const id = activePresetId.value;
-  if (!id) return null;
-  return presets.value.find(item => item.id === id)?.name ?? null;
-});
 // 当前选中配置的名称,用于"已切换到 X"提示。
 const editingPresetName = computed(() => {
   const id = loadedPresetId.value;

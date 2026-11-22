@@ -321,18 +321,18 @@ describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近
     // 清空搜索，切换分段到「置顶 / 文件夹 / 未分组」均不展示最近访问，切回「全部」恢复。
     await searchInput.setValue('');
     const tabs = panel.findAll('[role="tab"]');
-    await tabs[1]!.trigger('click');
+    await tabs[1]!.trigger('mousedown', { button: 0 });
     expect(panel.findAll('[data-section-kind]').map(el => el.attributes('data-section-kind'))).toEqual(['pinned']);
     expect(panel.find('[data-section-kind="pinned"] .collapse-reveal').attributes('data-open')).toBe('true');
     expect(panel.find('.recent-teams-strip').exists()).toBe(false);
 
-    await tabs[2]!.trigger('click');
+    await tabs[2]!.trigger('mousedown', { button: 0 });
     expect(panel.find('.recent-teams-strip').exists()).toBe(false);
 
-    await tabs[3]!.trigger('click');
+    await tabs[3]!.trigger('mousedown', { button: 0 });
     expect(panel.find('.recent-teams-strip').exists()).toBe(false);
 
-    await tabs[0]!.trigger('click');
+    await tabs[0]!.trigger('mousedown', { button: 0 });
     expect(panel.find('.recent-teams-strip').exists()).toBe(true);
   });
 

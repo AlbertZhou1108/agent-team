@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import type { TelemetryMembersResponse } from '@/shared/api/raw-types';
 import { compactNumber, relativeValues } from './visuals';
 const props = defineProps<{ members: TelemetryMembersResponse['members']; selectedId?: string }>();

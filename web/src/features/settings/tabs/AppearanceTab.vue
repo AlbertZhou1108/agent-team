@@ -341,7 +341,7 @@ function selectCodeSize(value: unknown) {
                     <div
                       v-for="pack in allThemePacks"
                       :key="pack.id"
-                      class="flex w-36 shrink-0 flex-col gap-1.5 rounded-(--component-panel-radius) border p-2 shadow-xs transition-colors"
+                      class="flex w-36 shrink-0 flex-col gap-1.5 rounded-(--component-panel-radius) border p-2 transition-colors"
                       :class="preferences.themePack === pack.id
                         ? 'border-input bg-accent text-accent-foreground'
                         : 'border-input bg-transparent hover:bg-(--state-hover)'"

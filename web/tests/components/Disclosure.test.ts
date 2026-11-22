@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { createSSRApp, h } from 'vue';
+// @vitest-environment happy-dom
+import { describe, expect, it, vi } from 'vitest';
+import { createSSRApp, defineComponent, h, nextTick, ref } from 'vue';
 import { renderToString } from 'vue/server-renderer';
+import { mount } from '@vue/test-utils';
+import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import Disclosure from '@/components/ui/disclosure/Disclosure.vue';
+import DisclosureChevron from '@/components/ui/disclosure/DisclosureChevron.vue';
+import DisclosureFooter from '@/components/ui/disclosure/DisclosureFooter.vue';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MetricCard, SectionBlock } from '@/components/panel';
 
 describe('shared disclosure contract', () => {
   it('places explanatory text inside the same hidden content as the body', async () => {
@@ -65,5 +73,95 @@ describe('shared disclosure contract', () => {
       expect(html).toContain('record payload');
       expect(html).toContain('data-variant="card"');
     }
+  });
+});
+
+describe('ui primitives & panel blocks', () => {
+  it('Separator size=inline uses h-3.5 without h-full override', async () => {
+    const html = await renderToString(
+      createSSRApp({ render: () => h(Separator, { orientation: 'vertical', size: 'inline' }) }),
+    );
+    expect(html).toContain('data-size="inline"');
+    expect(html).toContain('data-[orientation=vertical]:h-3.5');
+    expect(html).not.toContain('data-[orientation=vertical]:h-full');
+  });
+
+  it('CollapseReveal logs DEV error when inner child uses v-if and leaves slot empty', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const Host = defineComponent({
+        setup() {
+          const open = ref(false);
+          return () => h(CollapseReveal, { show: open.value }, () => null);
+        },
+      });
+      const wrapper = mount(Host);
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining('[CollapseReveal]'),
+      );
+      wrapper.unmount();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('DisclosureChevron & DisclosureFooter wire indicator, aria-controls and toggle state', async () => {
+    const chevronHtml = await renderToString(
+      createSSRApp({ render: () => h(DisclosureChevron, { open: true }) }),
+    );
+    expect(chevronHtml).toContain('data-part="disclosure-indicator"');
+    expect(chevronHtml).toContain('rotate-180');
+
+    const wrapper = mount(DisclosureFooter, {
+      props: { collapsedLabel: '展开', expandedLabel: '收起', toggleTestId: 'toggle', revealTestId: 'reveal' },
+      slots: {
+        default: () => h('div', 'Details'),
+        'footer-start': () => h('span', 'Legend'),
+      },
+    });
+    const btn = wrapper.get('[data-testid="toggle"]');
+    const reveal = wrapper.get('[data-testid="reveal"]');
+    expect(btn.attributes('aria-expanded')).toBe('false');
+    expect(btn.attributes('aria-controls')).toBe(reveal.attributes('id'));
+    expect(reveal.attributes('data-open')).toBe('false');
+    await btn.trigger('click');
+    await nextTick();
+    expect(btn.attributes('aria-expanded')).toBe('true');
+    expect(reveal.attributes('data-open')).toBe('true');
+    expect(btn.text()).toContain('收起');
+    wrapper.unmount();
+  });
+
+  it('TabsList variant=underline propagates underline data-variant to TabsTrigger', async () => {
+    const html = await renderToString(
+      createSSRApp({
+        render: () =>
+          h(Tabs, { modelValue: 'chat' }, () =>
+            h(TabsList, { variant: 'underline' }, () => [
+              h(TabsTrigger, { value: 'chat' }, () => '对话'),
+              h(TabsTrigger, { value: 'trace' }, () => '轨迹'),
+            ]),
+          ),
+      }),
+    );
+    expect(html).toContain('data-slot="tabs-list"');
+    expect(html).toContain('data-variant="underline"');
+  });
+
+  it('SectionBlock & MetricCard render panel containers and KPI/progress layout', async () => {
+    const html = await renderToString(
+      createSSRApp({
+        render: () =>
+          h(SectionBlock, { title: '总用量', meta: '2 回合' }, () =>
+            h(MetricCard, { label: '缓存占比', value: '64.8%', progress: 64.8, subtitle: '14K / 21.5K' }),
+          ),
+      }),
+    );
+    expect(html).toContain('data-component="section-block"');
+    expect(html).toContain('@container');
+    expect(html).toContain('总用量');
+    expect(html).toContain('2 回合');
+    expect(html).toContain('data-component="metric-card"');
+    expect(html).toContain('64.8%');
   });
 });

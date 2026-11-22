@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { api } from '@/shared/api/client';
@@ -121,7 +122,7 @@ const {
   isSettingsRoute, activePluginRoute, sidebarGroupId, currentModelPolicy,
   modelPolicyDefaults, homeRunningByGroup, runningEndpoints, currentControllerId,
   currentController, pausedMemberIds, currentMembers, currentEndpoints,
-  currentSessionBindings, selectedEndpoint, selectedPair,
+  selectedEndpoint, selectedPair,
   conversationTitle, endpointHosts,
   runningMemberIds,
   messagesQuery, directivesQuery,
@@ -494,44 +495,37 @@ function onMemberModelSaved() {
               class="flex flex-wrap items-center justify-between gap-2 px-4 pb-2"
               data-testid="workspace-view-bar"
             >
-              <div class="flex items-center gap-1" role="tablist" aria-label="工作区视图">
-                <button
-                  v-for="tab in workspaceTabs"
-                  :key="tab.value"
-                  type="button"
-                  role="tab"
-                  :aria-selected="workspaceView === tab.value"
-                  class="relative px-2.5 py-1 text-xs font-medium transition-colors"
-                  :class="workspaceView === tab.value
-                    ? 'text-foreground after:absolute after:inset-x-1 after:-bottom-2 after:h-0.5 after:bg-primary'
-                    : 'text-muted-foreground hover:text-foreground'"
-                  @click="setWorkspaceView(tab.value)"
-                >
-                  {{ tab.label }}
-                </button>
-                <template v-if="teamTabMounts.length">
-                  <Separator
-                    orientation="vertical"
-                    class="mx-1 h-3.5! self-center"
-                    data-testid="team-tabs-separator"
-                  />
-                  <button
-                    v-for="entry in teamTabMounts"
-                    :key="entry.plugin.id"
-                    type="button"
-                    role="tab"
-                    :aria-selected="workspaceView === `plugin:${entry.plugin.id}`"
-                    class="relative px-2.5 py-1 text-xs font-medium transition-colors"
-                    :class="workspaceView === `plugin:${entry.plugin.id}`
-                      ? 'text-foreground after:absolute after:inset-x-1 after:-bottom-2 after:h-0.5 after:bg-primary'
-                      : 'text-muted-foreground hover:text-foreground'"
-                    :data-team-tab-plugin="entry.plugin.id"
-                    @click="setWorkspaceView(`plugin:${entry.plugin.id}`)"
+              <Tabs
+                :model-value="workspaceView"
+                class="gap-0"
+                @update:model-value="setWorkspaceView(String($event) as WorkspaceView)"
+              >
+                <TabsList variant="underline" aria-label="工作区视图">
+                  <TabsTrigger
+                    v-for="tab in workspaceTabs"
+                    :key="tab.value"
+                    :value="tab.value"
                   >
-                    {{ teamTabLabel(entry) }}
-                  </button>
-                </template>
-              </div>
+                    {{ tab.label }}
+                  </TabsTrigger>
+                  <template v-if="teamTabMounts.length">
+                    <Separator
+                      orientation="vertical"
+                      size="inline"
+                      class="mx-1 self-center"
+                      data-testid="team-tabs-separator"
+                    />
+                    <TabsTrigger
+                      v-for="entry in teamTabMounts"
+                      :key="entry.plugin.id"
+                      :value="`plugin:${entry.plugin.id}`"
+                      :data-team-tab-plugin="entry.plugin.id"
+                    >
+                      {{ teamTabLabel(entry) }}
+                    </TabsTrigger>
+                  </template>
+                </TabsList>
+              </Tabs>
               <div v-if="!activeTeamTabMount" class="flex flex-wrap items-center gap-2">
                 <SessionSwitcher
                   :endpoints="currentEndpoints"

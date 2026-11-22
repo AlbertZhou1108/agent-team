@@ -7,6 +7,7 @@ import { useUnreadIndex } from '@/features/productivity/use-unread-index';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import type { PanelAgentState } from '@/shared/api/raw-types';
 import {
+  ArrowDownLeft,
   ArrowUpRight,
   Bell,
   CircleAlert,
@@ -215,7 +216,7 @@ function onTeamCardClick(teamId: string, event: MouseEvent) {
                       v-else-if="team.controller.assignment?.original_lead_id"
                       @select="emit('handback', team)"
                     >
-                      <ArrowUpRight class="rotate-180" />
+                      <ArrowDownLeft />
                       交还原主 Agent
                     </DropdownMenuItem>
                   </DropdownMenuGroup>

@@ -224,7 +224,7 @@ function handoff() {
             size="icon-sm"
             aria-label="删除待办"
             title="删除待办"
-            class="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            class="opacity-0 transition-opacity duration-(--component-feedback-duration) group-hover:opacity-100 focus-visible:opacity-100"
             @click="removeTodo(index)"
           >
             <X />
@@ -441,7 +441,7 @@ function handoff() {
               v-for="preset in TEAM_COLORS"
               :key="preset.value"
               type="button"
-              class="size-5 rounded-full border-2 transition-transform"
+              class="size-5 rounded-full border-2 transition-transform duration-(--component-feedback-duration)"
               :class="newTagColor === preset.value ? 'scale-110' : 'scale-100'"
               :style="{ backgroundColor: preset.value, borderColor: newTagColor === preset.value ? 'var(--foreground)' : 'color-mix(in srgb, ' + preset.value + ', black 45%)' }"
               :aria-label="'颜色：' + preset.label"

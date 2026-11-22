@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Brain, ChevronDown } from '@lucide/vue';
+import { Brain } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
 import { identityColor } from '@/features/messages/identity';
 import { Surface } from '@/components/surface';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
+import { DisclosureChevron } from '@/components/ui/disclosure';
 import {
   buildRunRows,
   elapsedLabel,
@@ -98,7 +99,7 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         @click="collapsed = !collapsed"
       >
         {{ collapsed ? '展开' : '收起' }}
-        <ChevronDown class="size-3.5 transition-transform" :class="!collapsed && 'rotate-180'" />
+        <DisclosureChevron :open="!collapsed" />
       </button>
     </div>
 
@@ -106,60 +107,62 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
     <p v-if="collapsed && headerSummary" class="run-card-summary">{{ headerSummary }}</p>
 
     <CollapseReveal :show="!collapsed">
-      <p v-if="single?.tool" class="run-card-tool">{{ toolActionLabel(single.tool, groupNames) }}</p>
-      <!-- 单路:展开即完整明细,思考直接跟随当前动作显示。 -->
-      <div v-if="single" class="run-card-list">
-        <div
-          v-if="preferences.showReasoning && single.reasoning"
-          class="run-reasoning"
-        >
-          <ReasoningScroller :key="single.key" :text="single.reasoning" />
+      <div>
+        <p v-if="single?.tool" class="run-card-tool">{{ toolActionLabel(single.tool, groupNames) }}</p>
+        <!-- 单路:展开即完整明细,思考直接跟随当前动作显示。 -->
+        <div v-if="single" class="run-card-list">
+          <div
+            v-if="preferences.showReasoning && single.reasoning"
+            class="run-reasoning"
+          >
+            <ReasoningScroller :key="single.key" :text="single.reasoning" />
+          </div>
         </div>
-      </div>
-      <!-- 多路并发:每路一行,点选决定正文区展示哪一路。 -->
-      <div v-else class="run-card-list">
-        <div v-for="row in rows" :key="row.key" class="run-row-wrap">
-          <button
-            type="button"
-            class="run-row"
-            :class="activeKey === row.key && 'run-row-active'"
-            :aria-pressed="activeKey === row.key"
-            :aria-expanded="preferences.showReasoning && row.reasoning ? openReasoning === row.key : undefined"
-            :data-run-key="row.key"
-            @click="onRowClick(row.key, preferences.showReasoning && Boolean(row.reasoning))"
-          >
-            <span class="run-row-line">
-              <span
-                class="run-dot"
-                :class="{ 'animate-pulse': row.phase !== 'writing' }"
-                :style="{ backgroundColor: identityColor(row.name) }"
-                aria-hidden="true"
-              />
-              <span class="min-w-0 flex-1 truncate font-medium">{{ row.name }}</span>
-              <span class="run-phase">{{ runPhaseLabel(row.phase) }}</span>
-              <span v-if="elapsedLabel(row.startedAt, now)" class="run-time tabular-nums">
-                {{ elapsedLabel(row.startedAt, now) }}
+        <!-- 多路并发:每路一行,点选决定正文区展示哪一路。 -->
+        <div v-else class="run-card-list">
+          <div v-for="row in rows" :key="row.key" class="run-row-wrap">
+            <button
+              type="button"
+              class="run-row"
+              :class="activeKey === row.key && 'run-row-active'"
+              :aria-pressed="activeKey === row.key"
+              :aria-expanded="preferences.showReasoning && row.reasoning ? openReasoning === row.key : undefined"
+              :data-run-key="row.key"
+              @click="onRowClick(row.key, preferences.showReasoning && Boolean(row.reasoning))"
+            >
+              <span class="run-row-line">
+                <span
+                  class="run-dot"
+                  :class="{ 'animate-pulse': row.phase !== 'writing' }"
+                  :style="{ backgroundColor: identityColor(row.name) }"
+                  aria-hidden="true"
+                />
+                <span class="min-w-0 flex-1 truncate font-medium">{{ row.name }}</span>
+                <span class="run-phase">{{ runPhaseLabel(row.phase) }}</span>
+                <span v-if="elapsedLabel(row.startedAt, now)" class="run-time tabular-nums">
+                  {{ elapsedLabel(row.startedAt, now) }}
+                </span>
+                <span
+                  v-if="preferences.showReasoning && row.reasoning"
+                  class="run-reasoning-hint"
+                >
+                  <Brain class="run-reasoning-icon" aria-hidden="true" />
+                  思考
+                </span>
               </span>
-              <span
-                v-if="preferences.showReasoning && row.reasoning"
-                class="run-reasoning-hint"
-              >
-                <Brain class="run-reasoning-icon" aria-hidden="true" />
-                思考
+              <span v-if="row.tool" class="run-row-tool">
+                {{ toolActionLabel(row.tool, groupNames) }}
               </span>
-            </span>
-            <span v-if="row.tool" class="run-row-tool">
-              {{ toolActionLabel(row.tool, groupNames) }}
-            </span>
-          </button>
-          <CollapseReveal
-            v-if="preferences.showReasoning && row.reasoning"
-            :show="openReasoning === row.key"
-          >
-            <div class="run-reasoning">
-              <ReasoningScroller :key="row.key" :text="row.reasoning" />
-            </div>
-          </CollapseReveal>
+            </button>
+            <CollapseReveal
+              v-if="preferences.showReasoning && row.reasoning"
+              :show="openReasoning === row.key"
+            >
+              <div class="run-reasoning">
+                <ReasoningScroller :key="row.key" :text="row.reasoning" />
+              </div>
+            </CollapseReveal>
+          </div>
         </div>
       </div>
     </CollapseReveal>

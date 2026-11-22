@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
+import { SectionBlock } from '@/components/panel';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
@@ -41,16 +42,18 @@ function display(key: keyof TelemetryMetrics) {
     </div>
     <Disclosure v-if="showDetail">
       <template #summary>全部指标</template>
-      <dl class="mt-2 flex flex-col divide-y divide-border/60 rounded-(--component-card-radius) border border-border bg-muted/20 px-3 py-1 text-xs tabular-nums">
-        <div
-          v-for="key in METRIC_KEYS"
-          :key="key"
-          class="flex items-center justify-between gap-2 py-1.5"
-        >
-          <dt class="text-muted-foreground">{{ METRIC_LABELS[key] }}</dt>
-          <dd class="font-medium text-foreground">{{ metricDisplay(metrics[key], key) }}</dd>
-        </div>
-      </dl>
+      <SectionBlock as="div" tone="muted" :container="false" class="mt-2 px-3 py-1">
+        <dl class="flex flex-col divide-y divide-border/60 text-xs tabular-nums">
+          <div
+            v-for="key in METRIC_KEYS"
+            :key="key"
+            class="flex items-center justify-between gap-2 py-1.5"
+          >
+            <dt class="text-muted-foreground">{{ METRIC_LABELS[key] }}</dt>
+            <dd class="font-medium text-foreground">{{ metricDisplay(metrics[key], key) }}</dd>
+          </div>
+        </dl>
+      </SectionBlock>
     </Disclosure>
   </div>
 </template>

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { toast } from 'vue-sonner';
 import { api } from '@/shared/api/client';
-import type { AttachmentSettings, UnreadMessage, UnreadReceipt, UploadedAttachment } from '@/shared/api/raw-types';
+import type { AttachmentSettings, UploadedAttachment } from '@/shared/api/raw-types';
 import { classifyAttachmentName, formatAttachmentSize } from '@/shared/attachment-types';
 
 /** 输入框附件草稿:内存态,不要求刷新恢复;上传失败保留条目等用户移除。 */

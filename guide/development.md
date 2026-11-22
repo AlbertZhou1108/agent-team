@@ -58,7 +58,13 @@ npm test
 npm run build
 ```
 
-`check` 包含语法、设计治理、双端类型与后端 ESLint。CI 在 Ubuntu、macOS、Windows 上执行 check、build、test。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
+`check` 包含语法、设计治理、分层契约、双端类型与双端 ESLint（`lint:backend` + `lint:web`）。CI 在 Ubuntu、macOS、Windows 上执行 check、build、test。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
+
+如需在本地提交前自动阻断设计/类型/ESLint 违例，可启用仓库预置钩子：
+
+```bash
+git config core.hooksPath .githooks
+```
 
 真实宿主验收另行手动执行，会使用宿主认证和模型额度：
 

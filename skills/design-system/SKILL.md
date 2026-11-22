@@ -11,7 +11,21 @@ description: AgentTeam 前端设计体系操作手册：写或改 web/src 的页
 
 ```bash
 node scripts/check-design.mjs   # 全树约 0.3s,违例明细带文件行号
+npm run lint:web                # Vue/TS ESLint 门禁
 ```
+
+## 场景 → 必用组件 / 原语速查
+
+| 场景 | 必用组件 / 原语 | 禁止写法 |
+| --- | --- | --- |
+| 容器级底纹/毛玻璃/纸纹表面 | `<Surface role="nav-panel\|context-panel\|action\|input\|overlay">` | 自写 `shadow-*`、`backdrop-blur-*`、`bg-popover` 叠阴影 |
+| 独立内容面 / 无边框弱提示 | `<Card>` / `<NoteBlock>` | 卡片内再套 `<Card>` / `variant="card"` |
+| 面板带边框分区容器 | `<SectionBlock>`（`@/components/panel`，含 `@container` 与 `compact`/`tone`） | 业务目录手写 `rounded-(--component-card-radius) border` |
+| KPI / 指标卡片 | `<MetricCard>`（`@/components/panel`，`size="lg"\|"sm"`、可选 `:progress`） | 业务目录手写边框指标块 |
+| 标签页 / 分段切换 | `<Tabs>` + `<TabsList variant="pill"\|"underline">` + `<TabsTrigger>` / `<ToggleGroup>` | 业务目录手写 `role="tablist"` 或自定义 active CSS |
+| 通用折叠 / 右下角展开收起 | `<Disclosure>` / `<DisclosureFooter>` / `<DisclosureChevron>` / `SidebarEntry` + `<CollapseReveal>` | 在 `<CollapseReveal>` 直接子节点写 `v-if`（会截断动画） |
+| 水平或行内垂直分割线 | `<Separator size="full"\|"inline">` | `class="h-3.5!"` 等 Tailwind `!` 强制覆写高度 |
+| 显式微交互过渡 | `transition-colors` 或 `transition-(transform\|opacity\|all) duration-(--component-feedback-duration)` | 不带 `duration-(--component-*)` 的显式 `transition-transform/opacity/all` |
 
 ## 圆角刻度（随材质取值,组件按语义取档）
 
@@ -50,11 +64,14 @@ node scripts/check-design.mjs   # 全树约 0.3s,违例明细带文件行号
 | 手写（会被拦） | 正确写法 |
 | --- | --- |
 | `rounded-md border border-border bg-muted/30 p-4` 信息块 | `<NoteBlock class="p-4">…</NoteBlock>` |
+| `rounded-(--component-card-radius) border border-border p-3.5` 分区 | `<SectionBlock>…</SectionBlock>` |
+| `div role="tablist"` 自定义 tab / `.team-segment-tab` | `<Tabs><TabsList variant="pill"\|"underline"><TabsTrigger>` |
+| `<CollapseReveal><div v-if="open">...</div></CollapseReveal>` 或手写底栏折叠 | `<DisclosureFooter v-model:open="open"><div>...</div></DisclosureFooter>`（内容保持常驻 DOM） |
 | `rounded-xl` 消息卡 | `BubbleContent`（自带 card 档） |
 | `bg-popover rounded-md shadow-md`（浮层） | `PopoverContent` 等 ui 原语（`data-surface='overlay'` 由材质层供样式） |
 | `text-zinc-500` | `text-muted-foreground` |
 | `bg-black/60`（图片浮层控件） | `bg-(--component-image-scrim-bg)/60` |
-| `duration-200` | `transition-colors`（不写时长,根上已改指契约 fast 档） |
+| `duration-200` / 裸 `transition-opacity` | `transition-colors` 或 `transition-opacity duration-(--component-feedback-duration)` |
 
 ## 扩展契约
 

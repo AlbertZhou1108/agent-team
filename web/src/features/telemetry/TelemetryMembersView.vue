@@ -2,7 +2,6 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Users } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';

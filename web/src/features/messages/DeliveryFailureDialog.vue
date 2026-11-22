@@ -79,7 +79,7 @@ const { copy, copied } = useClipboard({ copiedDuring: 1500, legacy: true });
            break-words 只在整行放不下时才硬断：日志按空格换行，URL 不会被拦腰截断。 -->
       <NoteBlock
         as="pre"
-        class="m-0 min-h-0 flex-[1_1_auto] overflow-auto border border-border/60 bg-muted/50 p-3.5 font-mono text-[11px] leading-[17px] whitespace-pre-wrap break-words"
+        class="m-0 min-h-0 flex-[1_1_auto] overflow-auto border border-border/60 bg-muted/50 p-3.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words"
         >{{ detail }}</NoteBlock
       >
       <!-- 只陈述事实:失败了系统不会自己再试一遍,别让用户干等。

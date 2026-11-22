@@ -4,6 +4,7 @@ import { Activity, Braces, Check, Copy, LoaderCircle } from '@lucide/vue';
 import CodeBlock from '@/components/ai-elements/CodeBlock.vue';
 import TurnTraceSection from '@/components/ai-elements/TurnTraceSection.vue';
 import TraceStepCard from '@/components/ai-elements/TraceStepCard.vue';
+import { SectionBlock } from '@/components/panel';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -239,9 +240,12 @@ function prettyEvent(value: string) {
 
     <!-- 模式一：执行轨迹 -->
     <template v-else-if="mode === 'trace'">
-      <div
+      <SectionBlock
         v-if="turnSummaries.length"
-        class="flex shrink-0 flex-col gap-2 rounded-(--component-card-radius) border border-border bg-muted/20 px-3 py-2"
+        as="div"
+        tone="muted"
+        :container="false"
+        class="shrink-0 gap-2 px-3 py-2"
         data-testid="trace-timeline-overview"
       >
         <div class="flex flex-wrap items-center gap-3 text-xs text-muted-foreground tabular-nums">
@@ -277,7 +281,7 @@ function prettyEvent(value: string) {
             v-for="turn in filteredTurns"
             :key="turn.id"
             type="button"
-            class="h-full min-w-2 flex-1 transition-opacity hover:opacity-80"
+            class="h-full min-w-2 flex-1 transition-opacity duration-(--component-feedback-duration) hover:opacity-80"
             :class="[segmentTone(turn.state), highlightedTurnId === turn.id && 'ring-1 ring-inset ring-foreground/50']"
             :style="{ flexGrow: Math.max(1, turn.eventCount) }"
             :title="`第 ${turn.ordinal} 轮 · ${turn.eventCount} 步 · ${turn.state}`"
@@ -285,11 +289,13 @@ function prettyEvent(value: string) {
             @click="jumpToTurn(turn.id)"
           />
         </div>
-      </div>
+      </SectionBlock>
 
       <!-- 统一外层滚动容器包裹所有连续回合行（非每回合卡片）。 -->
-      <div
-        class="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto rounded-(--component-card-radius) border border-border bg-background/40 px-4 py-2"
+      <SectionBlock
+        as="div"
+        :container="false"
+        class="scrollbar-thin min-h-0 flex-1 gap-0 overflow-y-auto px-4 py-2"
         data-testid="trace-turns-scroll"
       >
         <PanelState v-if="loading" loading title="正在读取回合" />
@@ -336,7 +342,7 @@ function prettyEvent(value: string) {
             />
           </div>
         </Disclosure>
-      </div>
+      </SectionBlock>
     </template>
 
     <!-- 模式二：原始事件（展开 + 分类过滤 + 搜索 + 复制） -->
@@ -364,11 +370,16 @@ function prettyEvent(value: string) {
         </span>
       </div>
 
-      <div
-        ref="rawScrollEl"
-        class="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto rounded-(--component-card-radius) border border-border bg-background/40 px-3 py-2"
-        data-testid="raw-events-scroll"
+      <SectionBlock
+        as="div"
+        :container="false"
+        class="min-h-0 flex-1 gap-0 overflow-hidden p-0"
       >
+        <div
+          ref="rawScrollEl"
+          class="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2"
+          data-testid="raw-events-scroll"
+        >
         <PanelState v-if="rawPending" loading title="正在读取原始事件" />
         <PanelState
           v-else-if="!filteredRawRows.length"
@@ -427,7 +438,8 @@ function prettyEvent(value: string) {
         >
           <LoaderCircle class="size-3 animate-spin" />正在加载更多事件…
         </p>
-      </div>
+        </div>
+      </SectionBlock>
     </template>
   </div>
 </template>

@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+node scripts/check-design.mjs
+node scripts/check-layering.mjs
+npm run typecheck
+npm run lint:web

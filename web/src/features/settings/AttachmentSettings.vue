@@ -5,7 +5,6 @@ import { toast } from 'vue-sonner';
 import { api } from '@/shared/api/client';
 import type { AttachmentSettings } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group';
 import {
   Field,

@@ -30,7 +30,7 @@ import {
   X,
   Users,
 } from '@lucide/vue';
-import type { Group, Member, SessionEndpoint } from '@/shared/api/raw-types';
+import type { Group, Member } from '@/shared/api/raw-types';
 import { Badge } from '@/components/ui/badge';
 import {
   InputGroup,
@@ -80,10 +80,6 @@ const sortedGroups = computed(() =>
     );
   }),
 );
-const memberCount = computed(
-  () => props.members.filter((member) => !member.removed).length,
-);
-const runningCount = computed(() => props.runningEndpoints.length);
 const pinnedCount = computed(
   () =>
     props.groups.filter((group) => organization.homePinned.includes(group.id))

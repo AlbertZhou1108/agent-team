@@ -119,6 +119,36 @@ const CHECKS = [
     validate: (match) => SURFACE_ROLES.has(match[1]),
     extract: (match) => match[1],
   },
+  {
+    name: 'CollapseReveal 直接子节点禁止 v-if（会截断收起动画）',
+    pattern: /<CollapseReveal\b[^>]*>\s*<(?!\/)[^>]*\bv-if=/,
+    scopes: ['components', 'features', 'pages', 'app'],
+    multiline: true,
+    extract: () => '<CollapseReveal><... v-if=...>',
+  },
+  {
+    name: '禁止手写 role="tablist"（应复用 Tabs 或 ToggleGroup）',
+    pattern: /\brole="tablist"/,
+    scopes: ['components/panel', 'features', 'pages', 'app'],
+  },
+  {
+    name: '禁止手写 card-radius 边框分区容器（应复用 Card / SectionBlock / NoteBlock）',
+    pattern: /\brounded-\(--component-card-radius\)[^\n]*\bborder\b|\bborder\b[^\n]*\brounded-\(--component-card-radius\)/,
+    scopes: ['components/panel', 'features', 'pages', 'app'],
+    exempt: [/^components\/panel\/(?:SectionBlock|MetricCard)\.vue$/],
+  },
+  {
+    name: '禁止业务层直接使用阴影/模糊或字面量 px 字号（应走材质契约或语义字号）',
+    pattern: /\b(?:shadow|backdrop-blur)(?:-[a-z0-9[\]-]+)?\b|\btext-\[\d+px\]/,
+    scopes: ['components/panel', 'features', 'pages', 'app'],
+    exempt: [/^components\/panel\/(?:SectionBlock|MetricCard)\.vue$/],
+  },
+  {
+    name: '显式过渡须绑定动效契约时长 duration-(--component-*)',
+    pattern: /\btransition-(?:transform|all|opacity)\b/,
+    scopes: ['components/panel', 'features', 'pages', 'app'],
+    validate: (_match, line) => /duration-\(--component-/.test(line),
+  },
 ];
 
 const problems = [];
@@ -212,11 +242,20 @@ for (const check of CHECKS) {
       if (EXEMPT_PATHS.some((re) => re.test(rel))) return;
       if (check.exempt?.some((re) => re.test(rel))) return;
       const source = readFileSync(path, 'utf8');
+      if (check.multiline) {
+        const re = new RegExp(check.pattern.source, check.pattern.flags.includes('g') ? check.pattern.flags : `${check.pattern.flags}g`);
+        for (const match of source.matchAll(re)) {
+          if (check.validate && check.validate(match, match[0])) continue;
+          const lineNo = source.slice(0, match.index).split('\n').length;
+          problems.push(`  ${rel}:${lineNo}  [${check.name}] ${check.extract ? check.extract(match) : match[0].trim().slice(0, 60)}`);
+        }
+        return;
+      }
       const lines = source.split('\n');
       lines.forEach((line, index) => {
         const match = line.match(check.pattern);
         if (!match) return;
-        if (check.validate && check.validate(match)) return;
+        if (check.validate && check.validate(match, line)) return;
         problems.push(`  ${rel}:${index + 1}  [${check.name}] ${check.extract ? check.extract(match) : line.trim().slice(0, 60)}`);
       });
     });
