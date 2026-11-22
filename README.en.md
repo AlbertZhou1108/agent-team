@@ -6,7 +6,7 @@
 
 Hand a request to a Main Agent and let different assistants handle planning, execution, and review. Collaborate from a desktop window, a browser, or directly from an already-connected CLI agent via MCP—keeping your work in your own project folder.
 
-[Download v0.5.1](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.5.1) · [Quick Start](guide/en/quick-start.md) · [User Guide](guide/en/user-guide.md) · [Limitations](guide/en/limitations.md)
+[Download v0.5.3](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.5.3) · [Quick Start](guide/en/quick-start.md) · [User Guide](guide/en/user-guide.md) · [Limitations](guide/en/limitations.md)
 
 The project is gradually converging from the browser UI to a native desktop window: during development you can launch the standalone window with `npm run desktop` (see [Development & Build](guide/en/development.md)); current downloadable release packages still open in the browser.
 

@@ -6,7 +6,7 @@
 
 把需求交给主 Agent，让不同助手负责策划、执行和审阅。你可以通过桌面窗口、浏览器，或直接从已接入的 CLI Agent 使用 MCP 协作，把工作留在自己的工作文件夹中。
 
-[下载 v0.5.1](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.5.1) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
+[下载 v0.5.3](https://github.com/AlbertZhou1108/agent-team/releases/tag/v0.5.3) · [开始使用](guide/quick-start.md) · [使用指南](guide/user-guide.md) · [能力边界](guide/limitations.md)
 
 项目正在从浏览器入口逐渐收敛到桌面窗口：开发态可用 `npm run desktop` 打开独立窗口，见[开发与构建](guide/development.md)；当前可下载的发行包仍通过浏览器使用。
 
