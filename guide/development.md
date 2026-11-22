@@ -90,10 +90,10 @@ npm run package -- /绝对路径/新的发行目录
 
 ### 自动构建发行产物（不自动发布）
 
-`.github/workflows/release.yml` 在推送 `v*` tag 或手动触发时，于 Ubuntu/macOS/Windows 三个平台执行 check、test、打包，并把压缩包与 SHA-256 上传为 Actions 产物；**不会创建或发布 GitHub Release**。
+`.github/workflows/release.yml` 在推送 `v*` tag 或手动触发时，于 Ubuntu/macOS/Windows 三个平台执行 check、test、打包，并把压缩包与 SHA-256 上传为 Actions 产物；**流水线本身不会无人确认自动发布 GitHub Release**。
 
 - tag 必须与 `package.json` 的 `version` 一致（`vX.Y.Z`），否则构建在第一步失败。
-- 构建成功后，在该 Actions run 页面下载对应平台的 Artifacts，再人工创建 Release 并上传。
+- 构建成功后，从 Actions run 下载对应平台的 Artifacts 并核验 `.sha256` 校验和，随后由人工创建 Release，或由 Agent **经用户明确确认后**执行 `gh release create` 创建并上传产物。
 - 手动 `workflow_dispatch` 可用于试跑，不校验 tag。
 - Actions 产物默认保留 30 天；实际分发前仍需人工完成签名、安装与真实环境验收。
 

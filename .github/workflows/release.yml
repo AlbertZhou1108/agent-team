@@ -1,7 +1,7 @@
 name: Release artifacts
 
-# 只构建并上传 Actions 产物，不创建 GitHub Release。
-# 发布仍需人工下载产物、创建 Release 并上传，避免自动对外发布。
+# 流水线只构建并上传 Actions 产物，不无确认自动发布 GitHub Release。
+# 产物校验 SHA-256 后，可由人工发布或经用户明确确认后通过 gh release create 上传。
 on:
   push:
     tags:

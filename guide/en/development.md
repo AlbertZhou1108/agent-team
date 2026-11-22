@@ -81,10 +81,10 @@ Packages bundle Node, licenses, backend dependencies, and built frontend assets 
 
 ### Automated Release Builds (No Auto-Publish)
 
-`.github/workflows/release.yml` builds three-platform archives and SHA-256 checksums on `v*` tag pushes or manual dispatch without creating a GitHub Release automatically:
+`.github/workflows/release.yml` builds three-platform archives and SHA-256 checksums on `v*` tag pushes or manual dispatch without publishing a GitHub Release unattended:
 
 - The tag must match `package.json` `version` (`vX.Y.Z`).
-- Download Artifacts from the Actions run and upload them manually to a GitHub Release.
+- After verifying the Actions run Artifacts and `.sha256` checksums, upload them manually to a GitHub Release or have the agent run `gh release create` **only after explicit user confirmation**.
 - Signing, installation, and live-OS acceptance remain manual steps before public distribution.
 
 ## Skill Maintenance & Sync
