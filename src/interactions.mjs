@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import * as messagesAgg from './aggregates/messages.mjs';
 
 // 互动卡:成员与 Panel 发起的问答、控制动作的决策、答复投递与请求卡创建。
 // 本模块不反向依赖 Bus;跨职责调用一律经由传入的 bus 引用。
@@ -113,7 +114,7 @@ export class Interactions {
       if (row.message_id) {
         // 协作上下文发起:答复进群记录,经 pump 唤醒 Panel 主控 coordination 会话。
         const message = this.bus.store.transaction(() => {
-          const value = this.bus.store.append(row.group_id, 'user', row.panel_agent_id, 'send', text, row.message_id);
+          const value = messagesAgg.append(this.bus.store, row.group_id, 'user', row.panel_agent_id, 'send', text, row.message_id);
           this.bus.store.setInteractionState(row.id, 'answered', answer, value.id);
           return value;
         });
@@ -127,7 +128,7 @@ export class Interactions {
       return interactionView(this.bus.store.interaction(row.id));
     }
     const message = this.bus.store.transaction(() => {
-      const value = this.bus.store.append(row.group_id, 'user', row.member_id, 'send', text, row.message_id);
+      const value = messagesAgg.append(this.bus.store, row.group_id, 'user', row.member_id, 'send', text, row.message_id);
       this.bus.store.setInteractionState(row.id, 'answered', answer, value.id);
       return value;
     });
@@ -153,7 +154,7 @@ export class Interactions {
     });
     const deliverOutcome = /** @param {string} text */ text => {
       if (row.panel_agent_id) return this.bus.enqueuePanelPrivateAnswer(row.panel_agent_id, text);
-      const message = this.bus.store.append(row.group_id, 'user', row.member_id, 'send', text, row.message_id);
+      const message = messagesAgg.append(this.bus.store, row.group_id, 'user', row.member_id, 'send', text, row.message_id);
       this.bus.emit('message', message);
       queueMicrotask(() => this.bus.pump());
       return message;
@@ -194,7 +195,7 @@ export class Interactions {
   }
   /** @param {Record<string, any>} member @param {string} text */
   memberInteractionAnchor(member, text) {
-    const message = this.bus.store.append(member.group_id, member.id, 'user', 'send', text);
+    const message = messagesAgg.append(this.bus.store, member.group_id, member.id, 'user', 'send', text);
     this.bus.emit('message', message);
     return message;
   }

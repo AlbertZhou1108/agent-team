@@ -3,33 +3,11 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
+import { SCHEMA_VERSION, ensureCurrentSchema, ensureAuxiliarySchema, ensureV2Schema, seedGlobalModelPolicyAndRoleNames } from './store/schema.mjs';
+import * as migrations from './store/migrations.mjs';
+import * as traceQueries from './store/trace-queries.mjs';
 
-// 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 24;
-
-function modelObservations(rows) {
-  return rows.flatMap(row => {
-    const event = JSON.parse(row.event);
-    return event.type === 'framework.model' ? [{ seq: row.seq, created: row.created, turnId: row.turn_id, ...event }] : [];
-  });
-}
-
-function latestWith(observations, field, phases) {
-  for (const phase of phases) {
-    const found = [...observations].reverse().find(observation => observation.phase === phase && observation[field] != null);
-    if (found) return { [field]: found[field], phase: found.phase, source: found.source, seq: found.seq, ...(found.turnId ? { turnId: found.turnId } : {}) };
-  }
-  return null;
-}
-
-function deriveCurrentModel(observations) {
-  const latest = [...observations].reverse().find(observation => observation.phase !== 'usage' && (observation.model != null || observation.reasoningEffort != null));
-  const current = latest?.turnId ? observations.filter(observation => observation.turnId === latest.turnId) : observations;
-  return {
-    currentModel: latestWith(current, 'model', ['assistant', 'verified', 'session', 'requested']),
-    currentReasoningEffort: latestWith(current, 'reasoningEffort', ['verified', 'session', 'requested']),
-  };
-}
+export { SCHEMA_VERSION };
 
 export class Store {
   constructor(directory) {
@@ -38,160 +16,58 @@ export class Store {
     this.savepointDepth = 0;
     this.db = new DatabaseSync(resolve(directory, 'groups.sqlite'));
     chmodSync(resolve(directory, 'groups.sqlite'), 0o600);
-    // 版本必须在建表前读取:新库与 v0 旧库都返回 0，用 groups 表是否存在区分。
+    // 版本必须在建表前读取：新库与 v0 旧库都返回 0，用「是否存在任何用户表」区分。
     const existingVersion = this.schemaVersion();
     if (existingVersion > SCHEMA_VERSION) {
       this.db.close();
       throw new Error(`数据目录由更新版本的 Agent Team 创建（schema ${existingVersion}），当前版本只支持到 ${SCHEMA_VERSION}`);
     }
-    this.isFreshDatabase = !this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='groups'");
+    this.isFreshDatabase = existingVersion === 0 && !this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
     this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;');
-    if (existingVersion < 2) this.upgradeFromV1();
-    this.migrateSchema(existingVersion);
-    this.ensureV2Schema();
-    if (this.schemaVersion() !== SCHEMA_VERSION) this.setSchemaVersion(SCHEMA_VERSION);
+    if (this.isFreshDatabase) {
+      // 新库：直接建立当前版本完整 Schema，不回放历史迁移阶梯。
+      ensureCurrentSchema(this);
+      this.setSchemaVersion(SCHEMA_VERSION);
+    } else {
+      if (existingVersion < 2) this.upgradeFromV1();
+      this.migrateSchema(existingVersion);
+      this.ensureV2Schema();
+      ensureAuxiliarySchema(this);
+      if (this.schemaVersion() !== SCHEMA_VERSION) this.setSchemaVersion(SCHEMA_VERSION);
+    }
+    seedGlobalModelPolicyAndRoleNames(this);
   }
 
-  // v0/v1 数据目录先补齐到 v1 形状，再交给 v1->v2 迁移。仅在 user_version < SCHEMA_VERSION 时执行。
-  upgradeFromV1() {
-    this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
-      CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,workspace TEXT NOT NULL,lead TEXT,created TEXT NOT NULL,charter TEXT,policy TEXT NOT NULL DEFAULT 'workspace-write',allow_shell INTEGER NOT NULL DEFAULT 1);
-      CREATE TABLE IF NOT EXISTS team_creation_requests(operation_id TEXT PRIMARY KEY,payload TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE SET NULL);
-      CREATE TABLE IF NOT EXISTS members(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,role TEXT NOT NULL,profile TEXT NOT NULL DEFAULT '',removed TEXT,UNIQUE(group_id,name));
-      CREATE TABLE IF NOT EXISTS endpoints(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,context TEXT NOT NULL,peer TEXT,session TEXT,key TEXT NOT NULL,UNIQUE(member_id,context));
-      CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,sender TEXT NOT NULL,recipient TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,reply_to TEXT,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
-      CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_agents(id TEXT PRIMARY KEY,singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK(singleton=1),name TEXT NOT NULL,host TEXT NOT NULL,model_provider TEXT,model TEXT,reasoning_effort TEXT,workspace TEXT,access TEXT NOT NULL DEFAULT 'read-only' CHECK(access IN ('read-only','workspace-write','full-access')),created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_sessions(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,session TEXT,policy_signature TEXT,key TEXT NOT NULL UNIQUE,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS panel_private_session ON panel_sessions(panel_agent_id) WHERE context='private';
-      CREATE UNIQUE INDEX IF NOT EXISTS panel_coordination_session ON panel_sessions(panel_agent_id,group_id) WHERE context='coordination';
-      CREATE TABLE IF NOT EXISTS panel_team_bindings(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,relation TEXT NOT NULL CHECK(relation IN ('observer','main')),created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(panel_agent_id,group_id));
-      CREATE TABLE IF NOT EXISTS team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent','external_agent')),controller_id TEXT NOT NULL,controller_binding_id TEXT,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,command TEXT,wake_config TEXT,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
-      CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
-      CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),wake_state TEXT NOT NULL DEFAULT 'pending' CHECK(wake_state IN ('pending','sending','sent','unsupported','error')),wake_error TEXT,wake_updated TEXT,payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
-      CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);
-      CREATE TABLE IF NOT EXISTS external_decisions(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,requester_member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,controller_principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,request_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled')),answer TEXT,answered_by_binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,created TEXT NOT NULL,answered TEXT);
-      CREATE INDEX IF NOT EXISTS external_decisions_pending ON external_decisions(group_id,state,created);
-      CREATE TABLE IF NOT EXISTS panel_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL CHECK(context IN ('private','coordination')),role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),text TEXT NOT NULL,active_team_id TEXT,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES panel_turns(id) ON DELETE SET NULL,kind TEXT NOT NULL DEFAULT 'update' CHECK(kind IN ('update','continuation')),text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
-      CREATE TABLE IF NOT EXISTS panel_turns(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,group_id TEXT,active_team_id TEXT,state TEXT NOT NULL,created TEXT NOT NULL,ended TEXT);
-      CREATE TABLE IF NOT EXISTS panel_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,turn_id TEXT,event TEXT NOT NULL,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_outbox(id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES panel_sessions(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
-      CREATE TABLE IF NOT EXISTS panel_attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES panel_outbox(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS panel_turn_inputs(turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
-      CREATE TABLE IF NOT EXISTS panel_message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES panel_turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES panel_history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
-      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-      CREATE TABLE IF NOT EXISTS agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(owner_id,group_id));
-      CREATE TABLE IF NOT EXISTS plan_events(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('frozen','step_cancelled')),owner_id TEXT,revision INTEGER,payload TEXT NOT NULL,created TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS message_step_refs(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,step_id TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS model_policy_presets(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS theme_packs(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,light TEXT NOT NULL,dark TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS attachment_settings(singleton INTEGER PRIMARY KEY CHECK(singleton=1),max_file_bytes INTEGER NOT NULL,max_files INTEGER NOT NULL,max_image_pixels INTEGER NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,original_name TEXT NOT NULL,media_type TEXT NOT NULL CHECK(media_type IN ('text/plain','image/png','image/jpeg')),size INTEGER NOT NULL,storage_name TEXT NOT NULL,created_at TEXT NOT NULL,panel_message_id TEXT REFERENCES panel_messages(id) ON DELETE CASCADE,ordinal INTEGER);
-      CREATE TABLE IF NOT EXISTS panel_message_requests(panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,client_message_id TEXT NOT NULL,payload_hash TEXT NOT NULL,panel_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,created_at TEXT NOT NULL,PRIMARY KEY(panel_agent_id,client_message_id));
-      CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
-      CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);
-      CREATE INDEX IF NOT EXISTS plan_events_group ON plan_events(group_id,plan_id,created);
-      CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,seq);
-      CREATE INDEX IF NOT EXISTS messages_group ON messages(group_id,seq);
-      CREATE INDEX IF NOT EXISTS history_endpoint ON history(endpoint_id,seq);
-      CREATE INDEX IF NOT EXISTS panel_messages_agent ON panel_messages(panel_agent_id,seq);
-      CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
-      CREATE INDEX IF NOT EXISTS panel_history_session ON panel_history(session_id,seq);
-      CREATE INDEX IF NOT EXISTS panel_history_turn ON panel_history(turn_id,seq);
-      CREATE INDEX IF NOT EXISTS attachments_message ON attachments(panel_message_id);
-      CREATE INDEX IF NOT EXISTS attachments_agent ON attachments(panel_agent_id);`);
-    // 这些表由其它模块在 Bus 构造时创建；Store 迁移发生在那之前，先补 v1 形状以保证迁移 SQL 可读。
-    this.db.exec(`CREATE TABLE IF NOT EXISTS runtime_attempts(turn_id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,endpoint_id TEXT NOT NULL,state TEXT NOT NULL,policy TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
-      CREATE INDEX IF NOT EXISTS runtime_group ON runtime_attempts(group_id,state);
-      CREATE TABLE IF NOT EXISTS endpoint_policy(endpoint_id TEXT PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,signature TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS endpoint_session_bindings(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
-      CREATE TABLE IF NOT EXISTS endpoint_session_policies(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,signature TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
-      CREATE TABLE IF NOT EXISTS endpoint_context_formats(endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session_key TEXT NOT NULL,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(endpoint_id,session_key));
-      CREATE TABLE IF NOT EXISTS panel_session_context_formats(session_id TEXT PRIMARY KEY REFERENCES panel_sessions(id) ON DELETE CASCADE,schema_version INTEGER NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);`);
-    for (const [name, definition] of [
-      ['model_provider', 'TEXT'],
-      ['model', 'TEXT'],
-      ['reasoning_effort', 'TEXT'],
-    ]) {
-      if (!this.all('PRAGMA table_info(members)').some(column => column.name === name)) {
-        this.db.exec(`ALTER TABLE members ADD COLUMN ${name} ${definition}`);
-      }
-    }
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,endpoint_id TEXT NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,session TEXT,created TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS turn_inputs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
-        CREATE TABLE IF NOT EXISTS native_turn_refs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,ref TEXT NOT NULL,PRIMARY KEY(turn_id,ref));
-        CREATE TABLE IF NOT EXISTS message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);`);
-      if (!this.all('PRAGMA table_info(history)').some(column => column.name === 'turn_id')) this.db.exec('ALTER TABLE history ADD COLUMN turn_id TEXT REFERENCES turns(id) ON DELETE CASCADE');
-      this.db.exec('CREATE INDEX IF NOT EXISTS history_turn ON history(turn_id,seq); CREATE INDEX IF NOT EXISTS inputs_message ON turn_inputs(message_id);');
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS telemetry_observations(
-          id TEXT PRIMARY KEY,
-          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-          executor_kind TEXT NOT NULL,
-          executor_id TEXT NOT NULL,
-          endpoint_id TEXT NOT NULL,
-          session_key TEXT NOT NULL,
-          turn_id TEXT NOT NULL,
-          turn_kind TEXT NOT NULL,
-          host TEXT NOT NULL,
-          host_session_namespace TEXT NOT NULL,
-          host_session_id TEXT,
-          instance_id TEXT NOT NULL,
-          instance_generation INTEGER NOT NULL DEFAULT 0,
-          native_turn_id TEXT NOT NULL DEFAULT '',
-          step_id TEXT NOT NULL DEFAULT '',
-          request_id TEXT NOT NULL DEFAULT '',
-          attempt_id TEXT NOT NULL DEFAULT '',
-          source TEXT NOT NULL,
-          scope TEXT NOT NULL,
-          aggregation TEXT NOT NULL,
-          observed_at TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          UNIQUE(executor_kind,executor_id,endpoint_id,session_key,turn_id,instance_id,source,scope,aggregation,native_turn_id,step_id,request_id,attempt_id)
-        );
-        CREATE INDEX IF NOT EXISTS telemetry_observations_group ON telemetry_observations(group_id,observed_at);
-        CREATE TABLE IF NOT EXISTS telemetry_session_generations(
-          endpoint_id TEXT NOT NULL,
-          session_key TEXT NOT NULL,
-          generation INTEGER NOT NULL DEFAULT 0,
-          updated TEXT NOT NULL,
-          PRIMARY KEY(endpoint_id,session_key)
-        );
-      `);
-    });
-    const ensureColumn = (table, name, definition) => {
-      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
-        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
-        return true;
-      }
-      return false;
-    };
-    ensureColumn('panel_sessions', 'policy_signature', 'TEXT');
-    ensureColumn('panel_turns', 'source_user_message_id', 'TEXT');
-    ensureColumn('panel_messages', 'context', "TEXT NOT NULL DEFAULT 'private'");
-    ensureColumn('panel_updates', 'kind', "TEXT NOT NULL DEFAULT 'update'");
-    ensureColumn('groups', 'charter', 'TEXT');
-    ensureColumn('groups', 'policy', "TEXT NOT NULL DEFAULT 'workspace-write'");
-    ensureColumn('groups', 'allow_shell', 'INTEGER NOT NULL DEFAULT 1');
-    ensureColumn('groups', 'state', 'TEXT');
-    ensureColumn('panel_agents', 'workspace', 'TEXT');
-    const panelAccessAdded = ensureColumn('panel_agents', 'access', "TEXT NOT NULL DEFAULT 'read-only'");
-    if (panelAccessAdded) {
-      // 旧 Panel Agent 迁移为只读访问级别；私人宿主会话按新策略重建，聊天记录保留。
-      this.db.prepare("UPDATE panel_sessions SET session=NULL,policy_signature=NULL,updated=? WHERE context='private'")
-        .run(new Date().toISOString());
-    }
-    this.migrate();
-  }
-
+  upgradeFromV1() { return migrations.upgradeFromV1(this); }
+  migrateSchema(fromVersion) { return migrations.migrateSchema(this, fromVersion); }
+  migrateV2() { return migrations.migrateV2(this); }
+  migrateV3() { return migrations.migrateV3(this); }
+  migrateV4() { return migrations.migrateV4(this); }
+  migrateV5() { return migrations.migrateV5(this); }
+  migrateV6() { return migrations.migrateV6(this); }
+  migrateV7() { return migrations.migrateV7(this); }
+  migrateV8() { return migrations.migrateV8(this); }
+  migrateV9() { return migrations.migrateV9(this); }
+  migrateV10() { return migrations.migrateV10(this); }
+  migrateV11() { return migrations.migrateV11(this); }
+  migrateV12() { return migrations.migrateV12(this); }
+  migrateV13() { return migrations.migrateV13(this); }
+  migrateV14() { return migrations.migrateV14(this); }
+  migrateV15() { return migrations.migrateV15(this); }
+  migrateV16() { return migrations.migrateV16(this); }
+  migrateV17() { return migrations.migrateV17(this); }
+  migrateV18() { return migrations.migrateV18(this); }
+  migrateV19() { return migrations.migrateV19(this); }
+  migrateV20() { return migrations.migrateV20(this); }
+  migrateV21() { return migrations.migrateV21(this); }
+  migrateV22() { return migrations.migrateV22(this); }
+  migrateV23() { return migrations.migrateV23(this); }
+  migrateV24() { return migrations.migrateV24(this); }
+  migrate() { return migrations.migrate(this); }
+  migrateAttachments() { return migrations.migrateAttachments(this); }
+  migrateAgentTasks() { return migrations.migrateAgentTasks(this); }
+  migrateInteractions() { return migrations.migrateInteractions(this); }
+  ensureV2Schema() { return ensureV2Schema(this); }
 
   schemaVersion() {
     return Number(this.db.prepare('PRAGMA user_version').get().user_version ?? 0);
@@ -204,675 +80,15 @@ export class Store {
 
   // 版本迁移钩子:按 user_version 逐级执行。v1 -> v2 的会话/回合/投递合并
   // 在单个事务内完成，失败回滚；迁移后由 foreign_key_check 兜底。
-  migrateSchema(fromVersion) {
-    if (fromVersion >= SCHEMA_VERSION) return;
-    if (fromVersion < 2) this.migrateV2();
-    if (fromVersion < 3) this.migrateV3();
-    if (fromVersion < 4) this.migrateV4();
-    if (fromVersion < 5) this.migrateV5();
-    if (fromVersion < 6) this.migrateV6();
-    if (fromVersion < 7) this.migrateV7();
-    if (fromVersion < 8) this.migrateV8();
-    if (fromVersion < 9) this.migrateV9();
-    if (fromVersion < 10) this.migrateV10();
-    if (fromVersion < 11) this.migrateV11();
-    if (fromVersion < 12) this.migrateV12();
-    if (fromVersion < 13) this.migrateV13();
-    if (fromVersion < 14) this.migrateV14();
-    if (fromVersion < 15) this.migrateV15();
-    if (fromVersion < 16) this.migrateV16();
-    if (fromVersion < 17) this.migrateV17();
-    if (fromVersion < 18) this.migrateV18();
-    if (fromVersion < 19) this.migrateV19();
-    if (fromVersion < 20) this.migrateV20();
-    if (fromVersion < 21) this.migrateV21();
-    if (fromVersion < 22) this.migrateV22();
-    if (fromVersion < 23) this.migrateV23();
-    if (fromVersion < 24) this.migrateV24();
-}
 
-  // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
-  // 旧库该列与 declared_capabilities 内容一致，删除不丢信息。
-  migrateV19() {
-    const columns = this.all('PRAGMA table_info(external_client_bindings)');
-    if (!columns.some(column => column.name === 'probed_capabilities')) return;
-    this.db.exec('ALTER TABLE external_client_bindings DROP COLUMN probed_capabilities');
-  }
-
-  // v20:桌面域基础。三块事实各自独立:
-  // - desktop_applications:每个检测到的应用安装一行,持有安装身份与验证状态;
-  //   surface 区分 Codex Desktop 与 CLI-only Codex,不复制宿主模型。
-  // - 主控会话即 binding:桌面会话加 surface/app_id/controller_cwd,CLI binding 默认 cli 不受影响。
-  //   app_id 是裸 id 引用(同 notes.source_team_id 的取舍):注册表行由检测服务
-  //   按 (kind,surface,install_path) 重建,删除应用行不应级联抹掉绑定指向,
-  //   指向缺失正好表达「该 surface 不可用」。
-  // - team_controller_relations:团队与每个建立过访问的 binding 的持久关系;
-  //   「谁活跃」由 team_lead_controllers 席位推导,关系表只记访问事实,不存第二份活跃状态。
-  // - 团队 workspace 跟随主控会话:groups.workspace 仍是唯一生效目录,
-  //   workspace_pending 表达「等旧回合结算再切」,workspace_events 留下解释性历史。
-  // 既有 external_agent 席位播种为 creator 关系;旧 binding 一律 surface='cli',行为不变。
-  migrateV20() {
-    const ensureColumn = (table, name, definition) => {
-      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
-        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
-        return true;
-      }
-      return false;
-    };
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS desktop_applications(
-          id TEXT PRIMARY KEY,
-          kind TEXT NOT NULL CHECK(kind IN ('codex','dsh','claude')),
-          surface TEXT NOT NULL DEFAULT 'desktop' CHECK(surface IN ('cli','desktop')),
-          install_path TEXT,
-          engine_path TEXT,
-          engine_version TEXT,
-          readiness TEXT NOT NULL DEFAULT 'unavailable' CHECK(readiness IN ('available','unavailable')),
-          pull_only INTEGER NOT NULL DEFAULT 0,
-          controller_state TEXT,
-          engine_state TEXT,
-          diagnostics TEXT,
-          fingerprint TEXT,
-          verified_at TEXT,
-          lifecycle_note TEXT,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          UNIQUE(kind,surface,install_path));
-        CREATE TABLE IF NOT EXISTS team_controller_relations(
-          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-          binding_id TEXT NOT NULL REFERENCES external_client_bindings(id) ON DELETE CASCADE,
-          principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,
-          origin TEXT NOT NULL DEFAULT 'takeover' CHECK(origin IN ('creator','takeover')),
-          revision INTEGER NOT NULL DEFAULT 1,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          PRIMARY KEY(group_id,binding_id));
-        CREATE INDEX IF NOT EXISTS team_controller_relations_binding ON team_controller_relations(binding_id);
-        CREATE TABLE IF NOT EXISTS workspace_events(
-          seq INTEGER PRIMARY KEY AUTOINCREMENT,
-          group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-          kind TEXT NOT NULL CHECK(kind IN ('pending','applied','cancelled')),
-          from_path TEXT,
-          to_path TEXT,
-          revision INTEGER,
-          detail TEXT,
-          created TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS workspace_events_group ON workspace_events(group_id,seq);`);
-      ensureColumn('external_client_bindings', 'app_id', 'TEXT');
-      ensureColumn('external_client_bindings', 'surface', "TEXT NOT NULL DEFAULT 'cli' CHECK(surface IN ('cli','desktop'))");
-      ensureColumn('external_client_bindings', 'controller_cwd', 'TEXT');
-      ensureColumn('external_client_bindings', 'controller_cwd_updated', 'TEXT');
-      ensureColumn('groups', 'workspace_pending', 'TEXT');
-      ensureColumn('groups', 'workspace_revision', 'INTEGER NOT NULL DEFAULT 0');
-      // 播种:既有外部主控席位即该 binding 建立访问的起点;origin 取 creator
-      // 是近似——旧模型没有跨会话接管,席位 binding 基本就是建群 binding。
-      this.db.exec(`INSERT OR IGNORE INTO team_controller_relations(group_id,binding_id,principal_id,origin,revision,created,updated)
-          SELECT group_id,controller_binding_id,controller_id,'creator',revision,updated,updated
-          FROM team_lead_controllers
-          WHERE controller_kind='external_agent' AND state='active' AND controller_binding_id IS NOT NULL`);
-    });
-  }
-
-  // v21:桌面应用的「用户停用」与 bundle 版本。readiness 表达系统能力结论,用户
-  // 主动关掉一个可用应用是另一种事实——检测与验证都不应把它翻回来,所以单独成列;
-  // bundle_version 是安装指纹的可见来源(重验证提示要能说出哪个版本变了)。
-  migrateV21() {
-    const ensureColumn = (table, name, definition) => {
-      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
-        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
-        return true;
-      }
-      return false;
-    };
-    this.transaction(() => {
-      ensureColumn('desktop_applications', 'user_disabled', 'INTEGER NOT NULL DEFAULT 0');
-      ensureColumn('desktop_applications', 'disabled_reason', 'TEXT');
-      ensureColumn('desktop_applications', 'bundle_version', 'TEXT');
-    });
-  }
-
-  // v22:主控连接分「会话」与「激活」两种。桌面集成在宿主配置里只能放一条全局
-  // MCP 条目(凭据无法按会话分发),把宿主会话坍缩成一个 binding 正是交接文档
-  // 列出的头号风险。激活连接只做凭据:携带安装级 key,按宿主上报的会话身份
-  // (如 CODEX_THREAD_ID)解析或创建真正的会话连接;自己永不持有团队席位。
-  migrateV22() {
-    this.transaction(() => {
-      const hasKind = this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'binding_kind');
-      if (!hasKind) {
-        this.db.exec("ALTER TABLE external_client_bindings ADD COLUMN binding_kind TEXT NOT NULL DEFAULT 'conversation' CHECK(binding_kind IN ('conversation','activation'))");
-      }
-    });
-  }
-
-  // v23:桌面应用注册表新增第四家 ZCode Desktop。kind 的 CHECK 是 schema 级
-  // 枚举,SQLite 不能改约束,按列信息重建本表;app_id 是裸引用、无外键指向
-  // 本表,重建不牵连其他表。
-  migrateV23() {
-    this.transaction(() => {
-      const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='desktop_applications'")?.sql ?? '';
-      if (tableSql.includes("'zcode'")) return;
-      const columns = this.all('PRAGMA table_info(desktop_applications)').map(column => column.name);
-      if (!columns.length) return;
-      this.db.exec(`CREATE TABLE desktop_applications_v23(
-          id TEXT PRIMARY KEY,
-          kind TEXT NOT NULL CHECK(kind IN ('codex','dsh','claude','zcode')),
-          surface TEXT NOT NULL DEFAULT 'desktop' CHECK(surface IN ('cli','desktop')),
-          install_path TEXT,
-          engine_path TEXT,
-          engine_version TEXT,
-          readiness TEXT NOT NULL DEFAULT 'unavailable' CHECK(readiness IN ('available','unavailable')),
-          pull_only INTEGER NOT NULL DEFAULT 0,
-          controller_state TEXT,
-          engine_state TEXT,
-          diagnostics TEXT,
-          fingerprint TEXT,
-          verified_at TEXT,
-          lifecycle_note TEXT,
-          created TEXT NOT NULL,
-          updated TEXT NOT NULL,
-          user_disabled INTEGER NOT NULL DEFAULT 0,
-          disabled_reason TEXT,
-          bundle_version TEXT,
-          UNIQUE(kind,surface,install_path));
-        INSERT INTO desktop_applications_v23(${columns.join(',')}) SELECT ${columns.join(',')} FROM desktop_applications;
-        DROP TABLE desktop_applications;
-        ALTER TABLE desktop_applications_v23 RENAME TO desktop_applications;`);
-    });
-  }
-
-  // v24:主页进展摘要独立存储，与 Panel Agent 私聊消息解耦。
-  migrateV24() {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS home_summaries(
-      id TEXT PRIMARY KEY,
-      panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,
-      text TEXT NOT NULL,
-      created TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS home_summaries_agent ON home_summaries(panel_agent_id,created DESC);`);
-  }
-
-  // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。
-  // 只有 kind='send' 且接收者不是 user 的消息置 1；进入 outbox/attached 后清零。
-  migrateV3() {
-    const hasAwaiting = this.all('PRAGMA table_info(messages)').some(column => column.name === 'awaiting');
-    this.transaction(() => {
-      if (!hasAwaiting) this.db.exec('ALTER TABLE messages ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0');
-      this.db.exec(`UPDATE messages SET awaiting = CASE WHEN kind='send' AND recipient!='user'
-          AND NOT EXISTS(SELECT 1 FROM attached a WHERE a.message_id=messages.id) THEN 1 ELSE 0 END;
-        CREATE INDEX IF NOT EXISTS messages_awaiting ON messages(seq) WHERE awaiting=1;
-        CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(accepted) WHERE accepted IS NULL;`);
-    });
-  }
-
-  // v4:Agent 间请求-答复协议与工作台清理状态。
-  // expects_reply 只标记"发信人期待答复"的正式消息;答复用既有 reply_to 指回请求。
-  migrateV4() {
-    const hasExpectsReply = this.all('PRAGMA table_info(messages)').some(column => column.name === 'expects_reply');
-    this.transaction(() => {
-      if (!hasExpectsReply) this.db.exec('ALTER TABLE messages ADD COLUMN expects_reply INTEGER NOT NULL DEFAULT 0');
-      this.db.exec(`CREATE INDEX IF NOT EXISTS messages_expects_reply ON messages(seq) WHERE expects_reply=1;
-        CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to) WHERE reply_to IS NOT NULL;
-        CREATE TABLE IF NOT EXISTS workbench_dismissals(category TEXT NOT NULL,item_id TEXT NOT NULL,created TEXT NOT NULL,PRIMARY KEY(category,item_id));`);
-    });
-  }
-
-  // v5:每个归档团队一份独立事实快照，摘要按需生成。
-  migrateV5() {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS archive_snapshots(
-      group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
-      id TEXT NOT NULL UNIQUE,created TEXT NOT NULL,facts TEXT NOT NULL,
-      summary TEXT,summary_created TEXT,error TEXT);`);
-  }
-
-  // v6:随心记。笔记不挂团队、不记录执行状态；Panel Agent 交互只通过一段提示词。
-  migrateV6() {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS notes(
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '',
-      title_manual INTEGER NOT NULL DEFAULT 0,
-      body TEXT NOT NULL,
-      todos TEXT NOT NULL DEFAULT '[]',
-      due TEXT,
-      state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','done','archived')),
-      archived_from TEXT CHECK(archived_from IN ('active','done')),
-      revision INTEGER NOT NULL DEFAULT 1,
-      created TEXT NOT NULL,
-      updated TEXT NOT NULL,
-      completed TEXT,
-      archived TEXT);
-      CREATE INDEX IF NOT EXISTS notes_state ON notes(state, updated DESC);
-      CREATE INDEX IF NOT EXISTS notes_archived ON notes(archived DESC) WHERE state='archived';`);
-  }
-
-  // v7:会话域三表(bindings/policies/context_formats)合一为 conversation_session_meta
-  // (panel 会话只写 policy/format 不写 binding,读 binding 时须过滤 session IS NOT NULL);
-  // 三张幂等去重表(team_creation_requests/team_directive_requests/panel_message_requests)
-  // 合一为 operation_records(scope+scope_id+client_key 定位,payload 比对内容,ref 指回业务行)。
-  // 只迁移存在旧表的库;新库由 ensureV2Schema 直接建新形状。
-  migrateV7() {
-    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
-    const now = new Date().toISOString();
-    this.transaction(() => {
-      // 目标表必须在迁移内自建:v6 库走到这里时 ensureV2Schema 还没执行。
-      this.db.exec(`CREATE TABLE IF NOT EXISTS conversation_session_meta(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT,session_updated TEXT,policy_signature TEXT,schema_version INTEGER,format_source TEXT,format_created TEXT,format_updated TEXT,PRIMARY KEY(conversation_id,session_key));
-        CREATE TABLE IF NOT EXISTS operation_records(scope TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',client_key TEXT NOT NULL,payload TEXT,ref TEXT,created TEXT NOT NULL,PRIMARY KEY(scope,scope_id,client_key));
-        CREATE INDEX IF NOT EXISTS operation_records_ref ON operation_records(scope,ref);`);
-      if (hasTable('conversation_session_bindings')) {
-        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,session,session_updated)
-            SELECT conversation_id,session_key,session,updated FROM conversation_session_bindings;`);
-      }
-      if (hasTable('conversation_session_policies')) {
-        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature)
-            SELECT conversation_id,session_key,signature FROM conversation_session_policies WHERE true
-            ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature;`);
-      }
-      if (hasTable('conversation_context_formats')) {
-        this.db.exec(`INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated)
-            SELECT conversation_id,session_key,schema_version,source,created,updated FROM conversation_context_formats WHERE true
-            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;`);
-      }
-      this.db.exec(`DROP TABLE IF EXISTS conversation_session_bindings;
-        DROP TABLE IF EXISTS conversation_session_policies;
-        DROP TABLE IF EXISTS conversation_context_formats;`);
-      if (hasTable('team_creation_requests')) {
-        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
-          SELECT 'group-create','',operation_id,payload,COALESCE(group_id,''),'${now}' FROM team_creation_requests;`);
-      }
-      if (hasTable('team_directive_requests')) {
-        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
-          SELECT 'team-directive',group_id,operation_id,NULL,message_id,'${now}' FROM team_directive_requests;`);
-      }
-      if (hasTable('panel_message_requests')) {
-        this.db.exec(`INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created)
-          SELECT 'panel-private-message',panel_agent_id,client_message_id,payload_hash,panel_message_id,created_at FROM panel_message_requests;`);
-      }
-      this.db.exec(`DROP TABLE IF EXISTS team_creation_requests;
-        DROP TABLE IF EXISTS team_directive_requests;
-        DROP TABLE IF EXISTS panel_message_requests;`);
-    });
-  }
-
-  // v8:随心记的「来源团队」。source_team_id 是裸 id,刻意不加外键:团队是硬删除,
-  // 加了 REFERENCES/级联会连用户的私人笔记一起删掉。来源只回答「这笔是在哪个团队里记的」,
-  // 用于展示与筛选,不是归属,不构成权限,也不进入 Agent 上下文。
-  migrateV8() {
-    const hasNotes = Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'"));
-    if (!hasNotes) return;
-    const hasSource = this.all('PRAGMA table_info(notes)').some(column => column.name === 'source_team_id');
-    this.transaction(() => {
-      if (!hasSource) this.db.exec('ALTER TABLE notes ADD COLUMN source_team_id TEXT');
-      this.db.exec('CREATE INDEX IF NOT EXISTS notes_source_team ON notes(source_team_id, updated DESC);');
-    });
-  }
-
-  // v9:互动卡支持多步提问(kind='flow')。SQLite 改不了 CHECK,按 v2 形状重建一次;
-  // 只移植仍在使用的列,conversation_id 与 payload 原样保留(进度写在 payload.steps 里)。
-  migrateV9() {
-    const info = this.all('PRAGMA table_info(interactions)');
-    if (!info.length) return;
-    const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'")?.sql ?? '';
-    if (tableSql.includes("'flow'")) return;
-    const cols = new Set(info.map(column => column.name));
-    const conversation = cols.has('conversation_id') ? 'conversation_id' : (cols.has('endpoint_id') ? 'endpoint_id' : 'NULL');
-    this.transaction(() => {
-      this.db.exec(`ALTER TABLE interactions RENAME TO interactions_v8;
-        CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-        INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
-          SELECT id,group_id,member_id,panel_agent_id,${conversation},context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered FROM interactions_v8;
-        DROP TABLE interactions_v8;
-        CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
-        CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);`);
-    });
-  }
-
-  // v10:随心记的标签与置顶。tags 是 JSON 数组存标签 id(与 todos 同款,不建关联表);
-  // note_tags 是全局标签注册表(name UNIQUE 防重);置顶用时间戳表达,可空=未置顶。
-  migrateV10() {
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS note_tags(
-        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, color TEXT,
-        created TEXT NOT NULL);`);
-      const hasNotes = Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'"));
-      if (!hasNotes) return;
-      const columns = new Set(this.all('PRAGMA table_info(notes)').map(column => column.name));
-      if (!columns.has('tags')) this.db.exec("ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
-      if (!columns.has('pinned_at')) this.db.exec('ALTER TABLE notes ADD COLUMN pinned_at TEXT');
-      this.db.exec("CREATE INDEX IF NOT EXISTS notes_pinned ON notes(pinned_at DESC) WHERE pinned_at IS NOT NULL;");
-    });
-  }
-  // v11:任务面板步骤化 — 计划事件、派工引用与 agent_tasks.revision。
-  migrateV11() {
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS plan_events(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('frozen','step_cancelled')),owner_id TEXT,revision INTEGER,payload TEXT NOT NULL,created TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS plan_events_group ON plan_events(group_id,plan_id,created);
-        CREATE TABLE IF NOT EXISTS message_step_refs(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,step_id TEXT NOT NULL);`);
-      const columns = new Set(this.all('PRAGMA table_info(agent_tasks)').map(column => column.name));
-      if (columns.size && !columns.has('revision')) this.db.exec('ALTER TABLE agent_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
-    });
-  }
-
-  // v12:外部主控身份、连接能力与团队控制权。外部主控不是成员也不是 Panel Agent;
-  // 一个 principal 可拥有多个宿主 client binding，但每个团队仍只有一条主控 assignment。
-  migrateV12() {
-    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS external_principals(id TEXT PRIMARY KEY,name TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS external_client_bindings(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,session TEXT,declared_capabilities TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created TEXT NOT NULL,updated TEXT NOT NULL,last_seen TEXT,UNIQUE(principal_id,name));
-        CREATE INDEX IF NOT EXISTS external_bindings_principal ON external_client_bindings(principal_id,status);
-        CREATE TABLE IF NOT EXISTS external_deliveries(id TEXT PRIMARY KEY,principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','error')),payload TEXT NOT NULL,created TEXT NOT NULL,delivered TEXT,error TEXT);
-        CREATE INDEX IF NOT EXISTS external_deliveries_pending ON external_deliveries(principal_id,state,created);`);
-      if (!hasTable('team_lead_controllers')) return;
-      const sql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='team_lead_controllers'")?.sql ?? '';
-      if (sql.includes("'external_agent'")) return;
-      this.db.exec(`ALTER TABLE team_lead_controllers RENAME TO team_lead_controllers_v11;
-        CREATE TABLE team_lead_controllers(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,controller_kind TEXT NOT NULL CHECK(controller_kind IN ('member','panel_agent','external_agent')),controller_id TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('active','suspended')),original_lead_id TEXT,revision INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
-        INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated)
-          SELECT group_id,controller_kind,controller_id,state,original_lead_id,revision,updated FROM team_lead_controllers_v11;
-        DROP TABLE team_lead_controllers_v11;`);
-    });
-  }
-
-  // v13:无头决策请求。面板互动卡仍是客户端投影；外部主控使用独立事实表，
-  // 请求归属团队和外部 principal，答复必须由当前主控显式写回。
-  migrateV13() {
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS external_decisions(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,requester_member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,controller_principal_id TEXT NOT NULL REFERENCES external_principals(id) ON DELETE CASCADE,request_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled')),answer TEXT,answered_by_binding_id TEXT REFERENCES external_client_bindings(id) ON DELETE SET NULL,created TEXT NOT NULL,answered TEXT);
-        CREATE INDEX IF NOT EXISTS external_decisions_pending ON external_decisions(group_id,state,created);`);
-    });
-  }
-
-  // v14:团队 active controller 还要落到具体 client binding，而不只是 principal。
-  // 同一用户身份可以有多会话，但一个团队只允许一个 binding 获得写席位。
-  migrateV14() {
-    if (!this.all('PRAGMA table_info(team_lead_controllers)').some(column => column.name === 'controller_binding_id')) {
-      this.db.exec('ALTER TABLE team_lead_controllers ADD COLUMN controller_binding_id TEXT');
-    }
-  }
-
-  // v15:外部主控主动唤醒。binding 可保存固定宿主命令；投递记录分别跟踪
-  // “唤醒是否尝试”和“客户端是否领取”，不能把 wake_sent 当成 delivered。
-  migrateV15() {
-    this.transaction(() => {
-      if (!this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'command')) {
-        this.db.exec('ALTER TABLE external_client_bindings ADD COLUMN command TEXT');
-      }
-      const columns = new Set(this.all('PRAGMA table_info(external_deliveries)').map(column => column.name));
-      if (!columns.has('wake_state')) this.db.exec("ALTER TABLE external_deliveries ADD COLUMN wake_state TEXT NOT NULL DEFAULT 'unsupported'");
-      if (!columns.has('wake_error')) this.db.exec('ALTER TABLE external_deliveries ADD COLUMN wake_error TEXT');
-      if (!columns.has('wake_updated')) this.db.exec('ALTER TABLE external_deliveries ADD COLUMN wake_updated TEXT');
-    });
-  }
-
-  // v16:Codex 主动唤醒使用 exec resume 时必须重新注入 MCP server 参数。
-  // wake_config 只保存该 binding 自己的 shim 启动配置，不通过控制工具暴露。
-  migrateV16() {
-    if (!this.all('PRAGMA table_info(external_client_bindings)').some(column => column.name === 'wake_config')) {
-      this.db.exec('ALTER TABLE external_client_bindings ADD COLUMN wake_config TEXT');
-    }
-  }
-
-  // v17:主动唤醒验证、pull-only 接受与成员有效能力。旧 binding 默认未验证；
-  // 成员能力在首次快照时由宿主适配器重新计算，不把旧群策略误当成已验证能力。
-  migrateV17() {
-    const ensureColumn = (table, name, definition) => {
-      if (!this.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
-        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
-      }
-    };
-    this.transaction(() => {
-      ensureColumn('external_client_bindings', 'wake_state', "TEXT NOT NULL DEFAULT 'unverified'");
-      ensureColumn('external_client_bindings', 'wake_mode', 'TEXT');
-      ensureColumn('external_client_bindings', 'wake_reason', 'TEXT');
-      ensureColumn('external_client_bindings', 'wake_fingerprint', 'TEXT');
-      ensureColumn('external_client_bindings', 'wake_verified_at', 'TEXT');
-      ensureColumn('external_client_bindings', 'wake_attempts', 'INTEGER NOT NULL DEFAULT 0');
-      ensureColumn('external_client_bindings', 'wake_next_attempt', 'TEXT');
-      ensureColumn('external_client_bindings', 'pull_only_accepted', 'TEXT');
-      ensureColumn('members', 'effective_policy', 'TEXT');
-      ensureColumn('members', 'capabilities', "TEXT NOT NULL DEFAULT '[]'");
-      ensureColumn('members', 'capability_reason', 'TEXT');
-      ensureColumn('messages', 'required_capabilities', "TEXT NOT NULL DEFAULT '[]'");
-    });
-  }
-
-  // v18:读水位。只存「某个会话看到第几号」这一个数字,不给每条消息打已读标记。
-  // 私聊副本用 receipt_id 标明它只是主控回执的展示副本,未读只能算群里那条。
-  // 既有消息一律视为已读:水位从当前最新编号起步,升级后不会立刻涌出历史未读。
-  migrateV18() {
-    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
-    const now = new Date().toISOString();
-    this.transaction(() => {
-      this.db.exec(`CREATE TABLE IF NOT EXISTS read_watermarks(
-        scope TEXT NOT NULL CHECK(scope IN ('group','panel')),
-        scope_id TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        updated TEXT NOT NULL,
-        PRIMARY KEY(scope,scope_id));`);
-      if (!hasTable('panel_messages')) return;
-      if (!this.all('PRAGMA table_info(panel_messages)').some(column => column.name === 'receipt_id')) {
-        this.db.exec('ALTER TABLE panel_messages ADD COLUMN receipt_id TEXT');
-      }
-      this.run(
-        `INSERT OR IGNORE INTO read_watermarks(scope,scope_id,seq,updated)
-         SELECT 'group',g.id,COALESCE((SELECT MAX(seq) FROM messages m WHERE m.group_id=g.id),0),? FROM groups g`,
-        now,
-      );
-      this.run(
-        `INSERT OR IGNORE INTO read_watermarks(scope,scope_id,seq,updated)
-         SELECT 'panel',p.panel_agent_id || ':' || COALESCE(NULLIF(p.active_team_id,''),'__global__'),MAX(p.seq),?
-         FROM panel_messages p WHERE p.context='private'
-         GROUP BY p.panel_agent_id,COALESCE(NULLIF(p.active_team_id,''),'__global__')`,
-        now,
-      );
-    });
-  }
-
-  // v2 目标 schema。新库/已迁移库都可重复执行；迁移过程中先改名旧表再调用它建新表。
-  ensureV2Schema() {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,context TEXT NOT NULL,peer TEXT,session TEXT,policy_signature TEXT,key TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL,CHECK((member_id IS NULL)!=(panel_agent_id IS NULL)));
-      CREATE UNIQUE INDEX IF NOT EXISTS conversations_member ON conversations(member_id,context) WHERE member_id IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS conversations_panel_private ON conversations(panel_agent_id) WHERE panel_agent_id IS NOT NULL AND context='private';
-      CREATE UNIQUE INDEX IF NOT EXISTS conversations_panel_coordination ON conversations(panel_agent_id,group_id) WHERE panel_agent_id IS NOT NULL AND context='coordination';
-      CREATE INDEX IF NOT EXISTS conversations_group ON conversations(group_id);
-      CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,executor_kind TEXT NOT NULL,executor_id TEXT NOT NULL,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,session TEXT,active_team_id TEXT,source_user_message_id TEXT,state TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,ended TEXT);
-      CREATE INDEX IF NOT EXISTS turns_group_state ON turns(group_id,state);
-      CREATE INDEX IF NOT EXISTS turns_conversation ON turns(conversation_id,created);
-      CREATE INDEX IF NOT EXISTS turns_state ON turns(state);
-      CREATE TABLE IF NOT EXISTS turn_inputs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,PRIMARY KEY(turn_id,message_id));
-      CREATE INDEX IF NOT EXISTS inputs_message ON turn_inputs(message_id);
-      CREATE TABLE IF NOT EXISTS native_turn_refs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,ref TEXT NOT NULL,PRIMARY KEY(turn_id,ref));
-      CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY AUTOINCREMENT,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,event TEXT NOT NULL,created TEXT NOT NULL,turn_id TEXT);
-      CREATE INDEX IF NOT EXISTS history_conversation ON history(conversation_id,seq);
-      CREATE INDEX IF NOT EXISTS history_turn ON history(turn_id,seq);
-      CREATE TABLE IF NOT EXISTS message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
-      CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL,accepted TEXT,error TEXT);
-      CREATE TABLE IF NOT EXISTS attached(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS conversation_session_meta(conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,session_key TEXT NOT NULL,session TEXT,session_updated TEXT,policy_signature TEXT,schema_version INTEGER,format_source TEXT,format_created TEXT,format_updated TEXT,PRIMARY KEY(conversation_id,session_key));
-      CREATE TABLE IF NOT EXISTS operation_records(scope TEXT NOT NULL,scope_id TEXT NOT NULL DEFAULT '',client_key TEXT NOT NULL,payload TEXT,ref TEXT,created TEXT NOT NULL,PRIMARY KEY(scope,scope_id,client_key));
-      CREATE INDEX IF NOT EXISTS operation_records_ref ON operation_records(scope,ref);
-      CREATE TABLE IF NOT EXISTS panel_updates(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,source_turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,kind TEXT NOT NULL DEFAULT 'update' CHECK(kind IN ('update','continuation')),text TEXT NOT NULL,source_message_ids TEXT NOT NULL DEFAULT '[]',created TEXT NOT NULL,delivered_turn_id TEXT,delivered TEXT);
-      CREATE INDEX IF NOT EXISTS panel_updates_pending ON panel_updates(panel_agent_id,group_id,delivered_turn_id,created);
-      CREATE TABLE IF NOT EXISTS interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-      CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
-      CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);
-      CREATE TABLE IF NOT EXISTS home_summaries(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,text TEXT NOT NULL,created TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS home_summaries_agent ON home_summaries(panel_agent_id,created DESC);`);
-  }
-
-  // v1 -> v2:会话、回合、输入、历史、来源、投递队列各合并为单表。
-  // SQLite 在 foreign_keys=OFF 时仍会改写 REFERENCES(实测)，必须同时 legacy_alter_table=ON；
-  // 旧历史 seq 保持不变，Panel 历史整体平移到成员历史之后，并同步修正其 origins.event_seq。
-  migrateV2() {
-    const hasTable = name => Boolean(this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name));
-    if (hasTable('conversations') && !hasTable('endpoints') && !hasTable('panel_sessions')) return;
-    if (!hasTable('endpoints') || !hasTable('panel_sessions')) throw new Error('v2 迁移缺少 v1 会话表');
-    const now = new Date().toISOString();
-    this.db.exec('PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;');
-    try {
-      this.transaction(() => {
-        this.db.exec(`ALTER TABLE turns RENAME TO turns_v1;
-          ALTER TABLE turn_inputs RENAME TO turn_inputs_v1;
-          ALTER TABLE message_origins RENAME TO message_origins_v1;
-          ALTER TABLE history RENAME TO history_v1;
-          ALTER TABLE outbox RENAME TO outbox_v1;
-          ALTER TABLE attached RENAME TO attached_v1;
-          ALTER TABLE panel_updates RENAME TO panel_updates_v1;
-          ALTER TABLE interactions RENAME TO interactions_v1;
-          DROP INDEX IF EXISTS history_endpoint;
-          DROP INDEX IF EXISTS history_turn;
-          DROP INDEX IF EXISTS inputs_message;
-          DROP INDEX IF EXISTS panel_updates_pending;
-          DROP INDEX IF EXISTS interactions_group;
-          DROP INDEX IF EXISTS interactions_panel;`);
-        this.ensureV2Schema();
-        this.db.exec(`INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
-            SELECT e.id,e.group_id,e.member_id,NULL,e.context,e.peer,e.session,(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=e.id),e.key,'${now}','${now}' FROM endpoints e;
-          INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
-            SELECT s.id,s.group_id,NULL,s.panel_agent_id,s.context,NULL,s.session,s.policy_signature,s.key,s.created,s.updated FROM panel_sessions s;
-          INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended)
-            SELECT t.id,t.endpoint_id,'member',e.member_id,e.group_id,t.session,NULL,NULL,COALESCE(r.state,'unknown'),r.detail,COALESCE(r.created,t.created),r.ended
-            FROM turns_v1 t LEFT JOIN runtime_attempts r ON r.turn_id=t.id LEFT JOIN endpoints e ON e.id=t.endpoint_id;
-          INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,session,active_team_id,source_user_message_id,state,detail,created,ended)
-            SELECT p.id,p.session_id,'panel_agent',p.panel_agent_id,p.group_id,s.session,p.active_team_id,p.source_user_message_id,p.state,NULL,p.created,p.ended
-            FROM panel_turns p LEFT JOIN panel_sessions s ON s.id=p.session_id;
-          INSERT INTO turn_inputs SELECT * FROM turn_inputs_v1;
-          INSERT INTO turn_inputs SELECT * FROM panel_turn_inputs;
-          INSERT INTO history(seq,conversation_id,event,created,turn_id) SELECT seq,endpoint_id,event,created,turn_id FROM history_v1;`);
-        const offset = Number(this.get('SELECT COALESCE(MAX(seq),0) AS seq FROM history').seq ?? 0);
-        this.db.exec(`INSERT INTO history(seq,conversation_id,event,created,turn_id) SELECT seq+${offset},session_id,event,created,turn_id FROM panel_history;
-          INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) SELECT message_id,turn_id,event_seq,call_id,native_call_id FROM message_origins_v1;
-          INSERT INTO message_origins(message_id,turn_id,event_seq,call_id,native_call_id) SELECT message_id,turn_id,CASE WHEN event_seq IS NULL THEN NULL ELSE event_seq+${offset} END,call_id,native_call_id FROM panel_message_origins;
-          INSERT INTO outbox(id,conversation_id,payload,accepted,error) SELECT id,endpoint_id,payload,accepted,error FROM outbox_v1;
-          INSERT INTO outbox(id,conversation_id,payload,accepted,error) SELECT id,session_id,payload,accepted,error FROM panel_outbox;
-          INSERT INTO attached SELECT * FROM attached_v1;
-          INSERT INTO attached SELECT * FROM panel_attached;
-          INSERT INTO conversation_session_meta(conversation_id,session_key,session,session_updated) SELECT endpoint_id,session_key,session,updated FROM endpoint_session_bindings;
-          INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature) SELECT endpoint_id,session_key,signature FROM endpoint_session_policies WHERE true
-            ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature;
-          INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) SELECT endpoint_id,session_key,schema_version,source,created,updated FROM endpoint_context_formats WHERE true
-            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;
-          INSERT INTO conversation_session_meta(conversation_id,session_key,schema_version,format_source,format_created,format_updated) SELECT session_id,'default',schema_version,source,created,updated FROM panel_session_context_formats WHERE true
-            ON CONFLICT(conversation_id,session_key) DO UPDATE SET schema_version=excluded.schema_version,format_source=excluded.format_source,format_created=excluded.format_created,format_updated=excluded.format_updated;
-          INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered)
-            SELECT id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered FROM panel_updates_v1;
-          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
-            SELECT id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered FROM interactions_v1;
-          UPDATE conversations SET policy_signature=(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=conversations.id)
-            WHERE member_id IS NOT NULL AND EXISTS(SELECT 1 FROM endpoint_policy p WHERE p.endpoint_id=conversations.id);
-          DROP TABLE turns_v1; DROP TABLE turn_inputs_v1; DROP TABLE message_origins_v1; DROP TABLE history_v1;
-          DROP TABLE outbox_v1; DROP TABLE attached_v1; DROP TABLE panel_updates_v1; DROP TABLE interactions_v1;
-          DROP TABLE endpoints; DROP TABLE panel_sessions; DROP TABLE runtime_attempts; DROP TABLE panel_turns;
-          DROP TABLE panel_turn_inputs; DROP TABLE panel_message_origins; DROP TABLE panel_history;
-          DROP TABLE panel_outbox; DROP TABLE panel_attached; DROP TABLE endpoint_session_bindings;
-          DROP TABLE endpoint_session_policies; DROP TABLE endpoint_policy; DROP TABLE endpoint_context_formats;
-          DROP TABLE panel_session_context_formats;`);
-        if (this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_requests'")) {
-          this.db.exec(`ALTER TABLE team_requests RENAME TO team_requests_v1;
-            CREATE TABLE team_requests(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,source_user_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,source_turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,call_id TEXT,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,controller_id TEXT NOT NULL,operation_id TEXT NOT NULL,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,original_text TEXT NOT NULL,text TEXT NOT NULL,created TEXT NOT NULL,UNIQUE(panel_agent_id,source_user_message_id,operation_id));
-            INSERT INTO team_requests SELECT id,panel_agent_id,source_user_message_id,source_turn_id,call_id,group_id,controller_id,operation_id,message_id,original_text,text,created FROM team_requests_v1;
-            DROP TABLE team_requests_v1;`);
-        }
-        const violations = this.all('PRAGMA foreign_key_check');
-        if (violations.length) throw new Error(`v2 迁移外键校验失败: ${JSON.stringify(violations.slice(0, 3))}`);
-      });
-    } finally {
-      this.db.exec('PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;');
-    }
-  }
-
-  // ADR 0004: task-flow persistence is gone. Old databases shed their process
-  // tables and columns; message history, host sessions and telemetry remain.
-  migrate() {
-    const flowTables = [
-      'preparations', 'preparation_policy', 'contract_versions', 'team_state',
-      'work_items', 'work_records', 'change_requests', 'collaboration_operations',
-      'message_context', 'message_dispositions', 'user_outputs',
-      'team_charter_versions', 'goal_drafts', 'goals', 'goal_contract_versions',
-      'goal_events', 'team_goal_operations', 'panel_action_requests',
-    ];
-    for (const table of flowTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`);
-    this.migrateInteractions();
-    this.migrateAgentTasks();
-    this.migrateAttachments();
-    for (const [table, column] of [
-      ['members', 'joined_goal_version'], ['members', 'removed_goal_version'],
-      ['runtime_attempts', 'contract_version'], ['runtime_attempts', 'goal_id'],
-      ['groups', 'revision'],
-    ]) {
-      if (this.all(`PRAGMA table_info(${table})`).some(column_ => column_.name === column)) {
-        // SQLite refuses DROP COLUMN while an index references the column; retired
-        // task-flow indexes (e.g. runtime_attempts_goal) must go first.
-        const referenced = new RegExp(`\\b${column}\\b`);
-        for (const index of this.all("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", table)) {
-          if (referenced.test(index.sql)) this.db.exec(`DROP INDEX IF EXISTS ${index.name}`);
-        }
-        this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
-      }
-    }
-  }
-  // attachments 的 media_type CHECK 扩展(image/jpeg)走重建:SQLite 不能改 CHECK。
-  migrateAttachments() {
-    const info = this.all('PRAGMA table_info(attachments)');
-    if (!info.length) return;
-    const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='attachments'")?.sql ?? '';
-    if (tableSql.includes("'image/jpeg'")) return;
-    this.transaction(() => {
-      this.db.exec(`ALTER TABLE attachments RENAME TO attachments_legacy;
-        CREATE TABLE attachments(id TEXT PRIMARY KEY,panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,original_name TEXT NOT NULL,media_type TEXT NOT NULL CHECK(media_type IN ('text/plain','image/png','image/jpeg')),size INTEGER NOT NULL,storage_name TEXT NOT NULL,created_at TEXT NOT NULL,panel_message_id TEXT REFERENCES panel_messages(id) ON DELETE CASCADE,ordinal INTEGER);
-        INSERT INTO attachments(id,panel_agent_id,original_name,media_type,size,storage_name,created_at,panel_message_id,ordinal) SELECT id,panel_agent_id,original_name,media_type,size,storage_name,created_at,panel_message_id,ordinal FROM attachments_legacy;
-        DROP TABLE attachments_legacy;
-        CREATE INDEX IF NOT EXISTS attachments_message ON attachments(panel_message_id);
-        CREATE INDEX IF NOT EXISTS attachments_agent ON attachments(panel_agent_id);`);
-    });
-  }
-  // agent_tasks 主键从 owner_id 演进为 (owner_id,group_id):
-  // Panel Agent 在多个团队各有一份任务列表,单列主键会让跨团队写入互相覆盖。
-  // revision 记录写入时的控制者版本,用于区分当前任期的计划与普通任务。
-  migrateAgentTasks() {
-    const info = this.all('PRAGMA table_info(agent_tasks)');
-    if (!info.length) return;
-    const pkColumns = info.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name);
-    if (pkColumns.length !== 2) {
-      this.transaction(() => {
-        this.db.exec(`ALTER TABLE agent_tasks RENAME TO agent_tasks_legacy;
-          CREATE TABLE agent_tasks(owner_id TEXT NOT NULL,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,tasks TEXT NOT NULL,updated TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(owner_id,group_id));
-          INSERT INTO agent_tasks(owner_id,group_id,tasks,updated) SELECT owner_id,group_id,tasks,updated FROM agent_tasks_legacy;
-          DROP TABLE agent_tasks_legacy;
-          CREATE INDEX IF NOT EXISTS agent_tasks_group ON agent_tasks(group_id);`);
-      });
-    }
-    if (!this.all('PRAGMA table_info(agent_tasks)').some(column => column.name === 'revision')) {
-      this.db.exec('ALTER TABLE agent_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
-    }
-  }
-  // interactions 结构演进统一走重建:请求方泛化(v2)、动作类 kind 扩展(v3)。
-  // 用 sqlite_master 里的 CHECK 文本探测当前表是否包含全部所需 kind。
-  migrateInteractions() {    const info = this.all('PRAGMA table_info(interactions)');
-    if (!info.length) return;
-    const tableSql = this.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'")?.sql ?? '';
-    const neededKinds = ['choice', 'input', 'flow', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model'];
-    const missingKinds = neededKinds.filter(kind => !tableSql.includes(`'${kind}'`));
-    const needsRebuild = missingKinds.length > 0 || !info.some(column => column.name === 'panel_agent_id');
-    if (needsRebuild) {
-      const cols = new Set(info.map(column => column.name));
-      const pick = (name, fallback = 'NULL') => (cols.has(name) ? name : fallback);
-      this.transaction(() => {
-        this.db.exec(`ALTER TABLE interactions RENAME TO interactions_legacy;
-          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
-            SELECT id,group_id,member_id,${pick('panel_agent_id')},${pick('endpoint_id')},context,turn_id,call_id,message_id,${pick('panel_message_id')},kind,payload,state,answer,${pick('detail')},answer_message_id,created,answered FROM interactions_legacy;
-          DROP TABLE interactions_legacy;
-          CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);`);
-      });
-    }
-    // v1/v2 库重建后与新建库统一补齐 panel 索引;不能放进 schema 块,
-    // 否则对未迁移的旧表建索引会在 migrate 之前失败。
-    this.db.exec('CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created)');
-  }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
+
   get(sql, ...args) { return this.db.prepare(sql).get(...args); }
+
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
   // 事务可嵌套:顶层开 BEGIN IMMEDIATE,已在事务中时退化为 SAVEPOINT。
   // 调用方不需要知道当前是否处于事务中,也不再需要 isTransaction / transaction:false 之类的绕行。
+
   transaction(fn) {
     if (this.db.isTransaction) {
       const name = `at_sp_${this.savepointDepth + 1}`;
@@ -894,12 +110,14 @@ export class Store {
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
+
   group(id) {
     const group = this.get('SELECT * FROM groups WHERE id=?', id);
     if (!group) throw new Error('群不存在');
     return group;
   }
   /** 团队的主控关系:哪些连接建立过访问、当前谁仍持有写入席位。 */
+
   controllerRelations(groupId) {
     return this.all(
       `SELECT r.binding_id, r.principal_id, r.origin, r.revision, r.created, r.updated,
@@ -914,12 +132,14 @@ export class Store {
       groupId,
     );
   }
+
   member(id) {
     const member = this.get('SELECT * FROM members WHERE id=? AND removed IS NULL', id);
     if (!member) throw new Error('成员不存在或已移除');
     return member;
   }
   // 会话统一入口:v2 起只有 conversations 单表；调用方不关心存储形态。
+
   conversation(kind, ownerId, context, { peer = null, groupId = null } = {}) {
     if (kind === 'member') {
       const member = this.member(ownerId);
@@ -947,12 +167,14 @@ export class Store {
     }
     throw new Error(`未知的会话类型: ${kind}`);
   }
+
   conversationById(id) {
     const row = this.get('SELECT * FROM conversations WHERE id=?', id);
     if (!row) return null;
     return { ...row, owner_kind: row.member_id ? 'member' : 'panel_agent', owner_id: row.member_id ?? row.panel_agent_id };
   }
   // 身份只读投影:身份表仍是两张，执行层只读公共字段；不做表合并。
+
   actor(kind, id) {
     if (kind === 'member') {
       const row = this.get('SELECT * FROM members WHERE id=? AND removed IS NULL', id);
@@ -968,6 +190,7 @@ export class Store {
     }
     return null;
   }
+
   actors() {
     const members = this.all('SELECT * FROM members WHERE removed IS NULL ORDER BY rowid').map(row => ({ ...row, kind: 'member' }));
     const panelAgent = this.panelAgent();
@@ -975,36 +198,44 @@ export class Store {
     return [...members, ...(panelAgent ? [{ ...panelAgent, kind: 'panel_agent' }] : []), ...external];
   }
   // 会话列表投影:两种 owner 统一形状；Panel 只有 coordination 会话，私聊不进入团队列表。
+
   conversationsForGroup(groupId, { includePrivate = false } = {}) {
-    const rows = this.all(`SELECT * FROM conversations WHERE 1=1${includePrivate ? '' : " AND context!='private'"}${groupId === undefined ? '' : ' AND group_id=?'}`,
+    const rows = this.all(`SELECT * FROM conversations WHERE 1=1${includePrivate ? '' : " AND context NOT IN ('private','home-summary','archive-summary')"}${groupId === undefined ? '' : ' AND group_id=?'}`,
       ...(groupId === undefined ? [] : [groupId]));
     return rows.map(row => ({ ...row, owner_kind: row.member_id ? 'member' : 'panel_agent', owner_id: row.member_id ?? row.panel_agent_id }));
   }
+
   setConversationSession(id, session) {
     const changed = this.run('UPDATE conversations SET session=?,updated=? WHERE id=?', session, new Date().toISOString(), id);
     if (!changed.changes) throw new Error('会话不存在');
   }
+
   setConversationPolicySignature(id, signature, sessionKey = 'default') {
     const changed = this.run('UPDATE conversations SET policy_signature=?,updated=? WHERE id=?', signature, new Date().toISOString(), id);
     if (!changed.changes) throw new Error('会话不存在');
     this.run('INSERT INTO conversation_session_meta(conversation_id,session_key,policy_signature) VALUES(?,?,?) ON CONFLICT(conversation_id,session_key) DO UPDATE SET policy_signature=excluded.policy_signature', id, sessionKey, signature);
   }
+
   endpoint(memberId, context, peer = null) {
     return this.conversation('member', memberId, context, { peer });
   }
+
   panelAgent() {
     return this.get('SELECT * FROM panel_agents ORDER BY created LIMIT 1') ?? null;
   }
   // 消息附件查询(纯 DB);availability 由附件模块结合文件现状补充。
+
   panelAttachments(messageId) {
     return this.all('SELECT id,original_name,media_type,size,storage_name FROM attachments WHERE panel_message_id=? ORDER BY ordinal', messageId);
   }
   // 附件上传设置:空表读取默认值,首次保存 upsert;校验收口在 attachment-settings.mjs。
+
   attachmentSettings() {
     const row = this.get('SELECT max_file_bytes,max_files,max_image_pixels,updated FROM attachment_settings WHERE singleton=1');
     if (!row) return { ...DEFAULT_ATTACHMENT_SETTINGS, updated: null };
     return serializeAttachmentSettings(row);
   }
+
   updateAttachmentSettings(value) {
     const settings = normalizeAttachmentSettings(value);
     const now = new Date().toISOString();
@@ -1018,9 +249,11 @@ export class Store {
     );
     return this.attachmentSettings();
   }
+
   panelSession(panelAgentId, context, groupId = null) {
     return this.conversation('panel_agent', panelAgentId, context, { groupId });
   }
+
   authenticatePanelSession(id, key) {
     const conversation = this.get('SELECT * FROM conversations WHERE id=? AND key=? AND panel_agent_id IS NOT NULL', id, key);
     if (!conversation) throw new Error('Panel Agent 会话来源无效');
@@ -1028,12 +261,14 @@ export class Store {
     if (!panelAgent) throw new Error('Panel Agent 不存在');
     return { session: { ...conversation, owner_kind: 'panel_agent', owner_id: conversation.panel_agent_id }, panelAgent };
   }
+
   authenticate(id, key) {
     const conversation = this.get('SELECT * FROM conversations WHERE id=? AND key=? AND member_id IS NOT NULL', id, key);
     if (!conversation) throw new Error('会话来源无效');
     this.member(conversation.member_id);
     return { ...conversation, owner_kind: 'member', owner_id: conversation.member_id };
   }
+
   append(groupId, sender, recipient, kind, text, replyTo = null, expectsReply = false) {
     this.group(groupId);
     const id = randomUUID();
@@ -1047,6 +282,7 @@ export class Store {
   dismissWorkbench(category, itemId) {
     this.run('INSERT OR IGNORE INTO workbench_dismissals(category,item_id,created) VALUES(?,?,?)', category, itemId, new Date().toISOString());
   }
+
   pending() {
     return this.all(`SELECT m.* FROM messages m JOIN groups g ON g.id=m.group_id
       WHERE (g.state IS NULL OR g.state='open') AND m.kind='send' AND m.awaiting=1
@@ -1058,6 +294,7 @@ export class Store {
   }
   // 历史保留:删除 cutoff 之前且已可安全丢弃的数据。
   // 保留:待投递消息、待响应互动卡、运行中/待核实回合的输入、Panel 私聊消息与未交付队列。
+
   pruneHistory({ retentionDays = 30, now = Date.now() } = {}) {
     if (!Number.isFinite(retentionDays) || retentionDays <= 0) throw new Error('保留天数无效');
     const cutoff = new Date(now - retentionDays * 86400000).toISOString();
@@ -1071,21 +308,23 @@ export class Store {
       const turns = this.run("DELETE FROM turns WHERE created < ? AND state NOT IN ('running','unknown')", cutoff);
       const history = this.run('DELETE FROM history WHERE created < ? AND (turn_id IS NULL OR turn_id NOT IN (SELECT id FROM turns))', cutoff);
       const outbox = this.run('DELETE FROM outbox WHERE accepted IS NOT NULL AND accepted < ?', cutoff);
-      const schemas = this.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='turn_context_schemas'")
-        ? this.run('DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns)')
-        : { changes: 0 };
+      // turn_context_schemas 由 Store schema 统一建表,不再需要存在性嗅探。
+      const schemas = this.run('DELETE FROM turn_context_schemas WHERE turn_id NOT IN (SELECT id FROM turns)');
       const dismissals = this.run('DELETE FROM workbench_dismissals WHERE created < ?', cutoff);
       return { messages: messages.changes, turns: turns.changes, history: history.changes, outbox: outbox.changes, schemas: schemas.changes, dismissals: dismissals.changes, cutoff };
     });
   }
+
   createInteraction({ id, groupId = null, memberId = null, panelAgentId = null, endpointId = null, context, turnId, callId, messageId = null, panelMessageId = null, kind, payload, detail = null }) {
     this.run('INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, groupId, memberId, panelAgentId, endpointId, context, turnId, callId, messageId, panelMessageId, kind, JSON.stringify(payload), 'pending', detail, new Date().toISOString());
     return this.interaction(id);
   }
+
   interaction(id) {
     return this.get('SELECT * FROM interactions WHERE id=?', id) ?? null;
   }
+
   setInteractionState(id, state, answer = null, answerMessageId = null, detail = null) {
     this.run('UPDATE interactions SET state=?,answer=?,detail=?,answer_message_id=?,answered=? WHERE id=?',
       state,
@@ -1096,19 +335,24 @@ export class Store {
       id);
     return this.interaction(id);
   }
+
   updateInteractionPayload(id, payload) {
     this.run('UPDATE interactions SET payload=? WHERE id=?', JSON.stringify(payload), id);
     return this.interaction(id);
   }
+
   interactions(groupId) {
     return this.all('SELECT * FROM interactions WHERE group_id=? ORDER BY created DESC, rowid DESC LIMIT 100', groupId);
   }
+
   panelInteractions() {
     return this.all('SELECT * FROM interactions WHERE panel_agent_id IS NOT NULL ORDER BY created DESC, rowid DESC LIMIT 100');
   }
+
   pendingMemberInteractions(groupId, memberId) {
     return this.all("SELECT * FROM interactions WHERE group_id=? AND member_id=? AND state='pending'", groupId, memberId);
   }
+
   prepare(message, conversation, canBatch = () => true) {
     return this.transaction(() => {
       if (this.get('SELECT 1 FROM attached WHERE message_id=?', message.id)) return null;
@@ -1134,10 +378,12 @@ export class Store {
       return { id, conversation_id: conversation.id, owner_kind: conversation.owner_kind, payload: JSON.stringify(payload), accepted: null, error: null };
     });
   }
+
   prepareDelivery(conversation, message, canBatch = () => true) {
     return this.prepare(message, conversation, canBatch);
   }
   // 待投递队列的统一读取:v1 仍是两张表,顺序保持"先 Panel 后成员"，与旧 pump 一致。
+
   pendingDeliveries() {
     // 部分索引覆盖 accepted IS NULL;ORDER BY rowid 会迫使 SQLite 全表扫描,排序放到 JS。
     return this.all(`SELECT o.rowid AS rowid,o.*,c.member_id,c.panel_agent_id FROM outbox o JOIN conversations c ON c.id=o.conversation_id
@@ -1145,18 +391,23 @@ export class Store {
       .sort((a, b) => a.rowid - b.rowid)
       .map(row => ({ ...row, owner_kind: row.member_id ? 'member' : 'panel_agent' }));
   }
+
   hasPendingDelivery(conversationId) {
     return Boolean(this.get('SELECT 1 FROM outbox WHERE conversation_id=? AND accepted IS NULL AND error IS NULL', conversationId));
   }
+
   setDeliveryAccepted(entry, accepted = new Date().toISOString()) {
     this.run('UPDATE outbox SET accepted=? WHERE id=?', accepted, entry.id);
   }
+
   setDeliveryError(entry, error) {
     this.run('UPDATE outbox SET error=? WHERE id=?', error, entry.id);
   }
+
   deliveryAccepted(entry) {
     return this.get('SELECT accepted FROM outbox WHERE id=?', entry.id)?.accepted ?? null;
   }
+
   panelAppend(panelAgentId, context, role, text, activeTeamId = null) {
     const id = randomUUID();
     this.run(
@@ -1171,6 +422,7 @@ export class Store {
     );
     return this.get('SELECT * FROM panel_messages WHERE id=?', id);
   }
+
   panelHistory(conversationId, event, turnId = null) {
     return Number(this.run(
       'INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)',
@@ -1181,6 +433,7 @@ export class Store {
     ).lastInsertRowid);
   }
   // 回合统一入口:两种执行者都写同一张 turns；调用方只传 owner 类型。
+
   createTurn(conversation, {
     executorKind,
     executorId = null,
@@ -1210,23 +463,28 @@ export class Store {
     });
   }
   // 状态写点收敛:所有执行者写同一列 turns.state。
+
   setTurnState(turnId, state, { detail = null, ended = new Date().toISOString() } = {}) {
     this.run('UPDATE turns SET state=?,detail=?,ended=? WHERE id=?', state, detail, ended, turnId);
     return state;
   }
+
   setTurnSession(turnId, session) {
     this.run('UPDATE turns SET session=? WHERE id=?', session, turnId);
   }
   // 总线重启后的单次恢复:无法证明宿主已停止的回合一律标 unknown，等待用户核实。
+
   recoverInterruptedTurns() {
     const result = this.run("UPDATE turns SET state='unknown',detail='总线重启，需要用户核实宿主是否已停止' WHERE state='running'");
     return { turns: result.changes };
   }
+
   history(conversationId, event, turnId = null) {
     const conversation = this.get('SELECT context,member_id FROM conversations WHERE id=?', conversationId);
     if (!conversation || (conversation.member_id && conversation.context === 'private')) return null;
     return Number(this.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', conversationId, JSON.stringify(event), new Date().toISOString(), turnId).lastInsertRowid);
   }
+
   publicTurn(id) {
     return this.get('SELECT t.*,c.group_id,c.member_id,c.context,c.peer FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=? AND c.context!=\'private\'', id);
   }
@@ -1238,185 +496,14 @@ export class Store {
    * tool_result(最终回复是回合末尾的 framework.output),左界是上一次产出消息
    * 的调用结束处,因此同回合内多条消息的段互不重叠、也不会重复计入。
    */
-  messageSegment(turnId, callId) {
-    if (!turnId || !callId) return null;
-    const isFinal = callId === 'framework.final_output';
-    const end = isFinal
-      ? this.get(`SELECT seq FROM history WHERE turn_id=? AND json_extract(event,'$.type')='framework.output' ORDER BY seq DESC LIMIT 1`, turnId)
-      : this.get(`SELECT seq FROM history WHERE turn_id=? AND json_extract(event,'$.type')='framework.tool_result'
-          AND json_extract(event,'$.callId')=? ORDER BY seq LIMIT 1`, turnId, callId);
-    if (!end) return null;
-    const previous = this.get(`SELECT seq FROM history WHERE turn_id=? AND seq<?
-        AND json_extract(event,'$.type') IN ('framework.tool_result','framework.output')
-      ORDER BY seq DESC LIMIT 1`, turnId, end.seq);
-    const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? AND seq<=? ORDER BY seq',
-      turnId, previous?.seq ?? 0, end.seq);
-    return { startSeq: events[0]?.seq ?? end.seq, endSeq: end.seq, events };
-  }
-  messageTrace(id, { segment = false } = {}) {
-    const message = this.get('SELECT id,kind FROM messages WHERE id=?', id);
-    if (!message) {
-      // Panel 私聊消息存于 panel_messages,未记录回合来源(v6 无消息→turn 映射);
-      // 按成员私聊同语义返回 private,前端据此显示「没有可用轨迹」而不是把已知消息当 404。
-      if (!this.get('SELECT id FROM panel_messages WHERE id=?', id)) return null;
-      return { messageId: id, source: { kind: 'private' }, inputAttempts: [] };
-    }
-    const origin = this.get(`SELECT o.*,c.context,c.id AS conversation_id,c.member_id,c.panel_agent_id,t.executor_kind,t.group_id AS turn_group_id
-      FROM message_origins o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.message_id=?`, id);
-    const source = !origin
-      ? { kind: message.kind === 'system' ? 'system' : 'unknown' }
-      : origin.executor_kind === 'panel_agent'
-        ? {
-            kind: origin.context === 'private' ? 'private' : 'panel',
-            turnId: origin.turn_id,
-            endpointId: null,
-            panelAgentId: origin.panel_agent_id,
-            groupId: origin.turn_group_id,
-            eventSeq: origin.event_seq,
-            callId: origin.call_id,
-            nativeCallId: origin.native_call_id,
-          }
-        : origin.context === 'private'
-          ? { kind: 'private' }
-          : { kind: 'group', turnId: origin.turn_id, endpointId: origin.conversation_id, eventSeq: origin.event_seq, callId: origin.call_id, nativeCallId: origin.native_call_id };
-    const inputAttempts = this.all(
-      `SELECT t.id,t.conversation_id AS endpoint_id,t.session,t.created FROM turn_inputs i JOIN turns t ON t.id=i.turn_id
-       JOIN conversations c ON c.id=t.conversation_id WHERE i.message_id=? AND c.context!='private' ORDER BY t.rowid`,
-      id,
-    );
-    const result = { messageId: id, source, inputAttempts };
-    if (!segment) return result;
-    // 段与回合状态一并给出:轨迹头部要显示这条消息从开始到发出的耗时,
-    // 以及宿主是否报告了失败——这些都不能从段内事件反推。
-    const bounds = source.turnId ? this.messageSegment(source.turnId, source.callId) : null;
-    const turn = source.turnId
-      ? this.get(`SELECT t.state,t.created,t.ended,c.id AS conversation_id,c.group_id,c.member_id,c.panel_agent_id,t.executor_kind,COALESCE(m.host,p.host) AS host
-          FROM turns t JOIN conversations c ON c.id=t.conversation_id
-          LEFT JOIN members m ON m.id=c.member_id LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
-          WHERE t.id=?`, source.turnId)
-      : null;
-    return {
-      ...result,
-      segment: bounds,
-      turn: turn ? {
-        id: source.turnId,
-        state: turn.state,
-        created: turn.created,
-        ended: turn.ended ?? null,
-        host: turn.host ?? null,
-        group_id: turn.group_id,
-        // 事件行按会话归属;用会话自身 id,panel 来源也要能对上宿主映射。
-        endpoint_id: turn.conversation_id,
-      } : null,
-    };
-  }
-  endpointModels(id, after = 0) {
-    const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
-    if (!conversation) return null;
-    const all = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE conversation_id=? ORDER BY seq', id));
-    const observations = all.filter(observation => observation.seq > after).slice(0, 200);
-    return { ...deriveCurrentModel(all), observations, nextAfter: observations.at(-1)?.seq ?? after };
-  }
-  endpointModelSummary(id) {
-    const revision = this.get('SELECT MAX(seq) AS seq,COUNT(*) AS count FROM history WHERE conversation_id=?', id);
-    this.modelSummaryCache ??= new Map();
-    const cached = this.modelSummaryCache.get(id);
-    if (cached?.seq === revision.seq && cached?.count === revision.count) return cached.value;
-    const value = deriveCurrentModel(modelObservations(this.all(
-      'SELECT seq,turn_id,created,event FROM history WHERE conversation_id=? ORDER BY seq', id,
-    )));
-    this.modelSummaryCache.set(id, { ...revision, value });
-    return value;
-  }
-  /** 从失败回合的历史事件中提取单行错误摘要，便于折叠行直接预览。 */
-  turnErrorSummary(turnId) {
-    const rows = this.all('SELECT event FROM history WHERE turn_id=? ORDER BY seq DESC LIMIT 30', turnId);
-    for (const row of rows) {
-      let parsed;
-      try { parsed = JSON.parse(row.event); } catch { continue; }
-      if (!parsed || typeof parsed !== 'object') continue;
-      let raw = null;
-      if (parsed.type === 'framework.error' && typeof parsed.error === 'string') raw = parsed.error;
-      else if (parsed.type === 'error') raw = typeof parsed.message === 'string' ? parsed.message : (typeof parsed.error === 'string' ? parsed.error : null);
-      else if (parsed.type === 'result' && parsed.is_error && typeof parsed.result === 'string') raw = parsed.result;
-      else if (parsed.method === 'error') raw = parsed.params?.error?.message ?? parsed.params?.message ?? null;
-      if (!raw || typeof raw !== 'string') continue;
-      const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-      if (!lines.length) continue;
-      const informative = lines.find(line => /(?:Error|ERR_|Exception|Cannot find|failed|ENOENT|EACCES)/i.test(line)) ?? lines[0];
-      return informative.length > 160 ? `${informative.slice(0, 159)}…` : informative;
-    }
-    return undefined;
-  }
-  /** 回合摘要(最旧在前):轨迹页从第一回合起正向翻页,事件懒加载走 turnTrace。 */
-  turnSummaries(id, { after, limit = 5 } = {}) {
-    const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
-    if (!conversation) return null;
-    // 多取一条探测后续页,有更多才给游标,前端不出现"点了却没内容"的空翻页。
-    // ordinal 是全会话稳定序号(最旧=1);游标用回合 id,同 created 由 rowid 决胜不漏不重。
-    const rows = this.all(`SELECT t.id,t.state,t.created,t.ended,
-        (SELECT COUNT(*) FROM turns older WHERE older.conversation_id=t.conversation_id
-           AND (older.created<t.created OR (older.created=t.created AND older.rowid<=t.rowid))) AS ordinal,
-        COUNT(h.seq) AS eventCount,COALESCE(MIN(h.seq),0) AS firstSeq,COALESCE(MAX(h.seq),0) AS lastSeq
-      FROM turns t LEFT JOIN history h ON h.turn_id=t.id
-      WHERE t.conversation_id=?
-        AND (? IS NULL OR t.created>(SELECT created FROM turns WHERE id=?)
-             OR (t.created=(SELECT created FROM turns WHERE id=?) AND t.rowid>(SELECT rowid FROM turns WHERE id=?)))
-      GROUP BY t.id ORDER BY t.created ASC, t.rowid ASC LIMIT ?`,
-      conversation.id, after ?? null, after ?? null, after ?? null, after ?? null, limit + 1);
-    // 游离事件:无回合归属的宿主输出(目前只有会话轮换),量小,随摘要一并返回。
-    const unaffiliated = this.all('SELECT * FROM history WHERE conversation_id=? AND turn_id IS NULL ORDER BY seq LIMIT 200', conversation.id);
-    const hasMore = rows.length > limit;
-    const turns = rows.slice(0, limit).map((row) => {
-      if (row.state !== 'failed') return row;
-      const errorSummary = this.turnErrorSummary(row.id);
-      return errorSummary ? { ...row, errorSummary } : row;
-    });
-    return {
-      turns,
-      unaffiliated,
-      nextAfter: hasMore ? rows[limit - 1].id : null,
-    };
-  }
-  turnTrace(id, after = 0) {
-    // host 随回合返回:执行者的宿主决定前端按哪套 schema 解释事件,调用方不该
-    // 再从会话列表反推(那张列表按需加载,不加载时轨迹会全部降级成未识别)。
-    const turn = this.get(`SELECT t.*,c.group_id,c.member_id,c.panel_agent_id,c.context,c.peer,
-        COALESCE(m.host,p.host) AS host
-      FROM turns t JOIN conversations c ON c.id=t.conversation_id
-      LEFT JOIN members m ON m.id=c.member_id
-      LEFT JOIN panel_agents p ON p.id=c.panel_agent_id
-      WHERE t.id=? AND c.context!='private'`, id);
-    if (!turn) return null;
-    const events = this.all('SELECT * FROM history WHERE turn_id=? AND seq>? ORDER BY seq LIMIT 200', id, after);
-    const observations = modelObservations(this.all('SELECT seq,turn_id,created,event FROM history WHERE turn_id=? ORDER BY seq', id));
-    // 事件接口按页返回,回合本身可能有几万条。状态与结束时间是回合级事实,
-    // 不能从"这一页的事件"推导——超长回合的 turn_end 可能永远不在这 200 条里。
-    const eventCount = this.get('SELECT COUNT(*) AS count FROM history WHERE turn_id=?', id)?.count ?? 0;
-    return {
-      turn: {
-        id: turn.id,
-        endpoint_id: turn.conversation_id,
-        session: turn.session,
-        created: turn.created,
-        ended: turn.ended ?? null,
-        state: turn.state,
-        group_id: turn.group_id,
-        member_id: turn.executor_kind === 'panel_agent' ? turn.panel_agent_id : turn.member_id,
-        context: turn.context,
-        peer: turn.peer ?? null,
-        host: turn.host ?? null,
-      },
-      /** 该回合的事件总数;events 只含本页,二者不等即表示被截断。 */
-      eventCount,
-      nativeTurnRefs: this.all('SELECT ref FROM native_turn_refs WHERE turn_id=? ORDER BY rowid', id).map(row => row.ref),
-      inputMessages: this.all('SELECT m.id,m.kind,i.ordinal FROM turn_inputs i JOIN messages m ON m.id=i.message_id WHERE i.turn_id=? ORDER BY i.ordinal', id),
-      outgoingMessages: this.all('SELECT message_id,event_seq,call_id,native_call_id FROM message_origins WHERE turn_id=? ORDER BY rowid', id),
-      ...deriveCurrentModel(observations),
-      modelObservations: observations,
-      events,
-      nextAfter: events.at(-1)?.seq ?? after,
-    };
-  }
+
   close() { this.db.close(); }
+
+  messageSegment(turnId, callId) { return traceQueries.messageSegment(this, turnId, callId); }
+  messageTrace(id, { segment = false } = {}) { return traceQueries.messageTrace(this, id, { segment }); }
+  endpointModels(id, after = 0) { return traceQueries.endpointModels(this, id, after); }
+  endpointModelSummary(id) { return traceQueries.endpointModelSummary(this, id); }
+  turnErrorSummary(turnId) { return traceQueries.turnErrorSummary(this, turnId); }
+  turnSummaries(id, { after, limit = 5 } = {}) { return traceQueries.turnSummaries(this, id, { after, limit }); }
+  turnTrace(id, after = 0) { return traceQueries.turnTrace(this, id, after); }
 }

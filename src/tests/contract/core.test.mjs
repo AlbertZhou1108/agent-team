@@ -11,6 +11,9 @@ import { Bus } from '../../bus.mjs';
 import { resolvePanelFile, startServer } from '../../server.mjs';
 import { rpc } from '../../rpc.mjs';
 import { busScenario, createTestGroup } from '../support/fixture.mjs';
+import * as messagesAgg from '../../aggregates/messages.mjs';
+import * as turnsAgg from '../../aggregates/turns.mjs';
+import * as teamsAgg from '../../aggregates/teams.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 2500; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
@@ -26,11 +29,11 @@ test('notes wait; next formal message carries notes from another sender exactly 
   assert.equal(calls.filter(c => c.endpoint.context.startsWith('pair:')).length, 0);
   const sent = await tools(bus, one)('send', { to: lead.id, text: 'formal' });
   await until(() => calls.some(c => c.endpoint.context === 'coordination')); await until(() => bus.running.size === 0);
-  const input = bus.store.get('SELECT payload FROM outbox'); const payload = JSON.parse(input.payload);
+  const payload = JSON.parse(messagesAgg.deliveries(bus.store)[0].payload);
   assert.equal(payload.message.id, sent.messageId); assert.equal(payload.notes.length, 1); assert.equal(payload.notes[0].sender, two.id);
-  await tools(bus, one)('send', { to: lead.id, text: 'second formal' }); await until(() => bus.store.all('SELECT * FROM outbox').length === 2); await until(() => bus.running.size === 0);
-  assert.equal(JSON.parse(bus.store.all('SELECT payload FROM outbox')[1].payload).notes.length, 0);
-  assert.equal(bus.store.all("SELECT * FROM messages WHERE text LIKE '%host final%'").length, 0);
+  await tools(bus, one)('send', { to: lead.id, text: 'second formal' }); await until(() => messagesAgg.deliveries(bus.store).length === 2); await until(() => bus.running.size === 0);
+  assert.equal(JSON.parse(messagesAgg.deliveries(bus.store)[1].payload).notes.length, 0);
+  assert.equal(messagesAgg.byGroup(bus.store, lead.group_id).filter(message => /host final/i.test(message.text)).length, 0);
 });
 
 test('different peers get separate recipient contexts and may run concurrently', async t => {
@@ -74,12 +77,12 @@ test('messages accumulated within one busy pair become one ordered next input', 
   await until(() => release);
   await tools(bus, lead)('send', { to: one.id, text: 'second' });
   await tools(bus, lead)('send', { to: one.id, text: 'third' });
-  assert.equal(bus.store.all('SELECT * FROM outbox').length, 1);
-  release(); await until(() => bus.store.all('SELECT * FROM outbox').length === 2);
-  const input = JSON.parse(bus.store.all('SELECT payload FROM outbox')[1].payload);
+  assert.equal(messagesAgg.deliveries(bus.store).length, 1);
+  release(); await until(() => messagesAgg.deliveries(bus.store).length === 2);
+  const input = JSON.parse(messagesAgg.deliveries(bus.store)[1].payload);
   assert.equal(input.message.text, 'second'); assert.deepEqual(input.additionalMessages.map(m => m.text), ['third']);
   release(); await until(() => bus.running.size === 0);
-  assert.equal(bus.store.all('SELECT * FROM outbox').length, 2);
+  assert.equal(messagesAgg.deliveries(bus.store).length, 2);
 });
 
 test('identity cannot be supplied, member profiles are self-only, cross-group addressing is rejected', async t => {
@@ -104,14 +107,14 @@ test('removal immediately revokes all endpoint access and retains message identi
   await call('note', { to: lead.id, text: 'retained' });
   await bus.removeMember(group.id, one.id);
   for (const [name, args] of [['members', {}], ['read', {}], ['profile_set', { text: 'no' }], ['send', { to: lead.id, text: 'no' }]]) await assert.rejects(call(name, args), /已移除/);
-  assert.equal(bus.store.get('SELECT sender FROM messages').sender, one.id);
+  assert.equal(messagesAgg.byGroup(bus.store, group.id)[0].sender, one.id);
 });
 
 test('private user input and final text are absent from shared records and panel snapshot', async t => {
   const { bus, group } = fixture(t); await until(() => bus.running.size === 0);
   await bus.privateTurn(group.id, 'PRIVATE_SENTINEL_182');
-  assert.equal(bus.store.all("SELECT * FROM messages WHERE text LIKE '%PRIVATE_SENTINEL%'").length, 0);
-  assert.equal(bus.store.all("SELECT * FROM history WHERE event LIKE '%PRIVATE_SENTINEL%'").length, 0);
+  assert.equal(messagesAgg.byGroup(bus.store, group.id).filter(message => message.text.includes('PRIVATE_SENTINEL')).length, 0);
+  assert.equal(turnsAgg.historyEvents(bus.store).filter(row => row.event.includes('PRIVATE_SENTINEL')).length, 0);
   const snapshot = JSON.stringify(bus.snapshot()); assert.ok(!snapshot.includes('private')); assert.ok(!snapshot.includes('"key"'));
 });
 
@@ -123,7 +126,7 @@ test('ordinary failure is recorded without a notice and does not automatically r
   await until(() => bus.store.get('SELECT error FROM outbox')?.error);
   bus.pump(); await tick(); assert.equal(attempts, 1);
   // 失败已在 outbox 留痕、且不会自己重投；消息流里不再补一条系统通知（状态看回执）。
-  assert.equal(bus.store.all("SELECT kind FROM messages WHERE sender='system'").length, 0);
+  assert.equal(messagesAgg.byGroup(bus.store, lead.group_id).filter(message => message.sender === 'system').length, 0);
 });
 
 test('restart recovers identical persisted input with stable message and note ids', async t => {
@@ -131,8 +134,8 @@ test('restart recovers identical persisted input with stable message and note id
   const [lead, one, two] = members; await until(() => bus.running.size === 0);
   await tools(bus, two)('note', { to: one.id, text: 'keep me' });
   await tools(bus, lead)('send', { to: one.id, text: 'recover' });
-  await until(() => bus.store.get('SELECT payload FROM outbox'));
-  const before = bus.store.get('SELECT payload FROM outbox').payload;
+  await until(() => messagesAgg.deliveries(bus.store)[0]?.payload);
+  const before = messagesAgg.deliveries(bus.store)[0].payload;
   await bus.close();
   let received;
   const restarted = new Bus({ directory, hosts: new Map([['fake', { async run(ctx) { received = ctx.prompt; ctx.onAccepted(); return 'done'; } }]]) });
@@ -140,8 +143,8 @@ test('restart recovers identical persisted input with stable message and note id
   restarted.start(); await tick();
   assert.equal(received, undefined, '重启不应自动恢复已中断输入');
   restarted.retry(JSON.parse(before).groupId);
-  await until(() => restarted.store.get('SELECT accepted FROM outbox')?.accepted);
-  assert.equal(restarted.store.get('SELECT payload FROM outbox').payload, before);
+  await until(() => messagesAgg.deliveries(restarted.store)[0]?.accepted);
+  assert.equal(messagesAgg.deliveries(restarted.store)[0].payload, before);
   assert.ok(received.includes(JSON.parse(before).message.id));
   // Close before the fixture removes its directory.
   await restarted.close();
@@ -217,7 +220,8 @@ test('group deletion removes framework records and leaves shared files untouched
   const file = join(directory, 'shared-code.txt'); writeFileSync(file, 'keep');
   await tools(bus, members[0])('note', { to: members[1].id, text: 'delete records' });
   await bus.deleteGroup(group.id);
-  assert.equal(bus.store.all('SELECT * FROM messages').length, 0); assert.equal(bus.store.all('SELECT * FROM members').length, 0);
+  assert.equal(messagesAgg.byGroup(bus.store, group.id).length, 0);
+  assert.equal(teamsAgg.activeMembers(bus.store, group.id).length, 0);
   assert.equal(readFileSync(file, 'utf8'), 'keep');
 });
 
@@ -303,7 +307,7 @@ test('private conversation cannot dispatch; explicitly shared user directive has
   assert.equal(trace.inputAttempts.length, 1);
   assert.equal(bus.store.turnTrace(privateTurn), null);
   assert.ok(!JSON.stringify(trace).includes(privateTurn));
-  assert.equal(bus.store.all('SELECT * FROM history WHERE turn_id=?', privateTurn).length, 0);
+  assert.equal(turnsAgg.historyEvents(bus.store, { turnId: privateTurn }).length, 0);
   assert.ok(!JSON.stringify(message).includes(privateTurn));
 });
 
@@ -320,8 +324,8 @@ test('legacy database migrates additively and remains unknown across reopen', as
   store.close();
   for (let i = 0; i < 2; i++) {
     store = new Store(directory);
-    assert.equal(store.get('SELECT text FROM messages WHERE id=?', message.id).text, 'legacy-text');
-    assert.equal(store.get('SELECT turn_id FROM history').turn_id, null);
+    assert.equal(messagesAgg.textOf(store, message.id), 'legacy-text');
+    assert.equal(turnsAgg.historyEvents(store)[0].turn_id, null);
     assert.deepEqual(store.messageTrace(message.id).source, { kind: 'unknown' });
     store.close();
   }
@@ -375,8 +379,8 @@ test('trace HTTP API paginates one turn and denies private and missing turns equ
   assert.equal(panelTrace.inputAttempts.length, 0);
   assert.equal((await fetch(`${base}/api/message-trace?message=missing-id`, { headers })).status, 404);
   await server.bus.deleteGroup(group.id);
-  assert.equal(server.bus.store.all('SELECT * FROM turns').length, 0);
-  assert.equal(server.bus.store.all('SELECT * FROM history').length, 0);
+  assert.equal(turnsAgg.list(server.bus.store).length, 0);
+  assert.equal(turnsAgg.historyEvents(server.bus.store).length, 0);
 });
 
 test('turn summaries API paginates whole turns oldest-first with stable ordinals', async t => {
@@ -534,5 +538,5 @@ test('model observations are turn-scoped and never exposed from private sessions
   assert.equal(endpointModels.currentModel.model, 'new-session-model');
   assert.equal(endpointModels.currentReasoningEffort.reasoningEffort, 'high');
   await bus.privateTurn(members[0].group_id, 'private');
-  assert.equal(bus.store.all("SELECT * FROM history WHERE event LIKE '%private-model%'").length, 0);
+  assert.equal(turnsAgg.historyEvents(bus.store).filter(row => row.event.includes('private-model')).length, 0);
 });

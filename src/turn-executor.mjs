@@ -1,6 +1,7 @@
 import { telemetryObservation } from './telemetry.mjs';
 import { modelSelectionOf } from './actors.mjs';
 import { describeDeclaredCapabilities } from './hosts/capabilities.mjs';
+import * as turnsAgg from './aggregates/turns.mjs';
 
 // 共享回合执行器:成员会话与 Panel 会话共用同一套回合生命周期
 // (落库 -> 运行态 -> 流 -> 事件 -> 宿主调用 -> 完成/失败 -> 遥测 -> 清理)。
@@ -55,7 +56,7 @@ export class TurnExecutor {
     if (conversation.group_id && bus.deletingGroups.has(conversation.group_id)) throw new Error('团队正在删除');
     const abort = new AbortController();
     const created = new Date().toISOString();
-    const turnId = bus.store.createTurn(conversation, {
+    const turnId = turnsAgg.create(bus.store, conversation, {
       executorKind,
       executorId,
       inputs,
@@ -237,7 +238,7 @@ export class TurnExecutor {
       try {
         const result = await promise;
         commitPendingSession();
-        bus.store.setTurnState(turnId, abort.signal.aborted ? 'cancelled' : 'completed');
+        turnsAgg.setState(bus.store, turnId, abort.signal.aborted ? 'cancelled' : 'completed');
         emit(turnId, { type: 'framework.output', text: result });
         const persistedReply = await onComplete(turnId, result, abort);
         if (hasPanel) {
@@ -265,7 +266,7 @@ export class TurnExecutor {
         // 声明归因：只在本次回合声明了执行能力时追加。措辞只说"声明支持"，
         // 不推断失败是否由该能力导致——避免把环境问题误导成能力问题。
         const declaredNote = describeDeclaredCapabilities(policy?.capabilities);
-        bus.store.setTurnState(
+        turnsAgg.setState(bus.store, 
           turnId,
           error.runtimeUnknown ? 'unknown' : abort.signal.aborted ? 'cancelled' : 'failed',
           { detail: failureDetail ? `${error.message}${declaredNote}` : null },

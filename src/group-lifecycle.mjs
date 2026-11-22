@@ -6,6 +6,7 @@ import * as messagesAgg from './aggregates/messages.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
 import * as readState from './aggregates/read-state.mjs';
+import * as panelAgg from './aggregates/panel.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -61,13 +62,7 @@ export class GroupLifecycle {
         originalLeadId,
         now,
       });
-      this.bus.store.run(
-        "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?) ON CONFLICT(panel_agent_id,group_id) DO UPDATE SET relation='main',updated=excluded.updated",
-        panelAgent.id,
-        group.id,
-        now,
-        now,
-      );
+      panelAgg.setTeamRelation(this.bus.store, { panelAgentId: panelAgent.id, groupId: group.id, relation: 'main', now });
       conversationsAgg.forPanelAgent(this.bus.store, panelAgent.id, 'coordination', { groupId: group.id });
       this.bus.store.run(
         "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
@@ -90,12 +85,7 @@ export class GroupLifecycle {
     this.bus.store.transaction(() => {
       this.freezeCurrentPlan(groupId, now);
       teamsAgg.handbackToMember(this.bus.store, { groupId, memberId: original.id, now });
-      this.bus.store.run(
-        "UPDATE panel_team_bindings SET relation='observer',updated=? WHERE panel_agent_id=? AND group_id=?",
-        now,
-        panelAgent.id,
-        groupId,
-      );
+      panelAgg.setTeamRelation(this.bus.store, { panelAgentId: panelAgent.id, groupId, relation: 'observer', now });
       this.bus.store.run(
         "UPDATE interactions SET state='cancelled',detail='控制者已变化',answered=? WHERE group_id=? AND kind IN ('takeover','handback') AND state='pending'",
         now,
@@ -449,10 +439,7 @@ export class GroupLifecycle {
           used.add(id);
           return { id, text: task.text, state: task.state };
         });
-        this.bus.store.run(
-          'UPDATE agent_tasks SET tasks=?,revision=? WHERE owner_id=? AND group_id=?',
-          JSON.stringify(migrated), revision, controller.id, group.id,
-        );
+        teamsAgg.updateAgentTasks(this.bus.store, { ownerId: controller.id, groupId: group.id, tasks: migrated, revision });
       }
     });
   }
@@ -523,22 +510,10 @@ export class GroupLifecycle {
       if (operationId) teamsAgg.recordGroupCreate(this.bus.store, { operationId, payload: creationPayload, groupId: id, created: new Date().toISOString() });
       if (panelAgent) {
         teamsAgg.insertPanelController(this.bus.store, { groupId: id, panelAgentId: panelAgent.id, now });
-        this.bus.store.run(
-          "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'main',?,?)",
-          panelAgent.id,
-          id,
-          now,
-          now,
-        );
+        panelAgg.setTeamRelation(this.bus.store, { panelAgentId: panelAgent.id, groupId: id, relation: 'main', now });
       } else if (this.bus.panelAgent()) {
         const owner = this.bus.panelAgent();
-        this.bus.store.run(
-          "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'observer',?,?)",
-          owner.id,
-          id,
-          now,
-          now,
-        );
+        panelAgg.setTeamRelation(this.bus.store, { panelAgentId: owner.id, groupId: id, relation: 'observer', now });
       }
     });
     for (const member of this.bus.members(id)) if (!member.profile) this.bus.introduce(member);

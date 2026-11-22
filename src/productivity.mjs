@@ -22,9 +22,10 @@ export function searchWorkspace(bus, params) {
   const rows = bus.store
     .all(
       `SELECT m.id,m.seq,m.text,m.created,m.group_id,g.name AS groupName,
-    COALESCE(s.name,pa.name,m.sender) AS senderName
+    COALESCE(s.name,pa.name,ep.name,m.sender) AS senderName
     FROM messages m JOIN groups g ON g.id=m.group_id LEFT JOIN members s ON s.id=m.sender
     LEFT JOIN panel_agents pa ON pa.id=m.sender
+    LEFT JOIN external_principals ep ON ep.id=m.sender
     WHERE (g.state IS NULL OR g.state!='archived') AND m.text LIKE ? ESCAPE '\\'
     AND (? IS NULL OR m.group_id=?) AND (? IS NULL OR m.sender=? OR m.recipient=?)
     AND (? IS NULL OR m.created>=?) AND (? IS NULL OR m.created<?)
@@ -151,11 +152,12 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   const waiting = s
     .all(`SELECT m.id,m.group_id,m.text,m.created,m.recipient,
         g.name AS groupName,
-        COALESCE(mem.name,pa.name,m.recipient) AS recipientName,
-        CASE WHEN mem.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind
+        COALESCE(mem.name,pa.name,ep.name,m.recipient) AS recipientName,
+        CASE WHEN mem.id IS NOT NULL THEN 'member' WHEN pa.id IS NOT NULL THEN 'panel_agent' WHEN ep.id IS NOT NULL THEN 'external_agent' ELSE 'panel_agent' END AS recipientKind
       FROM messages m JOIN groups g ON g.id=m.group_id
       LEFT JOIN members mem ON mem.id=m.recipient
       LEFT JOIN panel_agents pa ON pa.id=m.recipient
+      LEFT JOIN external_principals ep ON ep.id=m.recipient
       WHERE m.sender='user' AND m.kind='send' AND m.reply_to IS NULL
         AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)
@@ -171,15 +173,17 @@ export function homeWorkbench(bus, { waitingThresholdMs = 5 * 60 * 1000, now = D
   const agentWaiting = s
     .all(`SELECT m.id,m.group_id,m.text,m.created,m.sender,m.recipient,
         g.name AS groupName,
-        COALESCE(sm.name,sp.name,m.sender) AS senderName,
-        COALESCE(rm.name,rp.name,m.recipient) AS recipientName,
-        CASE WHEN sm.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS senderKind,
-        CASE WHEN rm.id IS NOT NULL THEN 'member' ELSE 'panel_agent' END AS recipientKind
+        COALESCE(sm.name,sp.name,sep.name,m.sender) AS senderName,
+        COALESCE(rm.name,rp.name,rep.name,m.recipient) AS recipientName,
+        CASE WHEN sm.id IS NOT NULL THEN 'member' WHEN sp.id IS NOT NULL THEN 'panel_agent' WHEN sep.id IS NOT NULL THEN 'external_agent' ELSE 'panel_agent' END AS senderKind,
+        CASE WHEN rm.id IS NOT NULL THEN 'member' WHEN rp.id IS NOT NULL THEN 'panel_agent' WHEN rep.id IS NOT NULL THEN 'external_agent' ELSE 'panel_agent' END AS recipientKind
       FROM messages m JOIN groups g ON g.id=m.group_id
       LEFT JOIN members sm ON sm.id=m.sender
       LEFT JOIN panel_agents sp ON sp.id=m.sender
+      LEFT JOIN external_principals sep ON sep.id=m.sender
       LEFT JOIN members rm ON rm.id=m.recipient
       LEFT JOIN panel_agents rp ON rp.id=m.recipient
+      LEFT JOIN external_principals rep ON rep.id=m.recipient
       WHERE m.sender!='user' AND m.kind='send' AND m.expects_reply=1
         AND (g.state IS NULL OR g.state!='archived')
         AND NOT EXISTS(SELECT 1 FROM messages reply WHERE reply.reply_to=m.id)

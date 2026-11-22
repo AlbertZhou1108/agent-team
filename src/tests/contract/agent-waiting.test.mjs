@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { busScenario, serverScenario, seedPanelAgent } from '../support/fixture.mjs';
 import { until } from '../support/wait.mjs';
 import { homeWorkbench, dismissWorkbench } from '../../productivity.mjs';
+import * as messagesAgg from '../../aggregates/messages.mjs';
 
 function tools(bus, member) {
   const endpoint = bus.store.endpoint(member.id, member.role === 'lead' ? 'coordination' : 'pair:test');
@@ -87,8 +88,8 @@ test('dismissing hides workbench entries without deleting records or resolving i
   assert.deepEqual(after.waiting, []);
   assert.deepEqual(after.agentWaiting, []);
   assert.equal(bus.store.interaction(interactionId).state, 'pending');
-  assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', directive.id));
-  assert.ok(bus.store.get('SELECT 1 FROM messages WHERE id=?', request.messageId));
+  assert.ok(messagesAgg.byId(bus.store, directive.id));
+  assert.ok(messagesAgg.byId(bus.store, request.messageId));
   const fresh = bus.store.append(group.id, 'user', lead.id, 'send', '清理后的新指令');
   const afterFresh = homeWorkbench(bus, immediate);
   assert.equal(afterFresh.waiting.length, 1);

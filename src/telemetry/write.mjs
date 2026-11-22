@@ -154,7 +154,7 @@ export function record(telemetry, {
   observation,
 }) {
   if (!groupId || !observation || typeof observation !== 'object') return null;
-  if (context && ['profile', 'private', 'preparation'].includes(context)) return null;
+  if (context && ['profile', 'private', 'home-summary', 'archive-summary'].includes(context)) return null;
   const source = typeof observation.source === 'string' && observation.source.trim() ? observation.source : 'adapter.unknown';
   const scope = observation.scope ?? 'turn';
   const aggregation = observation.aggregation ?? 'delta';

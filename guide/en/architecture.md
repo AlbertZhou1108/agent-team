@@ -81,7 +81,7 @@ Archiving captures a static factual snapshot (charter, member task lists, existi
   <img alt="Data Layer: Core Aggregate Boundaries & Local SQLite" src="../../assets/architecture/en/data-light.png">
 </picture>
 
-- **Single-file SQLite (`SCHEMA_VERSION = 22`)**: [store.mjs](../../src/store.mjs) manages step-by-step `v1 → v22` migrations; older binaries reject newer schemas. `store.transaction()` natively supports nesting via `SAVEPOINT`.
+- **Single-file SQLite (`SCHEMA_VERSION = 24`)**: [store.mjs](../../src/store.mjs) manages step-by-step `v1 → v24` migrations; older binaries reject newer schemas. `store.transaction()` natively supports nesting via `SAVEPOINT`.
 - **8 aggregate boundaries ([src/aggregates/](../../src/aggregates/))**: `messages`, `turns`, `conversations`, `panel`, `teams`, `read-state`, `external-control`, and `settings` enforce core invariants (core writes to `messages` / `turns` / `conversations` converge in aggregates; pending delivery, awaiting reply, and read watermarks keep distinct non-overloaded fields). Auxiliary domains (telemetry, attachments, notes, archive snapshots) and read queries may call `store` directly.
 - **Primary table domains**: Teams & sessions (`groups`, `members`, `conversations`, `team_lead_controllers`), messages & turns (`messages`, `outbox`, `attached`, `turns`, `turn_inputs`, `history`), panel & read state (`panel_agents`, `panel_messages`, `panel_updates`, `read_watermarks`), and external control (`external_principals`, `external_client_bindings`, `external_deliveries`, `external_decisions`, `team_requests`).
 

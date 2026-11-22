@@ -87,6 +87,8 @@ export function _actor(telemetry, sender) {
   if (member) return { actorId: member.id, actorName: member.name, kind: 'member' };
   const panel = telemetry.store.get('SELECT id,name FROM panel_agents WHERE id=?', sender);
   if (panel) return { actorId: panel.id, actorName: panel.name, kind: 'panel_agent' };
+  const external = telemetry.store.get('SELECT id,name FROM external_principals WHERE id=?', sender);
+  if (external) return { actorId: external.id, actorName: external.name, kind: 'external_agent' };
   return { actorId: sender, actorName: sender, kind: 'user' };
 }
 
@@ -96,6 +98,8 @@ export function _recipientActor(telemetry, groupId, recipientId) {
   if (member) return { recipientId, recipientName: member.name, recipientKind: 'member' };
   const panel = telemetry.store.get('SELECT id,name FROM panel_agents WHERE id=?', recipientId);
   if (panel) return { recipientId, recipientName: panel.name, recipientKind: 'panel_agent' };
+  const external = telemetry.store.get('SELECT id,name FROM external_principals WHERE id=?', recipientId);
+  if (external) return { recipientId, recipientName: external.name, recipientKind: 'external_agent' };
   return { recipientId, recipientName: recipientId, recipientKind: 'other' };
 }
 

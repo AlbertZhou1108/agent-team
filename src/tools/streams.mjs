@@ -10,7 +10,7 @@ const messageToolNames = new Set(['send', 'note', 'team_send', 'team_note']);
  * 状态归本模块所有;Bus 保留同名委托方法作为协调入口,事件仍由 Bus 发出。
  */
 export class ToolStreams {
-  constructor(/** @type {import("./types.mjs").BusRef} */ bus) {
+  constructor(/** @type {import("../types.mjs").BusRef} */ bus) {
     this.bus = bus;
     this.panelStreams = new Map();
     this.teamStreams = new Map();

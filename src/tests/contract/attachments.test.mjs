@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { serverScenario, seedPanelAgent } from '../support/fixture.mjs';
+import * as panelAgg from '../../aggregates/panel.mjs';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 
@@ -101,7 +102,7 @@ test('upload enforces size limit and aborts the stream without leaving parts', a
     error => error.code === 'payload_too_large',
   );
   assert.equal(readdirSync(attachmentsRoot(directory)).length, 0, '超限后不残留临时文件');
-  assert.equal(bus.store.all('SELECT 1 FROM attachments').length, 0);
+  assert.equal(panelAgg.attachmentsForAgent(bus.store, agentId).length, 0);
 
   // 恰好在限额内的内容正常保存。
   const ok = await bus.attachmentUpload(agentId, textBuffer('x'.repeat(10)), { name: 'ok.txt' });
@@ -407,7 +408,7 @@ test('upload failure cleans up: disk write failure and db insert failure leave n
     unlinkSync(root);
     renameSync(parked, root);
   }
-  assert.equal(bus.store.all('SELECT 1 FROM attachments WHERE original_name=?', 'nope.txt').length, 0);
+  assert.equal(panelAgg.attachmentsForAgent(bus.store, agentId).filter(row => row.original_name === 'nope.txt').length, 0);
 
   // DB 插入失败:rename 后的最终文件必须被删除,不产生无记录孤儿。
   bus.store.db.exec('DROP TABLE attachments');

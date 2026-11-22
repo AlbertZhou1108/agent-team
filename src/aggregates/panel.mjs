@@ -306,3 +306,33 @@ export function latestHomeSummary(store, panelAgentId) {
     panelAgentId,
   ) ?? null;
 }
+
+/** 面板与团队关系:主控会话为 'main',旁观绑定为 'observer';同队同 Agent 只一行。 */
+export function setTeamRelation(store, { panelAgentId, groupId, relation, now }) {
+  return store.run(
+    `INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,?,?,?)
+     ON CONFLICT(panel_agent_id,group_id) DO UPDATE SET relation=excluded.relation,updated=excluded.updated`,
+    panelAgentId, groupId, relation, now, now,
+  );
+}
+
+/** 团队转交回执消息:写 panel_messages 并记录来源请求,幂等性由调用方保证。 */
+export function appendReceiptMessage(store, { id, panelAgentId, groupId, text, receiptId, created }) {
+  return store.run(
+    'INSERT INTO panel_messages(id,panel_agent_id,context,role,text,active_team_id,created,receipt_id) VALUES(?,?,?,?,?,?,?,?)',
+    id, panelAgentId, 'private', 'assistant', text, groupId, created, receiptId,
+  );
+}
+
+/** 某 Panel Agent 的全部附件记录(含已绑定/待绑定),按上传顺序:绑定守卫与失败清理断言用。 */
+export function attachmentsForAgent(store, panelAgentId) {
+  return store.all(
+    'SELECT id,original_name,media_type,size,storage_name,created_at,panel_message_id,ordinal FROM attachments WHERE panel_agent_id=? ORDER BY created_at,rowid',
+    panelAgentId,
+  );
+}
+
+/** 绑定到某团队上下文的团队对话消息(active_team_id):团队对话迁移后不得再写入。 */
+export function messagesForActiveTeam(store, teamId) {
+  return store.all('SELECT * FROM panel_messages WHERE active_team_id=? ORDER BY seq', teamId);
+}

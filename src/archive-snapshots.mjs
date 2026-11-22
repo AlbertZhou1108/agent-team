@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { interactionView } from './interactions.mjs';
+import * as conversationsAgg from './aggregates/conversations.mjs';
 
 // 归档只保存事实；查看时才调用 Panel Agent。运行状态复用共享回合执行器。
 export class ArchiveSnapshots {
@@ -31,7 +32,7 @@ export class ArchiveSnapshots {
     this.bus.running.get(row.id)?.abort.abort();
     s.run('DELETE FROM archive_snapshots WHERE group_id=?', groupId);
     // 活跃回合由 finally 清理，避免执行器收尾时引用的会话提前消失。
-    if (!this.bus.running.has(row.id)) s.run('DELETE FROM conversations WHERE id=?', row.id);
+    if (!this.bus.running.has(row.id)) conversationsAgg.deleteById(s, row.id);
   }
 
   read(groupId) {
@@ -56,9 +57,13 @@ export class ArchiveSnapshots {
     const policy = { mode: 'communication', allowShell: false, domain: 'communication' };
     this.bus.requirePolicy(agent, policy);
     const s = this.bus.store;
-    s.run(`INSERT OR IGNORE INTO conversations(id,group_id,panel_agent_id,context,key,created,updated)
-      VALUES(?,?,?,'archive-summary',?,?,?)`, snapshot.id, groupId, agent.id, randomBytes(32).toString('hex'), snapshot.created, snapshot.created);
-    const conversation = s.conversationById(snapshot.id);
+    const conversation = conversationsAgg.ensureArchiveSummaryConversation(s, {
+      id: snapshot.id,
+      groupId,
+      panelAgentId: agent.id,
+      key: randomBytes(32).toString('hex'),
+      created: snapshot.created,
+    });
     // 每次尝试使用新宿主会话，摘要只受固定快照影响。
     const endpoint = { ...conversation, session: null };
     s.run('UPDATE archive_snapshots SET error=NULL WHERE id=?', snapshot.id);
@@ -72,8 +77,8 @@ export class ArchiveSnapshots {
       hostEndpoint: endpoint, liveEndpoint: endpoint,
       emit: (turnId, event) => this.bus.events.panel(conversation.id, event, turnId),
       executeTool: () => { throw new Error('归档摘要不提供工具'); },
-      onSession: (_turnId, value) => s.setConversationSession(conversation.id, value),
-      onPolicy: (_turnId, signature) => s.setConversationPolicySignature(conversation.id, signature),
+      onSession: (_turnId, value) => conversationsAgg.setSession(s, conversation.id, value),
+      onPolicy: (_turnId, signature) => conversationsAgg.setPolicySignature(s, conversation.id, signature),
       streamFactories: () => ({}),
       measure: { groupId, fixed: false },
       telemetry: { groupId, sessionKey: 'default', host: agent.host, context: 'archive-summary', turnKind: 'panel' },
@@ -87,7 +92,7 @@ export class ArchiveSnapshots {
       s.run('UPDATE archive_snapshots SET error=? WHERE id=?', error.message, snapshot.id);
     }).finally(() => {
       this.pending.delete(snapshot.id);
-      if (!s.get('SELECT 1 FROM archive_snapshots WHERE id=?', snapshot.id)) s.run('DELETE FROM conversations WHERE id=?', snapshot.id);
+      if (!s.get('SELECT 1 FROM archive_snapshots WHERE id=?', snapshot.id)) conversationsAgg.deleteById(s, snapshot.id);
     });
     this.pending.set(snapshot.id, promise);
     return this.read(groupId);

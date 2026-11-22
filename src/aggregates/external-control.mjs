@@ -590,3 +590,22 @@ export function answerDecision(store, {
     return { ...row, state: 'answered', answer: answer.trim(), answered_by_binding_id: bindingId, answered };
   });
 }
+
+/** 宿主会话变化后重置唤醒状态:必须重新验证,已有退避与指纹一并作废。 */
+export function resetBindingWakeState(store, bindingId) {
+  return store.run(
+    `UPDATE external_client_bindings
+     SET wake_state='unverified',wake_mode=host,wake_reason='宿主 session 已变化，需要重新验证主动唤醒',
+         wake_fingerprint=NULL,wake_verified_at=NULL,wake_attempts=0,wake_next_attempt=NULL
+     WHERE id=?`,
+    bindingId,
+  );
+}
+
+/** 外部主控创建团队的幂等台账(scope='external-team-create')。 */
+export function recordTeamCreateOperation(store, { principalId, operationId, payload, groupId, created }) {
+  return store.run(
+    "INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('external-team-create',?,?,?,?,?)",
+    principalId, operationId, payload, groupId, created,
+  );
+}

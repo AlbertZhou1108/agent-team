@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { busScenario } from '../support/fixture.mjs';
+import * as messagesAgg from '../../aggregates/messages.mjs';
 
 const _tick = () => new Promise(resolve => setImmediate(resolve));
 
@@ -61,7 +62,7 @@ test('archiving stops delivery and unarchiving restores it without losing messag
   assert.throws(() => bus.directive(group.id, '归档后不接受指令'), /已归档/);
   const queued = bus.store.append(group.id, members[2].id, group.lead, 'send', '归档前的待投递消息');
   bus.pump();
-  assert.equal(bus.store.get('SELECT 1 FROM attached WHERE message_id=?', queued.id), undefined);
+  assert.equal(messagesAgg.isAttached(bus.store, queued.id), false);
   await bus.restoreGroup(group.id);
   assert.equal(bus.collaboration.communicationOpen(group.id), true);
   bus.pump();

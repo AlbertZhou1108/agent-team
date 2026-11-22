@@ -240,3 +240,19 @@ export function recordGroupCreate(store, { operationId, payload, groupId, create
     operationId, payload, groupId, created,
   );
 }
+
+/** 角色执行策略写点:能力清单按 JSON 存储,变更与清会话由调用方决定。 */
+export function updateMemberExecutionPolicy(store, { memberId, effectivePolicy, capabilities, reason }) {
+  return store.run(
+    'UPDATE members SET effective_policy=?,capabilities=?,capability_reason=? WHERE id=?',
+    effectivePolicy, JSON.stringify(capabilities), reason, memberId,
+  );
+}
+
+/** 任务面板写点:revision 由调用方生成,保证并发保存不互相覆盖。 */
+export function updateAgentTasks(store, { ownerId, groupId, tasks, revision }) {
+  return store.run(
+    'UPDATE agent_tasks SET tasks=?,revision=? WHERE owner_id=? AND group_id=?',
+    JSON.stringify(tasks), revision, ownerId, groupId,
+  );
+}

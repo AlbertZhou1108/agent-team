@@ -7,6 +7,7 @@ import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, 
 import { memberRules, legacyMemberRules, profileIntro } from '../prompts.mjs';
 import { CONTEXT_SCHEMA_VERSION } from '../information.mjs';
 import * as teamsAgg from '../aggregates/teams.mjs';
+import * as conversationsAgg from '../aggregates/conversations.mjs';
 
 export class ToolDispatch {
   constructor(bus) {
@@ -26,7 +27,7 @@ export class ToolDispatch {
   }
   introduce(member) {
     if (this.bus.closing) return;
-    const endpoint = this.bus.store.conversation('member', member.id, 'profile');
+    const endpoint = conversationsAgg.forMember(this.bus.store, member.id, 'profile');
     this.bus.runEndpoint(endpoint, profileIntro()).catch(error => {
       if (!this.bus.closing) this.bus.notify(member.group_id, this.bus.teamController(member.group_id).id, `成员 ${member.name} 入群说明失败：${error.message}`);
     });
@@ -135,7 +136,7 @@ export class ToolDispatch {
           payload,
         });
       }
-      if (member.role !== 'lead') this.bus.store.conversation('member', member.id, 'pair:user', { peer: 'user' });
+      if (member.role !== 'lead') conversationsAgg.forMember(this.bus.store, member.id, 'pair:user', { peer: 'user' });
       // 卡片是唯一展示面:锚点消息只为答复 reply_to 与群记录存在,面板不渲染它的正文。
       const payload = askCardPayload(args);
       const message = appendRoutedMessage(this.bus.store, {

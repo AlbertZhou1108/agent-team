@@ -84,3 +84,39 @@ export function completedDirectiveOutputs(store) {
      WHERE d.scope='team-directive' AND t.state='completed' AND json_extract(h.event,'$.type')='framework.output' ORDER BY h.seq`,
   );
 }
+
+/** 用户核实「宿主已停止」:unknown 是唯一可被人工转出的运行态,转出后不可再调度。 */
+export function resolveUnknownTurn(store, { groupId, turnId, detail, ended }) {
+  return store.run(
+    "UPDATE turns SET state='stopped',detail=?,ended=? WHERE group_id=? AND id=? AND state='unknown'",
+    detail, ended, groupId, turnId,
+  );
+}
+
+/**
+ * 回合列表读取:按团队/会话/执行者过滤,rowid 升序;不给过滤即全部回合。
+ * 用于「删除团队后不留回合」「某执行者未新开回合」等跨归属断言。
+ */
+export function list(store, { groupId = null, conversationId = null, executorKind = null, executorId = null } = {}) {
+  const where = [];
+  const params = [];
+  if (groupId != null) { where.push('group_id=?'); params.push(groupId); }
+  if (conversationId != null) { where.push('conversation_id=?'); params.push(conversationId); }
+  if (executorKind != null) { where.push('executor_kind=?'); params.push(executorKind); }
+  if (executorId != null) { where.push('executor_id=?'); params.push(executorId); }
+  const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+  return store.all(`SELECT * FROM turns${clause} ORDER BY rowid`, ...params);
+}
+
+/**
+ * 会话历史事件流(history):按 seq 升序;turnId/conversationId 可选过滤,不给过滤即全量。
+ * 用于「私密输入/输出不得进入共享记录」这类全局不变式断言。
+ */
+export function historyEvents(store, { conversationId = null, turnId = null } = {}) {
+  const where = [];
+  const params = [];
+  if (conversationId != null) { where.push('conversation_id=?'); params.push(conversationId); }
+  if (turnId != null) { where.push('turn_id=?'); params.push(turnId); }
+  const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+  return store.all(`SELECT * FROM history${clause} ORDER BY seq`, ...params);
+}

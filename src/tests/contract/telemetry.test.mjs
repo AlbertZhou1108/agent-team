@@ -8,6 +8,7 @@ import { createCodexHost } from '../../member/codex/index.mjs';
 import { createDshHost } from '../../hosts/cli-hosts.mjs';
 import { dshSessionEventFrame, observeTextStream } from '../../member/dsh/telemetry-observer.mjs';
 import { telemetryCapabilitiesFor, telemetryObservation } from '../../telemetry.mjs';
+import { insertPrincipal } from '../../aggregates/external-control.mjs';
 import { startServer } from '../../server.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
 
@@ -675,4 +676,26 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
     '{"to":"peer","text":"hello"}',
   ]);
   assert.equal(toolDeltas[1].complete, true);
+});
+
+test('telemetry actor projections resolve external principals as external_agent', async t => {
+  const { bus, group, members } = fixture(t);
+  const created = new Date().toISOString();
+  insertPrincipal(bus.store, { id: 'external-actor', name: '外部主控乙', created });
+  assert.deepEqual(bus.telemetry._actor('external-actor'), {
+    actorId: 'external-actor',
+    actorName: '外部主控乙',
+    kind: 'external_agent',
+  });
+  assert.deepEqual(bus.telemetry._recipientActor(group.id, 'external-actor'), {
+    recipientId: 'external-actor',
+    recipientName: '外部主控乙',
+    recipientKind: 'external_agent',
+  });
+  // 既有身份解析顺序保持不变:成员优先于外部 principal。
+  assert.deepEqual(bus.telemetry._actor(members[0].id), {
+    actorId: members[0].id,
+    actorName: members[0].name,
+    kind: 'member',
+  });
 });

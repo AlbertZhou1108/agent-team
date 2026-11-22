@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
+import * as messagesAgg from '../../aggregates/messages.mjs';
 
 async function until(predicate) {
   for (let i = 0; i < 300; i++) {
@@ -74,7 +75,7 @@ test('roles are permanent identities: names stay reserved and new roles get new 
   await bus.removeMember(group.id, worker.id);
   const removed = bus.store.get('SELECT removed FROM members WHERE id=?', worker.id);
   assert.ok(removed.removed);
-  assert.equal(bus.store.get('SELECT text FROM messages WHERE id=?', historical.id).text, 'historical contribution');
+  assert.equal(messagesAgg.textOf(bus.store, historical.id), 'historical contribution');
   // 会话绑定的对外投影（querySession）仍指向原 session，而不是内部表读取。
   assert.equal(bus.querySession(group.id, workerEndpoint.id)?.session, historicalSession);
   await assert.rejects(bus.tool(workerEndpoint.id, workerEndpoint.key, 'read', {}), /成员不存在或已移除/);

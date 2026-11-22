@@ -7,6 +7,8 @@ import { startServer } from '../../server.mjs';
 import { Bus } from '../../bus.mjs';
 import { createTestGroup, seedPanelAgent } from '../support/fixture.mjs';
 import { dismissWorkbench, homeWorkbench, searchWorkspace } from '../../productivity.mjs';
+import { insertPrincipal } from '../../aggregates/external-control.mjs';
+import * as panelAgg from '../../aggregates/panel.mjs';
 
 test('search treats wildcard characters literally, filters groups and dates and links exact records', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'productivity-'));
@@ -353,7 +355,7 @@ test('dismissing a team notification hides it from the panel list without touchi
 
   assert.equal(dismissWorkbench(bus, [{ category: 'panel:update', id: 'update-1' }]).dismissed, 1);
   assert.equal(bus.panelAgentState().notifications.some(row => row.id === 'update-1'), false);
-  assert.ok(bus.store.get('SELECT id FROM panel_updates WHERE id=?', 'update-1'), '投递台账本身保留');
+  assert.ok(panelAgg.updateById(bus.store, 'update-1'), '投递台账本身保留');
   assert.throws(() => dismissWorkbench(bus, [{ category: 'panel:update', id: 'gone' }]), /已失效/);
 });
 
@@ -478,4 +480,46 @@ test('turn executor does not persist a ghost session when a host fails before ac
 
   await bus.panelPrivateTurn({ text: '重置后的第一条', clientMessageId: 'm-3' });
   assert.deepEqual(seenSessions, [null, null, null]);
+});
+
+test('workbench and search resolve external principals as external_agent identities', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'productivity-external-'));
+  const bus = new Bus({
+    directory,
+    hosts: new Map([['fake', { async run() { return 'ok'; } }]]),
+  });
+  t.after(async () => {
+    await bus.close();
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ }
+  });
+  const group = createTestGroup(bus, {
+    name: 'external identities',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [],
+  });
+  const created = new Date().toISOString();
+  insertPrincipal(bus.store, { id: 'external-1', name: '外部主控甲', created });
+
+  // 搜索:外部主控发出的消息展示 principal 名称而非裸 id。
+  const externalMessage = bus.store.append(group.id, 'external-1', group.lead, 'send', '外部主控下发的调度指令');
+  const found = searchWorkspace(bus, new URLSearchParams({ q: '调度指令' }));
+  assert.equal(found.length, 1);
+  assert.equal(found[0].id, externalMessage.id);
+  assert.equal(found[0].senderName, '外部主控甲');
+
+  // 等待用户回复:收件人为外部主控。
+  const toExternal = bus.store.append(group.id, 'user', 'external-1', 'send', '请确认外部主控状态');
+  // Agent 间请求:外部主控显式声明需要回复。
+  const externalRequest = bus.store.append(group.id, 'external-1', group.lead, 'send', '请外部协作方回复', null, true);
+
+  const workbench = homeWorkbench(bus, { now: Date.now() + 10 * 60 * 1000 });
+  const waiting = workbench.waiting.find(row => row.id === toExternal.id);
+  assert.equal(waiting.recipientName, '外部主控甲');
+  assert.equal(waiting.recipientKind, 'external_agent');
+  const agentWaiting = workbench.agentWaiting.find(row => row.id === externalRequest.id);
+  assert.equal(agentWaiting.senderName, '外部主控甲');
+  assert.equal(agentWaiting.senderKind, 'external_agent');
+  assert.equal(agentWaiting.recipientName, 'lead');
+  assert.equal(agentWaiting.recipientKind, 'member');
 });

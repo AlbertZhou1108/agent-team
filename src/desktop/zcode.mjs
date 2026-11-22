@@ -157,6 +157,7 @@ const ENGINE_CHECK_PROMPT = '只回复两个字符:OK';
 function withTimeout(promise, timeoutMs, message) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    timer.unref?.();
     promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
   });
 }

@@ -13,6 +13,8 @@ import {
   projectTurnInput,
 } from '../../information.mjs';
 import { busScenario, createTestGroup } from '../support/fixture.mjs';
+import * as conversationsAgg from '../../aggregates/conversations.mjs';
+import * as turnsAgg from '../../aggregates/turns.mjs';
 
 const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn, message = 'condition timed out') {
@@ -114,7 +116,7 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   assert.equal(legacyFormat.format_source, 'legacy-detected');
   const legacyCall = calls.filter(call => call.endpoint.id === legacy.id).at(-1);
   assert.match(legacyCall.prompt, /legacy turn/);
-  assert.equal(bus.store.get('SELECT session FROM conversations WHERE id=?', legacy.id).session, 'legacy-native-session');
+  assert.equal(conversationsAgg.byId(bus.store, legacy.id).session, 'legacy-native-session');
   const legacyRead = await bus.tool(legacy.id, legacy.key, 'read', {});
   assert.ok(legacyRead.messages.some(message => message.text === 'legacy body'));
   const newRead = await bus.tool(first.endpoint.id, first.endpoint.key, 'read', {});
@@ -160,7 +162,7 @@ test('rules budget overrun fails explicitly before the host runs and is not sile
     assert.match(failed.error, /固定规则超过 100 字节预算/);
     assert.match(failed.error, /不会被截断/);
     assert.equal(calls.length, before, 'host must not run with oversized rules');
-    assert.equal(bus.store.get('SELECT COUNT(*) AS n FROM turns WHERE conversation_id=?', endpoint.id).n, 0);
+    assert.equal(turnsAgg.list(bus.store, { conversationId: endpoint.id }).length, 0);
     bus.information.measureRules({
       groupId: group.id,
       endpointId: endpoint.id,

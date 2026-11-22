@@ -151,32 +151,7 @@ export class Information {
   constructor(store, { budgets = {} } = {}) {
     this.store = store;
     this.budgets = { ...DEFAULT_BUDGETS, ...budgets };
-    this.migrate();
-  }
-
-  migrate() {
-    this.store.db.exec(`
-      CREATE TABLE IF NOT EXISTS information_measurements(
-        id TEXT PRIMARY KEY,
-        group_id TEXT,
-        endpoint_id TEXT NOT NULL,
-        turn_id TEXT,
-        kind TEXT NOT NULL,
-        schema_version INTEGER NOT NULL,
-        bytes INTEGER NOT NULL,
-        detail TEXT NOT NULL,
-        created TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS information_measurements_turn ON information_measurements(turn_id,kind);
-      CREATE INDEX IF NOT EXISTS information_measurements_group ON information_measurements(group_id,created);
-      CREATE TABLE IF NOT EXISTS turn_context_schemas(
-        turn_id TEXT PRIMARY KEY,
-        scope TEXT NOT NULL,
-        schema_version INTEGER NOT NULL,
-        session_key TEXT,
-        created TEXT NOT NULL
-      );
-    `);
+    // information_measurements / turn_context_schemas 表结构已收归 Store schema。
   }
 
   // --- context schema compatibility -------------------------------------

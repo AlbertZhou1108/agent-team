@@ -81,7 +81,7 @@
   <img alt="数据层：核心聚合边界与本机 SQLite 存储" src="../assets/architecture/data-light.png">
 </picture>
 
-- **单文件 SQLite（`SCHEMA_VERSION = 22`）**：由 [store.mjs](../src/store.mjs) 托管 `v1 → v22` 逐级迁移，新版本 schema 不可被旧程序直接打开；`store.transaction()` 基于 `SAVEPOINT` 原生支持嵌套事务。
+- **单文件 SQLite（`SCHEMA_VERSION = 24`）**：由 [store.mjs](../src/store.mjs) 托管 `v1 → v24` 逐级迁移，新版本 schema 不可被旧程序直接打开；`store.transaction()` 基于 `SAVEPOINT` 原生支持嵌套事务。
 - **8 个聚合边界（[src/aggregates/](../src/aggregates/)）**：`messages`、`turns`、`conversations`、`panel`、`teams`、`read-state`、`external-control`、`settings` 守住核心领域不变式（核心三表 `messages` / `turns` / `conversations` 写入收口于聚合层；`待投递`、`等待回复`、`已读水位` 各自独立字段，不复用语义）。遥测、附件、笔记、归档快照等辅助域与只读查询可直接调用 `store`。
 - **主要表域**：团队与会话（`groups`、`members`、`conversations`、`team_lead_controllers`）、消息与回合（`messages`、`outbox`、`attached`、`turns`、`turn_inputs`、`history`）、面板与已读（`panel_agents`、`panel_messages`、`panel_updates`、`read_watermarks`）、外部主控（`external_principals`、`external_client_bindings`、`external_deliveries`、`external_decisions`、`team_requests`）。
 

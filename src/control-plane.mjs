@@ -1,15 +1,11 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   CONTROL_CAPABILITIES,
   CONTROL_PROTOCOL_VERSION,
   assertControlPolicy,
   assertControlWorkspace,
-  assertControllerCapabilities,
-  normalizeControlCapabilities,
-  supportsControlCapability,
 } from './control-capabilities.mjs';
 import * as externalAgg from './aggregates/external-control.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
@@ -19,11 +15,12 @@ import { appendRoutedMessage, assertReplyTarget, readSharedMessages } from './to
 import { roleNameKey } from './collaboration.mjs';
 import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
-import { nodeRunner } from './runtime.mjs';
 import { wakeDriverFor } from './host-runtime/wake-drivers.mjs';
 import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
-import { HOST_DEFINITIONS, surfaceFollowsConversation } from './hosts/definitions.mjs';
-import { controlToolDefinitions } from './control/tools.mjs';
+import { surfaceFollowsConversation } from './hosts/definitions.mjs';
+import * as identity from './control/identity.mjs';
+import * as wake from './control/wake-scheduler.mjs';
+import { READ_ONLY_CONTROL_TOOLS, toolsForControlCapabilities } from './control/tools.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -37,172 +34,6 @@ const CONTROL_GUIDE = [
   '同步工具失败以 isError 返回；不应伪造用户确认、送达或工作完成。',
 ].join('\n');
 
-const WAKE_BACKOFF_MS = Object.freeze([60_000, 5 * 60_000, 15 * 60_000]);
-
-/** 主动唤醒失败后的退避间隔；超过三次返回 null（由 attempts 阈值转永久降级）。 */
-export function wakeBackoffMs(attempts) {
-  return WAKE_BACKOFF_MS[attempts - 1] ?? null;
-}
-
-function wakeStatus(binding) {
-  if (!binding.session) {
-    return { state: 'unsupported', mode: binding.wake_mode ?? binding.host, reason: '尚未发现可恢复的宿主 session' };
-  }
-  if (binding.pull_only_accepted) {
-    return {
-      state: 'degraded',
-      mode: binding.wake_mode ?? binding.host,
-      reason: binding.wake_reason ?? '用户已接受仅拉取模式',
-    };
-  }
-  if (!bindingCapabilities(binding).capabilities.includes(CONTROL_CAPABILITIES.sessionWake)) {
-    return { state: 'unsupported', mode: null, reason: '客户端未声明 session.wake，使用仅拉取模式' };
-  }
-  if (!wakeDriverFor(binding.host)) {
-    return { state: 'unsupported', mode: binding.wake_mode ?? binding.host, reason: `宿主 ${binding.host} 尚未实现主动唤醒` };
-  }
-  if (binding.wake_state === 'ready') {
-    return { state: 'ready', mode: binding.wake_mode ?? binding.host, reason: null };
-  }
-  if (binding.wake_state === 'degraded') {
-    return {
-      state: 'degraded',
-      mode: binding.wake_mode ?? binding.host,
-      reason: binding.wake_reason ?? '主动唤醒当前不可用',
-    };
-  }
-  if (binding.wake_state === 'provisioning') {
-    return {
-      state: 'provisioning',
-      mode: binding.wake_mode ?? binding.host,
-      reason: binding.wake_reason ?? '正在验证主动唤醒',
-    };
-  }
-  if (binding.wake_state === 'unsupported') {
-    return {
-      state: 'unsupported',
-      mode: binding.wake_mode ?? binding.host,
-      reason: binding.wake_reason ?? '宿主不支持主动唤醒',
-    };
-  }
-  if (!binding.wake_config) {
-    return { state: 'unverified', mode: binding.host, reason: '尚未建立主动唤醒配置' };
-  }
-  return {
-    state: 'unverified',
-    mode: binding.wake_mode ?? binding.host,
-    reason: binding.wake_reason ?? '尚未通过真实主动唤醒验证',
-  };
-}
-
-const READ_ONLY_CONTROL_TOOLS = new Set([
-  'control_protocol',
-  'control_status',
-  'control_teams',
-  'team_snapshot',
-  'team_members',
-  'team_read',
-  'control_decisions',
-]);
-
-function keyHash(key) {
-  return createHash('sha256').update(key).digest('hex');
-}
-
-function normalizedMembers(value) {
-  if (value === undefined || value === null || value === '') return [];
-  const rows = Array.isArray(value)
-    ? value
-    : String(value).split(',').map(item => item.trim()).filter(Boolean);
-  return rows.map(item => {
-    if (typeof item === 'string') {
-      const [name, host, ...extra] = item.split('=').map(part => part.trim());
-      if (!name || !host || extra.length) throw new Error('成员格式应为 名称=宿主');
-      return { name, host };
-    }
-    if (!item || typeof item !== 'object' || !item.name || !item.host) throw new Error('成员格式无效');
-    return {
-      name: String(item.name).trim(),
-      host: String(item.host).trim(),
-      ...(item.model !== undefined ? { model: String(item.model).trim() } : {}),
-      ...(item.reasoningEffort !== undefined ? { reasoningEffort: String(item.reasoningEffort).trim() } : {}),
-    };
-  });
-}
-
-function bindingCapabilities(row) {
-  // 声明即有效：不再与探测结果取交集（v19 起移除 probed_capabilities）。
-  return normalizeControlCapabilities(JSON.parse(row.declared_capabilities));
-}
-
-function hasElicitation(capabilities) {
-  return supportsControlCapability(capabilities, CONTROL_CAPABILITIES.userElicitation);
-}
-
-export function createExternalIdentity(store, {
-  principalName = '本机用户',
-  bindingName,
-  host,
-  command = null,
-  session = null,
-  declared,
-  surface = 'cli',
-  appId = null,
-  bindingKind = 'conversation',
-} = {}) {
-  if (typeof principalName !== 'string' || !principalName.trim()) throw new Error('principalName 无效');
-  if (typeof bindingName !== 'string' || !bindingName.trim()) throw new Error('bindingName 无效');
-  if (typeof host !== 'string' || !host.trim()) throw new Error('host 无效');
-  if (!['cli', 'desktop'].includes(surface)) throw new Error(`未知的连接 surface: ${surface}`);
-  if (!['conversation', 'activation'].includes(bindingKind)) throw new Error(`未知的连接类型: ${bindingKind}`);
-  const declaredCapabilities = assertControllerCapabilities(declared ?? {});
-  const now = new Date().toISOString();
-  return store.transaction(() => {
-    let owner = externalAgg.principalByName(store, principalName.trim());
-    if (!owner) {
-      owner = { id: randomUUID(), name: principalName.trim() };
-      externalAgg.insertPrincipal(store, { id: owner.id, name: owner.name, created: now });
-    }
-    const key = randomBytes(32).toString('hex');
-    const existing = externalAgg.bindingByName(store, owner.id, bindingName.trim());
-    const id = existing?.id ?? randomUUID();
-    if (existing) {
-      externalAgg.rotateBinding(store, id, {
-        host: host.trim(),
-        command: command?.trim() || host.trim(),
-        keyHash: keyHash(key),
-        session: session ?? existing.session,
-        declaredCapabilities,
-        appId,
-        surface,
-        bindingKind,
-        updated: now,
-      });
-    } else {
-      externalAgg.insertBinding(store, {
-        id,
-        principalId: owner.id,
-        name: bindingName.trim(),
-        host: host.trim(),
-        command: command?.trim() || host.trim(),
-        keyHash: keyHash(key),
-        session,
-        declaredCapabilities,
-        appId,
-        surface,
-        bindingKind,
-        created: now,
-      });
-    }
-    return {
-      principal: owner,
-      binding: externalAgg.binding(store, id),
-      key,
-      capabilities: declaredCapabilities,
-    };
-  });
-}
-
 export class ControlPlane {
   constructor(bus, { wake = deliverExternalWake } = {}) {
     this.bus = bus;
@@ -211,138 +42,21 @@ export class ControlPlane {
     this.wakeInFlight = new Set();
   }
 
-  /**
-   * 激活连接解析:桌面宿主配置里只能放一条全局 MCP 凭据,激活连接按宿主的
-   * 会话身份通道(desktopConversationIdentity)解析出真正的会话连接:
-   * - thread:按宿主上报的线程身份一线程一连接(如 CODEX_THREAD_ID);
-   * - manual:宿主不给子进程会话身份,须 bind_client_session 显式绑定后按
-   *   绑定值解析,未绑定前拒绝执行工具;
-   * - app:宿主没有会话身份通道,解析为应用级单连接;多会话隔离做不到,
-   *   作为宿主限制如实呈现(配合 Pull-only 使用,如 Claude Desktop)。
-   * 激活连接本身永不持有团队席位,也永不进入工具调用。
-   */
+  /** 激活连接解析与鉴权委托：实现在 control/identity.mjs（首参 this）。 */
   resolveActivationBinding(activation, hostSession) {
-    const threadId = typeof hostSession === 'string' ? hostSession.trim() : '';
-    const identity = HOST_DEFINITIONS.get(activation.host)?.desktopConversationIdentity ?? 'thread';
-    if (identity === 'app') {
-      return this.resolveThreadBinding(activation, '应用级');
-    }
-    if (!threadId) {
-      // 桌面聊天宿主的 MCP 子进程不注入线程身份(实测 Codex Desktop 26.x):
-      // 回落到该激活连接最近绑定的会话,让 bind-session 后的后续调用可用;
-      // 一次都没有绑定时,报错引导会话内完成显式绑定。
-      const latest = this.latestBoundConversation(activation);
-      if (latest) return latest;
-      throw new Error(identity === 'manual'
-        ? '该桌面宿主不会向 MCP 子进程注入会话身份;请在桌面会话内运行 bind-session 显式绑定后再调用'
-        : '桌面会话尚未绑定:请在桌面会话的 shell 里运行 agent-team bind-session(凭据见插件 mcp 配置)绑定当前线程后再调用工具');
-    }
-    return this.resolveThreadBinding(activation, threadId);
+    return identity.resolveActivationBinding(this, activation, hostSession);
   }
 
-  /** 激活连接最近绑定的会话连接(桌面聊天 MCP 子进程无线程身份时的回落目标)。 */
   latestBoundConversation(activation) {
-    // 只回落到本激活连接解析出的会话(名字前缀限定),不同应用/不同接入不互相串。
-    // 同毫秒绑定很常见:用 rowid 作 tiebreaker,保证「后绑定者赢」是确定性的。
-    return this.bus.store.get(
-      `SELECT * FROM external_client_bindings
-       WHERE principal_id=? AND binding_kind='conversation' AND session IS NOT NULL
-         AND name LIKE ? ESCAPE '\\'
-       ORDER BY updated DESC, rowid DESC LIMIT 1`,
-      activation.principal_id,
-      activation.name.replace(/[\\%_]/g, c => `\\${c}`) + '%',
-    ) ?? null;
+    return identity.latestBoundConversation(this, activation);
   }
 
   resolveThreadBinding(activation, identityKey) {
-    const name = `${activation.name}·${identityKey}`;
-    const existing = externalAgg.bindingByName(this.bus.store, activation.principal_id, name);
-    if (existing) {
-      if (existing.binding_kind !== 'conversation') throw new Error('激活连接解析到了非会话连接');
-      return existing;
-    }
-    const principal = externalAgg.principal(this.bus.store, activation.principal_id);
-    const { binding } = createExternalIdentity(this.bus.store, {
-      principalName: principal?.name,
-      bindingName: name,
-      host: activation.host,
-      session: identityKey === '应用级' ? null : identityKey,
-      declared: JSON.parse(activation.declared_capabilities),
-      surface: 'desktop',
-      appId: activation.app_id,
-    });
-    return binding;
+    return identity.resolveThreadBinding(this, activation, identityKey);
   }
 
   authenticate(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
-    if (typeof bindingId !== 'string' || typeof key !== 'string' || !bindingId || !key) {
-      throw new Error('缺少外部主控连接凭据');
-    }
-    const presented = externalAgg.binding(this.bus.store, bindingId);
-    if (!presented || presented.status !== 'active' || presented.key_hash !== keyHash(key)) throw new Error('外部主控连接凭据无效');
-    const row = presented.binding_kind === 'activation'
-      ? this.resolveActivationBinding(presented, hostSession)
-      : presented;
-    const capabilities = bindingCapabilities(row);
-    assertControllerCapabilities(capabilities);
-    externalAgg.touchBinding(this.bus.store, row.id);
-    if (this.bus.controlSocketPath) {
-      const runner = nodeRunner();
-      // 唤醒子进程携带的是「本次连接呈现的凭据」:CLI 场景即会话连接本身;
-      // 桌面激活场景即激活连接——子进程在恢复的线程里运行,会重新上报宿主
-      // 会话身份并解析回正确的会话连接(其 key 从不落明文)。
-      const wakeConfig = {
-        command: runner.command,
-        args: [
-          '--disable-warning=ExperimentalWarning',
-          fileURLToPath(new URL('./cli.mjs', import.meta.url)),
-          'mcp',
-          '--socket', this.bus.controlSocketPath,
-          '--client', presented.id,
-        ],
-        env: {
-          ...runner.env,
-          AGENT_TEAM_CLIENT_KEY: key,
-          AGENT_TEAM_CONTROL_PROTOCOL: String(CONTROL_PROTOCOL_VERSION),
-        },
-      };
-      const serialized = JSON.stringify(wakeConfig);
-      if (serialized !== row.wake_config) {
-        externalAgg.setBindingWakeConfig(this.bus.store, row.id, wakeConfig);
-        row.wake_config = serialized;
-      }
-    }
-    const sessionChanged = clearHostSession
-      ? externalAgg.clearBindingSession(this.bus.store, row.id)
-      : externalAgg.setBindingSession(this.bus.store, row.id, hostSession);
-    if (sessionChanged) {
-      this.bus.store.run(
-        `UPDATE external_client_bindings
-         SET wake_state='unverified',wake_mode=host,wake_reason='宿主 session 已变化，需要重新验证主动唤醒',
-             wake_fingerprint=NULL,wake_verified_at=NULL,wake_attempts=0,wake_next_attempt=NULL
-         WHERE id=?`,
-        row.id,
-      );
-      row.session = clearHostSession ? null : String(hostSession).trim();
-      for (const team of externalAgg.activeTeamsForBinding(this.bus.store, row.id)) {
-        this.scheduleWake(row.principal_id, team.id);
-      }
-    }
-    // 主控会话工作目录(ADR 0012):桌面会话的目录变化就是 Controller workspace
-    // 变化,跟随到其席位团队;CLI binding 只记录事实,不自动移动团队目录。
-    if (hostCwd && externalAgg.setBindingControllerCwd(this.bus.store, row.id, hostCwd)) {
-      row.controller_cwd = hostCwd;
-      if (surfaceFollowsConversation(row.surface)) {
-        for (const team of externalAgg.activeTeamsForBinding(this.bus.store, row.id)) {
-          externalAgg.requestControllerWorkspace(this.bus.store, { groupId: team.id, cwd: hostCwd });
-        }
-      }
-    }
-    return {
-      binding: row,
-      capabilities,
-      protocol: protocolState(protocolVersion ?? CONTROL_PROTOCOL_VERSION),
-    };
+    return identity.authenticate(this, bindingId, key, protocolVersion, hostSession, clearHostSession, hostCwd);
   }
 
   tools(bindingId, key, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
@@ -364,7 +78,7 @@ export class ControlPlane {
   async tool(bindingId, key, name, args, protocolVersion = CONTROL_PROTOCOL_VERSION, hostSession = null, clearHostSession = false, hostCwd = null) {
     const { binding, capabilities, protocol } = this.authenticate(bindingId, key, protocolVersion, hostSession, clearHostSession, hostCwd);
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('工具参数必须是对象');
-    if (!hasElicitation(capabilities) && ['control_decisions', 'team_decision_answer'].includes(name)) {
+    if (!identity.hasElicitation(capabilities) && ['control_decisions', 'team_decision_answer'].includes(name)) {
       throw new Error(`宿主未声明能力: ${CONTROL_CAPABILITIES.userElicitation}`);
     }
     const spec = toolsForControlCapabilities(capabilities).find(tool => tool.name === name);
@@ -444,14 +158,14 @@ export class ControlPlane {
         });
       }
       return {
-        wake: wakeStatus(externalAgg.binding(this.bus.store, binding.id)),
+        wake: wake.wakeStatus(externalAgg.binding(this.bus.store, binding.id)),
         receipt: result,
-        previous: wakeStatus(refreshed),
+        previous: wake.wakeStatus(refreshed),
       };
     }
     if (name === 'control_accept_pull_only') {
       externalAgg.acceptPullOnly(this.bus.store, binding.id);
-      return { wake: wakeStatus(externalAgg.binding(this.bus.store, binding.id)) };
+      return { wake: wake.wakeStatus(externalAgg.binding(this.bus.store, binding.id)) };
     }
     if (name === 'control_status') return {
       binding: {
@@ -467,7 +181,7 @@ export class ControlPlane {
       decisions: externalAgg.pendingDecisions(this.bus.store, binding.principal_id).length,
       protocol,
       controlledTeams: externalAgg.teamsForBinding(this.bus.store, binding.id).length,
-      wake: wakeStatus(binding),
+      wake: wake.wakeStatus(binding),
     };
     // 列表按「与当前主控会话建立过关系的团队」收口:独立主控会话互相看不到
     // 对方的团队;接管后的旧会话保留关系(active=false),凭精确团队 ID 仍可检视。
@@ -491,7 +205,7 @@ export class ControlPlane {
     if (name === 'team_create') {
       const created = await this.createTeam(binding, capabilities, args);
       let current = externalAgg.binding(this.bus.store, binding.id);
-      if (wakeStatus(current).state !== 'ready') {
+      if (wake.wakeStatus(current).state !== 'ready') {
         externalAgg.setBindingWakeState(this.bus.store, binding.id, {
           state: current.pull_only_accepted ? 'degraded' : 'provisioning',
           mode: current.wake_mode ?? current.host,
@@ -503,7 +217,7 @@ export class ControlPlane {
       }
       return {
         ...created,
-        headless: wakeStatus(current),
+        headless: wake.wakeStatus(current),
       };
     }
 
@@ -596,11 +310,11 @@ export class ControlPlane {
       this.bus.collaboration.requireCommunication(group.id);
       if (name === 'team_send') {
         const currentBinding = externalAgg.binding(this.bus.store, binding.id);
-        const wake = wakeStatus(currentBinding);
-        if (wake.state !== 'ready' && !currentBinding.pull_only_accepted) {
-          const error = new Error(`headless_not_ready: ${wake.reason ?? wake.state}`);
+        const wakeState = wake.wakeStatus(currentBinding);
+        if (wakeState.state !== 'ready' && !currentBinding.pull_only_accepted) {
+          const error = new Error(`headless_not_ready: ${wakeState.reason ?? wakeState.state}`);
           error.code = 'headless_not_ready';
-          error.details = { wake };
+          error.details = { wake: wakeState };
           throw error;
         }
       }
@@ -636,11 +350,7 @@ export class ControlPlane {
         expectsReply,
       });
       if (name === 'team_send' && Array.isArray(args.requiredCapabilities)) {
-        this.bus.store.run(
-          'UPDATE messages SET required_capabilities=? WHERE id=?',
-          JSON.stringify(args.requiredCapabilities),
-          message.id,
-        );
+        messagesAgg.setRequiredCapabilities(this.bus.store, message.id, args.requiredCapabilities);
       }
       this.bus.emit('message', message);
       queueMicrotask(() => this.bus.pump());
@@ -752,187 +462,34 @@ export class ControlPlane {
         },
         created: now,
       });
-      this.bus.store.run('UPDATE messages SET awaiting=0 WHERE id=?', message.id);
+      messagesAgg.clearAwaiting(this.bus.store, message.id);
     });
     this.scheduleWake(principalId, message.group_id);
     return true;
   }
 
-  /**
-   * 接管后尽力唤醒旧主控(ADR 0010):让它有机会得知自己已只读。
-   * 只是通知,不重试不调度;失败不打断接管本身。
-   */
+  /** 唤醒调度委托：实现在 control/wake-scheduler.mjs（首参 this）。 */
   wakePreviousController(previousBindingId, group) {
-    if (!previousBindingId) return;
-    const previous = externalAgg.binding(this.bus.store, previousBindingId);
-    if (!previous?.session) return;
-    Promise.resolve()
-      .then(() => this.wake(previous, {
-        teamName: `${group.name}（主控已移交）`,
-        count: 0,
-        workspace: group.workspace,
-      }))
-      .catch(error => {
-        if (!this.bus.closing) console.error('[control] 唤醒前任主控失败:', error.message);
-      });
+    return wake.wakePreviousController(this, previousBindingId, group);
   }
 
   scheduleWake(principalId, groupId) {
-    const key = principalId;
-    let state = this.wakeSchedules.get(key);
-    if (!state) {
-      state = { timer: null, groups: new Set() };
-      this.wakeSchedules.set(key, state);
-    }
-    state.groups.add(groupId);
-    if (state.timer || this.wakeInFlight.has(key)) return;
-    const run = async () => {
-      state.timer = null;
-      const nextGroup = state.groups.values().next().value;
-      if (!nextGroup || this.wakeInFlight.has(key)) return;
-      state.groups.delete(nextGroup);
-      this.wakeInFlight.add(key);
-      try {
-        await this.wakePending(principalId, nextGroup);
-      } catch (error) {
-        if (!this.bus.closing) console.error('[control] 外部唤醒调度失败:', error.message);
-      } finally {
-        this.wakeInFlight.delete(key);
-        if (state.groups.size) {
-          const remaining = state.groups.values().next().value;
-          this.scheduleWake(principalId, remaining);
-        }
-        else this.wakeSchedules.delete(key);
-      }
-    };
-    state.timer = setTimeout(run, 25);
-    state.timer.unref?.();
+    return wake.scheduleWake(this, principalId, groupId);
   }
 
   async wakePending(principalId, groupId) {
-    if (this.bus.closing) return { state: 'closed' };
-    const binding = externalAgg.activeBindingForTeam(this.bus.store, principalId, groupId);
-    const rows = externalAgg.pendingWakes(this.bus.store, principalId, groupId);
-    if (!rows.length) return { state: 'empty' };
-    if (!binding) {
-      externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-        state: 'unsupported',
-        error: 'active controller binding 不存在或已禁用',
-      });
-      return { state: 'unsupported', count: rows.length };
-    }
-    if (binding.wake_next_attempt && Date.parse(binding.wake_next_attempt) > Date.now()) {
-      return { state: 'backoff', nextAttempt: binding.wake_next_attempt };
-    }
-    if (Number(binding.wake_attempts ?? 0) >= 3 && binding.wake_state !== 'ready') {
-      return { state: 'degraded', reason: binding.wake_reason ?? '主动唤醒连续失败' };
-    }
-    if (binding.pull_only_accepted) {
-      return { state: 'unsupported', count: rows.length, reason: 'binding 已接受仅拉取模式' };
-    }
-    externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-      bindingId: binding.id,
-      state: 'sending',
-    });
-    const group = this.bus.store.group(groupId);
-    const teamName = group.name;
-    try {
-      const result = await this.wake(binding, {
-        teamName,
-        count: rows.length,
-        workspace: group.workspace,
-      });
-      if (!result.supported) {
-        externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-          bindingId: binding.id,
-          state: 'unsupported',
-          error: result.reason ?? '宿主不支持主动唤醒',
-        });
-        externalAgg.setBindingWakeState(this.bus.store, binding.id, {
-          state: 'unsupported',
-          mode: binding.host,
-          reason: result.reason ?? '宿主不支持主动唤醒',
-        });
-        return { state: 'unsupported', count: rows.length, reason: result.reason };
-      }
-      if (result.state === 'failed') {
-        this.recordWakeFailure({
-          binding,
-          principalId,
-          groupId,
-          messageIds: rows.map(row => row.id),
-          reason: result.reason ?? '主动唤醒失败',
-          mode: result.mode ?? binding.host,
-          fingerprint: result.fingerprint ?? null,
-        });
-        return { state: 'error', count: rows.length, reason: result.reason };
-      }
-      const now = new Date().toISOString();
-      externalAgg.markWake(this.bus.store, rows.map(row => row.id), {
-        bindingId: binding.id,
-        state: 'sent',
-      });
-      externalAgg.setBindingWakeState(this.bus.store, binding.id, {
-        state: (result.state ?? 'started') === 'started' ? 'ready' : 'provisioning',
-        mode: result.mode ?? binding.host,
-        reason: result.state === 'queued' ? '队列已接受，等待宿主开始回合' : null,
-        fingerprint: result.fingerprint ?? null,
-        verifiedAt: result.state === 'queued' ? null : now,
-        attempts: 0,
-        nextAttempt: null,
-        now,
-      });
-      return { state: 'sent', count: rows.length };
-    } catch (error) {
-      this.recordWakeFailure({
-        binding,
-        principalId,
-        groupId,
-        messageIds: rows.map(row => row.id),
-        reason: error.message,
-      });
-      return { state: 'error', count: rows.length, reason: error.message };
-    }
+    return wake.wakePending(this, principalId, groupId);
   }
 
-  /**
-   * 主动唤醒失败的统一收尾：标记消息、降级 binding、按次数安排有界退避。
-   *
-   * 适配器"返回失败"（例如会话写锁被占用）与"抛异常"走同一条路径——
-   * 两者都是暂时性失败，都应退避后重试，而不是只有异常才重试。
-   * 第三次失败后由 wakePending 的 attempts 阈值转永久降级。
-   */
-  recordWakeFailure({ binding, principalId, groupId, messageIds, reason, mode = binding.host, fingerprint = null }) {
-    const attempts = Number(binding.wake_attempts ?? 0) + 1;
-    const backoff = wakeBackoffMs(attempts);
-    const nextAttempt = backoff == null ? null : new Date(Date.now() + backoff).toISOString();
-    externalAgg.markWake(this.bus.store, messageIds, {
-      bindingId: binding.id,
-      state: 'error',
-      error: reason,
-    });
-    externalAgg.setBindingWakeState(this.bus.store, binding.id, {
-      state: 'degraded',
-      mode,
-      reason: attempts >= 3 ? `主动唤醒连续失败：${reason}` : reason,
-      fingerprint,
-      attempts,
-      nextAttempt,
-    });
-    if (backoff != null) {
-      const timer = setTimeout(() => {
-        this.scheduleWake(principalId, groupId);
-      }, backoff);
-      timer.unref?.();
-    }
-    return { attempts, backoff, nextAttempt };
+  recordWakeFailure(options) {
+    return wake.recordWakeFailure(this, options);
   }
 
   requestDecision({ groupId, memberId, payload }) {
     const controller = this.bus.teamController(groupId);
     if (controller.kind !== 'external_agent') return null;
     const binding = externalAgg.activeBindingForTeam(this.bus.store, controller.id, groupId);
-    if (!binding || !hasElicitation(bindingCapabilities(binding))) {
+    if (!binding || !identity.hasElicitation(identity.bindingCapabilities(binding))) {
       throw new Error(`当前外部主控未声明能力: ${CONTROL_CAPABILITIES.userElicitation}`);
     }
     const id = randomUUID();
@@ -1023,7 +580,7 @@ export class ControlPlane {
     ])];
     assertControlWorkspace({ ...capabilities, workspaceRoots }, workspace);
     const policy = assertControlPolicy(capabilities, args.policy ?? 'read-only');
-    const people = normalizedMembers(args.members);
+    const people = identity.normalizedMembers(args.members);
     const operationId = typeof args.operationId === 'string' && /^[\w-]{1,128}$/.test(args.operationId)
       ? args.operationId
       : null;
@@ -1096,14 +653,7 @@ export class ControlPlane {
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
       }
       if (operationId) {
-        this.bus.store.run(
-          "INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('external-team-create',?,?,?,?,?)",
-          binding.principal_id,
-          operationId,
-          payload,
-          id,
-          now,
-        );
+        externalAgg.recordTeamCreateOperation(this.bus.store, { principalId: binding.principal_id, operationId, payload, groupId: id, created: now });
       }
     });
     const createdMembers = this.bus.members(id);
@@ -1183,13 +733,7 @@ export class ControlPlane {
     const previousCapabilities = member.capabilities ? JSON.parse(member.capabilities) : [];
     const capabilityChanged = previousEffective !== effective
       || JSON.stringify(previousCapabilities) !== JSON.stringify(capabilities);
-    this.bus.store.run(
-      'UPDATE members SET effective_policy=?,capabilities=?,capability_reason=? WHERE id=?',
-      effective,
-      JSON.stringify(capabilities),
-      reason,
-      member.id,
-    );
+    teamsAgg.updateMemberExecutionPolicy(this.bus.store, { memberId: member.id, effectivePolicy: effective, capabilities, reason });
     if (previousEffective !== null && capabilityChanged) {
       conversationsAgg.clearSessionsForMember(this.bus.store, member.id);
       this.bus.notify(group.id, member.id,
@@ -1215,7 +759,7 @@ export class ControlPlane {
     return {
       team: group,
       controller: { id: principalId, kind: 'external_agent' },
-      headless: binding ? wakeStatus(binding) : { state: 'unsupported', mode: null, reason: '没有 active controller binding' },
+      headless: binding ? wake.wakeStatus(binding) : { state: 'unsupported', mode: null, reason: '没有 active controller binding' },
       members: await this.membersWithPolicy(group),
       communication: this.bus.groupSummary(group.id),
       tasks: this.bus.agentTasksView(group.id),
@@ -1223,28 +767,7 @@ export class ControlPlane {
   }
 }
 
-export function toolsForControlCapabilities(capabilities) {
-  const definitions = controlToolDefinitions();
-  const canElicit = capabilities == null || hasElicitation(capabilities);
-  const canWake = capabilities == null
-    || supportsControlCapability(capabilities, CONTROL_CAPABILITIES.sessionWake);
-  return definitions.filter(([name]) => (
-    (canElicit || !['control_decisions', 'team_decision_answer'].includes(name))
-    && (canWake || name !== 'control_wake_test')
-  )).map(([name, description, properties, required]) => ({
-    name,
-    description,
-    inputSchema: { type: 'object', properties, required, additionalProperties: false },
-  }));
-}
-
-function protocolState(value) {
-  const parsed = Number(value);
-  const clientVersion = Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-  return {
-    clientVersion,
-    serverVersion: CONTROL_PROTOCOL_VERSION,
-    compatible: clientVersion === CONTROL_PROTOCOL_VERSION,
-    readOnly: clientVersion !== CONTROL_PROTOCOL_VERSION,
-  };
-}
+// 兼容导出：既有调用方仍从 control-plane.mjs 导入这些名字。
+export { createExternalIdentity } from './control/identity.mjs';
+export { wakeBackoffMs } from './control/wake-scheduler.mjs';
+export { toolsForControlCapabilities } from './control/tools.mjs';

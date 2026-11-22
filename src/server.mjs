@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
-import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installCodexDesktopIntegration, installDshDesktopIntegration, installClaudeDesktopIntegration, readDesktopHostSpecs } from './desktop/index.mjs';
+import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installDesktopIntegration, readDesktopHostSpecs } from './desktop/index.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -21,6 +21,18 @@ export function socketFor(directory) {
   const candidate = resolve(directory, 'bus.sock');
   return Buffer.byteLength(candidate) < 100 ? candidate : `/tmp/agent-team-${process.getuid?.() ?? 'local'}-${createHash('sha256').update(resolve(directory)).digest('hex').slice(0, 20)}.sock`;
 }
+/**
+ * 按 spec 实例化成员宿主:module 指向的 createHost 优先,否则查内置适配器注册表,
+ * 创建后立即按宿主契约校验。启动加载与运行期热同步共用同一套创建规则。
+ */
+async function createHostFromSpec({ name, spec, directory, socketPath }) {
+  const factory = spec.module ? (await import(pathToFileURL(resolve(spec.module)).href)).createHost : HOST_FACTORIES.get(spec.adapter);
+  if (typeof factory !== 'function') throw new Error(`未配置宿主适配器: ${name}`);
+  const host = await factory({ directory, socketPath, ...spec });
+  assertHostContract(name, host);
+  return host;
+}
+
 export async function loadHosts({ directory, socketPath, configFile }) {
   socketPath ??= socketFor(directory);
   const configured = configFile ? JSON.parse(readFileSync(resolve(configFile), 'utf8')).hosts : DEFAULT_HOST_SPECS;
@@ -28,14 +40,41 @@ export async function loadHosts({ directory, socketPath, configFile }) {
   const specs = { ...configured, ...readDesktopHostSpecs(directory) };
   if (!specs || typeof specs !== 'object' || Array.isArray(specs)) throw new Error('宿主配置需要 hosts 对象');
   const hosts = new Map();
-  for (const [name, spec] of Object.entries(specs)) {
-    const factory = spec.module ? (await import(pathToFileURL(resolve(spec.module)).href)).createHost : HOST_FACTORIES.get(spec.adapter);
-    if (typeof factory !== 'function') throw new Error(`未配置宿主适配器: ${name}`);
-    const host = await factory({ directory, socketPath, ...spec });
-    assertHostContract(name, host);
-    hosts.set(name, host);
-  }
+  for (const [name, spec] of Object.entries(specs)) hosts.set(name, await createHostFromSpec({ name, spec, directory, socketPath }));
   return hosts;
+}
+
+/**
+ * 运行期把 `desktop-hosts.json` 的最新事实同步进内存宿主 Map:
+ * - 新增或 spec 有更新的动态桌面宿主:实例化、校验后写入 hosts;
+ * - 此前由该文件注册、现已移除的宿主:close 后摘除。
+ * `state.names` / `state.signatures` 记录"由本文件注册"的键名与 spec 签名,
+ * 只增删这些键;调用方注入的内置/测试宿主(如 fake / codex / claude)永不接管。
+ */
+export async function syncDesktopHosts({ directory, socketPath, hosts, state }) {
+  const specs = readDesktopHostSpecs(directory);
+  for (const [name, spec] of Object.entries(specs)) {
+    const managed = state.names.has(name);
+    // 注入宿主优先:同名但非本文件加载的宿主不覆盖、不接管(测试常注入 fake)。
+    if (hosts.has(name) && !managed) continue;
+    const signature = JSON.stringify(spec);
+    if (managed && state.signatures.get(name) === signature) continue;
+    const host = await createHostFromSpec({ name, spec, directory, socketPath });
+    const previous = hosts.get(name);
+    hosts.set(name, host);
+    state.names.add(name);
+    state.signatures.set(name, signature);
+    if (previous && previous !== host) await previous.close?.();
+  }
+  for (const name of [...state.names]) {
+    if (Object.hasOwn(specs, name)) continue;
+    const previous = hosts.get(name);
+    hosts.delete(name);
+    state.names.delete(name);
+    state.signatures.delete(name);
+    await previous?.close?.();
+  }
+  return specs;
 }
 
 export async function startServer({ directory, port = 0, hosts, configFile }) {
@@ -88,6 +127,24 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
       hosts: hosts ?? await loadHosts({ directory, socketPath, configFile }),
       controlSocketPath: socketPath,
     });
+    // 运行期热同步:HTTP/RPC 的桌面安装/移除完成后调用,不重启服务即可见。
+    // 只接管从 desktop-hosts.json 加载的动态桌面宿主;调用方注入的宿主(内置/测试)不接管。
+    const desktopHostState = { names: new Set(), signatures: new Map() };
+    if (!hosts) {
+      const loadedDesktopSpecs = readDesktopHostSpecs(directory);
+      for (const [name, spec] of Object.entries(loadedDesktopSpecs)) {
+        if (!bus.hosts.has(name)) continue;
+        desktopHostState.names.add(name);
+        desktopHostState.signatures.set(name, JSON.stringify(spec));
+      }
+    }
+    // 串行化:并发安装/移除时后一次同步必须看到前一次落盘后的最新事实。
+    let hostSyncQueue = Promise.resolve();
+    bus.syncDesktopHosts = () => {
+      const operation = hostSyncQueue.then(() => syncDesktopHosts({ directory, socketPath, hosts: bus.hosts, state: desktopHostState }));
+      hostSyncQueue = operation.catch(() => {});
+      return operation;
+    };
     ipc = net.createServer(socket => {
       socket.setEncoding('utf8');
       let receivedBytes = 0;
@@ -148,17 +205,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
         response.setHeader('Referrer-Policy', 'no-referrer');
         response.setHeader('X-Content-Type-Options', 'nosniff');
         response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
-        const requestedTeam = url.searchParams.get('group') || url.pathname.match(/^\/api\/teams\/([^/]+)/)?.[1];
-        const endpointId = url.searchParams.get('endpoint');
-        const endpointTeam = endpointId ? bus.store.get('SELECT group_id FROM conversations WHERE id=?', endpointId)?.group_id : null;
-        const messageTeam = url.searchParams.get('message') ? bus.store.get('SELECT group_id FROM messages WHERE id=?', url.searchParams.get('message'))?.group_id : null;
-        const interactionId = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/)?.[1];
-        const interactionTeam = interactionId ? bus.store.get('SELECT group_id FROM interactions WHERE id=?', interactionId)?.group_id : null;
-        const turnId = url.searchParams.get('turn');
-        const turnTeam = turnId ? bus.store.get('SELECT c.group_id FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=?', turnId)?.group_id : null;
-        for (const id of [requestedTeam, endpointTeam, messageTeam, interactionTeam, turnTeam]) {
-          if (id && bus.store.get('SELECT state FROM groups WHERE id=?', id)?.state === 'archived' && !teamStateMutation) return fail(410, '团队已归档，请在设置中恢复后访问');
-        }
+        if (!teamStateMutation && bus.queries.isArchivedRequestTarget(url)) return fail(410, '团队已归档，请在设置中恢复后访问');
 
 
         if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
@@ -167,12 +214,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
           const result = await route.handle();
           if (response.headersSent) return;
           value = result;
-          if (['/api/overview', '/api/snapshot', '/api/directory'].includes(url.pathname)) {
-            const activeIds = new Set(bus.store.all("SELECT id FROM groups WHERE state IS NULL OR state!='archived'").map(row => row.id));
-            for (const key of ['groups', 'groupStates', 'panelTeams']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.id));
-            for (const key of ['members', 'endpoints', 'agentTasks']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.group_id));
-            if (value.endpoints) { const ids = new Set(value.endpoints.map(row => row.id)); value.sessionBindings = value.sessionBindings.filter(row => ids.has(row.endpoint_id)); value.runningEndpoints = value.runningEndpoints.filter(id => ids.has(id)); }
-          }
+          value = bus.queries.filterActiveProjection(url.pathname, value);
           response.writeHead(200, { 'Content-Type': 'application/json' }); return response.end(JSON.stringify(value));
         }
         const staticFile = resolvePanelFile(url.pathname, request.headers.accept);
@@ -236,8 +278,8 @@ export function resolvePanelFile(pathname, accept = '') {
 }
 
 export async function handleRpc(bus, request) {
-  const group = request.group || (request.endpoint ? bus.store.get('SELECT group_id FROM conversations WHERE id=?', request.endpoint)?.group_id : null);
-  if (group && !['restore', 'archive', 'delete'].includes(request.op) && bus.store.get('SELECT state FROM groups WHERE id=?', group)?.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
+  const group = request.group || (request.endpoint ? bus.queries.teamIdForEndpoint(request.endpoint) : null);
+  if (group && !['restore', 'archive', 'delete'].includes(request.op) && bus.queries.isArchivedTeam(group)) throw new Error('团队已归档，请在设置中恢复后访问');
   if (request.op === 'ping') return { version };
   if (request.op === 'control_tools') return bus.controlTools(request.binding, request.key, request.protocolVersion, request.hostSession, request.clearHostSession === true, request.hostCwd ?? null);
   if (request.op === 'control_tool') return bus.controlTool(request.binding, request.key, request.name, request.args, request.protocolVersion, request.hostSession, request.clearHostSession === true, request.hostCwd ?? null);
@@ -248,19 +290,21 @@ export async function handleRpc(bus, request) {
   }
   if (request.op === 'desktop_verify') return verifyDesktopApplication(bus.store, request.kind, { confirmed: request.confirmed === true, socketPath: bus.controlSocketPath });
   if (request.op === 'desktop_install') {
-    const detections = await detectDesktopApplications(bus.store);
-    if (request.kind === 'codex') return installCodexDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
-    if (request.kind === 'dsh') return installDshDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
-    if (request.kind === 'claude') return installClaudeDesktopIntegration(bus.store, { detections, socketPath: bus.controlSocketPath });
-    throw new Error(`暂不支持安装桌面集成: ${request.kind}`);
+    const result = await installDesktopIntegration(bus.store, request.kind, { socketPath: bus.controlSocketPath });
+    await bus.syncDesktopHosts?.();
+    return result;
   }
   if (request.op === 'desktop_disable') return disableDesktopApplication(bus.store, request.kind, { reason: request.reason ?? null });
   if (request.op === 'desktop_enable') return enableDesktopApplication(bus.store, request.kind);
-  if (request.op === 'desktop_remove') return removeDesktopApplication(bus.store, request.kind);
+  if (request.op === 'desktop_remove') {
+    const result = removeDesktopApplication(bus.store, request.kind);
+    await bus.syncDesktopHosts?.();
+    return result;
+  }
   if (request.op === 'bind_client_session') return bus.controlPlane.bindSession(request.binding, request.key, request.session, request.protocolVersion);
   if (request.op === 'tools') return bus.endpointTools(request.endpoint, request.key);
   if (request.op === 'tool') return bus.tool(request.endpoint, request.key, request.name, request.args, { turnId: request.turnId });
-  if (request.op === 'groups') return bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
+  if (request.op === 'groups') return bus.queries.activeGroups();
   if (request.op === 'model_catalog') return bus.modelCatalog({ refresh: request.refresh === true });
   if (request.op === 'new') return bus.createGroup(request.args);
   if (request.op === 'collaboration') return bus.groupSummary(request.group);

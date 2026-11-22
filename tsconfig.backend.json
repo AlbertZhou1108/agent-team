@@ -14,9 +14,9 @@
   },
   "include": [
     "src/types.mjs",
-    "src/http-route-access.mjs",
+    "src/http/access.mjs",
     "src/message-stream.mjs",
-    "src/tool-streams.mjs",
+    "src/tools/streams.mjs",
     "src/interactions.mjs"
   ]
 }

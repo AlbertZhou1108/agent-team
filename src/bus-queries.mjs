@@ -8,7 +8,7 @@ function conversationView(conversation) {
     id: conversation.id,
     group_id: conversation.group_id,
     member_id: conversation.owner_kind === 'panel_agent' ? conversation.panel_agent_id : conversation.member_id,
-    context: conversation.owner_kind === 'panel_agent' ? 'panel-coordination' : conversation.context,
+    context: conversation.owner_kind === 'panel_agent' && conversation.context === 'coordination' ? 'panel-coordination' : conversation.context,
     peer: conversation.peer ?? null,
     session: conversation.session,
   };
@@ -97,8 +97,13 @@ export class BusQueries {
   }
   queryRuntime(groupId) {
     if (groupId) this.bus.store.group(groupId);
-    return [...this.bus.running.values()].filter(({ endpoint }) => endpoint.context !== 'private' && (!groupId || endpoint.group_id === groupId))
-      .map(({ endpoint }) => ({ id: endpoint.id, group_id: endpoint.group_id, member_id: endpoint.member_id }));
+    return [...this.bus.running.values()]
+      .filter(({ endpoint }) => !['private', 'home-summary', 'archive-summary'].includes(endpoint.context) && (!groupId || endpoint.group_id === groupId))
+      .map(({ endpoint }) => ({
+        id: endpoint.id,
+        group_id: endpoint.group_id,
+        member_id: endpoint.owner_kind === 'panel_agent' ? endpoint.panel_agent_id : endpoint.member_id,
+      }));
   }
   // 私聊未读窗口：最近 200 条，只带归属信息不带正文。
   // 「本次启动之后的消息」由 panel/state.mjs 用 bootSeq 过滤，不在这里重复一套。
@@ -125,13 +130,44 @@ export class BusQueries {
       sessionBindings,
       // This is an observation of the processes currently owned by this bus, not stored business state.
       runningEndpoints: [...this.bus.running.values()]
-        .filter(({ endpoint }) => endpoint.context !== 'private')
+        .filter(({ endpoint }) => !['private', 'home-summary', 'archive-summary'].includes(endpoint.context))
         .map(({ endpoint }) => endpoint.id),
       panelRunning: [...this.bus.running.values()]
-        .filter(({ endpoint }) => String(endpoint.context).startsWith('panel-'))
+        .filter(({ endpoint }) => endpoint.owner_kind === 'panel_agent')
         .map(({ endpoint, turnId, activeTeamId }) => ({ endpoint: endpoint.id, groupId: activeTeamId ?? endpoint.group_id ?? null, turnId })),
       panelUnknown: panelAgent ? this.bus.panelUnknown() : [],
       agentTasks: groupId ? this.bus.agentTasksView(groupId) : [],
     };
+  }
+  // 归档判定:请求涉及的任一团队(路径/查询参数间接解析出的团队)已归档即视为对归档团队的访问。
+  isArchivedTeam(groupId) {
+    if (!groupId) return false;
+    return this.bus.store.get('SELECT state FROM groups WHERE id=?', groupId)?.state === 'archived';
+  }
+  teamIdForEndpoint(endpointId) {
+    return this.bus.store.get('SELECT group_id FROM conversations WHERE id=?', endpointId)?.group_id ?? null;
+  }
+  isArchivedRequestTarget(url) {
+    const requestedTeam = url.searchParams.get('group') || url.pathname.match(/^\/api\/teams\/([^/]+)/)?.[1];
+    const endpointTeam = this.teamIdForEndpoint(url.searchParams.get('endpoint'));
+    const messageId = url.searchParams.get('message');
+    const messageTeam = messageId ? this.bus.store.get('SELECT group_id FROM messages WHERE id=?', messageId)?.group_id : null;
+    const interactionId = url.pathname.match(/^\/api\/interactions\/([^/]+)\/answer$/)?.[1];
+    const interactionTeam = interactionId ? this.bus.store.get('SELECT group_id FROM interactions WHERE id=?', interactionId)?.group_id : null;
+    const turnId = url.searchParams.get('turn');
+    const turnTeam = turnId ? this.bus.store.get('SELECT c.group_id FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=?', turnId)?.group_id : null;
+    return [requestedTeam, endpointTeam, messageTeam, interactionTeam, turnTeam].some(id => this.isArchivedTeam(id));
+  }
+  // overview/snapshot/directory 投影剔除归档团队,保证面板不显示已归档数据。
+  filterActiveProjection(pathname, value) {
+    if (!['/api/overview', '/api/snapshot', '/api/directory'].includes(pathname)) return value;
+    const activeIds = new Set(this.bus.store.all("SELECT id FROM groups WHERE state IS NULL OR state!='archived'").map(row => row.id));
+    for (const key of ['groups', 'groupStates', 'panelTeams']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.id));
+    for (const key of ['members', 'endpoints', 'agentTasks']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.group_id));
+    if (value.endpoints) { const ids = new Set(value.endpoints.map(row => row.id)); value.sessionBindings = value.sessionBindings.filter(row => ids.has(row.endpoint_id)); value.runningEndpoints = value.runningEndpoints.filter(id => ids.has(id)); }
+    return value;
+  }
+  activeGroups() {
+    return this.bus.store.all("SELECT * FROM groups WHERE state IS NULL OR state!='archived' ORDER BY created");
   }
 }

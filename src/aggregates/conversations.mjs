@@ -160,3 +160,18 @@ export function forgetContextFormats(store, conversationId, sessionKey = null) {
   if (sessionKey) return store.run('DELETE FROM conversation_session_meta WHERE conversation_id=? AND session_key=?', conversationId, sessionKey);
   return store.run('DELETE FROM conversation_session_meta WHERE conversation_id=?', conversationId);
 }
+
+/** 归档摘要会话:按快照 id 幂等建立(archive-summary 上下文只由归档流程持有)。 */
+export function ensureArchiveSummaryConversation(store, { id, groupId, panelAgentId, key, created }) {
+  store.run(
+    `INSERT OR IGNORE INTO conversations(id,group_id,panel_agent_id,context,key,created,updated)
+     VALUES(?,?,?,'archive-summary',?,?,?)`,
+    id, groupId, panelAgentId, key, created, created,
+  );
+  return byId(store, id);
+}
+
+/** 硬删会话(归档快照丢弃/摘要收尾时释放一次性会话)。 */
+export function deleteById(store, id) {
+  return store.run('DELETE FROM conversations WHERE id=?', id);
+}

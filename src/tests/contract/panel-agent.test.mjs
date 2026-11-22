@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
 import { panelToolsFor, validatePanelTool } from '../../tools/panel.mjs';
 import { createTestGroup } from '../support/fixture.mjs';
+import * as panelAgg from '../../aggregates/panel.mjs';
+import * as messagesAgg from '../../aggregates/messages.mjs';
+import * as turnsAgg from '../../aggregates/turns.mjs';
 
 const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) {
@@ -272,7 +275,7 @@ test('coordination updates remain source notifications without waking the privat
   await until(() => !bus.running.size);
   await bus.pump();
   assert.equal(calls.filter(call => call.context === 'private').length, 0);
-  assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
+  assert.equal(panelAgg.updateById(bus.store, update.id).delivered_turn_id, null);
   assert.ok(bus.panelAgentState().notifications.some(row => row.id === update.id));
 });
 
@@ -331,7 +334,7 @@ test('legacy notifications do not wake an idle private host', async t => {
   await privateTurn;
   await bus.pump();
   assert.equal(calls.filter(call => call.context === 'private').length, 1);
-  assert.equal(bus.store.get('SELECT delivered_turn_id FROM panel_updates WHERE id=?', update.id).delivered_turn_id, null);
+  assert.equal(panelAgg.updateById(bus.store, update.id).delivered_turn_id, null);
 });
 
 test('Panel Agent creates a team directly without becoming a member', async t => {
@@ -375,7 +378,7 @@ test('Panel main receives member reports and can write only in the bound team co
   bus.pump();
   await until(() => calls.some(call => call.context === 'coordination'));
   await until(() => !bus.running.size);
-  assert.equal(bus.store.get('SELECT accepted FROM outbox WHERE id=(SELECT outbox_id FROM attached WHERE message_id=?)', report.id).accepted != null, true);
+  assert.equal(messagesAgg.deliveryStateForMessage(bus.store, report.id).accepted != null, true);
   assert.ok(calls.some(call => call.context === 'coordination' && call.groupId === group.id));
   assert.equal(bus.store.pending().filter(m => m.group_id === group.id).length, 0);
 });
@@ -388,12 +391,12 @@ test('private creation forwards to its team coordination and receives an explici
      privateCalls++; context.onAccepted();
      created=await context.onTool('team_create',{name:'request team',workspace:directory,members:'worker=fake'});
      const args={groupId:created.id,text:'do team work',operationId:'one'};
-     const before=bus.store.all("SELECT id FROM messages WHERE text='atomic rollback'").length;
+     const before=messagesAgg.byGroup(bus.store,created.id).filter(message=>message.text==='atomic rollback').length;
      const originalRun=bus.store.run.bind(bus.store);
      bus.store.run=(sql,...values)=>{if(sql.startsWith('INSERT INTO team_requests')) throw new Error('injected link failure');return originalRun(sql,...values);};
      try { await assert.rejects(context.onTool('team_request_submit',{...args,text:'atomic rollback',operationId:'rollback'}),/injected link failure/); }
      finally { bus.store.run=originalRun; }
-     assert.equal(bus.store.all("SELECT id FROM messages WHERE text='atomic rollback'").length,before);
+     assert.equal(messagesAgg.byGroup(bus.store,created.id).filter(message=>message.text==='atomic rollback').length,before);
      const first=await context.onTool('team_request_submit',args);
      const second=await context.onTool('team_request_submit',args); assert.equal(first.id,second.id);
      const observer=createTestGroup(bus,{name:'observer team',workspace:directory,lead:{name:'other-lead',host:'fake'}});
@@ -505,7 +508,7 @@ test('private team-context input is rejected rather than opening a second team c
  const group=createTestGroup(bus,{name:'legacy',workspace:directory,lead:{name:'lead',host:'fake'}});
  await until(()=>!bus.running.size);
  await assert.rejects(bus.panelPrivateTurn({ text: 'legacy write', activeTeamId: group.id }),/团队对话已迁移/);
- assert.equal(bus.store.all("SELECT * FROM panel_messages WHERE active_team_id=?",group.id).length,0);
+ assert.equal(panelAgg.messagesForActiveTeam(bus.store,group.id).length,0);
 });
 
 test('unknown Panel Agent runtime blocks the session until the user verifies it stopped', async t => {
@@ -659,8 +662,8 @@ test('panel private turns bind attachments, record requests and replay idempoten
   assert.equal(replay.result.replayed, true);
   await until(() => !bus.running.size);
   assert.equal(calls.length, 1, '重试不触发第二条回合');
-  assert.equal(bus.store.all("SELECT 1 FROM operation_records WHERE scope='panel-private-message' AND client_key=?", clientMessageId).length, 1);
-  assert.equal(bus.store.get("SELECT COUNT(*) AS count FROM panel_messages WHERE panel_agent_id=? AND role='user'", agentId).count, 1);
+  assert.ok(panelAgg.panelPrivateOperation(bus.store, agentId, clientMessageId));
+  assert.equal(panelAgg.privateMessagesForState(bus.store, agentId).filter(row => row.role === 'user').length, 1);
 
   // 同 ID 改正文、改附件集合、改顺序 → 409 语义冲突。
   for (const mutated of [
@@ -681,9 +684,9 @@ test('panel private turns bind attachments, record requests and replay idempoten
   );
 
   // 畸形/跨 agent 附件在 host.run 前拒绝,不产生 turn。
-  const turnsBefore = bus.store.all("SELECT 1 FROM turns WHERE executor_kind='panel_agent'").length;
+  const turnsBefore = turnsAgg.list(bus.store, { executorKind: 'panel_agent' }).length;
   await assert.rejects(() => bus.panelPrivateTurn({ text: '坏的', attachmentIds: [randomUUID()] }), error => error.code === 'not_found');
-  assert.equal(bus.store.all("SELECT 1 FROM turns WHERE executor_kind='panel_agent'").length, turnsBefore);
+  assert.equal(turnsAgg.list(bus.store, { executorKind: 'panel_agent' }).length, turnsBefore);
 
   // 空正文且空附件拒绝;旧式纯文本请求继续通过。
   await assert.rejects(() => bus.panelPrivateTurn({ text: '   ' }), /消息内容不能为空/);
@@ -723,4 +726,53 @@ test('attachment metadata survives a service restart', async t => {
   const replay = await bus.panelPrivateTurn({ text: '', clientMessageId, attachmentIds: [uploaded.id] });
   assert.equal(replay.message.id, sent.message.id);
   assert.equal(replay.result.replayed, true);
+});
+
+test('snapshot and runtime queries exclude one-time summary sessions and expose panel owner ids', async t => {
+  const { bus, directory } = await fixture(t);
+  const group = createTestGroup(bus, {
+    name: 'runtime projection',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [{ name: 'worker', host: 'fake' }],
+  });
+  await until(() => !bus.running.size);
+  const state = await createAgent(bus);
+  const agentId = state.agent.id;
+  const coordination = bus.store.panelSession(agentId, 'coordination', group.id);
+  const privateSession = bus.store.panelSession(agentId, 'private', group.id);
+  const homeSummary = bus.store.panelSession(agentId, 'home-summary');
+  const archiveSummary = bus.store.panelSession(agentId, 'archive-summary');
+  const live = (session, overrides = {}) => ({
+    endpoint: { ...session, ...overrides },
+    turnId: `turn-${session.id}`,
+    created: Date.now(),
+    abort() {},
+  });
+  bus.running.set(coordination.id, live(coordination, { group_id: group.id }));
+  bus.running.set(privateSession.id, live(privateSession, { group_id: group.id }));
+  bus.running.set(homeSummary.id, live(homeSummary, { group_id: null }));
+  bus.running.set(archiveSummary.id, live(archiveSummary, { group_id: null }));
+
+  // 一次性摘要会话与私聊不进入团队可见端点,只有协调会话保留。
+  const visibleIds = bus.store.conversationsForGroup(group.id).map(conversation => conversation.id);
+  assert.ok(visibleIds.includes(coordination.id));
+  for (const hidden of [privateSession.id, homeSummary.id, archiveSummary.id]) assert.equal(visibleIds.includes(hidden), false);
+  const defaultContexts = bus.store.conversationsForGroup(undefined).map(conversation => conversation.context);
+  for (const hidden of ['private', 'home-summary', 'archive-summary']) assert.equal(defaultContexts.includes(hidden), false);
+  const allContexts = bus.store.conversationsForGroup(undefined, { includePrivate: true }).map(conversation => conversation.context);
+  for (const hidden of ['private', 'home-summary', 'archive-summary']) assert.ok(allContexts.includes(hidden));
+
+  const snapshot = bus.snapshot(group.id);
+  assert.deepEqual(snapshot.runningEndpoints, [coordination.id]);
+  assert.deepEqual(snapshot.panelRunning.filter(row => row.endpoint === coordination.id).map(row => row.groupId), [group.id]);
+  assert.equal(snapshot.endpoints.some(endpoint => ['private', 'home-summary', 'archive-summary'].includes(endpoint.context)), false);
+
+  assert.deepEqual(bus.queryRuntime(group.id), [{ id: coordination.id, group_id: group.id, member_id: agentId }]);
+  assert.deepEqual(bus.queryRuntime().map(row => row.id), [coordination.id]);
+
+  // Panel 协作会话沿用对外 panel-coordination 词汇,其它 context 保持原样。
+  assert.equal(bus.querySession(group.id, coordination.id).context, 'panel-coordination');
+  assert.equal(bus.querySession(group.id, privateSession.id), null);
+  bus.running.clear();
 });

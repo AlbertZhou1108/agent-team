@@ -1,29 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as turnsAgg from './aggregates/turns.mjs';
+import * as panelAgg from './aggregates/panel.mjs';
 
 // Both entry points use TeamDirectives; this module owns private-source linkage.
 export class TeamRequests {
   constructor(bus) {
     this.bus = bus;
-    bus.store.db.exec(`
-      CREATE TABLE IF NOT EXISTS team_requests(
-        id TEXT PRIMARY KEY, panel_agent_id TEXT NOT NULL REFERENCES panel_agents(id) ON DELETE CASCADE,
-        source_user_message_id TEXT NOT NULL REFERENCES panel_messages(id) ON DELETE CASCADE,
-        source_turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE, call_id TEXT,
-        group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, controller_id TEXT NOT NULL,
-        operation_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-        original_text TEXT NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL,
-        UNIQUE(panel_agent_id,source_user_message_id,operation_id));
-      CREATE TABLE IF NOT EXISTS team_request_receipts(
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,
-        request_id TEXT NOT NULL REFERENCES team_requests(id) ON DELETE CASCADE, source_turn_id TEXT NOT NULL,
-        operation_id TEXT NOT NULL, text TEXT NOT NULL, source_message_ids TEXT NOT NULL,
-        created TEXT NOT NULL,UNIQUE(request_id,operation_id));
-      CREATE INDEX IF NOT EXISTS team_requests_agent ON team_requests(panel_agent_id,created);
-      CREATE INDEX IF NOT EXISTS team_requests_group ON team_requests(group_id,created);
-      CREATE INDEX IF NOT EXISTS team_request_receipts_request ON team_request_receipts(request_id,seq);
-    `);
+    // team_requests / team_request_receipts 表结构已收归 Store schema；这里不再建表。
+
   }
   submit(session, agent, origin, { groupId, text, operationId }) {
     const s = this.bus.store;
@@ -69,7 +54,14 @@ export class TeamRequests {
       // 团队流的回执消息对私聊不可见(两套消息存储隔离);不在私聊落一条,
       // 用户扫私聊时感知不到主控已汇报——回执全文以主控口吻同步进私人会话。
       // receipt_id 标明这条只是展示副本:未读归属群里那一条,读完群记录即视为已读。
-      s.run('INSERT INTO panel_messages(id,panel_agent_id,context,role,text,active_team_id,created,receipt_id) VALUES(?,?,?,?,?,?,?,?)', randomUUID(), agent.id, 'private', 'assistant', text, session.group_id, new Date().toISOString(), id);
+      panelAgg.appendReceiptMessage(s, {
+        id: randomUUID(),
+        panelAgentId: agent.id,
+        groupId: session.group_id,
+        text,
+        receiptId: id,
+        created: new Date().toISOString(),
+      });
       return { row: s.get('SELECT * FROM team_request_receipts WHERE id=?', id), message };
     });
     this.bus.emit('message', receipt.message);

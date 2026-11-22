@@ -1,10 +1,10 @@
-import { DEFAULT_USER_MODEL_RULES } from './model-policy.mjs';
+import { roleNameKey } from './store/schema.mjs';
+import * as turnsAgg from './aggregates/turns.mjs';
 
 const now = () => new Date().toISOString();
 const modes = ['communication', 'read-only', 'workspace-write'];
-export function roleNameKey(name) {
-  return name.normalize('NFKC').trim().toLowerCase();
-}
+// 名称规范化键与 schema 种子共用一份实现；这里保持对外导出不变。
+export { roleNameKey };
 export function policyDomain(policy) {
   const mode = typeof policy === 'string' ? policy : policy?.mode;
   if (!modes.includes(mode)) throw new Error('未知执行策略');
@@ -18,31 +18,7 @@ export class Collaboration {
   constructor(store) {
     this.store = store;
     this.policyValidator = () => ({ supported: true });
-    store.db.exec(`
-      CREATE TABLE IF NOT EXISTS global_model_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS team_model_policy(group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS role_names(group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name_key TEXT NOT NULL,member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,PRIMARY KEY(group_id,name_key));
-    `);
-    // 激活策略记录来源配置 id:内容相同的多份配置也能区分。
-    if (!store.all('PRAGMA table_info(global_model_policy)').some(column => column.name === 'preset_id')) {
-      store.db.exec('ALTER TABLE global_model_policy ADD COLUMN preset_id TEXT');
-    }
-    if (!store.get('SELECT 1 FROM global_model_policy WHERE singleton=1')) {
-      const legacy = store.get('SELECT mode,rules,created,updated FROM team_model_policy ORDER BY updated DESC LIMIT 1');
-      store.run(
-        'INSERT INTO global_model_policy(singleton,mode,rules,created,updated) VALUES(1,?,?,?,?)',
-        legacy?.mode ?? 'user',
-        legacy?.rules ?? DEFAULT_USER_MODEL_RULES,
-        legacy?.created ?? now(),
-        legacy?.updated ?? now(),
-      );
-    }
-    for (const member of store.all('SELECT id,group_id,name FROM members ORDER BY rowid')) {
-      const key = roleNameKey(member.name);
-      const prior = store.get('SELECT member_id FROM role_names WHERE group_id=? AND name_key=?', member.group_id, key);
-      if (prior && prior.member_id !== member.id) throw new Error('历史成员名称规范化后重复，无法安全迁移角色名称');
-      store.run('INSERT OR IGNORE INTO role_names(group_id,name_key,member_id) VALUES(?,?,?)', member.group_id, key, member.id);
-    }
+    // 模型策略/角色名称表与种子已收归 Store schema；这里只处理协作运行期职责。
     // A missing in-memory process is not proof that an interrupted owner's host stopped.
     // Serving the panel does not implicitly resume historical work.
     store.recoverInterruptedTurns();
@@ -76,7 +52,7 @@ export class Collaboration {
   }
   resolveRuntime(groupId, turnId, reason) {
     if (typeof reason !== 'string' || !reason.trim()) throw new Error('需要说明核实依据');
-    const changed = this.store.run("UPDATE turns SET state='stopped',detail=?,ended=? WHERE group_id=? AND id=? AND state='unknown'", `用户核实：${reason.trim()}`, now(), groupId, turnId);
+    const changed = turnsAgg.resolveUnknownTurn(this.store, { groupId, turnId, detail: `用户核实：${reason.trim()}`, ended: now() });
     if (!changed.changes) throw new Error('待核实运行不存在');
   }
 }

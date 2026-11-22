@@ -1,8 +1,26 @@
 /**
- * 外部主控工具面的纯数据定义。
- * 过滤（elicitation / wake 能力）与 JSON Schema 包装留在 control-plane，
- * 这里只声明「有哪些工具、参数长什么样」。
+ * 外部主控工具面：工具定义、能力过滤、只读集合与协议状态。
+ *
+ * 定义本体是纯数据；过滤（elicitation / wake 能力）与 JSON Schema 包装也在此完成，
+ * 这里不 import `identity.mjs`（identity → tools 单向依赖，避免循环），
+ * elicitation 判定直接内联 `supportsControlCapability`。
  */
+import {
+  CONTROL_CAPABILITIES,
+  CONTROL_PROTOCOL_VERSION,
+  supportsControlCapability,
+} from '../control-capabilities.mjs';
+
+export const READ_ONLY_CONTROL_TOOLS = new Set([
+  'control_protocol',
+  'control_status',
+  'control_teams',
+  'team_snapshot',
+  'team_members',
+  'team_read',
+  'control_decisions',
+]);
+
 export function controlToolDefinitions() {
   const teamId = { type: 'string', minLength: 1, maxLength: 200 };
   const text = { type: 'string', minLength: 1, maxLength: 48000 };
@@ -82,4 +100,31 @@ export function controlToolDefinitions() {
     }, ['teamId', 'requestId', 'answer']],
     ['team_archive', '归档受控团队；外部主控不能永久删除团队。', { teamId }, ['teamId']],
   ];
+}
+
+export function toolsForControlCapabilities(capabilities) {
+  const definitions = controlToolDefinitions();
+  const canElicit = capabilities == null
+    || supportsControlCapability(capabilities, CONTROL_CAPABILITIES.userElicitation);
+  const canWake = capabilities == null
+    || supportsControlCapability(capabilities, CONTROL_CAPABILITIES.sessionWake);
+  return definitions.filter(([name]) => (
+    (canElicit || !['control_decisions', 'team_decision_answer'].includes(name))
+    && (canWake || name !== 'control_wake_test')
+  )).map(([name, description, properties, required]) => ({
+    name,
+    description,
+    inputSchema: { type: 'object', properties, required, additionalProperties: false },
+  }));
+}
+
+export function protocolState(value) {
+  const parsed = Number(value);
+  const clientVersion = Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+  return {
+    clientVersion,
+    serverVersion: CONTROL_PROTOCOL_VERSION,
+    compatible: clientVersion === CONTROL_PROTOCOL_VERSION,
+    readOnly: clientVersion !== CONTROL_PROTOCOL_VERSION,
+  };
 }

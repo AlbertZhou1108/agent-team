@@ -52,7 +52,7 @@ const WORKBUDDY_CAPABILITIES = Object.freeze({
  * 主控会话发现（可选）。五个消费点全部从本表派生，对外导出名不变：
  * - hosts/index.mjs → HOST_FACTORIES / DEFAULT_HOST_SPECS（成员注册）
  * - telemetry-capabilities.mjs → capabilityBuilders（遥测兼容查表）
- * - hosts/wake-drivers.mjs → 驱动注册表（主控唤醒）
+ * - host-runtime/wake-drivers.mjs → 驱动注册表（主控唤醒）
  * - skill-install.mjs → defaultSkillTarget / sharedSkillTarget
  * - rpc.mjs controlHostContext → 主控会话发现链
  * 新增宿主只改本文件；注册顺序即会话发现优先级（Codex 最先，保留其
