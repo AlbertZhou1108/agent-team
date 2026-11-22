@@ -23,7 +23,7 @@ const disabled = ref(false);
     </Surface>
     <div class="flex min-w-0 flex-col gap-2">
       <Surface role="action" class="relative rounded-(--component-panel-radius) border p-3"><span class="text-sm">会话操作区</span></Surface>
-      <Card size="compact"><CardContent class="text-sm">内容表面</CardContent></Card>
+      <Card size="md"><CardContent class="text-sm">内容表面</CardContent></Card>
       <ToggleGroup presentation="segmented" type="single" model-value="on" variant="outline" aria-label="状态预览">
         <ToggleGroupItem value="on">选中</ToggleGroupItem>
         <ToggleGroupItem value="off">未选</ToggleGroupItem>

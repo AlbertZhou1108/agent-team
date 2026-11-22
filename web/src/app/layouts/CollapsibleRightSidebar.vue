@@ -28,7 +28,7 @@ const emit = defineEmits<{
         v-for="action in collapsedActions"
         :key="action.value"
         :variant="activeAction === action.value ? 'secondary' : 'ghost'"
-        size="icon"
+        size="icon-md"
         :aria-label="action.label"
         :title="action.label"
         @click="emit('action', action.value)"

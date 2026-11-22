@@ -463,15 +463,15 @@ onBeforeUnmount(() => {
     >
       <Input
         v-model="newFolderName"
-        class="h-8 text-xs"
+        size="sm"
         aria-label="文件夹名称"
         placeholder="文件夹名称"
         maxlength="60"
         @keydown.esc="creatingFolder = false"
       />
       <div class="flex gap-1.5">
-        <Button size="sm" type="submit" class="h-7 px-2.5 text-xs">创建</Button>
-        <Button size="sm" variant="ghost" type="button" class="h-7 px-2 text-xs" @click="creatingFolder = false">取消</Button>
+        <Button size="xs" type="submit">创建</Button>
+        <Button size="xs" variant="ghost" type="button" @click="creatingFolder = false">取消</Button>
       </div>
     </form>
 
@@ -480,7 +480,8 @@ onBeforeUnmount(() => {
       <Search class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <Input
         v-model="searchQuery"
-        class="h-8 pl-7 pr-7 text-xs"
+        size="sm"
+        class="pl-7 pr-7"
         placeholder="搜索团队、成员..."
         aria-label="搜索团队或成员"
       />
@@ -498,14 +499,14 @@ onBeforeUnmount(() => {
     <!-- 分段筛选：全部 / 置顶 / 文件夹 / 未分组 -->
     <Tabs v-model="segment" class="gap-0">
       <TabsList
+        size="xs"
         aria-label="团队分组筛选"
-        class="mt-2.5 grid h-auto w-full grid-cols-4 gap-0.5 rounded-(--component-control-radius) bg-muted/50 p-0.5"
+        class="mt-2.5 grid w-full grid-cols-4 gap-0.5 rounded-(--component-control-radius) bg-muted/50"
       >
         <TabsTrigger
           v-for="tab in SEGMENTS"
           :key="tab.id"
           :value="tab.id"
-          class="h-6.5 px-1.5 text-2xs font-medium"
         >
           {{ tab.label }}
         </TabsTrigger>
@@ -704,14 +705,14 @@ onBeforeUnmount(() => {
           >
             <Input
               v-model="renamingFolder.name"
-              class="h-8 text-xs"
+              size="sm"
               :aria-label="`重命名文件夹 ${folder.name}`"
               maxlength="60"
               @keydown.esc="renamingFolder = undefined"
             />
             <div class="flex gap-1.5">
-              <Button size="sm" type="submit" class="h-7 px-2.5 text-xs">保存</Button>
-              <Button size="sm" variant="ghost" type="button" class="h-7 px-2 text-xs" @click="renamingFolder = undefined">取消</Button>
+              <Button size="xs" type="submit">保存</Button>
+              <Button size="xs" variant="ghost" type="button" @click="renamingFolder = undefined">取消</Button>
             </div>
           </form>
 

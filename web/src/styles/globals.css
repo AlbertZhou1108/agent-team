@@ -2657,11 +2657,22 @@ html[data-density='loose'] {
   --card-gap: var(--component-card-gap);
   --card-title-size: var(--component-card-title-font-size);
 }
-[data-slot='card'][data-size='compact'] {
+[data-slot='card'][data-size='sm'] {
+  font-size: var(--component-control-sm-font-size);
+  --card-padding: var(--component-card-sm-padding);
+  --card-gap: var(--component-card-sm-gap);
+  --card-title-size: var(--component-card-sm-title-font-size);
+}
+[data-slot='card'][data-size='md'] {
   font-size: var(--component-control-font-size);
-  --card-padding: var(--component-card-compact-padding);
-  --card-gap: var(--component-card-compact-gap);
-  --card-title-size: var(--component-card-compact-title-font-size);
+  --card-padding: var(--component-card-md-padding);
+  --card-gap: var(--component-card-md-gap);
+  --card-title-size: var(--component-card-md-title-font-size);
+}
+[data-slot='card'][data-size='lg'] {
+  --card-padding: var(--component-card-padding);
+  --card-gap: var(--component-card-gap);
+  --card-title-size: var(--component-card-title-font-size);
 }
 [data-slot='card-title'] { font-size: var(--card-title-size); }
 [data-slot='disclosure'] { min-width: 0; font-size: var(--component-control-font-size); }
@@ -2673,7 +2684,7 @@ html[data-density='loose'] {
 [data-slot='disclosure'][data-variant='card'] {
   border: 1px solid var(--border);
   border-radius: var(--component-panel-radius);
-  padding: var(--component-card-compact-padding);
+  padding: var(--component-card-md-padding);
   color: var(--card-foreground);
   background-color: var(--component-content-bg);
   background-image: var(--component-content-image);

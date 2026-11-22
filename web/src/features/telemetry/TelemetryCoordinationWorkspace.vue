@@ -323,7 +323,7 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
                   <span class="truncate text-xs font-semibold text-foreground">{{
                     row.entry.executor.name
                   }}</span>
-                  <Badge variant="secondary" class="shrink-0 font-mono text-2xs">
+                  <Badge variant="secondary" size="xs" class="shrink-0 font-mono">
                     {{ row.entry.executor.host }}
                   </Badge>
                 </div>
@@ -361,7 +361,8 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
       <!-- 右栏 7 列：选中成员执行详情 -->
       <SectionBlock
         :container="false"
-        class="gap-4 p-4 @3xl:col-span-7"
+        size="lg"
+        class="@3xl:col-span-7"
         data-testid="telemetry-member-detail"
       >
         <PanelState

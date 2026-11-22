@@ -92,7 +92,7 @@ const duration = computed(() => {
     <PanelState v-else-if="!trace" title="此消息没有可用的执行轨迹" />
     <!-- 一张卡片承载整条轨迹:用时、步数与状态都在卡片头部,步骤直接铺开。
          行内轨迹只含一条消息的一段,所以不需要「本回合」这类区分标签。 -->
-    <Card v-else size="compact" class="inline-trace-content">
+    <Card v-else size="md" class="inline-trace-content">
       <CardContent class="flex min-w-0 flex-col gap-1">
         <div class="message-head gap-2">
           <span class="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">

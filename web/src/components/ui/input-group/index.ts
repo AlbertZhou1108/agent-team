@@ -1,5 +1,9 @@
 import type { VariantProps } from "class-variance-authority"
+import type { ComputedRef, InjectionKey } from "vue"
+import type { ControlSize } from "@/components/ui/size"
 import { cva } from "class-variance-authority"
+
+export const INPUT_GROUP_SIZE_KEY: InjectionKey<ComputedRef<ControlSize>> = Symbol("input-group-size")
 
 export { default as InputGroup } from "./InputGroup.vue"
 export { default as InputGroupAddon } from "./InputGroupAddon.vue"
@@ -36,10 +40,10 @@ export const inputGroupButtonVariants = cva(
   {
     variants: {
       size: {
-        "xs": "h-6 gap-1 px-2 rounded-[max(0px,calc(var(--component-control-radius)-4px))] [&>svg:not([class*='size-'])]:size-3.5 has-[>svg]:px-2",
-        "sm": "h-8 px-2.5 gap-1.5 rounded-[max(0px,calc(var(--component-control-radius)-4px))] has-[>svg]:px-2.5",
-        "icon-xs": "size-6 rounded-[max(0px,calc(var(--component-control-radius)-4px))] p-0 has-[>svg]:p-0",
-        "icon-sm": "size-8 rounded-[max(0px,calc(var(--component-control-radius)-4px))] p-0 has-[>svg]:p-0",
+        xs: "h-(--component-control-xs-height) gap-1 px-2 text-(length:--component-control-xs-font-size) rounded-[max(0px,calc(var(--component-control-radius)-4px))] [&>svg:not([class*='size-'])]:size-3 has-[>svg]:px-2",
+        sm: "h-(--component-control-sm-height) px-2.5 gap-1.5 text-(length:--component-control-sm-font-size) rounded-[max(0px,calc(var(--component-control-radius)-4px))] has-[>svg]:px-2.5",
+        "icon-xs": "size-(--component-control-xs-height) rounded-[max(0px,calc(var(--component-control-radius)-4px))] p-0 has-[>svg]:p-0 [&>svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-(--component-control-sm-height) rounded-[max(0px,calc(var(--component-control-radius)-4px))] p-0 has-[>svg]:p-0 [&>svg:not([class*='size-'])]:size-3.5",
       },
     },
     defaultVariants: {

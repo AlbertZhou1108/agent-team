@@ -9,7 +9,13 @@ import DisclosureChevron from '@/components/ui/disclosure/DisclosureChevron.vue'
 import DisclosureFooter from '@/components/ui/disclosure/DisclosureFooter.vue';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MetricCard, SectionBlock } from '@/components/panel';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { MetricCard, PanelState, SectionBlock } from '@/components/panel';
 
 describe('shared disclosure contract', () => {
   it('places explanatory text inside the same hidden content as the body', async () => {
@@ -163,5 +169,53 @@ describe('ui primitives & panel blocks', () => {
     expect(html).toContain('2 回合');
     expect(html).toContain('data-component="metric-card"');
     expect(html).toContain('64.8%');
+  });
+
+  it('unifies control sizes (xs/sm/md/lg) and container sizes (sm/md/lg) cleanly', async () => {
+    const html = await renderToString(
+      createSSRApp({
+        render: () =>
+          h('div', [
+            h(Button, { size: 'xs' }, () => 'XS'),
+            h(Button, { size: 'icon-md' }, () => 'I'),
+            h(Input, { size: 'sm' }),
+            h(Select, {}, () => h(SelectTrigger, { size: 'sm' })),
+            h(Badge, { size: 'xs' }, () => 'host'),
+            h(Tabs, { modelValue: 'a' }, () =>
+              h(TabsList, { size: 'xs' }, () => h(TabsTrigger, { value: 'a' }, () => '全部')),
+            ),
+            h(Card, { size: 'md' }, () => 'Card'),
+            h(SectionBlock, { size: 'sm', layout: 'inline', title: '空态', meta: '无' }),
+            h(PanelState, { size: 'sm', title: '暂无' }),
+          ]),
+      }),
+    );
+    expect(html).toContain('h-(--component-control-xs-height)');
+    expect(html).toContain('size-(--component-control-height)');
+    expect(html).toContain('h-(--component-control-sm-height)');
+    expect(html).toContain('data-size="xs"');
+    expect(html).toContain('data-slot="card"');
+    expect(html).toContain('data-size="md"');
+    expect(html).toContain('data-layout="inline"');
+    expect(html).toContain('p-4');
+  });
+
+  it('propagates ToggleGroup reactive size updates to ToggleGroupItem', async () => {
+    const size = ref<'sm' | 'lg'>('sm');
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          return () =>
+            h(ToggleGroup, { type: 'single', size: size.value }, () =>
+              h(ToggleGroupItem, { value: 'a' }, () => 'Opt'),
+            );
+        },
+      }),
+    );
+    expect(wrapper.get('[data-slot="toggle-group-item"]').attributes('data-size')).toBe('sm');
+    size.value = 'lg';
+    await nextTick();
+    expect(wrapper.get('[data-slot="toggle-group-item"]').attributes('data-size')).toBe('lg');
+    wrapper.unmount();
   });
 });

@@ -201,7 +201,7 @@ function onTab(value: string | number) {
     <div v-show="!ui.contextCollapsed" class="flex justify-end xl:hidden">
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-md"
         aria-label="关闭群信息"
         @click="emit('close')"
         ><span aria-hidden="true">×</span></Button
@@ -308,7 +308,7 @@ function onTab(value: string | number) {
                     <DropdownMenuTrigger as-child>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-md"
                         :aria-label="`${toolName(row)} 的工具操作`"
                         title="工具操作"
                       >

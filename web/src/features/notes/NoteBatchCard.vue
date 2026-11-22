@@ -69,7 +69,7 @@ function bindZone(el: unknown, action: NoteBatchAction) {
 </script>
 
 <template>
-  <Card size="compact" class="notes-page-column notes-batch-pane min-w-0" data-testid="note-batch-card">
+  <Card size="md" class="notes-page-column notes-batch-pane min-w-0" data-testid="note-batch-card">
     <CardContent class="flex min-h-0 flex-col gap-4">
       <header class="flex flex-col gap-1">
         <h2 class="text-base font-semibold">批量操作</h2>

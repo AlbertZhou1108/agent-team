@@ -141,6 +141,11 @@ describe('five-dimension component configuration', () => {
     const standard = resolve(), compact = resolve('frosted-glass', 'frosted', 'compact');
     for (const axis of ['style', 'typography', 'material', 'behavior'] as const) expect(compact.dimensions[axis]).toEqual(standard.dimensions[axis]);
     expect(compact.dimensions.layout).not.toEqual(standard.dimensions.layout);
+    expect(standard.variables['--component-control-xs-height']).toBe('24px');
+    expect(standard.variables['--component-control-sm-height']).toContain('--component-control-height');
+    expect(standard.variables['--component-control-lg-height']).toContain('--component-control-height');
+    expect(standard.variables['--component-card-md-padding']).toBe('16px');
+    expect(standard.variables['--component-section-md-padding']).toBe('14px');
   });
   it('replaces only material recipes when overriding the preset material', () => {
     const glass = resolve(), solid = resolve('frosted-glass', 'solid');

@@ -80,7 +80,7 @@ function modelSummary(member: Member): string {
           <h4 class="min-w-0 truncate text-sm font-semibold text-foreground" :title="member.name">
             {{ member.name }}
           </h4>
-          <Badge variant="secondary" class="shrink-0 font-mono text-2xs">
+          <Badge variant="secondary" size="xs" class="shrink-0 font-mono">
             {{ member.host }}
           </Badge>
           <Badge

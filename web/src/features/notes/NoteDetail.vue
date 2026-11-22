@@ -270,7 +270,7 @@ function handoff() {
       </div>
       <!-- 来源只回答「这笔是在哪个团队里记的」，不是归属：团队删了这条记录也还在。 -->
       <Select v-if="!archived" v-model="sourceValue">
-        <SelectTrigger class="h-8 w-full" aria-label="来源团队">
+        <SelectTrigger size="sm" class="w-full" aria-label="来源团队">
           <span data-slot="select-value" class="min-w-0 truncate">{{ sourceLabel }}</span>
         </SelectTrigger>
         <SelectContent>

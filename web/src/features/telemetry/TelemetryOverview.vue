@@ -103,7 +103,7 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
       </div>
       <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="item in [{label:'团队',value:data.counts.teams},{label:'成员',value:data.counts.members},{label:'运行中回合',value:data.counts.running},{label:'Token',value:data.totals.totalTokens.value}]" :key="item.label" class="flex flex-col gap-1"><dt class="text-xs text-muted-foreground">{{item.label}}</dt><dd class="text-2xl font-semibold tabular-nums">{{number(item.value)}}</dd></div></dl>
       <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Card size="compact" class="home-card min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
+        <Card size="md" class="home-card min-w-0"><CardHeader><CardTitle>消耗趋势</CardTitle></CardHeader><CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col gap-3">
           <div v-if="overviewActive && overviewTotals" class="flex flex-wrap items-start justify-between gap-3" aria-live="polite" aria-atomic="true" data-testid="trend-selection">
             <div class="flex flex-col gap-1"><span class="text-xs text-muted-foreground">{{time(overviewTotals.from)}} – {{time(overviewTotals.to)}} · 整个时间轴</span><span class="font-medium tabular-nums">{{overviewTotals.observed?`${overviewTotals.sum.toLocaleString()} Token`:'暂无 Token 数据'}}</span><span class="text-xs text-muted-foreground">共 {{overviewTotals.batches}} 个回合；点击柱形可查看单时段</span></div>
           </div>
@@ -134,13 +134,13 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
         <TelemetryDistribution title="宿主分布" :rows="data.hosts ?? []" :selected="filters.host" @select="id=>filter('host',id,data!.hosts.find(t=>t.id===id)!.name)" />
         <TelemetryDistribution title="模型排行" :rows="data.models ?? []" :selected="filters.model" @select="id=>filter('model',id,data!.models.find(t=>t.id===id)!.name)" />
       </div>
-      <Card size="compact"><CardHeader><CardTitle>消耗构成</CardTitle></CardHeader><CardContent class="flex flex-col gap-4">
+      <Card size="md"><CardHeader><CardTitle>消耗构成</CardTitle></CardHeader><CardContent class="flex flex-col gap-4">
         <div class="flex h-5 overflow-hidden rounded-(--component-chip-radius)" role="img" aria-label="Token 消耗构成">
           <div v-for="(item,i) in composition" :key="item.key" :style="{width:`${compositionTotal ? (item.value??0)/compositionTotal*100 : 0}%`,background:compositionColors[i]}" :title="`${item.label}：${number(item.value)}`" />
         </div>
         <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4"><div v-for="(item,i) in composition" :key="item.key" class="flex flex-col gap-1"><dt class="flex items-center gap-2 text-sm text-muted-foreground"><span class="size-2 rounded-full" :style="{background:compositionColors[i]}" />{{item.label}}</dt><dd class="tabular-nums">{{number(item.value)}} <span v-if="item.value!==null && compositionTotal" class="text-xs text-muted-foreground">{{(item.value/compositionTotal*100).toFixed(1)}}%</span></dd></div></dl>
       </CardContent></Card>
-      <Card size="compact"><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div></CardContent></Card>
+      <Card size="md"><CardHeader><CardTitle>团队状态 · 当前快照</CardTitle><span class="text-xs text-muted-foreground">{{new Date(data.generatedAt).toLocaleTimeString()}}</span></CardHeader><CardContent class="flex flex-col gap-4"><div class="grid gap-3 sm:grid-cols-3"><div v-for="state in data.states" :key="state.state" class="flex items-center gap-3"><span class="w-24 shrink-0 text-xs">{{labels[state.state]}}</span><Progress :model-value="state.count/Math.max(1,data.counts.teams)*100" :aria-label="`${labels[state.state]} ${state.count} 个团队`" class="h-2" /><span class="tabular-nums">{{state.count}}</span></div></div></CardContent></Card>
     </template>
       </div>
 </Disclosure>

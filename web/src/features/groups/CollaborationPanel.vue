@@ -112,7 +112,8 @@ async function restoreTeam() {
       <SectionBlock
         v-if="!hasTasks"
         :heading-level="3"
-        compact
+        layout="inline"
+        size="sm"
         :container="false"
         title="任务面板"
         meta="暂无任务"
@@ -163,7 +164,8 @@ async function restoreTeam() {
       <SectionBlock
         v-if="!charter && !charterQuery.isPending.value"
         :heading-level="3"
-        compact
+        layout="inline"
+        size="sm"
         :container="false"
         title="团队说明"
         meta="暂无说明"

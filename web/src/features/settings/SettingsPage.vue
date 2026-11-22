@@ -63,7 +63,7 @@ watch(() => [route.query.section, route.query.setting], async () => {
       <CardHeader class="flex shrink-0 flex-row items-center">
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-md"
           :title="hostKind ? '返回通用设置' : '返回'"
           :aria-label="hostKind ? '返回通用设置' : '返回'"
           @click="hostKind ? closeHostDetail() : emit('close')"
@@ -78,12 +78,12 @@ watch(() => [route.query.section, route.query.setting], async () => {
         <HostDetailPanel v-if="hostKind" :kind="hostKind" @back="closeHostDetail" />
         <Tabs v-else v-model="activeTab" class="flex min-h-0 flex-col gap-6">
           <!-- 药丸组按内容宽换行:tab 数量变化不再撑破网格。 -->
-          <TabsList class="sticky top-0 z-10 flex h-auto w-fit max-w-full flex-wrap gap-1">
-            <TabsTrigger value="appearance" class="flex-none px-2 text-xs sm:text-sm">外观</TabsTrigger>
-            <TabsTrigger value="general" class="flex-none px-2 text-xs sm:text-sm">通用</TabsTrigger>
-            <TabsTrigger value="tools" class="flex-none px-2 text-xs sm:text-sm">工具</TabsTrigger>
-            <TabsTrigger value="policy" class="flex-none px-2 text-xs sm:text-sm">模型策略</TabsTrigger>
-            <TabsTrigger value="teams" class="flex-none px-2 text-xs sm:text-sm">团队管理</TabsTrigger>
+          <TabsList size="sm" class="sticky top-0 z-10 flex h-auto w-fit max-w-full flex-wrap gap-1">
+            <TabsTrigger value="appearance" class="flex-none">外观</TabsTrigger>
+            <TabsTrigger value="general" class="flex-none">通用</TabsTrigger>
+            <TabsTrigger value="tools" class="flex-none">工具</TabsTrigger>
+            <TabsTrigger value="policy" class="flex-none">模型策略</TabsTrigger>
+            <TabsTrigger value="teams" class="flex-none">团队管理</TabsTrigger>
           </TabsList>
           <TabsContent value="appearance" class="flex flex-col gap-6">
             <AppearanceTab />

@@ -75,7 +75,7 @@ const {
       <div class="flex min-w-0 flex-col gap-4">
         <div class="grid min-w-0 gap-4 lg:grid-cols-2">
           <!-- 左卡：未读（待处理 / 未读消息） -->
-          <Card size="compact" class="home-card min-w-0">
+          <Card size="md" class="home-card min-w-0">
             <Tabs v-model="inboxTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
               <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
                 <CardTitle>未读</CardTitle>
@@ -183,7 +183,7 @@ const {
           </Card>
 
           <!-- 右卡：执行活动（运行活动 / 最近执行） -->
-          <Card size="compact" class="home-card min-w-0">
+          <Card size="md" class="home-card min-w-0">
             <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
               <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
                 <CardTitle>执行活动</CardTitle>
@@ -295,7 +295,7 @@ const {
           </Card>
         </div>
 
-        <Card size="compact" class="home-summary-card min-w-0">
+        <Card size="md" class="home-summary-card min-w-0">
           <CardHeader class="flex flex-row items-center justify-between gap-3">
             <CardTitle>进展摘要</CardTitle>
             <div class="flex shrink-0 items-center gap-2">

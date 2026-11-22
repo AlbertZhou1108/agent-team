@@ -423,7 +423,7 @@ useSentinelLoad({
         <ul class="flex flex-col gap-2 pt-1">
           <li v-for="note in pinned" :key="note.id">
             <Card
-              size="compact"
+              size="md"
               class="gap-0 py-0"
               :class="note.id === selectedId && 'ring-1 ring-primary/50'"
             >
@@ -489,7 +489,7 @@ useSentinelLoad({
         <ul class="flex flex-col gap-2 pt-1">
           <li v-for="note in group.notes" :key="note.id">
             <Card
-              size="compact"
+              size="md"
               class="gap-0 py-0"
               :class="note.id === selectedId && 'ring-1 ring-primary/50'"
             >

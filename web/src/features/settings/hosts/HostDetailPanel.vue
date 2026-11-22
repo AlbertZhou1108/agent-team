@@ -151,7 +151,7 @@ async function installCli() {
   <section class="flex flex-col gap-4" :aria-label="`${title}详情`">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="flex items-center gap-2">
-        <Button variant="ghost" size="icon" title="返回宿主列表" aria-label="返回宿主列表" @click="emit('back')">
+        <Button variant="ghost" size="icon-md" title="返回宿主列表" aria-label="返回宿主列表" @click="emit('back')">
           <ArrowLeft />
         </Button>
         <div class="min-w-0">

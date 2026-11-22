@@ -596,7 +596,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
               :filter="filter"
               @batch="onBatch"
             />
-            <Card v-else-if="selectedNote" size="compact" class="notes-page-column notes-detail-pane min-w-0">
+            <Card v-else-if="selectedNote" size="md" class="notes-page-column notes-detail-pane min-w-0">
               <CardContent class="min-h-0">
                 <NoteDetail
                   :key="selectedNote.id"

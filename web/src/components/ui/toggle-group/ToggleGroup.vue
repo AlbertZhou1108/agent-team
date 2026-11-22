@@ -6,7 +6,7 @@ import type { toggleVariants } from '@/components/ui/toggle'
 import { reactiveOmit } from "@vueuse/core"
 import { cn } from "cn"
 import { ToggleGroupRoot, useForwardPropsEmits } from "reka-ui"
-import { provide } from "vue"
+import { computed, provide } from "vue"
 
 type ToggleGroupVariants = VariantProps<typeof toggleVariants>
 
@@ -18,14 +18,15 @@ const props = withDefaults(defineProps<ToggleGroupRootProps & {
   presentation?: 'default' | 'segmented'
 }>(), {
   spacing: 0,
+  size: "md",
 })
 
 const emits = defineEmits<ToggleGroupRootEmits>()
 
 provide("toggleGroup", {
-  variant: props.variant,
-  size: props.size,
-  spacing: props.spacing,
+  variant: computed(() => props.variant),
+  size: computed(() => props.size),
+  spacing: computed(() => props.spacing),
 })
 
 const delegatedProps = reactiveOmit(props, "class", "size", "variant", "presentation")

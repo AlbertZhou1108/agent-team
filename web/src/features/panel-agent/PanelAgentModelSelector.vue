@@ -17,7 +17,7 @@ const props = withDefaults(
   }>(),
   {
     disabled: false,
-    size: 'default',
+    size: 'md',
   },
 );
 const form = defineModel<PanelAgentForm>('form', { required: true });

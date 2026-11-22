@@ -174,7 +174,7 @@ const suggestions = [
         <Button variant="ghost" size="sm" @click="showHistory = !showHistory">{{ showHistory ? '返回当前会话' : '历史记录' }}</Button>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-md"
           aria-label="Panel Agent 设置"
           title="Panel Agent 设置"
           @click="emit('edit')"

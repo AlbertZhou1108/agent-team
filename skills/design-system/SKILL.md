@@ -18,14 +18,19 @@ npm run lint:web                # Vue/TS ESLint 门禁
 
 | 场景 | 必用组件 / 原语 | 禁止写法 |
 | --- | --- | --- |
-| 容器级底纹/毛玻璃/纸纹表面 | `<Surface role="nav-panel\|context-panel\|action\|input\|overlay">` | 自写 `shadow-*`、`backdrop-blur-*`、`bg-popover` 叠阴影 |
-| 独立内容面 / 无边框弱提示 | `<Card>` / `<NoteBlock>` | 卡片内再套 `<Card>` / `variant="card"` |
-| 面板带边框分区容器 | `<SectionBlock>`（`@/components/panel`，含 `@container` 与 `compact`/`tone`） | 业务目录手写 `rounded-(--component-card-radius) border` |
-| KPI / 指标卡片 | `<MetricCard>`（`@/components/panel`，`size="lg"\|"sm"`、可选 `:progress`） | 业务目录手写边框指标块 |
-| 标签页 / 分段切换 | `<Tabs>` + `<TabsList variant="pill"\|"underline">` + `<TabsTrigger>` / `<ToggleGroup>` | 业务目录手写 `role="tablist"` 或自定义 active CSS |
+| 容器级表面/边框/弱提示 | `<Surface>` / `<Card size="sm\|md\|lg">` / `<NoteBlock size="sm\|md\|lg">` | 卡片内再套 `<Card>` / 传旧别名 `compact`/`default` |
+| 面板带边框分区容器 | `<SectionBlock size="sm\|md\|lg" layout="stack\|inline">`（含 `@container`） | 业务目录手写 `rounded-(--component-card-radius) border` |
+| KPI / 指标卡片 | `<MetricCard size="sm\|md\|lg">`（可选 `:progress`） | 业务目录手写边框指标块 |
+| 标签页 / 分段切换 | `<Tabs>` + `<TabsList variant="pill"\|"underline" size="xs\|sm\|md\|lg">` + `<TabsTrigger>` / `<ToggleGroup>` | 业务目录手写 `role="tablist"` 或 `h-6.5`/`text-2xs` 覆写 |
 | 通用折叠 / 右下角展开收起 | `<Disclosure>` / `<DisclosureFooter>` / `<DisclosureChevron>` / `SidebarEntry` + `<CollapseReveal>` | 在 `<CollapseReveal>` 直接子节点写 `v-if`（会截断动画） |
 | 水平或行内垂直分割线 | `<Separator size="full"\|"inline">` | `class="h-3.5!"` 等 Tailwind `!` 强制覆写高度 |
 | 显式微交互过渡 | `transition-colors` 或 `transition-(transform\|opacity\|all) duration-(--component-feedback-duration)` | 不带 `duration-(--component-*)` 的显式 `transition-transform/opacity/all` |
+
+## 尺寸档位（与全局 density 正交叠加）
+
+- **控件族**（`Button` / `Input` / `InputGroup` / `SelectTrigger` / `Toggle` / `ToggleGroup` / `Tabs` / `Avatar`）：统一 **`xs | sm | md | lg`**（默认 `md`；`Badge` 支持 **`xs | sm | md`**；`Button` 图标用 **`icon-xs | icon-sm | icon-md | icon-lg`**）。高度与字号消费 `--component-control-{xs,sm,lg}-{height,font-size}` 与 `--component-control-height`，随 `compact / standard / loose` 密度等比对齐（禁用 `compact`/`default`/`icon` 旧别名与 `h-7`/`h-8` 硬写覆写）。
+- **容器族**（`Card` / `SectionBlock` / `MetricCard` / `Item` / `PanelState` / `Empty` / `NoteBlock`）：统一 **`sm | md | lg`**（`SectionBlock` 用 `layout="inline"` 表达单行横向条）。
+- **语义尺寸例外**：`Separator` 保持 `size="full" | "inline"`。
 
 ## 圆角刻度（随材质取值,组件按语义取档）
 
