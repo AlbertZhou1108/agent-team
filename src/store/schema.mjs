@@ -1,7 +1,7 @@
 import { DEFAULT_USER_MODEL_RULES } from '../model-policy.mjs';
 
 // 数据目录的 schema 版本；迁移按版本逐级执行，过新版本拒绝打开。
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 // 团队历史名称的规范化键：NFKC + trim + 小写；种子与 Collaboration 共用同一实现。
 export function roleNameKey(name) {
@@ -52,7 +52,7 @@ CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id
 CREATE TABLE members(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,name TEXT NOT NULL,host TEXT NOT NULL,role TEXT NOT NULL,profile TEXT NOT NULL DEFAULT '',removed TEXT, model_provider TEXT, model TEXT, reasoning_effort TEXT, effective_policy TEXT, capabilities TEXT NOT NULL DEFAULT '[]', capability_reason TEXT,UNIQUE(group_id,name));
 CREATE TABLE message_origins(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,event_seq INTEGER REFERENCES history(seq) ON DELETE SET NULL,call_id TEXT NOT NULL,native_call_id TEXT);
 CREATE TABLE message_step_refs(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,plan_id TEXT NOT NULL,step_id TEXT NOT NULL);
-CREATE TABLE messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,sender TEXT NOT NULL,recipient TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,reply_to TEXT,created TEXT NOT NULL, awaiting INTEGER NOT NULL DEFAULT 0, expects_reply INTEGER NOT NULL DEFAULT 0, required_capabilities TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,sender TEXT NOT NULL,recipient TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,reply_to TEXT,created TEXT NOT NULL, awaiting INTEGER NOT NULL DEFAULT 0, expects_reply INTEGER NOT NULL DEFAULT 0, required_capabilities TEXT NOT NULL DEFAULT '[]', min_context_window INTEGER DEFAULT NULL);
 CREATE TABLE model_policy_presets(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,mode TEXT NOT NULL,rules TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
 CREATE TABLE native_turn_refs(turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,ref TEXT NOT NULL,PRIMARY KEY(turn_id,ref));
 CREATE TABLE note_tags(

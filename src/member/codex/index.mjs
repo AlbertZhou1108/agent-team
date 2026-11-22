@@ -271,6 +271,9 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
       let cursor = null;
       do {
         const page = await request('model/list', { cursor, includeHidden: false, limit: 100 });
+        // 上游真实字段集（codex-cli 0.158.0 app-server model/list 实测）：条目含
+        // inputModalities 与 supportedReasoningEfforts（含 description），但不含
+        // contextWindow；未证实的字段不映射，避免虚构上下文能力。
         models.push(...(page.data ?? []).map(model => ({
           id: model.id ?? model.model,
           label: model.displayName ?? model.id ?? model.model,

@@ -1,9 +1,9 @@
 import { validateToolValue } from './schema.mjs';
-import { askInputProperties } from './ops.mjs';
+import { askInputProperties, dispatchRequirementProperties } from './ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const definitions = [
-  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。', {
+  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。跨能力派工前先对照 members 返回的能力名片：需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 别名自动归一化），需要大上下文模型时传 minContextWindow；写库前与执行前各校验一次，不满足即拒绝并保留消息。', {
     to: string,
     text: string,
     expects_reply: { type: 'boolean' },
@@ -14,6 +14,7 @@ const definitions = [
       required: ['planId', 'stepId'],
       additionalProperties: false,
     },
+    ...dispatchRequirementProperties,
   }, ['to', 'text']],
   ['note', '给一位成员留言，不唤醒，随下一条正式消息交付。', { to: string, text: string }, ['to', 'text']],
   ['read', '按需读取本群共享消息；用户私聊不在此记录。after 是消息序号游标，只返回 seq 大于 after 的消息（不含该序号本身）；续读把上一次返回的 nextAfter 原样传入 after，不要自行推算序号。新会话默认返回有界列表（ID/seq/作者/接收者/kind/ref/预览）；传入 messageId+hash 可按 Unicode code point 范围展开已列出的正文。', {
@@ -25,7 +26,7 @@ const definitions = [
     offset: { type: 'integer', minimum: 0 },
     bodyLimit: { type: 'integer', minimum: 1, maximum: 4096 },
   }, []],
-  ['members', '读取本群成员与能力自述。', {}, []],
+  ['members', '读取本群成员、能力自述与只读能力名片（当前模型、modal.image、contextWindow、exec.*、tool.browser 及有效策略）。派工前据此对照目标能力。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
   ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。单问用 kind=choice（须提供 options，2-8 个选项，确认类事项用 同意/拒绝）或 kind=input（请用户填写一段文本）；需要用户连续确认多件事时改用 steps 一次发出 2-8 步，面板用一张卡片逐步作答，全部答完才把汇总答复送回。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息（sender=user）自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', askInputProperties, []],
   ['group_add', '主 Agent 请求添加成员；创建互动卡等待用户在面板上确认，同意后生效。', {

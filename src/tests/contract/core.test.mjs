@@ -300,6 +300,10 @@ test('private conversation cannot dispatch; explicitly shared user directive has
   await until(() => bus.running.size === 0);
   await bus.privateTurn(group.id, 'PRIVATE_INPUT');
   bus.directive(group.id, 'public-message');
+  await until(() => {
+    const row = bus.store.get("SELECT * FROM messages WHERE kind='send'");
+    return row ? bus.store.messageTrace(row.id).inputAttempts.length >= 1 : false;
+  });
   await until(() => bus.running.size === 0);
   const message = bus.store.get("SELECT * FROM messages WHERE kind='send'");
   const trace = bus.store.messageTrace(message.id);

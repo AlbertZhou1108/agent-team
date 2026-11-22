@@ -157,6 +157,16 @@ test('Panel coordination tools expose messaging and update publishing schemas', 
     const message = bus.store.get('SELECT * FROM messages WHERE id=?', result.messageId);
     assert.equal(message.sender, state.agent.id);
     assert.equal(message.kind, 'send');
+    // 能力不满足时写库前拒绝：不落下消息。
+    const baseline = bus.store.get('SELECT COUNT(*) AS count FROM messages').count;
+    await assert.rejects(bus.panelTool(coordination.id, coordination.key, 'team_send', {
+      groupId: group.id,
+      to: 'worker',
+      text: '请描述这张图。',
+      requiredCapabilities: ['modal.image'],
+    }, { ...provenance, turnId }), /capability_required/);
+    const afterReject = bus.store.get('SELECT COUNT(*) AS count FROM messages').count;
+    assert.equal(afterReject, baseline);
     const delivered = await bus.panelTool(coordination.id, coordination.key, 'team_send', {
       groupId: group.id,
       to: 'user',
@@ -183,6 +193,63 @@ test('Panel coordination tools expose messaging and update publishing schemas', 
   }
 });
 
+test('Panel views expose capability cards and coordination prompts carry the compact team view', async t => {
+  const { bus, directory, calls } = await fixture(t);
+  const group = createTestGroup(bus, {
+    name: 'panel capability team',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [{ name: 'worker', host: 'fake' }],
+    policy: 'read-only',
+  });
+  await until(() => !bus.running.size);
+  const state = await createAgent(bus);
+  bus.takeoverTeam(group.id, 0);
+  const privateSession = bus.store.panelSession(state.agent.id, 'private');
+  const snapshot = await bus.panelTool(privateSession.id, privateSession.key, 'team_snapshot', {
+    groupId: group.id,
+  });
+  const worker = snapshot.members.find(member => member.name === 'worker');
+  // 目录只上报了基础字段：模态未知要如实标 'unknown'，不能假称支持。
+  assert.equal(worker.capabilityCard.model.knownInCatalog, true);
+  assert.equal(worker.capabilityCard.model.id, 'fake-model');
+  assert.equal(worker.capabilityCard.model.contextWindow, null);
+  assert.equal(worker.capabilityCard.effectiveCapabilities['modal.image'], 'unknown');
+  assert.equal(worker.capabilityCard.effectiveCapabilities['exec.read'], true);
+  assert.equal(worker.capabilityCard.effectiveCapabilities['exec.write'], false);
+  assert.equal(worker.capabilityCard.effectiveCapabilities['tool.browser'], false);
+  assert.equal(worker.capabilityCard.effectivePolicy.ceiling, 'read-only');
+  assert.equal(snapshot.controller.kind, 'panel_agent');
+  assert.equal(snapshot.controller.capabilityCard.model.knownInCatalog, true);
+  assert.equal(snapshot.controller.capabilityCard.effectiveCapabilities['exec.read'], false);
+  assert.equal(snapshot.controller.capabilityCard.effectiveCapabilities['modal.image'], 'unknown');
+  assert.equal(snapshot.controller.capabilityCard.effectivePolicy.mode, 'communication');
+  const members = await bus.panelTool(privateSession.id, privateSession.key, 'team_members', {
+    groupId: group.id,
+  });
+  assert.deepEqual(members.find(member => member.name === 'worker').capabilityCard, worker.capabilityCard);
+
+  // 真实派工回合：成员汇报触发 Panel 协调回合，回合输入带精简团队能力视图。
+  const workerMember = bus.members(group.id).find(member => member.name === 'worker');
+  const panelPrompt = call => {
+    if (call.context !== 'coordination') return null;
+    try {
+      const parsed = JSON.parse(call.prompt);
+      return parsed?.teamCapabilities?.controller?.kind === 'panel_agent' ? parsed : null;
+    } catch { return null; }
+  };
+  bus.store.append(group.id, workerMember.id, state.agent.id, 'send', 'worker report');
+  bus.pump();
+  await until(() => calls.some(call => panelPrompt(call)));
+  const panelInput = panelPrompt(calls.find(call => panelPrompt(call)));
+  assert.equal(panelInput.teamCapabilities.members.length, 2);
+  const workerLine = panelInput.teamCapabilities.members.find(row => row.name === 'worker');
+  assert.equal(workerLine.modalImage, 'unknown');
+  assert.equal(workerLine.execRead, true);
+  assert.equal(workerLine.execWrite, false);
+  await until(() => !bus.running.size);
+});
+
 test('Panel instructions distinguish coordination and forbid schema-probing writes', async t => {
   const { bus } = await fixture(t);
   const state = await createAgent(bus);
@@ -199,6 +266,9 @@ test('Panel instructions distinguish coordination and forbid schema-probing writ
   assert.match(coordinationInstructions, /panel_update_publish/);
   assert.match(coordinationInstructions, /不要穷举猜测字段/);
   assert.match(coordinationInstructions, /必须显式调用 team_send（to: 'user'）/);
+  // 派工能力规则加入后仍在固定规则预算内（16,384 字节）。
+  assert.ok(Buffer.byteLength(privateInstructions, 'utf8') <= bus.information.budgets.rulesBytes);
+  assert.ok(Buffer.byteLength(coordinationInstructions, 'utf8') <= bus.information.budgets.rulesBytes);
 });
 
 test('Panel Agent is a global non-member identity and automatically observes existing teams', async t => {

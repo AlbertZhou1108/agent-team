@@ -75,6 +75,9 @@ export function createClaudeHost({
     async listModels(options = {}) {
       const initialized = await initializeClaude(command, { configDirectory, ...options });
       if (!Array.isArray(initialized.models) || !initialized.models.length) throw new Error('Claude 未提供模型目录，请检查宿主版本与配置');
+      // initialize 返回的 models 条目实测字段：value/resolvedModel/displayName/description/
+      // supportedEffortLevels 与 supports* 布尔（Claude Code 2.1.316）；不返回
+      // inputModalities/contextWindow，能力投影保持 unknown/null，禁止按模型名猜。
       const models = initialized.models.map(item => ({
         id: item.value,
         label: item.displayName ?? item.value,

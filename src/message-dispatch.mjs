@@ -14,6 +14,22 @@ import * as externalAgg from './aggregates/external-control.mjs';
 export class MessageDispatch {
   constructor(bus) {
     this.bus = bus;
+    // 异步复核 / 能力快照构造尚未进 running 前,阻止重复 pump() 对同一 outbox 行二次投递。
+    this.inFlightEntries = new Set();
+    this.startingConversations = new Map();
+  }
+  beginStarting(conversationId) {
+    if (!conversationId) return;
+    this.startingConversations.set(conversationId, (this.startingConversations.get(conversationId) ?? 0) + 1);
+  }
+  endStarting(conversationId) {
+    if (!conversationId) return;
+    const count = this.startingConversations.get(conversationId) ?? 0;
+    if (count <= 1) this.startingConversations.delete(conversationId);
+    else this.startingConversations.set(conversationId, count - 1);
+  }
+  isStarting(conversationId) {
+    return (this.startingConversations.get(conversationId) ?? 0) > 0;
   }
   notify(groupId, recipient, text) {
     if (this.bus.closing || !recipient || !this.bus.store.get('SELECT 1 FROM groups WHERE id=?', groupId)) return;
@@ -49,12 +65,16 @@ export class MessageDispatch {
       const conversation = conversationsAgg.byId(this.bus.store, entry.conversation_id);
       // 群级守卫(归档/群待核实)只作用于有群归属的会话;私聊会话的忙碌与
       // unknown 守卫在 deliverPanelPrivate 内做会话级判断。
-      if (!conversation || (conversation.group_id && !this.bus.canRun(conversation.group_id)) || this.bus.running.has(conversation.id)) continue;
+      if (!conversation
+        || (conversation.group_id && !this.bus.canRun(conversation.group_id))
+        || this.bus.running.has(conversation.id)
+        || this.isStarting(conversation.id)
+        || this.inFlightEntries.has(entry.id)) continue;
       if (entry.owner_kind === 'panel_agent') {
-        if (conversation.context === 'private') this.bus.deliverPanelPrivate(entry);
-        else this.bus.deliverPanel(entry);
+        if (conversation.context === 'private') this.trackDelivery(entry, () => this.bus.deliverPanelPrivate(entry));
+        else this.trackDelivery(entry, () => this.bus.deliverPanel(entry));
       }
-      else this.bus.deliver(entry);
+      else this.trackDelivery(entry, () => this.bus.deliver(entry));
     }
     for (const message of messagesAgg.pending(this.bus.store)) {
       if (messagesAgg.isAttached(this.bus.store, message.id)) continue;
@@ -62,9 +82,9 @@ export class MessageDispatch {
       const controller = this.bus.teamController(message.group_id);
       if (message.recipient === controller.id && controller.kind === 'panel_agent') {
         const session = conversationsAgg.forPanelAgent(this.bus.store, controller.id, 'coordination', { groupId: message.group_id });
-        if (this.bus.running.has(session.id) || messagesAgg.hasPendingDelivery(this.bus.store, session.id)) continue;
+        if (this.bus.running.has(session.id) || this.isStarting(session.id) || messagesAgg.hasPendingDelivery(this.bus.store, session.id)) continue;
         const entry = messagesAgg.prepareDelivery(this.bus.store, session, message);
-        if (entry) this.bus.deliverPanel(entry);
+        if (entry) this.trackDelivery(entry, () => this.bus.deliverPanel(entry));
         continue;
       }
       if (message.recipient === controller.id && controller.kind === 'external_agent') {
@@ -72,10 +92,51 @@ export class MessageDispatch {
         continue;
       }
       const endpoint = conversationsAgg.forMember(this.bus.store, message.recipient, message.recipient === controller.id ? 'coordination' : `pair:${message.sender}`, { peer: message.recipient === controller.id ? null : message.sender });
-      if (this.bus.running.has(endpoint.id) || messagesAgg.hasPendingDelivery(this.bus.store, endpoint.id)) continue;
+      if (this.bus.running.has(endpoint.id) || this.isStarting(endpoint.id) || messagesAgg.hasPendingDelivery(this.bus.store, endpoint.id)) continue;
       const entry = messagesAgg.prepareDelivery(this.bus.store, endpoint, message);
-      if (entry) this.bus.deliver(entry);
+      if (entry) this.trackDelivery(entry, () => this.bus.deliver(entry));
     }
+  }
+
+  /**
+   * 投递是异步的:调度循环不等待单次投递,但必须接住整条链上漏出的异常,
+   * 否则服务重启/测试收尾关闭数据库后会出现未处理的 Promise 拒绝。
+   */
+  trackDelivery(entry, start) {
+    this.inFlightEntries.add(entry.id);
+    this.beginStarting(entry.conversation_id);
+    let promise;
+    try {
+      promise = typeof start === 'function' ? start() : start;
+    } catch (error) {
+      this.inFlightEntries.delete(entry.id);
+      this.endStarting(entry.conversation_id);
+      try {
+        messagesAgg.setDeliveryError(this.bus.store, entry, error.message);
+        const conversation = conversationsAgg.byId(this.bus.store, entry.conversation_id);
+        this.emitDeliveryFailure(conversation?.group_id ?? null, entry.message_id ?? null, error.message);
+      } catch {
+        // 存储已关闭(进程退出或测试收尾):静默。
+      }
+      return;
+    }
+    if (!promise || typeof promise.then !== 'function') {
+      this.inFlightEntries.delete(entry.id);
+      this.endStarting(entry.conversation_id);
+      return;
+    }
+    promise.catch(error => {
+      try {
+        messagesAgg.setDeliveryError(this.bus.store, entry, error.message);
+        const conversation = conversationsAgg.byId(this.bus.store, entry.conversation_id);
+        this.emitDeliveryFailure(conversation?.group_id ?? null, entry.message_id ?? null, error.message);
+      } catch {
+        // 存储已关闭(进程退出或测试收尾):静默,避免二次未处理拒绝。
+      }
+    }).finally(() => {
+      this.inFlightEntries.delete(entry.id);
+      this.endStarting(entry.conversation_id);
+    });
   }
   canRun(groupId) {
     return !this.bus.deletingGroups.has(groupId)
@@ -84,40 +145,102 @@ export class MessageDispatch {
       && !this.bus.panelUnknown(groupId).length
       && !teamsAgg.hasPendingWorkspace(this.bus.store, groupId);
   }
-  deliver(entry) {
+  async deliver(entry) {
     const endpoint = conversationsAgg.byId(this.bus.store, entry.conversation_id);
     if (!endpoint || endpoint.owner_kind !== 'member' || !this.bus.store.get('SELECT 1 FROM members WHERE id=? AND removed IS NULL', endpoint.member_id)) return;
     const input = JSON.parse(entry.payload);
+    const group = this.bus.store.group(endpoint.group_id);
+    const member = this.bus.store.member(endpoint.member_id);
+    let payload = input;
+    try {
+      // 第二道关：拉起宿主前按最新模型选择、实时目录与最新有效策略重算能力要求。
+      // 不满足的消息逐条保留为投递失败，绝不启动宿主；同批满足项继续正常投递。
+      // 没有持久化要求时保持原同步投递路径，不额外等待也不能被探测阻塞。
+      const deliveryMessages = [input.message, ...(input.additionalMessages ?? []), ...(input.notes ?? [])];
+      const recheck = this.bus.capabilities.hasDeliveryRequirements(deliveryMessages)
+        ? await this.bus.capabilities.recheckDelivery({ group, member, messages: deliveryMessages })
+        : null;
+      if (recheck?.blocked.length) {
+        const allowedIds = new Set(recheck.allowed.map(item => item.message.id));
+        const blockedIds = new Set(recheck.blocked.map(item => item.message.id));
+        const sends = [input.message, ...(input.additionalMessages ?? [])];
+        const allowedMessages = sends.filter(row => allowedIds.has(row.id));
+        const blockedMessages = sends.filter(row => blockedIds.has(row.id));
+        const allowedNotes = (input.notes ?? []).filter(row => allowedIds.has(row.id));
+        const base = { groupId: input.groupId, conversation: input.conversation };
+        const allowedPayload = allowedMessages.length
+          ? {
+              ...base,
+              message: allowedMessages[0],
+              ...(allowedMessages.length > 1 ? { additionalMessages: allowedMessages.slice(1) } : {}),
+              notes: allowedNotes,
+            }
+          : null;
+        const blockedPayload = {
+          ...base,
+          message: blockedMessages[0],
+          ...(blockedMessages.length > 1 ? { additionalMessages: blockedMessages.slice(1) } : {}),
+          notes: [],
+        };
+        messagesAgg.splitDelivery(this.bus.store, entry, {
+          allowedPayload,
+          blockedPayload,
+          blockedMessageIds: blockedMessages.map(row => row.id),
+          error: recheck.blocked.map(item =>
+            `能力复核未通过：缺少 ${item.evaluation.missingCapabilities.join(', ')}（${item.evaluation.reasons.join('；')}）`).join('；'),
+        });
+        this.bus.capabilities.notifyBlocked({ group, member, blocked: recheck.blocked, recheck: true });
+        for (const item of recheck.blocked) {
+          this.emitDeliveryFailure(endpoint.group_id, item.message.id, item.evaluation.reasons.join('；'));
+        }
+        if (!allowedPayload) return;
+        payload = allowedPayload;
+      }
+    } catch (error) {
+      this.failDelivery(endpoint, input, entry, error);
+      return;
+    }
     this.bus.runEndpoint(endpoint, context => {
       if (context.schema !== CONTEXT_SCHEMA_VERSION) {
-        return legacyGroupDeliveryPrompt(input);
+        return legacyGroupDeliveryPrompt(payload);
       }
-      const group = this.bus.store.group(endpoint.group_id);
-      return JSON.stringify(this.bus.information.turnInput({
-        group,
-        charter: group.charter,
+      const currentGroup = this.bus.store.group(endpoint.group_id);
+      const buildInput = teamCapabilities => JSON.stringify(this.bus.information.turnInput({
+        group: currentGroup,
+        charter: currentGroup.charter,
         policy: context.policy,
-        input,
+        input: payload,
         schema: context.schema,
-        ...this.roundTaskContext(group.id, endpoint.member_id),
+        ...(teamCapabilities ? { teamCapabilities } : {}),
+        ...this.roundTaskContext(currentGroup.id, endpoint.member_id),
       }));
+      // 团队能力名片只进主控协调回合；普通 pair 会话保持同步构造的输入。
+      if (endpoint.context !== 'coordination') return buildInput(null);
+      return this.bus.capabilities.teamCapabilities(currentGroup).then(buildInput);
     }, () => {
       messagesAgg.markDeliveryAccepted(this.bus.store, entry);
-    }, [input.message, ...(input.additionalMessages ?? []), ...input.notes]).catch(error => {
+    }, [payload.message, ...(payload.additionalMessages ?? []), ...(payload.notes ?? [])]).catch(error => {
+      this.failDelivery(endpoint, payload, entry, error);
+    }).catch(() => {});
+  }
+  failDelivery(endpoint, input, entry, error) {
+    try {
       messagesAgg.setDeliveryError(this.bus.store, entry, error.message);
-      if (this.bus.closing) return;
-      // 失败状态由气泡下方的回执标签承载（点开是完整原文）；不再往消息流写第二条通知,
-      // 否则同一条消息有两处呈现,报错又被铺回聊天里。事件只给命令行观察,不落库。
-      this.bus.emit('delivery-failure', {
-        groupId: endpoint.group_id,
-        messageId: input.message.id,
-        reason: error.message,
-        accepted: messagesAgg.deliveryAccepted(this.bus.store, entry),
-      });
-    });
+    } catch {
+      // 存储已关闭(进程退出或测试收尾):没有可落账的投递记录,保持静默。
+      return;
+    }
+    if (this.bus.closing) return;
+    // 失败状态由气泡下方的回执标签承载（点开是完整原文）；不再往消息流写第二条通知,
+    // 否则同一条消息有两处呈现,报错又被铺回聊天里。事件只给命令行观察,不落库。
+    this.emitDeliveryFailure(endpoint.group_id, input.message.id, error.message, messagesAgg.deliveryAccepted(this.bus.store, entry));
+  }
+  emitDeliveryFailure(groupId, messageId, reason, accepted = null) {
+    if (this.bus.closing) return;
+    this.bus.emit('delivery-failure', { groupId, messageId, reason, accepted });
   }
   // Panel 主控协作会话投递:与成员投递同构(turnInput 构造、legacy 回落、accepted/error 写点)。
-  deliverPanel(entry) {
+  async deliverPanel(entry) {
     const session = conversationsAgg.byId(this.bus.store, entry.conversation_id);
     if (!session || session.owner_kind !== 'panel_agent' || session.context !== 'coordination') return;
     const panelAgent = this.bus.store.get('SELECT * FROM panel_agents WHERE id=?', session.panel_agent_id);
@@ -138,12 +261,15 @@ export class MessageDispatch {
           group.id,
           panelAgent.id,
         );
+        // Panel 协调席同样拿到团队能力名片,便于派工前对照能力选择成员。
+        const teamCapabilities = await this.bus.capabilities.teamCapabilities(group);
         prompt = JSON.stringify(this.bus.information.turnInput({
           group,
           charter: group.charter,
           policy: { mode: 'communication', allowShell: false, domain: 'communication' },
           input,
           schema,
+          teamCapabilities,
           ...this.roundTaskContext(group.id, panelAgent.id),
           ...(awaitingReceipt.length ? { awaitingReceipt } : {}),
         }));
@@ -214,6 +340,8 @@ export class MessageDispatch {
   async runEndpoint(endpoint, text, onAccepted = () => {}, inputs = []) {
     this.bus.collaboration.requireCommunication(endpoint.group_id);
     if (this.bus.running.has(endpoint.id)) throw new Error('该会话正在运行');
+    this.beginStarting(endpoint.id);
+    try {
     const member = this.bus.store.member(endpoint.member_id);
     const group = this.bus.store.group(member.group_id);
     const host = this.bus.hosts.get(member.host);
@@ -241,9 +369,11 @@ export class MessageDispatch {
     const { binding, previousPolicy } = conversationsAgg.sessionState(this.bus.store, endpoint.id, sessionKey, { fallbackSession });
     const effectiveEndpoint = { ...endpoint, session: binding?.session ?? fallbackSession };
     const schema = this.bus.information.memberSchemaForSession(endpoint, sessionKey, binding?.session ?? fallbackSession);
-    const prompt = typeof text === 'function'
+    // 回调可以是同步字符串或异步快照:同步返回值不引入额外 tick,保持原有回合启动时序。
+    let prompt = typeof text === 'function'
       ? text({ schema, policy, sessionKey, group, endpoint: effectiveEndpoint })
       : text;
+    if (prompt && typeof prompt.then === 'function') prompt = await prompt;
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('回合输入为空');
     const instructions = this.bus.rules(endpoint, schema);
     this.bus.information.assertRuleBudget(instructions, schema);
@@ -339,6 +469,9 @@ export class MessageDispatch {
       failureDetail: true,
       onFinally: () => setImmediate(() => this.bus.pump()),
     });
+    } finally {
+      this.endStarting(endpoint.id);
+    }
   }
 
   async privateTurn(groupId, text) {

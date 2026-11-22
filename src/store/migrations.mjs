@@ -167,6 +167,7 @@ export function migrateSchema(store, fromVersion) {
     if (fromVersion < 22) migrateV22(store);
     if (fromVersion < 23) migrateV23(store);
     if (fromVersion < 24) migrateV24(store);
+    if (fromVersion < 25) migrateV25(store);
 }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -332,6 +333,20 @@ export function migrateV24(store) {
       text TEXT NOT NULL,
       created TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS home_summaries_agent ON home_summaries(panel_agent_id,created DESC);`);
+  }
+
+  // v25:派工能力要求的上下文窗口门槛随消息持久化，供执行前二次复核使用。
+  // 未写门槛的旧消息为 NULL，视作无约束；required_capabilities 继续复用。
+
+export function migrateV25(store) {
+    const ensureColumn = (table, name, definition) => {
+      if (!store.all(`PRAGMA table_info(${table})`).some(column => column.name === name)) {
+        store.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    store.transaction(() => {
+      ensureColumn('messages', 'min_context_window', 'INTEGER DEFAULT NULL');
+    });
   }
 
   // v3:把"待投递"从推导事实变成 messages.awaiting 存储事实，并给 outbox 建待投递部分索引。

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { busScenario } from '../support/fixture.mjs';
 
 async function settled(bus) {
+  // 主控协调回合的团队能力快照是异步构造的:先让出一个 tick 再判空闲.
   for (let i = 0; i < 400; i++) {
-    if (!bus.running.size) return;
     await new Promise(r => setTimeout(r, 5));
+    if (!bus.running.size) return;
   }
   throw Error('timeout');
 }

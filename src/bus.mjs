@@ -26,6 +26,7 @@ import * as externalAgg from './aggregates/external-control.mjs';
 import * as panelAgg from './aggregates/panel.mjs';
 import { Maintenance } from './bus/maintenance.mjs';
 import { ModelCatalog } from './bus/model-catalog.mjs';
+import { CapabilityService } from './bus/capabilities.mjs';
 import { AppSettings } from './bus/app-settings.mjs';
 
 export { interactionView } from './interactions.mjs';
@@ -66,6 +67,7 @@ export class Bus extends EventEmitter {
     this.controlPlane = new ControlPlane(this, externalWake ? { wake: externalWake } : {});
     this.maintenance = new Maintenance(this);
     this.models = new ModelCatalog(this);
+    this.capabilities = new CapabilityService(this);
     this.appSettings = new AppSettings(this);
     // 旧任务列表没有 step id;把当前控制者的列表提升为当前任期计划,只做一次。
     this.lifecycle.migrateLegacyPlans();

@@ -8,6 +8,8 @@
 // - 消息进入 attached 后 awaiting 必须清零(清零发生在 store.prepare 的事务内);
 // - 一条消息同时只属于一个 outbox 行(attached.message_id 是主键)。
 
+import { randomUUID } from 'node:crypto';
+
 /**
  * 聚合层未逐行标注 JSDoc;store 为 Store 实例,查询返回的行形状由 SQL 决定。
  * @typedef {any} StoreLike
@@ -203,6 +205,33 @@ export function directiveOperations(store, groupId) {
 /** @param {StoreLike} store @param {string} messageId @param {string[]} capabilities */
 export function setRequiredCapabilities(store, messageId, capabilities) {
   return store.run('UPDATE messages SET required_capabilities=? WHERE id=?', JSON.stringify(capabilities), messageId);
+}
+
+/** 派工能力门槛随消息持久化:null 表示无上下文窗口要求。 */
+/** @param {StoreLike} store @param {string} messageId @param {number|null} minContextWindow */
+export function setMinContextWindow(store, messageId, minContextWindow) {
+  return store.run('UPDATE messages SET min_context_window=? WHERE id=?', minContextWindow ?? null, messageId);
+}
+
+/**
+ * 执行前二次复核把同一 outbox 行中不满足能力要求的消息拆到新的失败行:
+ * 满足的消息留在原行继续投递,不满足的进入 error 明确的新行(仍属同一会话)。
+ * 新行 accepted 保持 NULL 且 error 非空,因此不会再被 pendingDeliveries 取到,
+ * 同时逐条 attached 仍可追溯投递失败事实。整批都被拦截时原行同样写 error,
+ * 否则它会一直停在待投递队列里,把该会话的后续消息全部堵住。
+ */
+/** @param {StoreLike} store @param {any} entry @param {{ allowedPayload?: any, blockedPayload: any, blockedMessageIds: string[], error: string }} input */
+export function splitDelivery(store, entry, { allowedPayload = null, blockedPayload, blockedMessageIds, error }) {
+  return store.transaction(() => {
+    const blockedId = randomUUID();
+    store.run('INSERT INTO outbox(id,conversation_id,payload,error) VALUES(?,?,?,?)', blockedId, entry.conversation_id, JSON.stringify(blockedPayload), error);
+    for (const messageId of blockedMessageIds) {
+      store.run('UPDATE attached SET outbox_id=? WHERE message_id=?', blockedId, messageId);
+    }
+    if (allowedPayload) store.run('UPDATE outbox SET payload=? WHERE id=?', JSON.stringify(allowedPayload), entry.id);
+    else store.run('UPDATE outbox SET error=? WHERE id=?', error, entry.id);
+    return { blockedId };
+  });
 }
 
 /** 外部主控接管送达后清掉等待位,避免同一消息被重复认领。 */

@@ -125,7 +125,7 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
   const group = bus.store.group(args.groupId);
   if (group.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
   if (name === 'team_snapshot') return bus.panelTeamSnapshot(group.id);
-  if (name === 'team_members') return bus.members(group.id);
+  if (name === 'team_members') return bus.capabilities.memberCards(group);
   if (name === 'team_read') {
     const schema = bus.information.panelSchemaForTurn(origin.turnId) ?? bus.information.panelSchemaForSession(session);
     return readSharedMessages(bus, {
@@ -172,6 +172,19 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
     const stepRef = name === 'team_send' && args.step_ref
       ? bus.assertStepRef(group.id, panelAgent.id, args.step_ref)
       : null;
+    // 与成员 send、无头 team_send 同一道门禁:写库前核对目标成员当前有效能力。
+    const hasRequirements = (Array.isArray(args.requiredCapabilities) && args.requiredCapabilities.length > 0)
+      || args.minContextWindow !== undefined;
+    let requirements = null;
+    if (name === 'team_send' && !toUser && hasRequirements) {
+      const checked = await bus.capabilities.assertDispatch({
+        group,
+        target,
+        requiredCapabilities: args.requiredCapabilities,
+        minContextWindow: args.minContextWindow,
+      });
+      requirements = checked.requirements;
+    }
     const message = appendRoutedMessage(bus.store, {
       groupId: group.id,
       senderId: panelAgent.id,
@@ -182,6 +195,8 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
       expectsReply,
       stepRef,
       origin,
+      requiredCapabilities: requirements?.requiredCapabilities ?? null,
+      minContextWindow: requirements?.minContextWindow ?? null,
     });
     bus.emit('message', message);
     bus.completeToolMessageStream(

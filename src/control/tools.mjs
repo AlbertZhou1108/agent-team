@@ -10,6 +10,7 @@ import {
   CONTROL_PROTOCOL_VERSION,
   supportsControlCapability,
 } from '../control-capabilities.mjs';
+import { dispatchRequirementProperties } from '../tools/ops.mjs';
 
 export const READ_ONLY_CONTROL_TOOLS = new Set([
   'control_protocol',
@@ -55,7 +56,7 @@ export function controlToolDefinitions() {
       operationId: { type: 'string', minLength: 1, maxLength: 128 },
     }, ['name']],
     ['team_snapshot', '读取一个受控团队的基础快照、成员、沟通状态与任务。', { teamId }, ['teamId']],
-    ['team_members', '读取受控团队成员。', { teamId }, ['teamId']],
+    ['team_members', '读取受控团队成员、能力自述与只读能力名片（当前模型、modal.image、contextWindow、exec.*、tool.browser 及有效策略）。派工前据此对照目标能力。', { teamId }, ['teamId']],
     ['team_read', '分页读取受控团队共享消息。', {
       teamId,
       after: { type: 'integer', minimum: 0 },
@@ -66,15 +67,11 @@ export function controlToolDefinitions() {
       offset: { type: 'integer', minimum: 0 },
       bodyLimit: { type: 'integer', minimum: 1, maximum: 4096 },
     }, ['teamId']],
-    ['team_send', '以当前主控身份向成员发送会唤醒的正式消息。', {
+    ['team_send', '以当前主控身份向成员发送会唤醒的正式消息。派工前可先读 team_members 的能力名片；需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 自动归一化），需要大上下文模型时传 minContextWindow。写库前与执行前各校验一次，不满足即返回 capability_required 并保留消息。', {
       teamId, to: text, text,
       expectsReply: { type: 'boolean' },
       replyTo: { type: 'string', minLength: 1, maxLength: 100 },
-      requiredCapabilities: {
-        type: 'array',
-        maxItems: 20,
-        items: { type: 'string', minLength: 1, maxLength: 100 },
-      },
+      ...dispatchRequirementProperties,
     }, ['teamId', 'to', 'text']],
     ['team_note', '向成员留下不唤醒的留言；留言只随成员下一轮正式输入交付，不进入主控收件箱。', { teamId, to: text, text }, ['teamId', 'to', 'text']],
     ['team_tasks_set', '整体更新当前主控在该团队的计划步骤。', {

@@ -76,7 +76,17 @@ export class ToolDispatch {
     validateTool(member.role, name, args, endpoint.context);
     const groupId = member.group_id;
     if (name === 'model_catalog') return this.bus.modelCatalog({ refresh: true });
-    if (name === 'members') return this.bus.members(groupId).map(({ id, name: displayName, host, role, profile }) => ({ id, name: displayName, host, role, profile }));
+    if (name === 'members') {
+      const cards = await this.bus.capabilities.memberCards(this.bus.store.group(groupId));
+      return cards.map(({ id, name: displayName, host, role, profile, capabilityCard }) => ({
+        id,
+        name: displayName,
+        host,
+        role,
+        profile,
+        capabilityCard,
+      }));
+    }
     if (name === 'read') {
       const schema = this.bus.information.toolSchema(origin?.turnId, endpoint.id);
       return readSharedMessages(this.bus, {
@@ -103,6 +113,20 @@ export class ToolDispatch {
       const stepRef = name === 'send' && args.step_ref
         ? this.bus.assertStepRef(groupId, member.id, args.step_ref)
         : null;
+      // 派工门禁:只有显式带能力约束的 send 才计算并核对目标成员当前有效能力;
+      // 无约束的普通 send/note 完全不受影响,也不触发任何目录探测。
+      const hasRequirements = (Array.isArray(args.requiredCapabilities) && args.requiredCapabilities.length > 0)
+        || args.minContextWindow !== undefined;
+      let requirements = null;
+      if (name === 'send' && !toUser && hasRequirements) {
+        const checked = await this.bus.capabilities.assertDispatch({
+          group: this.bus.store.group(groupId),
+          target,
+          requiredCapabilities: args.requiredCapabilities,
+          minContextWindow: args.minContextWindow,
+        });
+        requirements = checked.requirements;
+      }
       const message = appendRoutedMessage(this.bus.store, {
         groupId,
         senderId: member.id,
@@ -113,6 +137,8 @@ export class ToolDispatch {
         expectsReply,
         stepRef,
         origin,
+        requiredCapabilities: requirements?.requiredCapabilities ?? null,
+        minContextWindow: requirements?.minContextWindow ?? null,
       });
       this.bus.emit('message', message);
       if (origin?.turnId) {

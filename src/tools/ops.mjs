@@ -1,6 +1,21 @@
 // 工具操作共享核心:成员工具(bus.executeTool)与 Panel 工具(panel.executePanelTool)
 // 的重合逻辑收口在此,执行器只保留工具名分发与执行者差异(权限门禁、目标解析、锚点)。
 import * as messagesAgg from '../aggregates/messages.mjs';
+import { ROUTING_CAPABILITY_ENUM } from '../hosts/capability-routing.mjs';
+
+/**
+ * 三入口统一的派工能力参数 schema 片段:成员 send、Panel team_send、无头 team_send
+ * 共用同一组属性名与枚举,未知能力 ID 在 validateToolValue 阶段即报参数无效。
+ * 旧 file.* 别名保留在枚举里,服务层按规范归一化到 exec.*。
+ */
+export const dispatchRequirementProperties = {
+  requiredCapabilities: {
+    type: 'array',
+    maxItems: 20,
+    items: { type: 'string', enum: ROUTING_CAPABILITY_ENUM },
+  },
+  minContextWindow: { type: 'integer', minimum: 1 },
+};
 
 /** 回复指向校验:只能回复发给自己、期待答复的 send,且答复对象必须是原请求发送者。 */
 export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
@@ -11,10 +26,16 @@ export function assertReplyTarget(store, groupId, replyTo, senderId, targetId) {
   if (replyTarget.sender !== targetId) throw new Error('回复对象必须是原请求的发送者');
 }
 
-/** 落一条带来源的正式消息:消息、步骤引用与 message_origins 同事务;无回合来源时不写 origins。 */
-export function appendRoutedMessage(store, { groupId, senderId, targetId, kind, text, replyTo = null, expectsReply = false, stepRef = null, origin = null }) {
+/** 落一条带来源的正式消息:消息、派工能力要求、步骤引用与 message_origins 同事务;无回合来源时不写 origins。 */
+export function appendRoutedMessage(store, { groupId, senderId, targetId, kind, text, replyTo = null, expectsReply = false, stepRef = null, origin = null, requiredCapabilities = null, minContextWindow = null }) {
   return store.transaction(() => {
     const value = messagesAgg.append(store, groupId, senderId, targetId, kind, text, replyTo, expectsReply);
+    if (Array.isArray(requiredCapabilities) && requiredCapabilities.length) {
+      messagesAgg.setRequiredCapabilities(store, value.id, requiredCapabilities);
+    }
+    if (Number.isInteger(minContextWindow) && minContextWindow > 0) {
+      messagesAgg.setMinContextWindow(store, value.id, minContextWindow);
+    }
     if (stepRef) {
       store.run(
         'INSERT INTO message_step_refs(message_id,plan_id,step_id) VALUES(?,?,?)',

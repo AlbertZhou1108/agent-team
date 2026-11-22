@@ -1,5 +1,7 @@
 # Member execution policy is the host capability intersection
 
+> **已被 [ADR 0014](0014-unified-member-capability-routing.md) 取代（2026-11-23）。Superseded by ADR 0014.** 本文保留为历史记录：Group policy 天花板 × 宿主交集不再是成员有效能力的完整定义，而是 ADR 0014 执行维度的一部分。
+
 Status: accepted
 
 ## Context

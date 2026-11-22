@@ -109,7 +109,7 @@ export function mergeDeclarations(...declarations) {
  * 旧执行能力词汇 → 新词汇。`filesystem.boundary` 并入 `exec.write`：
  * 能写就意味着知道写到哪，边界不是独立开关。
  */
-const LEGACY_MEMBER_CAPABILITIES = Object.freeze({
+export const LEGACY_MEMBER_CAPABILITIES = Object.freeze({
   'file.read': 'exec.read',
   'file.write': 'exec.write',
   'shell.exec': 'exec.shell',

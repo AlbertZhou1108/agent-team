@@ -10,13 +10,11 @@ import {
 import * as externalAgg from './aggregates/external-control.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';
-import * as conversationsAgg from './aggregates/conversations.mjs';
 import { appendRoutedMessage, assertReplyTarget, readSharedMessages } from './tools/ops.mjs';
 import { roleNameKey } from './collaboration.mjs';
 import { validateToolValue } from './tools/schema.mjs';
 import { deliverExternalWake } from './external-delivery.mjs';
 import { wakeDriverFor } from './host-runtime/wake-drivers.mjs';
-import { canonicalMemberCapabilityIds } from './hosts/capabilities.mjs';
 import { surfaceFollowsConversation } from './hosts/definitions.mjs';
 import * as identity from './control/identity.mjs';
 import * as wake from './control/wake-scheduler.mjs';
@@ -29,7 +27,7 @@ const CONTROL_GUIDE = [
   '外部主控只能访问自己控制的团队；权限不得高于当前绑定声明的 workspaceRoots 和 policies。',
   '支持主动唤醒的宿主必须先通过 control_wake_test 的真实唤醒才能派发工作；也可以显式接受 binding 级 Pull-only。',
   '成员模型由 team_create 或 team_member_model 按宿主实时目录选择，不静默回退。',
-  'Group policy 是上限；成员有效策略与宿主能力取交集。team_send 可用 requiredCapabilities 阻止不兼容派单。',
+  'Group policy 是上限；成员有效策略与宿主能力取交集。派工前先看 team_members 的能力名片；team_send 可用 requiredCapabilities 与 minContextWindow 阻止不兼容派单，写库前与执行前各校验一次。',
   '需要用户决定时，向当前主控发 decision_request；由主控询问用户后通过 decision_answer 回复。',
   '同步工具失败以 isError 返回；不应伪造用户确认、送达或工作完成。',
 ].join('\n');
@@ -323,18 +321,20 @@ export class ControlPlane {
       if (typeof text !== 'string' || !text.trim() || text.length > 48000) throw new Error('消息正文无效');
       const target = this.bus.resolveRecipient(group.id, to);
       if (target.id === binding.principal_id) throw new Error('不能向主控自己发送团队消息');
-      if (name === 'team_send' && Array.isArray(args.requiredCapabilities) && args.requiredCapabilities.length) {
-        const member = this.bus.resolveMember(group.id, target.id);
-        const policy = await this.executionPolicyFor(group, member);
-        // 派单要求归一化到统一词汇；旧词（file.read 等）在此转换，避免调用方被迫改。
-        const required = canonicalMemberCapabilityIds(args.requiredCapabilities);
-        const missing = required.filter(capability => !policy.capabilities.includes(capability));
-        if (missing.length) {
-          const error = new Error(`capability_required: 成员 ${member.name} 缺少 ${missing.join(', ')}`);
-          error.code = 'capability_required';
-          error.details = { missingCapabilities: missing, executionPolicy: policy };
-          throw error;
-        }
+      // 与成员 send、Panel team_send 同一道门禁：写库前核对目标成员当前有效能力，
+      // 旧 file.* 词在此归一化；错误结构与无头既有 capability_required 语义保持一致。
+      const hasRequirements = name === 'team_send'
+        && ((Array.isArray(args.requiredCapabilities) && args.requiredCapabilities.length > 0)
+          || args.minContextWindow !== undefined);
+      let requirements = null;
+      if (hasRequirements) {
+        const checked = await this.bus.capabilities.assertDispatch({
+          group,
+          target,
+          requiredCapabilities: args.requiredCapabilities,
+          minContextWindow: args.minContextWindow,
+        });
+        requirements = checked.requirements;
       }
       const expectsReply = name === 'team_send' && args.expectsReply === true;
       if (name === 'team_send' && args.replyTo !== undefined) {
@@ -348,10 +348,9 @@ export class ControlPlane {
         text,
         replyTo: args.replyTo ?? null,
         expectsReply,
+        requiredCapabilities: requirements?.requiredCapabilities ?? null,
+        minContextWindow: requirements?.minContextWindow ?? null,
       });
-      if (name === 'team_send' && Array.isArray(args.requiredCapabilities)) {
-        messagesAgg.setRequiredCapabilities(this.bus.store, message.id, args.requiredCapabilities);
-      }
       this.bus.emit('message', message);
       queueMicrotask(() => this.bus.pump());
       return { messageId: message.id };
@@ -693,72 +692,19 @@ export class ControlPlane {
   }
 
   async executionPolicyFor(group, member) {
-    const host = this.bus.hosts.get(member.host);
-    let report;
-    if (host?.executionCapabilities) {
-      report = await host.executionCapabilities({
-        mode: group.policy,
-        allowShell: group.allow_shell === 1,
-        workspace: group.workspace,
-      });
-    } else {
-      report = {
-        effectivePolicy: group.policy === 'workspace-write' ? 'read-only' : group.policy,
-        capabilities: group.policy === 'communication' ? [] : ['exec.read'],
-        reason: group.policy === 'workspace-write' ? '宿主未声明工作区写边界保证' : null,
-      };
-    }
-    let effective = report.effectivePolicy;
-    let capabilities = [...new Set(report.capabilities ?? [])];
-    let reason = report.reason ?? null;
-    if (group.policy === 'communication') {
-      effective = 'communication';
-      capabilities = [];
-      reason = '群策略仅允许通信';
-    } else if (group.policy === 'read-only' && effective === 'workspace-write') {
-      effective = 'read-only';
-      capabilities = capabilities.filter(capability => capability === 'exec.read');
-      reason = '群策略仅允许读取';
-    }
-    if (effective !== 'workspace-write') {
-      capabilities = capabilities.filter(capability => capability === 'exec.read');
-    }
-    const policy = {
-      requested: group.policy,
-      effective,
-      capabilities,
-      reason,
-    };
-    const previousEffective = member.effective_policy ?? null;
-    const previousCapabilities = member.capabilities ? JSON.parse(member.capabilities) : [];
-    const capabilityChanged = previousEffective !== effective
-      || JSON.stringify(previousCapabilities) !== JSON.stringify(capabilities);
-    teamsAgg.updateMemberExecutionPolicy(this.bus.store, { memberId: member.id, effectivePolicy: effective, capabilities, reason });
-    if (previousEffective !== null && capabilityChanged) {
-      conversationsAgg.clearSessionsForMember(this.bus.store, member.id);
-      this.bus.notify(group.id, member.id,
-        `执行能力已更新为 ${effective}（${capabilities.join(', ') || '无项目能力'}）${reason ? `：${reason}` : ''}`);
-    }
-    return policy;
+    return this.bus.capabilities.executionPolicyFor(group, member);
   }
 
   async membersWithPolicy(group) {
-    const members = this.bus.members(group.id);
-    const policies = await Promise.all(members.map(member => this.executionPolicyFor(group, member)));
-    return members.map((member, index) => ({
-      ...member,
-      executionPolicy: policies[index],
-      capabilities: policies[index].capabilities,
-      effective_policy: policies[index].effective,
-      capability_reason: policies[index].reason,
-    }));
+    return this.bus.capabilities.memberCards(group, { persist: true });
   }
 
   async snapshot(group, principalId) {
     const binding = externalAgg.activeBindingForTeam(this.bus.store, principalId, group.id);
+    const controllerCard = await this.bus.capabilities.controllerCard(group).catch(() => null);
     return {
       team: group,
-      controller: { id: principalId, kind: 'external_agent' },
+      controller: { id: principalId, kind: 'external_agent', capabilityCard: controllerCard },
       headless: binding ? wake.wakeStatus(binding) : { state: 'unsupported', mode: null, reason: '没有 active controller binding' },
       members: await this.membersWithPolicy(group),
       communication: this.bus.groupSummary(group.id),

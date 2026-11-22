@@ -397,6 +397,95 @@ test('workspace-write is a ceiling and dispatch rejects missing member capabilit
   assert.ok(sent.messageId);
 });
 
+test('headless snapshots expose capability cards and enforce the context window requirement', async t => {
+  const { host, call, directory } = setup(t, {
+    externalWake: async () => ({ supported: true, state: 'started', mode: 'codex' }),
+  });
+  host.executionCapabilities = async ({ mode }) => mode === 'communication'
+    ? { effectivePolicy: 'communication', capabilities: [], reason: '仅通信' }
+    : { effectivePolicy: 'read-only', capabilities: ['exec.read'], reason: '宿主无法保证工作区写边界' };
+  host.listModels = async () => ({
+    version: 1,
+    host: 'fake',
+    source: 'test',
+    defaultModel: 'vision',
+    reasoningEfforts: [],
+    models: [{
+      key: 'vision',
+      id: 'vision',
+      label: 'Vision',
+      provider: 'fake-provider',
+      inputModalities: ['text', 'image'],
+      contextWindow: 64000,
+      reasoningEfforts: [{ id: 'low', label: 'Low' }],
+      defaultReasoningEffort: 'low',
+      isDefault: true,
+    }],
+  });
+  const created = await call('team_create', {
+    name: '名片团队',
+    workspace: directory,
+    members: [{ name: '成员', host: 'fake', model: 'vision', reasoningEffort: 'low' }],
+    policy: 'workspace-write',
+  });
+  await call('control_wake_test');
+  const snapshot = await call('team_snapshot', { teamId: created.team.id });
+  const member = snapshot.members[0];
+  assert.equal(member.capabilityCard.model.knownInCatalog, true);
+  assert.equal(member.capabilityCard.model.id, 'vision');
+  assert.equal(member.capabilityCard.model.provider, 'fake-provider');
+  assert.equal(member.capabilityCard.model.contextWindow, 64000);
+  assert.deepEqual(member.capabilityCard.model.inputModalities, ['text', 'image']);
+  assert.equal(member.capabilityCard.model.reasoningEffort, 'low');
+  assert.deepEqual(member.capabilityCard.effectiveCapabilities, {
+    'exec.read': true,
+    'exec.write': false,
+    'exec.shell': false,
+    'modal.image': true,
+    'tool.browser': false,
+  });
+  assert.equal(member.capabilityCard.effectivePolicy.ceiling, 'workspace-write');
+  assert.equal(member.capabilityCard.effectivePolicy.mode, 'read-only');
+  assert.equal(member.capabilityCard.modelSummary.host, 'fake');
+  assert.equal(member.capabilityCard.modelSummary.model, 'vision');
+  // 外部桌面主控按绑定声明投影：没有 exec/modal 声明就如实标 false/'unknown'。
+  assert.equal(snapshot.controller.kind, 'external_agent');
+  assert.equal(snapshot.controller.capabilityCard.model.knownInCatalog, false);
+  assert.equal(snapshot.controller.capabilityCard.effectiveCapabilities['exec.read'], false);
+  assert.equal(snapshot.controller.capabilityCard.effectiveCapabilities['modal.image'], 'unknown');
+  const members = await call('team_members', { teamId: created.team.id });
+  assert.deepEqual(members.members[0].capabilityCard, member.capabilityCard);
+
+  let windowError;
+  await assert.rejects(
+    async () => {
+      try {
+        await call('team_send', {
+          teamId: created.team.id,
+          to: '成员',
+          text: '请阅读长文档。',
+          minContextWindow: 128000,
+        });
+      } catch (error) {
+        windowError = error;
+        throw error;
+      }
+    },
+    /capability_required/,
+  );
+  assert.equal(windowError.code, 'capability_required');
+  assert.deepEqual(windowError.details.missingCapabilities, ['minContextWindow']);
+  assert.ok(windowError.details.reasons.some(reason => /上下文窗口/.test(reason)));
+
+  const sent = await call('team_send', {
+    teamId: created.team.id,
+    to: '成员',
+    text: '请阅读短文档。',
+    minContextWindow: 32000,
+  });
+  assert.ok(sent.messageId);
+});
+
 test('external binding rejects bad keys, foreign teams and workspaces outside its roots', async t => {
   const { bus, directory, identity, call } = setup(t);
   assert.throws(

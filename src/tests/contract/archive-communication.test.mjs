@@ -42,7 +42,7 @@ test('open group keeps every conversation path working without flow state', asyn
 
   const reviewer = bus.store.endpoint(members[2].id, `pair:${members[1].id}`, members[1].id);
   const _peerReply = await bus.tool(executor.id, executor.key, 'send', { to: members[2].id, text: '成员之间也可以继续交流' });
-  await until(() => bus.running.size === 0);
+  await until(() => bus.running.size === 0 && calls.some(call => call.endpoint.id === reviewer.id));
   assert.ok(calls.some(call => call.endpoint.id === reviewer.id && call.policy.mode === 'workspace-write'));
 
   await bus.privateTurn(group.id, '请继续解释结果');

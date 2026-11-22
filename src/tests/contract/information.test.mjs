@@ -66,6 +66,43 @@ test('turn input projection carries the charter, full messages and reports budge
     policy: { mode: 'read-only' },
     input: { message: { id: 'm', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: 'x'.repeat(600000) } },
   }), /超过.*预算/);
+
+  // 仅供主控协调回合的精简团队能力视图：按原样进入回合输入并计入同一预算。
+  const plain = projectTurnInput({
+    group: { id: 'group-1', name: 'group' },
+    policy: { mode: 'workspace-write', allowShell: false },
+    schema: CONTEXT_SCHEMA_VERSION,
+    input: { message: { id: 'm1', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: '任务' } },
+  });
+  const teamCapabilities = {
+    controller: {
+      id: 'lead', name: 'lead', role: 'lead', kind: 'member', model: 'vision',
+      modalImage: 'unknown', contextWindow: null,
+      execRead: true, execWrite: false, execShell: false, toolBrowser: false,
+    },
+    members: [{
+      id: 'worker', name: 'worker', role: 'member', model: 'vision',
+      provider: 'fake-provider', knownInCatalog: true, modalImage: true, contextWindow: 64000,
+      execRead: true, execWrite: false, execShell: false, toolBrowser: false,
+    }],
+  };
+  const withTeam = projectTurnInput({
+    group: { id: 'group-1', name: 'group' },
+    policy: { mode: 'workspace-write', allowShell: false },
+    schema: CONTEXT_SCHEMA_VERSION,
+    input: { message: { id: 'm1', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: '任务' } },
+    teamCapabilities,
+  });
+  assert.deepEqual(withTeam.teamCapabilities, teamCapabilities);
+  assert.ok(byteSize(withTeam) > byteSize(plain));
+  // 能力视图也受 turnInputBytes 约束,不能无限膨胀回合输入。
+  assert.throws(() => projectTurnInput({
+    group: { id: 'group-1', name: 'group' },
+    policy: { mode: 'read-only' },
+    schema: CONTEXT_SCHEMA_VERSION,
+    input: { message: { id: 'm1', seq: 1, sender: 'a', recipient: 'b', kind: 'send', text: '任务' } },
+    teamCapabilities: { payload: 'x'.repeat(600000) },
+  }), /超过.*预算/);
 });
 
 test('new sessions use fixed rules with a compact dynamic view; legacy sessions keep their path and are never reset', async t => {
@@ -98,6 +135,9 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   const leadCall = calls.filter(call => call.endpoint.member_id === lead.id
     && call.endpoint.context === 'coordination').at(-1);
   assert.match(leadCall.instructions, /必须显式调用 send（to: 'user'）/);
+  // 新增的派工能力规则仍然受固定规则预算约束。
+  assert.ok(byteSize(first.instructions) <= bus.information.budgets.rulesBytes);
+  assert.ok(byteSize(leadCall.instructions) <= bus.information.budgets.rulesBytes);
   const format = bus.store.get(
     'SELECT * FROM conversation_session_meta WHERE conversation_id=?',
     first.endpoint.id,

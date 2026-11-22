@@ -1,5 +1,5 @@
 import { validateToolValue } from './schema.mjs';
-import { askInputProperties } from './ops.mjs';
+import { askInputProperties, dispatchRequirementProperties } from './ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
@@ -21,7 +21,7 @@ const observerDefinitions = [
     sender: string,
     ...readRange,
   }, ['groupId']],
-  ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
+  ['team_members', '读取当前团队成员、能力自述与只读能力名片（当前模型、modal.image、contextWindow、exec.*、tool.browser 及有效策略）。', { groupId }, ['groupId']],
   ['team_message_trace', '读取一条团队消息的真实来源和输入回合。', {
     groupId,
     messageId: string,
@@ -52,8 +52,8 @@ const mainDefinitions = [
     sender: string,
     ...readRange,
   }, ['groupId']],
-  ['team_members', '读取当前团队成员及能力自述。', { groupId }, ['groupId']],
-  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。', {
+  ['team_members', '读取当前团队成员、能力自述与只读能力名片（当前模型、modal.image、contextWindow、exec.*、tool.browser 及有效策略）。派工前据此对照目标能力。', { groupId }, ['groupId']],
+  ['team_send', '以当前团队主 Agent 身份向成员发送正式消息。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。派工前先对照 team_members 返回的能力名片：需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 别名自动归一化），需要大上下文模型时传 minContextWindow；写库前与执行前各校验一次，不满足即拒绝并保留消息。', {
     groupId,
     to: string,
     text: string,
@@ -65,6 +65,7 @@ const mainDefinitions = [
       required: ['planId', 'stepId'],
       additionalProperties: false,
     },
+    ...dispatchRequirementProperties,
   }, ['groupId', 'to', 'text']],
   ['team_note', '以当前团队主 Agent 身份向成员留下不唤醒的留言。', {
     groupId,

@@ -121,6 +121,7 @@ export function projectTurnInput({
   awaitingReceipt,
   plan,
   taskBudget,
+  teamCapabilities,
 } = {}) {
   const view = {
     contextSchemaVersion: schema,
@@ -140,6 +141,9 @@ export function projectTurnInput({
   // 当前计划与任务预算进回合输入:主控不必凭跨回合记忆复述步骤 id,成员知道自己的上限。
   if (plan) view.plan = plan;
   if (taskBudget) view.taskBudget = taskBudget;
+  // 团队能力名片只注入主控协调回合(Panel 协调/Lead 协调)与成员执行回合无关的私人会话不注入;
+  // 由调用方按会话上下文决定是否传入,这里只负责纳入预算与可见性。
+  if (teamCapabilities) view.teamCapabilities = teamCapabilities;
   const budget = DEFAULT_BUDGETS.turnInputBytes;
   if (byteSize(view) > budget) {
     throw new Error(`本轮输入超过 ${budget} 字节预算：触发消息不会被静默截断；请缩减触发消息或改用 read 分页读取历史`);
@@ -266,8 +270,8 @@ export class Information {
     return expandMessageText(row, { hash, offset, bodyLimit, schema });
   }
 
-  turnInput({ group, charter, policy, input, schema = CONTEXT_SCHEMA_VERSION, awaitingReceipt, plan, taskBudget }) {
-    return projectTurnInput({ group, charter, policy, input, schema, awaitingReceipt, plan, taskBudget });
+  turnInput({ group, charter, policy, input, schema = CONTEXT_SCHEMA_VERSION, awaitingReceipt, plan, taskBudget, teamCapabilities }) {
+    return projectTurnInput({ group, charter, policy, input, schema, awaitingReceipt, plan, taskBudget, teamCapabilities });
   }
 
   // --- measurement (metadata only; never message bodies) -----------------

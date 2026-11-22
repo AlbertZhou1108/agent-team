@@ -67,6 +67,28 @@ export function probeZcode(command, { args, env, ...options } = {}) {
   });
 }
 
+const INPUT_FORMAT_MODALITIES = Object.freeze([
+  ['supportsText', 'text'],
+  ['supportsImage', 'image'],
+  ['supportsAudio', 'audio'],
+  ['supportsVideo', 'video'],
+  ['supportsPdf', 'pdf'],
+]);
+
+/**
+ * ZCode 模型条目真实字段：properties.inputFormat 以布尔位声明可接收的输入模态
+ * （session/create.settings.model.available 实测含 supportsText/supportsImage 等）。
+ * 只在字段确实为布尔时映射为 inputModalities；未提供该结构时不落键，
+ * 交由 modelCatalog 归一化，能力投影据此按 unknown 保守处理（不按模型名猜）。
+ */
+function inputModalitiesOf(item) {
+  const format = item?.properties?.inputFormat;
+  if (!format || typeof format !== 'object') return undefined;
+  const declared = INPUT_FORMAT_MODALITIES.filter(([field]) => typeof format[field] === 'boolean');
+  if (!declared.length) return undefined;
+  return declared.filter(([field]) => format[field] === true).map(([, modality]) => modality);
+}
+
 /** 从会话状态补丁提取模型目录。 */
 function catalogFromState(available, lastUsed) {
   const models = available.map(item => ({
@@ -76,6 +98,7 @@ function catalogFromState(available, lastUsed) {
     description: item.providerLabel ?? undefined,
     provider: item.ref?.providerId ?? null,
     contextWindow: item.contextWindow,
+    inputModalities: inputModalitiesOf(item),
     reasoningEfforts: (item.reasoning?.levels ?? []).map(level => ({ id: level.value, label: level.label })),
     defaultReasoningEffort: item.reasoning?.defaultLevel ?? null,
   }));

@@ -50,17 +50,19 @@ export function requirePanelMain(bus, agentId, groupId) {
   return group;
 }
 
-/** 单团队快照:群、关系、主控、成员、沟通摘要与运行中端点。 */
-export function panelTeamSnapshot(bus, groupId) {
+/** 单团队快照:群、关系、主控、成员、沟通摘要与运行中端点。成员含只读能力名片。 */
+export async function panelTeamSnapshot(bus, groupId) {
   bus.ensurePanelBindings();
   const group = bus.store.group(groupId);
   const panelAgent = bus.panelAgent();
   const relation = panelAgent ? bus.panelTeamRelation(groupId) : null;
+  const controller = bus.teamController(groupId);
+  const controllerCard = await bus.capabilities.controllerCard(group).catch(() => null);
   return {
     group,
     relation,
-    controller: bus.teamController(groupId),
-    members: bus.members(groupId),
+    controller: { ...controller, capabilityCard: controllerCard },
+    members: await bus.capabilities.memberCards(group),
     communication: bus.groupSummary(groupId),
     running: [...bus.running.values()]
       .filter(item => item.endpoint.group_id === groupId && item.endpoint.context !== 'private')

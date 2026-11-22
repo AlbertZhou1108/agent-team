@@ -286,6 +286,33 @@ test('a v23 database gains home_summaries on upgrade without losing existing pan
   store.close();
 });
 
+test('a v24 database gains the dispatch context-window column without losing messages', t => {
+  const directory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run(
+    `INSERT INTO messages(id,group_id,sender,recipient,kind,text,created,required_capabilities) VALUES('m1','g1','lead','worker','send','历史派工',?,'["exec.read"]')`,
+    NOW,
+  );
+  // 当前 schema 已有 min_context_window；手工去掉并回退版本号,模拟 v24 库。
+  store.db.exec('ALTER TABLE messages DROP COLUMN min_context_window');
+  store.setSchemaVersion(24);
+  store.close();
+
+  store = new Store(directory);
+  assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+  const columns = store.all('PRAGMA table_info(messages)').map(column => column.name);
+  assert.ok(columns.includes('min_context_window'), 'messages 缺少 min_context_window');
+  const row = store.get('SELECT text,required_capabilities,min_context_window FROM messages WHERE id=?', 'm1');
+  assert.equal(row.text, '历史派工');
+  assert.deepEqual(JSON.parse(row.required_capabilities), ['exec.read']);
+  // 旧消息没有门槛值,升级后保持无约束。
+  assert.equal(row.min_context_window, null);
+  store.run('UPDATE messages SET min_context_window=32000 WHERE id=?', 'm1');
+  assert.equal(store.get('SELECT min_context_window FROM messages WHERE id=?', 'm1').min_context_window, 32000);
+  store.close();
+});
+
 test('a database created by a newer schema is rejected instead of being opened', t => {
   const directory = tempDir(t);
   const store = new Store(directory);

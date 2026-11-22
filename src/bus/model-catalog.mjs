@@ -68,6 +68,11 @@ export class ModelCatalog {
     };
   }
 
+  /** 只读已探测结果：不触发探测、不刷新 TTL，供能力名片与写库前首检使用。 */
+  peek(host) {
+    return this.catalogs.get(host)?.value?.catalog ?? null;
+  }
+
   async validate(member, { model_provider, model, reasoning_effort } = {}) {
     if (model === undefined || model === null || String(model).trim() === '') return null;
     const catalog = await this.list({ refresh: true, host: member.host });

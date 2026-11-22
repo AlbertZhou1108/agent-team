@@ -117,16 +117,16 @@ Optional plain text supplied at group creation and injected into every turn's co
 `communication | read-only | workspace-write`, chosen at creation; ordinary member pair conversations run under it; ordinary member coordination/profile/private contexts always use communication. `workspace-write` permits file changes only inside the team workspace, independently of whether shell tools are enabled; a host that cannot enforce that boundary cannot claim the policy. Panel Agent private access is configured separately.
 
 **Member execution policy / 成员有效策略**:
-The policy actually available to one member after the Group policy ceiling is intersected with that member's host capability. It records the requested ceiling, effective mode, concrete capabilities, and reason for any safe downgrade.
-_Avoid_: 群策略、宿主默认权限
+The full effective capability of one member, not just a policy label: the model dimension (the live catalog facts of the member's current model — `inputModalities`, `contextWindow`, `reasoningEfforts`) intersected with the execution dimension (the Group policy ceiling × host enforcement × sandbox, e.g. `exec.read` / `exec.write` / `exec.shell` / `tool.browser`). It records the requested ceiling, effective mode, concrete capabilities, model summary and the reason for any safe downgrade; a fact the upstream does not declare stays `'unknown'` / `null` instead of being inferred. See [ADR 0014](docs/adr/0014-unified-member-capability-routing.md).
+_Avoid_: 群策略、宿主默认权限、按 profile 推断能力
 
 **Work dispatch / 派发工作**:
-A formal `team_send` that may start a member turn. It may declare required capabilities; an incompatible dispatch is rejected before a work request is recorded.
-_Avoid_: 普通留言、所有团队消息
+A message that may start a member turn, gated identically at all three entries: in-team `send`, Panel `team_send`, and headless `team_send`. It may declare `requiredCapabilities` / `minContextWindow`; the gate checks the target member's current capability card before the message is recorded, and re-checks it against the latest model selection, live catalog and effective policy just before the turn starts. Missing or unknown requirements are rejected conservatively, and a rejected dispatch is never silently rerouted to another member.
+_Avoid_: 普通留言、所有团队消息、按正文猜需求
 
 **Capability degradation / 能力降级**:
-A persistent loss of previously available capability, such as workspace writes or a configured model. New incompatible work stops for that member, while existing work and the rest of the team continue; the framework never substitutes a fallback model or wider permission.
-_Avoid_: 模型切换、权限恢复
+A previously available capability becoming unavailable after creation or after a dispatch was accepted — a mid-queue model switch to a weaker model, an unprobed or changed model catalog, a directory change that invalidates the member's directory-bound session, or a narrowed Group policy. The pre-execution re-check intercepts the affected messages before any host turn starts and notifies the Main Agent; satisfied messages in the same batch continue, existing work keeps its host outcome, and the framework never substitutes a fallback model, a wider permission, or another member.
+_Avoid_: 自动换人、自动换模、权限恢复
 
 **Capability escalation / 能力提升**:
 An explicit user or controller action that increases a member's effective capability. A member's request may describe the need but never grants the escalation; changing to a stronger model is not a capability escalation.
