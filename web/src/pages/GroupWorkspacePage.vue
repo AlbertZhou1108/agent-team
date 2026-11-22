@@ -3,7 +3,7 @@ import { computed, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useMediaQuery } from '@vueuse/core';
 import { toast } from 'vue-sonner';
-import { PanelRightOpen } from '@lucide/vue';
+import { PanelRightOpen, Search } from '@lucide/vue';
 import GroupSidebar from '@/app/layouts/GroupSidebar.vue';
 import SettingsPage from '@/features/settings/SettingsPage.vue';
 import CreateTeam from '@/features/groups/CreateTeam.vue';
@@ -11,12 +11,15 @@ import TeamHome from '@/features/groups/TeamHome.vue';
 import PanelAgentPanel from '@/features/panel-agent/PanelAgentPanel.vue';
 import ConversationWorkspace from '@/features/messages/ConversationWorkspace.vue';
 import TeamDirectiveComposer from '@/features/messages/TeamDirectiveComposer.vue';
+import SessionSwitcher from '@/features/sessions/SessionSwitcher.vue';
+import TeamTraceWorkspace from '@/features/sessions/TeamTraceWorkspace.vue';
 import TeamContextPanel from '@/features/team/TeamContextPanel.vue';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { api } from '@/shared/api/client';
@@ -67,22 +70,36 @@ watch(() => route.query.interaction, (value) => {
   delete query.pair;
   void router.replace({ query });
 }, { immediate: true });
+type WorkspaceView = 'chat' | 'trace' | 'events';
+const workspaceTabs: Array<{ value: WorkspaceView; label: string }> = [
+  { value: 'chat', label: '对话' },
+  { value: 'trace', label: '轨迹' },
+  { value: 'events', label: '原始事件' },
+];
 const selectedSessionId = computed(() => teamConversationSession(route.query));
-const activeTab = computed<InspectorTab>(() => {
-  // 旧深链的 events/models 标签已并入轨迹页(原始事件折叠区/成员页),统一归位。
-  return routeString(route.query.tab) === 'usage' ? 'usage' : 'trace';
+const workspaceView = computed<WorkspaceView>(() => {
+  const view = routeString(route.query.view);
+  if (view === 'trace' || view === 'events' || view === 'chat') return view;
+  // 兼容旧深链（?panel=details / ?panel=sessions）：自动映射到主区轨迹标签页。
+  const legacyPanel = routeString(route.query.panel);
+  if (legacyPanel === 'details' || legacyPanel === 'sessions') return 'trace';
+  return 'chat';
 });
+const activeTab = computed<InspectorTab>(() => 'trace');
 const contextPanel = computed<ContextPanel>(() => {
   const value = routeString(route.query.panel);
-  if (value === 'collaboration' || value === 'members' || value === 'sessions' || value === 'details' || value === 'tools')
+  if (value === 'collaboration' || value === 'members' || value === 'tools')
     return value;
   // 兼容 v1 深链(?panel=tool:<id>):工具 tab 已合并为固定的「工具」页,统一归位。
   if (value.startsWith('tool:')) return 'tools';
-  return selectedSessionId.value ? 'details' : 'collaboration';
+  return 'collaboration';
 });
 const wideScreen = useMediaQuery('(min-width: 1280px)');
 const contextVisible = computed(() => !ui.contextCollapsed && (wideScreen.value || ui.inspectorOpen));
-const detailsVisible = computed(() => contextVisible.value && contextPanel.value === 'details');
+// 执行轨迹已迁至中间主区，仅当主区位于「轨迹」或「原始事件」时拉取回合摘要。
+const detailsVisible = computed(() => workspaceView.value === 'trace' || workspaceView.value === 'events');
+const traceSearchQuery = ref('');
+watch(groupId, () => { traceSearchQuery.value = ''; });
 
 const resources = useTeamResources({ groupId, selectedSessionId, activeTab, contextPanel, contextVisible, detailsVisible });
 const {
@@ -189,24 +206,52 @@ function closeSettingsPage() {
   else router.push({ name: 'group' });
 }
 
+function defaultTraceSessionId(): string {
+  const list = currentEndpoints.value;
+  const coordination = list.find(
+    (item) => item.context === 'coordination' || item.context === 'panel-coordination',
+  );
+  if (coordination) return coordination.id;
+  return list.find((item) => item.context !== 'profile')?.id ?? '';
+}
+
+function setWorkspaceView(view: WorkspaceView) {
+  const nextSession =
+    view === 'chat'
+      ? selectedSessionId.value || undefined
+      : (selectedSessionId.value || defaultTraceSessionId() || undefined);
+  replaceQuery({
+    view: view === 'chat' ? undefined : view,
+    session: nextSession,
+    panel: contextPanel.value,
+    tab: undefined,
+  });
+}
+
 function selectSession(id: string) {
-  ui.openInspector();
   replaceQuery({
     session: id || undefined,
     pair: undefined,
     interaction: undefined,
     message: undefined,
-    tab: 'trace',
-    panel: id ? 'details' : 'sessions',
+    tab: undefined,
+    view: workspaceView.value === 'chat' ? undefined : workspaceView.value,
+  });
+}
+
+function openMemberTrace(sessionId: string) {
+  replaceQuery({
+    session: sessionId || defaultTraceSessionId() || undefined,
+    pair: undefined,
+    interaction: undefined,
+    message: undefined,
+    tab: undefined,
+    view: 'trace',
   });
 }
 
 function closeContextPanel() {
   ui.closeInspector();
-}
-
-function setTab(tab: InspectorTab) {
-  replaceQuery({ tab, panel: 'details' });
 }
 
 function setContextPanel(panel: ContextPanel) {
@@ -350,6 +395,7 @@ function onMemberModelSaved() {
         <ConversationWorkspace
           :heading="group.name"
           :description="group.workspace"
+          :custom-body="workspaceView !== 'chat'"
           :messages="messageViews"
           :stream-source="readTeamStreamViews"
           :directives="directivesQuery.data.value ?? []"
@@ -376,7 +422,69 @@ function onMemberModelSaved() {
             <Button variant="outline" size="sm" class="xl:hidden" @click="ui.openInspector()"><PanelRightOpen />群信息</Button>
           </template>
           <template #status>
-            <Alert v-if="inspectorError" variant="destructive" class="mx-4 mb-2 w-auto"><AlertDescription>{{ inspectorError.message }}</AlertDescription></Alert>
+            <Alert v-if="inspectorError && workspaceView !== 'chat'" variant="destructive" class="mx-4 mb-2 w-auto"><AlertDescription>{{ inspectorError.message }}</AlertDescription></Alert>
+          </template>
+          <template #context>
+            <div
+              class="flex flex-wrap items-center justify-between gap-2 px-4 pb-2"
+              data-testid="workspace-view-bar"
+            >
+              <div class="flex items-center gap-1" role="tablist" aria-label="工作区视图">
+                <button
+                  v-for="tab in workspaceTabs"
+                  :key="tab.value"
+                  type="button"
+                  role="tab"
+                  :aria-selected="workspaceView === tab.value"
+                  class="relative px-2.5 py-1 text-xs font-medium transition-colors"
+                  :class="workspaceView === tab.value
+                    ? 'text-foreground after:absolute after:inset-x-1 after:-bottom-2 after:h-0.5 after:bg-primary'
+                    : 'text-muted-foreground hover:text-foreground'"
+                  @click="setWorkspaceView(tab.value)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <SessionSwitcher
+                  :endpoints="currentEndpoints"
+                  :members="members"
+                  :actors="actors"
+                  :selected-id="selectedSessionId"
+                  :running-endpoints="runningEndpoints"
+                  :allow-all="workspaceView === 'chat'"
+                  @select="selectSession"
+                />
+                <div v-if="workspaceView === 'events'" class="relative w-44 sm:w-52">
+                  <Search class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  <Input
+                    v-model="traceSearchQuery"
+                    type="search"
+                    class="h-6 pl-7 text-xs"
+                    placeholder="搜索事件名、seq 或内容…"
+                    aria-label="搜索原始事件"
+                  />
+                </div>
+              </div>
+            </div>
+          </template>
+          <template #body>
+            <TeamTraceWorkspace
+              v-if="workspaceView !== 'chat'"
+              :mode="workspaceView"
+              :endpoints="currentEndpoints"
+              :endpoint="selectedEndpoint"
+              :members="members"
+              :actors="actors"
+              :turn-summaries="turnSummaries"
+              :unaffiliated-events="unaffiliatedEvents"
+              :loading="Boolean(selectedSessionId && turnsQuery.isPending.value)"
+              :has-next-page="inspectorHasNextPage"
+              :fetching-next-page="inspectorFetchingNextPage"
+              :search-query="traceSearchQuery"
+              @select-session="selectSession"
+              @load-more="loadInspectorMore"
+            />
           </template>
           <template #composer>
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
@@ -425,23 +533,9 @@ function onMemberModelSaved() {
           :paused-member-ids="pausedMemberIds"
           :actors="actors"
           :current-endpoints="currentEndpoints"
-          :current-session-bindings="currentSessionBindings"
-          :selected-session-id="selectedSessionId"
-          :running-endpoints="runningEndpoints"
-          :selected-endpoint="selectedEndpoint"
-          :current-controller="currentController"
-          :turn-summaries="turnSummaries"
-          :unaffiliated-events="unaffiliatedEvents"
-          :active-tab="activeTab"
-          :loading="Boolean(selectedSessionId && turnsQuery.isPending.value)"
-          :has-next-page="inspectorHasNextPage"
-          :fetching-next-page="inspectorFetchingNextPage"
           @update:panel="setContextPanel"
-          @update:tab="setTab"
-          @select-session="selectSession"
-          @choose-session="setContextPanel('sessions')"
+          @open-trace="openMemberTrace"
           @retry="retryContext"
-          @load-more="loadInspectorMore"
           @close="closeContextPanel"
           @member-model-saved="onMemberModelSaved"
         />

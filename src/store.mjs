@@ -1328,6 +1328,26 @@ export class Store {
     this.modelSummaryCache.set(id, { ...revision, value });
     return value;
   }
+  /** 从失败回合的历史事件中提取单行错误摘要，便于折叠行直接预览。 */
+  turnErrorSummary(turnId) {
+    const rows = this.all('SELECT event FROM history WHERE turn_id=? ORDER BY seq DESC LIMIT 30', turnId);
+    for (const row of rows) {
+      let parsed;
+      try { parsed = JSON.parse(row.event); } catch { continue; }
+      if (!parsed || typeof parsed !== 'object') continue;
+      let raw = null;
+      if (parsed.type === 'framework.error' && typeof parsed.error === 'string') raw = parsed.error;
+      else if (parsed.type === 'error') raw = typeof parsed.message === 'string' ? parsed.message : (typeof parsed.error === 'string' ? parsed.error : null);
+      else if (parsed.type === 'result' && parsed.is_error && typeof parsed.result === 'string') raw = parsed.result;
+      else if (parsed.method === 'error') raw = parsed.params?.error?.message ?? parsed.params?.message ?? null;
+      if (!raw || typeof raw !== 'string') continue;
+      const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      if (!lines.length) continue;
+      const informative = lines.find(line => /(?:Error|ERR_|Exception|Cannot find|failed|ENOENT|EACCES)/i.test(line)) ?? lines[0];
+      return informative.length > 160 ? `${informative.slice(0, 159)}…` : informative;
+    }
+    return undefined;
+  }
   /** 回合摘要(最旧在前):轨迹页从第一回合起正向翻页,事件懒加载走 turnTrace。 */
   turnSummaries(id, { after, limit = 5 } = {}) {
     const conversation = this.get("SELECT id FROM conversations WHERE id=? AND context!='private'", id);
@@ -1347,8 +1367,13 @@ export class Store {
     // 游离事件:无回合归属的宿主输出(目前只有会话轮换),量小,随摘要一并返回。
     const unaffiliated = this.all('SELECT * FROM history WHERE conversation_id=? AND turn_id IS NULL ORDER BY seq LIMIT 200', conversation.id);
     const hasMore = rows.length > limit;
+    const turns = rows.slice(0, limit).map((row) => {
+      if (row.state !== 'failed') return row;
+      const errorSummary = this.turnErrorSummary(row.id);
+      return errorSummary ? { ...row, errorSummary } : row;
+    });
     return {
-      turns: rows.slice(0, limit),
+      turns,
       unaffiliated,
       nextAfter: hasMore ? rows[limit - 1].id : null,
     };

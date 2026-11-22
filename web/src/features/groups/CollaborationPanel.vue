@@ -39,6 +39,9 @@ const hasTasks = computed(() => Boolean(
 const archived = computed(() =>
   summary.value ? !summary.value.communicationOpen : false,
 );
+const showCommunicationStatus = computed(() =>
+  Boolean(summary.value && (archived.value || summary.value.runningCount > 0)),
+);
 const busy = ref(false);
 
 async function refresh() {
@@ -82,7 +85,7 @@ async function restoreTeam() {
       </AlertDescription>
     </Alert>
     <template v-else-if="summary">
-      <section class="flex flex-col gap-2">
+      <section v-if="showCommunicationStatus" class="flex flex-col gap-2" data-testid="communication-status">
         <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
           沟通状态
         </h3>
@@ -90,7 +93,7 @@ async function restoreTeam() {
           <Badge :variant="archived ? 'outline' : 'secondary'">
             {{ archived ? '已归档' : '沟通开放' }}
           </Badge>
-          <span class="text-xs text-muted-foreground">
+          <span v-if="summary.runningCount > 0" class="text-xs text-muted-foreground">
             {{ summary.runningCount }} 个运行中回合
           </span>
         </div>
@@ -105,19 +108,28 @@ async function restoreTeam() {
         </div>
       </section>
 
-      <Disclosure class="overview-tasks group">
+      <section
+        v-if="!hasTasks"
+        class="flex items-center justify-between gap-2 rounded-(--component-card-radius) border border-border px-3 py-2.5"
+        data-testid="overview-tasks-empty"
+      >
+        <h3 class="text-sm font-semibold text-foreground">任务面板</h3>
+        <span class="text-xs text-muted-foreground">暂无任务</span>
+      </section>
+      <Disclosure v-else class="overview-tasks group" default-open>
         <template #summary>
-
-          <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
+          <h3 class="text-sm font-semibold text-foreground">
             任务面板
           </h3>
-          <Badge v-if="doingCount" variant="secondary">{{ doingCount }} 进行中</Badge>
-          <Badge v-else-if="finishedCount" variant="outline">{{ finishedCount }} 项已完成</Badge>
-          <span v-else class="text-xs font-normal text-muted-foreground">
-            {{ hasTasks ? '暂无进行中任务' : '未使用' }}
+          <span class="ms-auto flex flex-wrap items-center gap-1.5">
+            <Badge v-if="doingCount" variant="secondary">{{ doingCount }} 进行中</Badge>
+            <Badge v-if="finishedCount" variant="outline">{{ finishedCount }} 已完成</Badge>
+            <span v-if="!doingCount && !finishedCount" class="text-xs font-normal text-muted-foreground">
+              暂无任务
+            </span>
           </span>
         </template>
-        <div class="scrollbar-thin mt-3 max-h-[45vh] overflow-y-auto pr-1">
+        <div class="mt-3">
           <TasksPanel
             :view="props.view ?? emptyView"
             :members="props.members ?? []"
@@ -146,8 +158,16 @@ async function restoreTeam() {
         </div>
       </section>
 
-      <section class="flex flex-col gap-2">
-        <h3 class="text-xs font-semibold tracking-wide text-muted-foreground">
+      <section
+        v-if="!charter && !charterQuery.isPending.value"
+        class="flex items-center justify-between gap-2 rounded-(--component-card-radius) border border-border px-3 py-2.5"
+        data-testid="overview-charter-empty"
+      >
+        <h3 class="text-sm font-semibold text-foreground">团队说明</h3>
+        <span class="text-xs text-muted-foreground">暂无说明</span>
+      </section>
+      <section v-else class="flex flex-col gap-2">
+        <h3 class="text-sm font-semibold text-foreground">
           团队说明
         </h3>
         <p
@@ -156,8 +176,7 @@ async function restoreTeam() {
         >
           正在读取团队说明…
         </p>
-        <p v-else-if="charter" class="whitespace-pre-wrap wrap-anywhere">{{ charter }}</p>
-        <p v-else class="text-xs text-muted-foreground">暂无团队说明。</p>
+        <p v-else class="whitespace-pre-wrap wrap-anywhere">{{ charter }}</p>
       </section>
     </template>
   </div>

@@ -15,15 +15,21 @@ import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import { numeric } from './visuals';
 import { formatTimestamp } from './format';
 
-const props = defineProps<{ groupId: string }>();
+const props = defineProps<{ groupId: string; selectedMemberId?: string }>();
 
 const query = useMembersTelemetryQuery(() => props.groupId || undefined);
 
 const data = computed(() => query.data.value);
-const selectedId = ref('');
+const selectedId = ref(props.selectedMemberId ?? '');
 // 默认选中榜首成员且执行详情默认展开;切团队时回到同一初态。
 const detailsOpen = ref(true);
-watch(() => props.groupId, () => { selectedId.value = ''; detailsOpen.value = true; });
+watch(() => props.groupId, () => { selectedId.value = props.selectedMemberId ?? ''; detailsOpen.value = true; });
+watch(() => props.selectedMemberId, (next) => {
+  if (next) {
+    selectedId.value = next;
+    detailsOpen.value = true;
+  }
+});
 function selectMember(id: string) {
   selectedId.value = id;
   detailsOpen.value = true;

@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { CircleCheck, CircleOff, Radio } from '@lucide/vue';
+import { CircleCheck, CircleDot, CircleMinus } from '@lucide/vue';
+import { Badge } from '@/components/ui/badge';
 import type { TaskPanelPlan } from './task-panel-model';
 
 defineProps<{ plan: TaskPanelPlan }>();
 
 const stateMeta = {
-  doing: { icon: Radio, label: '进行中', class: 'task-doing' },
+  doing: { icon: CircleDot, label: '进行中', class: 'task-doing' },
   done: { icon: CircleCheck, label: '已完成', class: 'task-done' },
-  dropped: { icon: CircleOff, label: '已放弃', class: 'task-dropped' },
+  dropped: { icon: CircleMinus, label: '已放弃', class: 'task-dropped' },
 } as const;
 </script>
 
@@ -16,31 +17,45 @@ const stateMeta = {
     <li
       v-for="step in plan.steps"
       :key="step.key"
-      class="flex flex-col gap-1"
+      class="flex flex-col gap-1.5"
     >
       <div
-        class="flex items-start gap-2 text-sm"
+        class="flex items-start gap-2 text-sm leading-5"
         :class="stateMeta[step.step.state].class"
       >
-        <span class="mt-0.5 w-5 shrink-0 text-xs text-muted-foreground tabular-nums">{{ step.number }}.</span>
-        <component :is="stateMeta[step.step.state].icon" class="mt-1 size-4 shrink-0" />
-        <span class="min-w-0 flex-1 break-words leading-6">{{ step.step.text }}</span>
+        <component
+          :is="stateMeta[step.step.state].icon"
+          class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <span class="shrink-0 text-xs leading-5 text-muted-foreground tabular-nums">{{ step.number }}.</span>
+        <span class="min-w-0 flex-1 break-words" :class="step.step.state === 'doing' ? 'font-medium' : 'font-normal'">{{ step.step.text }}</span>
         <span class="sr-only">{{ stateMeta[step.step.state].label }}</span>
       </div>
       <ul
         v-if="step.children.length"
-        class="ms-7 flex flex-col gap-1 border-s border-border ps-3"
+        class="ms-2 flex flex-col gap-1.5 border-s border-border ps-3"
       >
         <li
           v-for="child in step.children"
           :key="child.key"
-          class="flex items-start gap-2 text-sm"
+          class="flex items-start gap-2 text-xs leading-5"
           :class="stateMeta[child.task.state].class"
         >
-          <span class="mt-0.5 w-8 shrink-0 text-xs text-muted-foreground tabular-nums">{{ child.number }}</span>
-          <span class="mt-1.5 size-2 shrink-0 rounded-full" :style="{ backgroundColor: child.color }" />
-          <span class="max-w-24 shrink-0 truncate text-xs text-muted-foreground" :title="child.ownerName">{{ child.ownerName }}</span>
-          <span class="min-w-0 flex-1 break-words leading-6">{{ child.task.text }}</span>
+          <component
+            :is="stateMeta[child.task.state].icon"
+            class="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span class="shrink-0 text-xs leading-5 text-muted-foreground tabular-nums">{{ child.number }}</span>
+          <span class="min-w-0 flex-1 break-words">{{ child.task.text }}</span>
+          <Badge
+            variant="secondary"
+            class="max-w-24 shrink-0 truncate"
+            :title="child.ownerName"
+          >
+            {{ child.ownerName }}
+          </Badge>
           <span class="sr-only">{{ stateMeta[child.task.state].label }}</span>
         </li>
       </ul>

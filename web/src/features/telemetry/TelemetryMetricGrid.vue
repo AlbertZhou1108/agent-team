@@ -2,7 +2,6 @@
 import { Disclosure } from '@/components/ui/disclosure';
 import { computed } from 'vue';
 import { Progress } from '@/components/ui/progress';
-import { ScrollRegion } from '@/components/ui/scroll-region';
 import { cn } from '@/lib/utils';
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
 import { METRIC_KEYS, METRIC_LABELS, metricDisplay } from './format';
@@ -42,17 +41,16 @@ function display(key: keyof TelemetryMetrics) {
     </div>
     <Disclosure v-if="showDetail">
       <template #summary>全部指标</template>
-      <ScrollRegion
-        as="dl"
-        label="全部指标内容"
-        max-height="min(24rem,50vh)"
-        gap="0.75rem"
-      >
-        <div v-for="key in METRIC_KEYS" :key="key" class="flex flex-wrap items-center justify-between gap-2 text-foreground">
-          <dt>{{ METRIC_LABELS[key] }}</dt>
-          <dd>{{ metricDisplay(metrics[key], key) }}</dd>
+      <dl class="mt-2 flex flex-col divide-y divide-border/60 rounded-(--component-card-radius) border border-border bg-muted/20 px-3 py-1 text-xs tabular-nums">
+        <div
+          v-for="key in METRIC_KEYS"
+          :key="key"
+          class="flex items-center justify-between gap-2 py-1.5"
+        >
+          <dt class="text-muted-foreground">{{ METRIC_LABELS[key] }}</dt>
+          <dd class="font-medium text-foreground">{{ metricDisplay(metrics[key], key) }}</dd>
         </div>
-      </ScrollRegion>
+      </dl>
     </Disclosure>
   </div>
 </template>

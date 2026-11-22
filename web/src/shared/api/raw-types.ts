@@ -561,6 +561,8 @@ export interface TurnSummary {
   eventCount: number;
   firstSeq: number;
   lastSeq: number;
+  /** 仅失败回合可选返回：从失败事件提取的单行错误摘要。 */
+  errorSummary?: string;
 }
 
 export interface TurnSummariesResponse {

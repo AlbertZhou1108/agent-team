@@ -113,17 +113,20 @@ vi.mock('@/features/messages/ConversationWorkspace.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return {
     default: defineComponent({
-      props: ['heading', 'description', 'messages', 'streamSource', 'directives', 'interactions', 'title', 'selectedPair', 'hosts', 'groupNames', 'resetKey', 'loading', 'hasNextPage', 'fetchingNextPage', 'error', 'retryable'],
+      props: ['heading', 'description', 'customBody', 'messages', 'streamSource', 'directives', 'interactions', 'title', 'selectedPair', 'hosts', 'groupNames', 'resetKey', 'loading', 'hasNextPage', 'fetchingNextPage', 'error', 'retryable'],
       setup: (props, { slots }) => () =>
         h('section', {
           'data-testid': 'conversation-workspace',
           'data-heading': String(props.heading),
+          'data-custom-body': String(Boolean(props.customBody)),
           'data-loading': String(props.loading),
           'data-messages': String((props.messages as unknown[] | undefined)?.length ?? 0),
         }, [
           slots['heading-meta']?.(),
           slots.actions?.(),
           slots.status?.(),
+          slots.context?.(),
+          slots.body?.(),
           slots.composer?.(),
         ]),
     }),
@@ -139,6 +142,19 @@ vi.mock('@/features/messages/TeamDirectiveComposer.vue', async () => {
           'data-testid': 'team-directive-composer',
           'data-group-id': String(props.groupId),
           'data-controller-id': String(props.controllerId),
+        }),
+    }),
+  };
+});
+vi.mock('@/features/sessions/TeamTraceWorkspace.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return {
+    default: defineComponent({
+      props: ['mode', 'endpoint', 'turnSummaries'],
+      setup: (props) => () =>
+        h('section', {
+          'data-testid': 'team-trace-workspace',
+          'data-mode': String(props.mode),
         }),
     }),
   };
@@ -283,7 +299,19 @@ describe('group workspace page SSR smoke', () => {
     const { html } = await render('/groups/g1');
     expect(html).toContain('Panel Agent 主控');
     expect(html).toContain('2 名成员');
+    expect(html).toContain('data-testid="workspace-view-bar"');
+    expect(html).toContain('对话');
+    expect(html).toContain('轨迹');
+    expect(html).toContain('原始事件');
     expect(html).not.toContain('正在读取团队…');
+  });
+
+  it('routes legacy details/sessions panel links to the middle workspace trace view and keeps right panel at 3 tabs', async () => {
+    const { html } = await render('/groups/g1?panel=details');
+    expect(html).toContain('data-custom-body="true"');
+    expect(html).toContain('data-testid="team-trace-workspace"');
+    expect(html).toContain('data-mode="trace"');
+    expect(html).toContain('data-panel="collaboration"');
   });
 
   it('shows the loading card when a team id is present but the team is not resolved', async () => {

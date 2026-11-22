@@ -233,19 +233,24 @@ describe('team derived projections', () => {
     await derived.loadInspectorMore();
     expect(queries.turnsQuery.fetchNextPage).toHaveBeenCalledTimes(1);
 
-    const sessionsError = new Error('sessions failed');
-    queries.sessionsQuery.error.value = sessionsError;
-    options.contextPanel.value = 'sessions';
-    expect(derived.contextError.value).toBe(sessionsError);
-    derived.retryContext();
-    expect(queries.sessionsQuery.refetch).toHaveBeenCalledTimes(1);
-    options.contextPanel.value = 'details';
-    derived.retryContext();
-    expect(queries.sessionQuery.refetch).toHaveBeenCalledTimes(1);
-    queries.tasksQuery.error.value = new Error('tasks failed');
+    const tasksError = new Error('tasks failed');
+    queries.tasksQuery.error.value = tasksError;
     options.contextPanel.value = 'collaboration';
+    expect(derived.contextError.value).toBe(tasksError);
     derived.retryContext();
     expect(queries.tasksQuery.refetch).toHaveBeenCalledTimes(1);
+
+    options.contextPanel.value = 'members';
+    expect(derived.contextError.value).toBeNull();
+    derived.retryContext();
+    expect(queries.sessionsQuery.refetch).toHaveBeenCalledTimes(1);
+    expect(queries.sessionQuery.refetch).toHaveBeenCalledTimes(1);
+
+    queries.turnsQuery.error.value = null;
+    const sessionError = new Error('session failed');
+    queries.sessionQuery.error.value = sessionError;
+    options.detailsVisible.value = true;
+    expect(derived.inspectorError.value).toBe(sessionError);
   });
 
   it('exposes turn summaries and unaffiliated events only while the trace tab is visible', () => {

@@ -744,6 +744,21 @@
   border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
 }
 
+.conversation-header.conversation-header-with-context {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.conversation-header-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: var(--density-header-pad, 11px 16px);
+}
+
 /* 底栏 sticky 载体:滚动列的直接子元素。sticky 元素只能在包含块内移动,
    所以钉住的是这层 wrapper 而非输入区组件自身 —— 组件常自带根 wrapper,
    内层 sticky 会被约束得没有粘住余量。 */

@@ -1,16 +1,14 @@
 import type { Component } from 'vue';
-import { Activity, Bot, MessagesSquare, Wrench } from '@lucide/vue';
+import { Activity, Bot, Wrench } from '@lucide/vue';
 
 export type ContextPanel =
   | 'collaboration'
   | 'members'
-  | 'sessions'
-  | 'details'
   | 'tools';
 
 /**
- * 右栏 tab 恒定五个：概览/成员/会话/详情/工具。「工具」是固定容器，页内二级切换
- * 当前显示哪个挂载在 right-tools 的工具——tab 数量不随工具增减。
+ * 右栏 tab 精简为三个：概览 / 成员 / 工具。
+ * 原「会话」与「详情」已迁至中间主区标签页（对话 / 轨迹 / 原始事件）。
  */
 export const contextTabs: Array<{
   value: ContextPanel;
@@ -19,7 +17,5 @@ export const contextTabs: Array<{
 }> = [
   { value: 'collaboration', label: '概览', icon: Activity },
   { value: 'members', label: '成员', icon: Bot },
-  { value: 'sessions', label: '会话', icon: MessagesSquare },
-  { value: 'details', label: '详情', icon: Activity },
   { value: 'tools', label: '工具', icon: Wrench },
 ];

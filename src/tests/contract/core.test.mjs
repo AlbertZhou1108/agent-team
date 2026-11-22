@@ -392,9 +392,13 @@ test('turn summaries API paginates whole turns oldest-first with stable ordinals
   // 7 个回合,每回合两条事件,外加一条无回合归属的游离事件。
   for (let i = 0; i < 7; i++) {
     const created = new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString();
-    store.run("INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES(?,?, 'member',?,?, 'completed',?)", `turn-${i}`, endpoint, group.lead, group.id, created);
+    const state = i === 1 ? 'failed' : 'completed';
+    store.run("INSERT INTO turns(id,conversation_id,executor_kind,executor_id,group_id,state,created) VALUES(?,?, 'member',?,?,?,?)", `turn-${i}`, endpoint, group.lead, group.id, state, created);
     store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', endpoint, JSON.stringify({ type: 'framework.output', i }), created, `turn-${i}`);
-    store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', endpoint, JSON.stringify({ type: 'framework.output', i: i + 100 }), created, `turn-${i}`);
+    const secondEvent = i === 1
+      ? { type: 'framework.error', error: '/tmp/app.mjs:1\nError: ERR_MODULE_NOT_FOUND: agent-team-policy' }
+      : { type: 'framework.output', i: i + 100 };
+    store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,?)', endpoint, JSON.stringify(secondEvent), created, `turn-${i}`);
   }
   store.run('INSERT INTO history(conversation_id,event,created,turn_id) VALUES(?,?,?,NULL)', endpoint, JSON.stringify({ type: 'framework.session_rotated' }), new Date(Date.UTC(2026, 0, 1, 2)).toISOString());
   const headers = {}, base = new URL(server.url).origin;
@@ -409,6 +413,8 @@ test('turn summaries API paginates whole turns oldest-first with stable ordinals
   assert.ok(first.turns[0].firstSeq < first.turns[0].lastSeq);
   // 摘要不携带事件体:事件懒加载走 /api/turn。
   assert.equal(first.turns[0].events, undefined);
+  assert.equal(first.turns[0].errorSummary, undefined);
+  assert.equal(first.turns[1].errorSummary, 'Error: ERR_MODULE_NOT_FOUND: agent-team-policy');
   assert.ok(first.unaffiliated.some(row => JSON.parse(row.event).type === 'framework.session_rotated'), '游离事件应随摘要返回');
   // 还有更多才给游标,游标指向本页最后一回合(加载靠后的回合,不是倒着查)。
   assert.equal(first.nextAfter, 'turn-4');

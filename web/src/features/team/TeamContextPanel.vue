@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
+import { computed, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue';
 import { api } from '@/shared/api/client';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,39 +21,32 @@ import {
 } from '@lucide/vue';
 import CollapsibleRightSidebar from '@/app/layouts/CollapsibleRightSidebar.vue';
 import PanelState from '@/components/panel/PanelState.vue';
-import MemberStrip from '@/features/groups/MemberStrip.vue';
 import MemberModelDialog from '@/features/groups/MemberModelDialog.vue';
 import CollaborationPanel from '@/features/groups/CollaborationPanel.vue';
-import SessionList from '@/features/sessions/SessionList.vue';
-import InspectorPanel from '@/features/sessions/InspectorPanel.vue';
-import TelemetryMembersView from '@/features/telemetry/TelemetryMembersView.vue';
+import TeamMembersPanel from './TeamMembersPanel.vue';
 import { mountKey, type MountedTool } from '@/tools';
 import { useUiStore } from '@/stores/ui';
 import { useToolOrder } from './use-tool-order';
 import { contextTabs, type ContextPanel } from './types';
 import { withGap, type SortItem } from '@/shared/sort-preview';
 import { useSortable } from '@/shared/use-sortable';
-import type { InspectorTab } from '@/features/sessions/types';
 import type {
   AgentTasksView,
-  HistoryRow,
   Member,
   PanelAgent,
-  SessionBinding,
   SessionEndpoint,
-  TurnSummary,
 } from '@/shared/api/raw-types';
 
 /**
- * 团队工作区右栏（概览/成员/会话/详情/工具）。
- * 模板整体从 GroupWorkspacePage 拆出，工具页排序/置顶/关闭由 useToolOrder 承担；
- * 页面组合根只通过 props/emit 注入数据与路由动作。
+ * 团队工作区右栏（概览 / 成员 / 工具）。
+ * 原「会话」与「详情」已迁至中间主区标签页；三栏内容按团队保活（v-show）以保持
+ * 跨 tab 切换时的折叠状态，并支持成员页直达协调遥测或主区执行轨迹。
  */
 const props = defineProps<{
   groupId: string;
   panel: ContextPanel;
   visible: boolean;
-  /** 当前右栏数据加载错误（会话/概览/详情）。 */
+  /** 当前右栏数据加载错误。 */
   contextError: Error | null;
   panelAgent: PanelAgent | null;
   tasksView: AgentTasksView;
@@ -63,31 +56,12 @@ const props = defineProps<{
   pausedMemberIds: Set<string>;
   actors: Array<{ id: string; name: string; host?: string }>;
   currentEndpoints: SessionEndpoint[];
-  currentSessionBindings: SessionBinding[];
-  selectedSessionId: string;
-  runningEndpoints: string[];
-  selectedEndpoint?: SessionEndpoint;
-  currentController?: {
-    kind: 'member' | 'panel_agent' | 'external_agent';
-    id: string;
-    name: string;
-    assignment?: { revision: number; state: 'active' | 'suspended'; original_lead_id: string | null } | null;
-  } | null;
-  turnSummaries: TurnSummary[];
-  unaffiliatedEvents: HistoryRow[];
-  activeTab: InspectorTab;
-  loading: boolean;
-  hasNextPage: boolean;
-  fetchingNextPage: boolean;
 }>();
 
 const emit = defineEmits<{
   'update:panel': [value: ContextPanel];
-  'update:tab': [tab: InspectorTab];
-  'select-session': [id: string];
-  'choose-session': [];
+  'open-trace': [sessionId: string];
   retry: [];
-  'load-more': [];
   close: [];
   'member-model-saved': [];
 }>();
@@ -106,18 +80,17 @@ type ToolRow = SortItem<ToolEntry>;
 
 const toolsRoot = ref<HTMLElement | null>(null);
 const toolEntries = computed<ToolEntry[]>(() =>
-  toolsPanelMounts.value.map(entry => ({
+  toolsPanelMounts.value.map((entry) => ({
     id: mountKey(entry.tool.id, 'right-tools'),
     entry,
   })),
 );
 const sortable = useSortable({
   root: toolsRoot,
-  ids: () => toolEntries.value.map(row => row.id),
+  ids: () => toolEntries.value.map((row) => row.id),
   canDrag: () => true,
   canTarget: () => true,
   axis: () => 'y',
-  // 与侧栏文件夹一致：拖拽源是标题行，投放目标与空位仍是整个区块。
   dragElementSelector: () => '[data-slot="disclosure-header"]',
   onReorder: (id, targetId, after) => reorder(id, targetId, after),
 });
@@ -150,9 +123,47 @@ function bindGapRef(element: Element | ComponentPublicInstance | null) {
   sortable.bindGap(element instanceof HTMLElement ? element : null);
 }
 
+// 工具卡片展开态按 mountKey 记忆，跨 tab 切换不重置；点击成员用量摘要时自动展开协调遥测。
+const toolOpenMap = ref<Record<string, boolean>>({});
+const focusedTelemetryMemberId = ref<string | undefined>(undefined);
+function isToolOpen(key: string): boolean {
+  return Boolean(toolOpenMap.value[key]);
+}
+function setToolOpen(key: string, open: boolean) {
+  toolOpenMap.value = { ...toolOpenMap.value, [key]: open };
+}
+function openMemberUsage(memberId: string) {
+  focusedTelemetryMemberId.value = memberId;
+  setToolOpen(mountKey('builtin.coordination', 'right-tools'), true);
+  emit('update:panel', 'tools');
+}
+
+// 工具操作菜单受控，确保按 Escape 时立即关闭。
+const openMenuId = ref<string | null>(null);
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && openMenuId.value !== null) {
+    openMenuId.value = null;
+  }
+}
+watch(openMenuId, (id) => {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('keydown', onDocumentKeydown, true);
+  if (id !== null) {
+    window.addEventListener('keydown', onDocumentKeydown, true);
+  }
+});
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onDocumentKeydown, true);
+  }
+});
+
 // 主控关系:当前谁持有写入席位、谁已只读。随团队切换刷新。
 const controllers = ref<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>([]);
-watch(() => props.groupId, async id => {
+watch(() => props.groupId, async (id) => {
+  toolOpenMap.value = {};
+  focusedTelemetryMemberId.value = undefined;
+  openMenuId.value = null;
   if (!id) { controllers.value = []; return; }
   try { controllers.value = await api.getTeamControllers(id); } catch { controllers.value = []; }
 }, { immediate: true });
@@ -216,76 +227,67 @@ function onTab(value: string | number) {
       class="min-h-0 flex-1"
       @update:model-value="onTab"
     >
-      <!-- tab 行:标签组 + 右栏快捷按钮(right-popover 挂载,点击弹出内容浮层)。 -->
       <div v-if="!ui.contextCollapsed" class="mx-4 flex shrink-0 items-center gap-0.5">
         <TabsList
-          class="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          class="grid min-w-0 flex-1 grid-cols-3"
           aria-label="团队详情"
         >
           <TabsTrigger
             v-for="item in contextTabs"
             :key="item.value"
             :value="item.value"
-            class="shrink-0 px-1.5 text-xs"
+            class="px-2 text-xs"
             ><component :is="item.icon" class="size-3.5" />{{ item.label }}</TabsTrigger
           >
         </TabsList>
       </div>
-      <TabsContent
+      <!-- 保持同一团队内三个视图挂载（v-show），切 tab 不丢失折叠展开状态。 -->
+      <div
         v-if="visible"
-        :value="panel"
+        :key="groupId"
         class="context-scroll"
       >
-        <Alert v-if="contextError" variant="destructive"><AlertDescription class="flex items-center gap-2"><span class="flex-1">{{ contextError.message }}</span><Button variant="outline" size="sm" @click="emit('retry')">重试</Button></AlertDescription></Alert>
-        <CollaborationPanel
-          v-if="panel === 'collaboration'"
-          :group-id="groupId"
-          :view="tasksView"
-          :members="members"
-          :panel-agent="panelAgent"
-          :actors="actors"
-        />
-        <div
-          v-else-if="panel === 'members'"
-          class="flex flex-col gap-5"
-        >
-          <TelemetryMembersView :group-id="groupId" />
-          <Disclosure>
-            <template #summary>成员资料与模型（{{ currentMembers.length }}）</template>
-            <div class="mt-3">
-              <MemberStrip
-                :members="currentMembers"
-                :running-member-ids="runningMemberIds"
-                :paused-member-ids="pausedMemberIds"
-                @edit-model="openMemberModelDialog"
-              />
-            </div>
-          </Disclosure>
+        <Alert v-if="contextError" variant="destructive" class="mb-3">
+          <AlertDescription class="flex items-center gap-2">
+            <span class="flex-1">{{ contextError.message }}</span>
+            <Button variant="outline" size="sm" @click="emit('retry')">重试</Button>
+          </AlertDescription>
+        </Alert>
+
+        <div v-show="panel === 'collaboration'" role="tabpanel" aria-label="概览">
+          <CollaborationPanel
+            :group-id="groupId"
+            :view="tasksView"
+            :members="members"
+            :panel-agent="panelAgent"
+            :actors="actors"
+          />
         </div>
-        <SessionList
-          v-else-if="panel === 'sessions'"
-          :endpoints="currentEndpoints"
-          :session-bindings="currentSessionBindings"
-          :members="members"
-          :actors="actors"
-          :selected-id="selectedSessionId"
-          :running-endpoints="runningEndpoints"
-          @select="emit('select-session', $event)"
-        />
-        <!-- 工具页:每个挂载一个可折叠区块,标题区分工具,默认收起。
-             头部动作作用于这一节本身(与展开状态无关):置顶把挂载提到最前,
-             关闭只隐藏右栏这一处挂载(设置里可恢复),抓手拖拽排序。
-             顺序与显隐都记在工具偏好里。 -->
+
+        <div v-show="panel === 'members'" role="tabpanel" aria-label="成员">
+          <TeamMembersPanel
+            :group-id="groupId"
+            :members="currentMembers"
+            :endpoints="currentEndpoints"
+            :running-member-ids="runningMemberIds"
+            :paused-member-ids="pausedMemberIds"
+            @edit-model="openMemberModelDialog"
+            @open-usage="openMemberUsage"
+            @open-trace="emit('open-trace', $event)"
+          />
+        </div>
+
         <div
-          v-else-if="panel === 'tools'"
+          v-show="panel === 'tools'"
           :ref="setToolsRoot"
+          role="tabpanel"
+          aria-label="工具"
           class="flex min-w-0 flex-col gap-4"
         >
           <PanelState
             v-if="!toolsPanelMounts.length"
             :icon="Wrench"
-            title="没有启用的工具"
-            description="在设置 → 工具里启用并勾选「右栏工具页」。"
+            title="暂无工具"
           />
           <template v-for="row in toolRows" :key="row.key">
             <div
@@ -295,12 +297,19 @@ function onTab(value: string | number) {
               :data-flip-key="row.hidden ? undefined : `tool:${row.item.id}`"
               :data-sort-hidden="row.hidden ? 'true' : undefined"
             >
-              <Disclosure persist-actions>
+              <Disclosure
+                :open="isToolOpen(row.item.id)"
+                persist-actions
+                @update:open="setToolOpen(row.item.id, $event)"
+              >
                 <template #summary>
                   <h3 class="min-w-0 flex-1 truncate text-sm font-semibold">{{ toolName(row) }}</h3>
                 </template>
                 <template #actions>
-                  <DropdownMenu>
+                  <DropdownMenu
+                    :open="openMenuId === row.item.id"
+                    @update:open="openMenuId = $event ? row.item.id : (openMenuId === row.item.id ? null : openMenuId)"
+                  >
                     <DropdownMenuTrigger as-child>
                       <Button
                         variant="ghost"
@@ -311,7 +320,7 @@ function onTab(value: string | number) {
                         <MoreHorizontal />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" @escape-key-down="openMenuId = null">
                       <DropdownMenuGroup>
                         <DropdownMenuItem @select="togglePinRow(row)">
                           <component
@@ -328,7 +337,11 @@ function onTab(value: string | number) {
                   </DropdownMenu>
                 </template>
                 <div class="mt-3">
-                  <component :is="toolComponent(row)" :group-id="groupId" />
+                  <component
+                    :is="toolComponent(row)"
+                    :group-id="groupId"
+                    :selected-member-id="row.item.entry.tool.id === 'builtin.coordination' ? focusedTelemetryMemberId : undefined"
+                  />
                 </div>
               </Disclosure>
             </div>
@@ -341,27 +354,7 @@ function onTab(value: string | number) {
             />
           </template>
         </div>
-        <InspectorPanel
-          v-else
-          class="inspector-embedded"
-          :group-id="groupId"
-          :endpoints="currentEndpoints"
-          :endpoint="selectedEndpoint"
-          :members="members"
-          :controller="currentController"
-          :actors="actors"
-          :turn-summaries="turnSummaries"
-          :unaffiliated-events="unaffiliatedEvents"
-          :tab="activeTab"
-          :loading="loading"
-          :has-next-page="hasNextPage"
-          :fetching-next-page="fetchingNextPage"
-          @choose-session="emit('choose-session')"
-          @update:tab="emit('update:tab', $event)"
-          @load-more="emit('load-more')"
-          @close="emit('close')"
-        />
-      </TabsContent>
+      </div>
     </Tabs>
   </CollapsibleRightSidebar>
 

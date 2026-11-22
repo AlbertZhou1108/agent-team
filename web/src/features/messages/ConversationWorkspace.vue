@@ -15,9 +15,11 @@ const props = withDefaults(defineProps<MessageFeedProps & {
   error?: string;
   retryable?: boolean;
   readonly?: boolean;
+  /** 为 true 时渲染 #body 插槽替代消息流，用于轨迹/原始事件等主区标签页。 */
+  customBody?: boolean;
   /** 最后一条消息进入视口时调用，用于推进读水位。 */
   onReachBottom?: () => void;
-}>(), { groupSystemMessages: true, traceable: true, markdown: true, readonly: false });
+}>(), { groupSystemMessages: true, traceable: true, markdown: true, readonly: false, customBody: false });
 // 滚动容器不知道自己在哪个会话里，由工作区把记账回调传下去。
 provideReachBottom(() => props.onReachBottom?.());
 const references=ref<MessageReference[]>([]);
@@ -25,7 +27,7 @@ provide(referenceContext,{items:references,enabled:computed(()=>!props.readonly)
 watch(()=>[props.resetKey,props.selectedPair,props.heading],()=>{references.value=[];});
 const emit = defineEmits<{ loadMore: []; retry: [] }>();
 const feedProps = computed(() => {
-  const { heading, description, error, retryable, readonly, onReachBottom, ...feed } = props;
+  const { heading, description, error, retryable, readonly, customBody, onReachBottom, ...feed } = props;
   return feed;
 });
 </script>
@@ -33,11 +35,16 @@ const feedProps = computed(() => {
 <template>
   <!-- overlay 结构:操作区/横幅进 bar-top、输入区进 bar-bottom,都落在
        MessageFeed 的滚动区内 —— 消息从栏下穿过(所有材质共用此结构,
-       玻璃只是让穿越可见)。 -->
+       玻璃只是让穿越可见)。主区切至轨迹/原始事件时使用 customBody 共享同一顶栏与标签栏。 -->
   <ConversationFrame class="conversation-workspace">
-    <MessageFeed v-bind="feedProps" @load-more="emit('loadMore')">
-      <template #bar-top>
-        <Surface role="action" as="header" class="conversation-header">
+    <template v-if="customBody">
+      <Surface
+        role="action"
+        as="header"
+        class="conversation-header"
+        :class="{ 'conversation-header-with-context': Boolean($slots.context) }"
+      >
+        <div :class="$slots.context ? 'conversation-header-row' : 'flex min-w-0 flex-1 items-center gap-3'">
           <slot name="leading" />
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -47,6 +54,40 @@ const feedProps = computed(() => {
             <p v-if="description" class="mt-1 truncate text-xs text-muted-foreground" :title="description">{{ description }}</p>
           </div>
           <div v-if="$slots.actions" class="flex shrink-0 flex-wrap items-center gap-2"><slot name="actions" /></div>
+        </div>
+        <slot name="context" />
+      </Surface>
+      <Alert v-if="error" variant="destructive" class="mx-4 mt-2 mb-2 w-auto" role="alert">
+        <AlertDescription class="flex items-center gap-2">
+          <span class="min-w-0 flex-1">{{ error }}</span>
+          <Button v-if="retryable" variant="outline" size="sm" @click="emit('retry')">重试</Button>
+        </AlertDescription>
+      </Alert>
+      <slot name="status" />
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <slot name="body" />
+      </div>
+    </template>
+    <MessageFeed v-else v-bind="feedProps" @load-more="emit('loadMore')">
+      <template #bar-top>
+        <Surface
+          role="action"
+          as="header"
+          class="conversation-header"
+          :class="{ 'conversation-header-with-context': Boolean($slots.context) }"
+        >
+          <div :class="$slots.context ? 'conversation-header-row' : 'flex min-w-0 flex-1 items-center gap-3'">
+            <slot name="leading" />
+            <div class="min-w-0 flex-1">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 class="min-w-0 truncate text-base font-semibold" :title="heading">{{ heading }}</h1>
+                <slot name="heading-meta" />
+              </div>
+              <p v-if="description" class="mt-1 truncate text-xs text-muted-foreground" :title="description">{{ description }}</p>
+            </div>
+            <div v-if="$slots.actions" class="flex shrink-0 flex-wrap items-center gap-2"><slot name="actions" /></div>
+          </div>
+          <slot name="context" />
         </Surface>
         <Alert v-if="error" variant="destructive" class="mx-4 mb-2 w-auto" role="alert">
           <AlertDescription class="flex items-center gap-2">
@@ -55,7 +96,6 @@ const feedProps = computed(() => {
           </AlertDescription>
         </Alert>
         <slot name="status" />
-        <slot name="context" />
       </template>
       <template v-if="$slots.empty" #empty><slot name="empty" /></template>
       <template v-if="$slots.footer" #footer="scope"><slot name="footer" v-bind="scope" /></template>

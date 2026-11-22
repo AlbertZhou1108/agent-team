@@ -208,22 +208,22 @@ export function useTeamDerived(
   );
 
   const contextError = computed(() =>
-    contextPanel.value === 'sessions'
-      ? queries.sessionsQuery.error.value
-      : contextPanel.value === 'collaboration'
-        ? queries.tasksQuery.error.value
-        : contextPanel.value === 'details'
-          ? queries.sessionQuery.error.value
-          : null,
+    contextPanel.value === 'collaboration'
+      ? queries.tasksQuery.error.value
+      : null,
   );
   function retryContext() {
-    if (contextPanel.value === 'sessions') void queries.sessionsQuery.refetch();
-    else if (contextPanel.value === 'collaboration') void queries.tasksQuery.refetch();
-    else void queries.sessionQuery.refetch();
+    if (contextPanel.value === 'collaboration') void queries.tasksQuery.refetch();
+    else {
+      void queries.sessionsQuery.refetch();
+      void queries.sessionQuery.refetch();
+    }
   }
 
   const inspectorError = computed(() =>
-    activeTab.value === 'usage' ? undefined : queries.turnsQuery.error.value,
+    activeTab.value === 'usage'
+      ? undefined
+      : (queries.turnsQuery.error.value ?? (options.detailsVisible.value ? queries.sessionQuery.error.value : undefined)),
   );
 
   // 工具模块：左导航条目与启用状态全部由注册表 + 用户偏好推导。
