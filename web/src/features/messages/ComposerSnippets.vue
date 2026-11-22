@@ -53,7 +53,7 @@ function save() {
         variant="ghost"
         size="icon-sm"
         aria-label="常用片段"
-        title="常用片段"
+        title="常用片段（空输入框按 /）"
         ><TextQuote /></InputGroupButton></PopoverTrigger
     ><PopoverContent class="w-80" align="end">
       <div class="flex flex-col gap-2">

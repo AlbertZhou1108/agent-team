@@ -31,9 +31,10 @@ export function noteSourceLabel(note: Pick<Note, 'sourceTeamId' | 'sourceTeamNam
   return note.sourceTeamName ?? '团队已删除';
 }
 
-/** 列表摘要：跳过作为标题的首行，压缩空行后截断。 */
+/** 列表摘要：单行且标题自动生成时不再重复正文，否则跳过作为标题的首行后截断。 */
 export function noteExcerpt(note: Note, limit = 80): string {
   const lines = note.body.split('\n').map(line => line.trim()).filter(Boolean);
+  if (lines.length <= 1 && !note.titleManual) return '';
   const rest = lines.length > 1 ? lines.slice(1).join(' ') : lines.join(' ');
   const text = rest || note.body.trim();
   return text.length > limit ? `${text.slice(0, limit)}…` : text;

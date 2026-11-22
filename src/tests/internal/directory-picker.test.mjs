@@ -35,3 +35,35 @@ test('Linux picker falls back to kdialog and handles cancel or missing dependenc
   assert.deepEqual(await chooseDirectory({ platform: 'linux', run: async () => { throw Object.assign(new Error(), { code: 1 }); } }), { path: null });
   await assert.rejects(chooseDirectory({ platform: 'linux', run: async () => { throw Object.assign(new Error(), { code: 'ENOENT' }); } }), /zenity 或 kdialog/);
 });
+
+test('folder picker aborts through the shared signal and releases the single-flight lock', async () => {
+  let called = false;
+  const preAborted = new AbortController();
+  preAborted.abort();
+  await assert.rejects(
+    chooseDirectory({ platform: 'darwin', signal: preAborted.signal, run: async () => { called = true; return { stdout: '' }; } }),
+    error => error.name === 'AbortError',
+  );
+  assert.equal(called, false);
+
+  const controller = new AbortController();
+  let received;
+  const pending = chooseDirectory({
+    platform: 'darwin',
+    prompt: '选择自定义目录',
+    signal: controller.signal,
+    run: async (command, args, options) => {
+      received = { command, args, signal: options.signal };
+      await new Promise((_, reject) => {
+        options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+      });
+    },
+  });
+  assert.equal(received.signal, controller.signal);
+  assert.match(received.args[1], /选择自定义目录/);
+  controller.abort();
+  await assert.rejects(pending, error => error.name === 'AbortError');
+
+  const after = await chooseDirectory({ platform: 'darwin', run: async () => ({ stdout: tmpdir() + '\n' }) });
+  assert.equal(after.path, tmpdir());
+});

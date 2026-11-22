@@ -31,7 +31,7 @@ import {
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { TEAM_COLORS } from '@/shared/team-colors';
 import type { Note, NoteState, NoteTag } from '@/shared/api/raw-types';
-import { TEAM_FILTER_NONE, draftFrom, isDirty, noteStateLabel, toggleTodo } from './notes-state';
+import { TEAM_FILTER_NONE, draftFrom, isDirty, noteStateLabel, toggleTodo, type NoteDraft } from './notes-state';
 
 const props = defineProps<{
   note: Note;
@@ -49,6 +49,7 @@ const emit = defineEmits<{
   state: [state: NoteState | 'restore'];
   pin: [pinned: boolean];
   'create-tag': [payload: { name: string; color: string | null }];
+  'draft-change': [draft: NoteDraft];
   remove: [];
   handoff: [instruction: string];
   reload: [];
@@ -68,7 +69,7 @@ const newTagColor = ref<string | null>(null);
 const archived = computed(() => props.note.state === 'archived');
 const dirty = computed(() => isDirty(props.note, draft.value));
 const openTodos = computed(() => draft.value.todos.filter(todo => !todo.done).length);
-const canHandoff = computed(() => !archived.value && props.panelReady && !dirty.value && !props.saving);
+const canHandoff = computed(() => !archived.value && props.panelReady && !props.saving);
 
 // 来源团队是可选字段：'none' 是界面上的「无来源」，落库为 null。
 const sourceValue = computed({
@@ -110,6 +111,8 @@ watch(() => props.note.id, reset, { immediate: true });
 watch(() => props.note.revision, () => { draft.value = draftFrom(props.note); });
 // 父组件在切换/收起详情前要知道有没有未保存内容，否则会静默丢弃。
 watch(dirty, value => emit('dirty', value), { immediate: true });
+// 父组件据此先落库草稿，再执行完成/归档/置顶/交给助手等状态动作。
+watch(draft, value => emit('draft-change', { ...value }), { deep: true, immediate: true });
 
 async function save() {
   if (!dirty.value || props.saving) return;
@@ -336,7 +339,7 @@ function handoff() {
         v-if="note.state === 'active'"
         size="sm"
         variant="outline"
-        :disabled="saving || dirty"
+        :disabled="saving"
         @click="emit('state', 'done')"
       >
         完成
@@ -345,7 +348,7 @@ function handoff() {
         v-if="note.state === 'done'"
         size="sm"
         variant="outline"
-        :disabled="saving || dirty"
+        :disabled="saving"
         @click="emit('state', 'active')"
       >
         取消完成
@@ -354,7 +357,7 @@ function handoff() {
         v-if="!archived || note.pinnedAt"
         size="sm"
         variant="outline"
-        :disabled="saving || dirty"
+        :disabled="saving"
         @click="emit('pin', !note.pinnedAt)"
       >
         <Pin />
@@ -364,7 +367,7 @@ function handoff() {
         v-if="!archived"
         size="sm"
         variant="ghost"
-        :disabled="saving || dirty"
+        :disabled="saving"
         @click="emit('state', 'archived')"
       >
         归档
@@ -386,7 +389,7 @@ function handoff() {
         variant="secondary"
         class="self-start"
         :disabled="!canHandoff"
-        :title="archived ? '归档的记录不能交给助手' : !panelReady ? '请先创建 Panel Agent' : dirty ? '先保存当前修改' : undefined"
+        :title="archived ? '归档的记录不能交给助手' : !panelReady ? '请先创建 Panel Agent' : undefined"
         @click="showHandoff = true"
       >
         <Send />

@@ -25,6 +25,8 @@ export type ComposerAttachment = {
   error?: string;
 };
 
+export type ComposerMention = { id: string; name: string; role?: string };
+
 const props = withDefaults(defineProps<{
   sending: boolean;
   disabled?: boolean;
@@ -35,6 +37,8 @@ const props = withDefaults(defineProps<{
   stopping?: boolean;
   /** 附件草稿列表;提供时展示回形针、拖入区域与附件条。 */
   attachments?: ComposerAttachment[];
+  /** 输入 @ 时可插入的成员;不提供时不启用提及补全。 */
+  mentions?: ComposerMention[];
 }>(), {
   disabled: false,
   placeholder: '输入消息…',
@@ -42,17 +46,72 @@ const props = withDefaults(defineProps<{
   stoppable: false,
   stopping: false,
   attachments: undefined,
+  mentions: undefined,
 });
 const draft = defineModel<string>({ required: true });
 const ui = useUiStore();
 const references=inject(referenceContext,null);
 const snippets=ref<{show:()=>void}|null>(null);
 function composerKeydown(event:KeyboardEvent){
+  if(mentionState.value){
+    if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+      event.preventDefault();moveMention(event.key==='ArrowDown'?1:-1);return;
+    }
+    if(event.key==='Enter'||event.key==='Tab'){
+      event.preventDefault();const item=mentionState.value.items[mentionState.value.index];if(item)applyMention(item);return;
+    }
+    if(event.key==='Escape'){
+      event.preventDefault();mentionState.value=null;return;
+    }
+  }
   if(event.key==='/'&&!event.isComposing&&!draft.value){event.preventDefault();snippets.value?.show();return;}
   onKeydown(event);
 }
 const referenceItems=computed(()=>references?.items.value??[]);
 const preparedDraft=computed(()=>referenceText(referenceItems.value,draft.value));
+type MentionState = { items: ComposerMention[]; index: number; start: number; end: number };
+const mentionState = ref<MentionState | null>(null);
+function activeInput() {
+  return collapsed.value ? compactInput.value?.$el : textarea.value?.$el;
+}
+// 只在光标前是「行首/空白 + @ + 无空白关键词」时弹菜单;普通邮件地址或已有提及不拦截。
+function updateMentions(event?: Event) {
+  const target = (event?.target as HTMLInputElement | HTMLTextAreaElement | null) ?? activeInput();
+  if (!target || !props.mentions?.length) { mentionState.value = null; return; }
+  const caret = target.selectionStart ?? target.value.length;
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(target.value.slice(0, caret));
+  if (!match) { mentionState.value = null; return; }
+  const keyword = match[1].toLowerCase();
+  const items = props.mentions
+    .filter(item => item.name.toLowerCase().includes(keyword))
+    .slice(0, 6);
+  if (!items.length) { mentionState.value = null; return; }
+  mentionState.value = {
+    items,
+    index: Math.min(mentionState.value?.index ?? 0, items.length - 1),
+    start: caret - match[1].length - 1,
+    end: caret,
+  };
+}
+function applyMention(item: ComposerMention) {
+  const state = mentionState.value;
+  if (!state) return;
+  const value = draft.value;
+  const end = activeInput()?.selectionEnd ?? state.end;
+  draft.value = value.slice(0, state.start) + `@${item.name} ` + value.slice(end);
+  mentionState.value = null;
+  void nextTick(() => {
+    const target = activeInput();
+    target?.focus();
+    const caret = state.start + item.name.length + 2;
+    target?.setSelectionRange(caret, caret);
+  });
+}
+function moveMention(step: number) {
+  const state = mentionState.value;
+  if (!state) return;
+  state.index = (state.index + step + state.items.length) % state.items.length;
+}
 async function insertSnippet(text:string){
   const input=collapsed.value?compactInput.value?.$el:textarea.value?.$el;
   const start=input?.selectionStart??draft.value.length;
@@ -187,7 +246,7 @@ function keyboardResize(event: KeyboardEvent) {
   <!-- 折叠态是仍可输入的简洁行:单行输入、发送、展开切换,不展示模型与权限等次要控件。 -->
   <form
     v-if="collapsed"
-    class="agent-composer-compact content-appear"
+    class="agent-composer-compact content-appear relative"
     @submit.prevent="submit"
     @dragenter="onDragEnter"
     @dragleave="onDragLeave"
@@ -218,6 +277,10 @@ function keyboardResize(event: KeyboardEvent) {
         :aria-label="label"
         :disabled="disabled"
         @keydown="composerKeydown"
+        @input="updateMentions"
+        @keyup="updateMentions"
+        @click="updateMentions"
+        @blur="mentionState = null"
       />
       <InputGroupAddon align="inline-end" class="gap-1"><ComposerSnippets ref="snippets" :current-text="draft" @insert="insertSnippet" />
         <InputGroupButton
@@ -257,6 +320,28 @@ function keyboardResize(event: KeyboardEvent) {
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>
+    <div
+      v-if="mentionState"
+      data-surface="overlay"
+      role="listbox"
+      aria-label="成员提及"
+      class="absolute bottom-full left-0 z-50 mb-1 max-h-56 w-64 overflow-y-auto border p-1 text-popover-foreground shadow-md"
+    >
+      <button
+        v-for="(item, index) in mentionState.items"
+        :key="item.id"
+        type="button"
+        role="option"
+        :aria-selected="index === mentionState.index"
+        class="flex w-full items-center gap-2 rounded-(--component-chip-radius) px-2 py-1.5 text-left text-sm outline-none"
+        :class="index === mentionState.index ? 'bg-accent text-accent-foreground' : ''"
+        @mousedown.prevent
+        @click="applyMention(item)"
+      >
+        <span class="truncate">{{ item.name }}</span>
+        <span v-if="item.role" class="ml-auto shrink-0 text-xs text-muted-foreground">{{ item.role }}</span>
+      </button>
+    </div>
     <input
       v-if="canAttach"
       ref="fileInput"
@@ -270,7 +355,7 @@ function keyboardResize(event: KeyboardEvent) {
   </form>
   <form
     v-else
-    :class="cn('agent-ai-composer content-appear', resizing && 'is-resizing', dragging && 'is-dragging')"
+    :class="cn('agent-ai-composer content-appear relative', resizing && 'is-resizing', dragging && 'is-dragging')"
     :style="{ '--agent-composer-height': `${ui.composerHeight}px` }"
     @submit.prevent="submit"
     @dragenter="onDragEnter"
@@ -348,6 +433,10 @@ function keyboardResize(event: KeyboardEvent) {
           class="max-h-none min-h-20 flex-none field-sizing-fixed"
           :style="{ height: 'var(--agent-composer-height)' }"
           @keydown="composerKeydown"
+          @input="updateMentions"
+          @keyup="updateMentions"
+          @click="updateMentions"
+          @blur="mentionState = null"
         />
         <!-- 控件始终一行:窄列下由模型名截断让位,避免按钮被挤到第二行。 -->
         <InputGroupAddon align="block-end" class="flex-nowrap">
@@ -402,6 +491,28 @@ function keyboardResize(event: KeyboardEvent) {
           </div>
         </InputGroupAddon>
       </InputGroup>
+      <div
+        v-if="mentionState"
+        data-surface="overlay"
+        role="listbox"
+        aria-label="成员提及"
+        class="absolute bottom-full left-0 z-50 mb-1 max-h-56 w-64 overflow-y-auto border p-1 text-popover-foreground shadow-md"
+      >
+        <button
+          v-for="(item, index) in mentionState.items"
+          :key="item.id"
+          type="button"
+          role="option"
+          :aria-selected="index === mentionState.index"
+          class="flex w-full items-center gap-2 rounded-(--component-chip-radius) px-2 py-1.5 text-left text-sm outline-none"
+          :class="index === mentionState.index ? 'bg-accent text-accent-foreground' : ''"
+          @mousedown.prevent
+          @click="applyMention(item)"
+        >
+          <span class="truncate">{{ item.name }}</span>
+          <span v-if="item.role" class="ml-auto shrink-0 text-xs text-muted-foreground">{{ item.role }}</span>
+        </button>
+      </div>
       <input
         v-if="canAttach"
         ref="fileInput"

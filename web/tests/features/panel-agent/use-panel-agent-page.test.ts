@@ -34,6 +34,7 @@ const holder = vi.hoisted(() => ({
     attachmentSettings: vi.fn(async () => ({ maxFileBytes: 1, maxFilesPerMessage: 1 })),
   },
   notifyInteraction: vi.fn(),
+  setQueryData: vi.fn(),
 }));
 
 vi.mock('vue-router', () => ({
@@ -52,8 +53,8 @@ vi.mock('@/features/queries', async () => {
 vi.mock('@tanstack/vue-query', async () => {
   const { ref } = await import('vue');
   return {
-    useQuery: () => ({ data: ref(undefined), isPending: ref(false), error: ref(null), refetch: vi.fn() }),
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    useQuery: () => ({ data: ref(undefined), isPending: ref(false), isStale: ref(true), error: ref(null), refetch: vi.fn() }),
+    useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: holder.setQueryData }),
   };
 });
 vi.mock('@/shared/api/client', () => ({ api: holder.api }));
@@ -204,6 +205,18 @@ describe('panel agent page state', () => {
     const callArgs = holder.api.modelCatalog.mock.calls[0];
     expect(callArgs).toHaveLength(1);
     expect(page.availableHosts.value.map((item: { host: string }) => item.host)).toEqual(['codex', 'dsh']);
+  });
+
+  it('writes a forced catalog refresh back into the shared query cache', async () => {
+    const catalog = { hosts: [{ host: 'dsh', ok: true }] };
+    holder.panelQuery.data.value = panelState();
+    await mount();
+    holder.api.modelCatalog.mockImplementation(async () => catalog);
+
+    await page.loadCatalog(true);
+
+    expect(holder.api.modelCatalog).toHaveBeenLastCalledWith(true);
+    expect(holder.setQueryData).toHaveBeenCalledWith(['model-catalog'], catalog);
   });
 
   it('ignores model updates that would not change the agent configuration', async () => {

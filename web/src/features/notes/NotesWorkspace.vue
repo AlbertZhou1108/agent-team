@@ -16,7 +16,7 @@ import NoteComposer from './NoteComposer.vue';
 import NoteList from './NoteList.vue';
 import NoteDetail from './NoteDetail.vue';
 import NoteBatchCard from './NoteBatchCard.vue';
-import { TEAM_FILTER_ALL, TEAM_FILTER_NONE, TAG_FILTER_ALL, type NoteBatchAction } from './notes-state';
+import { TEAM_FILTER_ALL, TEAM_FILTER_NONE, TAG_FILTER_ALL, type NoteBatchAction, type NoteDraft } from './notes-state';
 
 // 随心记只做「记」：这里没有交接、没有回合、没有任务状态。
 // 「交给 Panel Agent」只是生成一段提示词并跳转，执行与结果都在私人会话里。
@@ -34,6 +34,7 @@ const pendingPrompt = ref<string | null>(null);
 const composer = ref<InstanceType<typeof NoteComposer> | null>(null);
 // 详情里的未保存内容不会被自动保存：切换或收起前必须先问用户。
 const detailDirty = ref(false);
+const detailDraft = ref<NoteDraft | null>(null);
 const pendingLeave = ref<string | null>(null);
 const pendingRoute = ref<string | null>(null);
 const pendingFilter = ref<NoteState | null>(null);
@@ -340,6 +341,15 @@ async function save(draft: { revision: number; title: string; body: string; todo
   }
 }
 
+// 状态动作前先把详情里的草稿落库，拿到新 revision 再改状态；保存失败则中止动作。
+async function saveDraftForAction(note: Note): Promise<Note | null> {
+  if (!detailDirty.value || !detailDraft.value) return note;
+  const updated = await api.updateNote(note.id, detailDraft.value);
+  await refresh();
+  detailDirty.value = false;
+  return updated;
+}
+
 async function changeState(state: NoteState | 'restore') {
   const note = selectedNote.value;
   if (!note) return;
@@ -347,7 +357,9 @@ async function changeState(state: NoteState | 'restore') {
   detailError.value = '';
   conflict.value = false;
   try {
-    await api.setNoteState(note.id, { state, revision: note.revision });
+    const current = await saveDraftForAction(note);
+    if (!current) return;
+    await api.setNoteState(current.id, { state, revision: current.revision });
     await refresh();
     // 归档 / 完成 / 恢复都会让这条记录离开当前页签(恢复回到归档前的状态,
     // 由服务端决定落哪个页签)。列表里已经没有了,卡片就不再挂着。
@@ -379,8 +391,13 @@ async function remove() {
 async function handoff(instruction: string) {
   const note = selectedNote.value;
   if (!note) return;
+  saving.value = true;
+  detailError.value = '';
+  conflict.value = false;
   try {
-    const { text } = await api.notePrompt(note.id, instruction);
+    const current = await saveDraftForAction(note);
+    if (!current) return;
+    const { text } = await api.notePrompt(current.id, instruction);
     // 已有未发送草稿时不静默覆盖：先让用户决定。
     if (panelState.draft.trim()) {
       pendingPrompt.value = text;
@@ -389,6 +406,9 @@ async function handoff(instruction: string) {
     applyPrompt(text);
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : String(cause);
+    conflict.value = cause instanceof ApiError && cause.status === 409;
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -463,11 +483,19 @@ function onNoteDragEnded() {
 async function pinNote(pinned: boolean) {
   const note = selectedNote.value;
   if (!note) return;
+  saving.value = true;
+  detailError.value = '';
+  conflict.value = false;
   try {
-    await api.setNotePin(note.id, { pinned, revision: note.revision });
+    const current = await saveDraftForAction(note);
+    if (!current) return;
+    await api.setNotePin(current.id, { pinned, revision: current.revision });
     await refresh();
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : String(cause);
+    conflict.value = cause instanceof ApiError && cause.status === 409;
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -617,6 +645,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                   @reload="reloadDetail"
                   @close="closeNote"
                   @dirty="detailDirty = $event"
+                  @draft-change="detailDraft = $event"
                 />
               </CardContent>
             </Card>

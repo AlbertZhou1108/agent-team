@@ -577,6 +577,9 @@ function onMemberModelSaved() {
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
               :controller-id="currentControllerId"
               :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
+              :in-coordination="Boolean(selectedPair) || Boolean(selectedEndpoint && selectedEndpoint.context !== 'coordination' && selectedEndpoint.context !== 'panel-coordination')"
+              :active-session-label="conversationTitle"
+              :mentions="currentMembers"
               @sent="router.replace({ query: teamConversationAfterSend(route.query) })" />
           </template>
         </ConversationWorkspace>

@@ -40,6 +40,21 @@ const positioned = computed(() =>
 const currentId = ref<string | null>(null);
 const rail = ref<HTMLElement>();
 let resizeObserver: ResizeObserver | undefined;
+// 回调里同步测量会触发同帧回环告警;合并到下一帧并去重。
+let measureFrame: number | ReturnType<typeof setTimeout> | null = null;
+function scheduleMeasure() {
+  if (measureFrame !== null) return;
+  const run = () => { measureFrame = null; measure(); };
+  measureFrame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(run)
+    : setTimeout(run, 0);
+}
+function cancelMeasure() {
+  if (measureFrame === null) return;
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(measureFrame as number);
+  else clearTimeout(measureFrame);
+  measureFrame = null;
+}
 
 function messageNode(id: string): HTMLElement | null {
   const element = props.viewport;
@@ -141,7 +156,7 @@ watch(
     if (element) {
       // 内容高度变化(图片解码、展开全文、新消息)会移动锚点而不触发滚动,
       // 用 ResizeObserver 补一次当前段判定。
-      resizeObserver = new ResizeObserver(measure);
+      resizeObserver = new ResizeObserver(scheduleMeasure);
       resizeObserver.observe(element);
       const content = element.querySelector<HTMLElement>('.message-content');
       if (content) resizeObserver.observe(content);
@@ -164,6 +179,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  cancelMeasure();
   props.viewport?.removeEventListener('scroll', onScroll);
   props.viewport?.style.removeProperty('--outline-gutter');
   resizeObserver?.disconnect();

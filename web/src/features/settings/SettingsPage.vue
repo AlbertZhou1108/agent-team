@@ -74,32 +74,36 @@ watch(() => [route.query.section, route.query.setting], async () => {
           <h1 class="text-2xl font-semibold tracking-tight">设置</h1>
         </div>
       </CardHeader>
-      <CardContent class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain">
-        <HostDetailPanel v-if="hostKind" :kind="hostKind" @back="closeHostDetail" />
-        <Tabs v-else v-model="activeTab" class="flex min-h-0 flex-col gap-6">
-          <!-- 药丸组按内容宽换行:tab 数量变化不再撑破网格。 -->
-          <TabsList size="sm" class="sticky top-0 z-10 flex h-auto w-fit max-w-full flex-wrap gap-1">
+      <CardContent class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div v-if="hostKind" class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <HostDetailPanel :kind="hostKind" @back="closeHostDetail" />
+        </div>
+        <Tabs v-else v-model="activeTab" class="flex min-h-0 flex-1 flex-col gap-4">
+          <!-- 标签栏固定，只有内容区滚动；药丸组按内容宽换行，数量变化不再撑破网格。 -->
+          <TabsList size="sm" class="flex h-auto w-fit max-w-full flex-wrap gap-1">
             <TabsTrigger value="appearance" class="flex-none">外观</TabsTrigger>
             <TabsTrigger value="general" class="flex-none">通用</TabsTrigger>
             <TabsTrigger value="tools" class="flex-none">工具</TabsTrigger>
             <TabsTrigger value="policy" class="flex-none">模型策略</TabsTrigger>
             <TabsTrigger value="teams" class="flex-none">团队管理</TabsTrigger>
           </TabsList>
-          <TabsContent value="appearance" class="flex flex-col gap-6">
-            <AppearanceTab />
-          </TabsContent>
-          <TabsContent value="general" class="flex flex-col gap-6">
-            <GeneralTab @open-host-detail="openHostDetail" />
-          </TabsContent>
-          <TabsContent value="tools" class="flex flex-col gap-6">
-            <ToolsTab />
-          </TabsContent>
-          <TabsContent value="policy" class="flex flex-col gap-6">
-            <PolicyTab :policy="props.policy" :defaults="props.defaults" @saved="emit('saved', $event)" />
-          </TabsContent>
-          <TabsContent value="teams" class="flex flex-col gap-6">
-            <TeamsTab :archived-teams="props.archivedTeams ?? []" @restore-team="emit('restoreTeam', $event)" />
-          </TabsContent>
+          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <TabsContent value="appearance" class="flex flex-col gap-6">
+              <AppearanceTab />
+            </TabsContent>
+            <TabsContent value="general" class="flex flex-col gap-6">
+              <GeneralTab @open-host-detail="openHostDetail" />
+            </TabsContent>
+            <TabsContent value="tools" class="flex flex-col gap-6">
+              <ToolsTab />
+            </TabsContent>
+            <TabsContent value="policy" class="flex flex-col gap-6">
+              <PolicyTab :policy="props.policy" :defaults="props.defaults" @saved="emit('saved', $event)" />
+            </TabsContent>
+            <TabsContent value="teams" class="flex flex-col gap-6">
+              <TeamsTab :archived-teams="props.archivedTeams ?? []" @restore-team="emit('restoreTeam', $event)" />
+            </TabsContent>
+          </div>
         </Tabs>
       </CardContent>
     </Card>

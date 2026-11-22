@@ -42,6 +42,12 @@ describe('随心记列表展示', () => {
     expect(noteExcerpt(note({ body: '标题\n' + '长'.repeat(120) }))).toHaveLength(81);
   });
 
+  it('单行正文自动成题时不重复显示摘要', () => {
+    expect(noteExcerpt(note({ body: '只有一行正文' }))).toBe('');
+    expect(noteExcerpt(note({ body: '只有一行正文', titleManual: true }))).toBe('只有一行正文');
+    expect(noteExcerpt(note({ body: '标题\n', titleManual: true }))).toBe('标题');
+  });
+
   it('三态文案固定', () => {
     expect(noteStateLabel('active')).toBe('正常');
     expect(noteStateLabel('done')).toBe('已完成');

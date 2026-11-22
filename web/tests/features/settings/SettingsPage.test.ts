@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { h } from 'vue';
 import SettingsPage from '@/features/settings/SettingsPage.vue';
+import HostStatuses from '@/features/settings/HostStatuses.vue';
 import { renderPage, stubSsrBrowser } from '../../support/ssr';
 
 /**
@@ -10,10 +11,24 @@ import { renderPage, stubSsrBrowser } from '../../support/ssr';
  * 动模板只能靠肉眼。断言只覆盖结构，不测具体交互。
  */
 
+const hostData = vi.hoisted(() => ({
+  statuses: [] as Array<Record<string, unknown>>,
+  installations: [] as Array<Record<string, unknown>>,
+}));
+
 vi.mock('@tanstack/vue-query', async () => {
   const { ref } = await import('vue');
   return {
-    useQuery: () => ({ data: ref([]), isPending: ref(false), refetch: vi.fn() }),
+    useQuery: (options: { queryKey?: readonly unknown[] }) => {
+      const key = options.queryKey?.[0];
+      const data = key === 'host-statuses'
+        ? hostData.statuses
+        : key === 'host-installations' ? hostData.installations : [];
+      return {
+        data: ref(data), isPending: ref(false), isSuccess: ref(true), isFetching: ref(false),
+        error: ref(null), dataUpdatedAt: ref(0), refetch: vi.fn(),
+      };
+    },
     useQueryClient: () => ({ removeQueries: vi.fn(), invalidateQueries: vi.fn() }),
   };
 });
@@ -68,6 +83,20 @@ describe('settings page', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('marks the selected host with a friendly label and aria-pressed state', async () => {
+    hostData.statuses = [{ name: 'codex-desktop', status: 'available' }];
+    hostData.installations = [];
+    const { html } = await renderPage(
+      { render: () => h(HostStatuses, { active: true, selectable: true, selected: 'codex-desktop' }) },
+      '/settings',
+    );
+    expect(html).toContain('Codex 桌面应用');
+    expect(html).toContain('data-selected="true"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('已选');
+    expect(html).not.toContain('codex-desktop');
   });
 
   it('tools tab lists builtin plugins and slots derived from BUILTIN_PLUGINS', async () => {

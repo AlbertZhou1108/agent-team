@@ -10,8 +10,10 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
+import { Check } from '@lucide/vue';
+import { hostDisplayLabel } from './hosts/host-view-model';
 
-const props = defineProps<{ active: boolean; selectable?: boolean }>();
+const props = defineProps<{ active: boolean; selectable?: boolean; selected?: string }>();
 const emit = defineEmits<{ select: [host: string] }>();
 const pending = ref<string[]>([]);
 const failures = ref<Record<string, string>>({});
@@ -45,7 +47,6 @@ const hosts = computed(() => (statuses.data.value ?? []).map(host => ({
   ...host,
   ...(installations.dataUpdatedAt.value >= statuses.dataUpdatedAt.value ? installations.data.value?.find(item => item.name === host.name) : {}),
 })));
-const labels: Record<string, string> = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', zcode: 'ZCode' };
 const phases = { checking: '检查安装条件（1/3）', installing: '执行安装（2/3）', verifying: '确认安装结果（3/3）', completed: '安装完成', failed: '安装失败' };
 const busy = (host: HostStatus) => pending.value.includes(host.name) || host.installing;
 function message(error: unknown) {
@@ -92,9 +93,9 @@ async function install(host: HostStatus) {
     </AlertDescription></Alert>
     <Empty v-if="statuses.isSuccess.value && !hosts.length"><EmptyHeader><EmptyTitle>暂无可检测的适配器</EmptyTitle><EmptyDescription>请在服务中配置适配器后重新检测。</EmptyDescription></EmptyHeader></Empty>
     <ItemGroup class="gap-2" aria-live="polite">
-      <Item v-for="host in hosts" :key="host.name" variant="outline" size="sm">
+      <Item v-for="host in hosts" :key="host.name" variant="outline" size="sm" :class="selected === host.name ? 'border-primary bg-accent/40' : undefined" :data-selected="selected === host.name ? 'true' : undefined">
         <ItemContent>
-          <ItemTitle>{{ labels[host.name] ?? host.name }}</ItemTitle>
+          <ItemTitle>{{ hostDisplayLabel(host.name) }}</ItemTitle>
           <p v-if="host.installation || busy(host)" role="status" class="text-xs text-muted-foreground">
             {{ phases[host.installation?.phase ?? 'checking'] }}
           </p>
@@ -105,7 +106,7 @@ async function install(host: HostStatus) {
         </ItemContent>
         <p v-if="host.status === 'missing'" class="text-xs text-muted-foreground">安装到运行服务的机器，{{ host.name === 'claude' ? '使用官方安装脚本' : '使用 npm 全局安装' }}。</p>
         <ItemActions>
-          <Button v-if="selectable && host.status === 'available'" type="button" size="sm" :disabled="refreshing" @click="emit('select', host.name)">使用</Button>
+          <Button v-if="selectable && host.status === 'available'" type="button" size="sm" :variant="selected === host.name ? 'secondary' : 'outline'" :aria-pressed="selected === host.name" :disabled="refreshing" @click="emit('select', host.name)"><Check v-if="selected === host.name" class="size-4" aria-hidden="true" />{{ selected === host.name ? '已选' : '使用' }}</Button>
           <Badge :variant="host.status === 'error' ? 'destructive' : 'secondary'">
             {{ busy(host) ? '安装中…' : host.status === 'available' ? '可用' : host.status === 'missing' ? '未安装' : host.status === 'unchecked' || host.status === 'checking' ? '检测中' : '不可用' }}
           </Badge>

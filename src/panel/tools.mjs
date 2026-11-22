@@ -159,7 +159,12 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
   }
   if (name === 'team_send' || name === 'team_note') {
     bus.collaboration.requireCommunication(group.id);
-    const target = bus.resolveMember(group.id, args.to);
+    // 协调回合可由成员消息唤醒，主控用 team_send(to='user') 显式向用户交付。
+    const toUser = name === 'team_send' && args.to === 'user';
+    const target = toUser ? { id: 'user', name: '用户' } : bus.resolveMember(group.id, args.to);
+    if (toUser && (args.expects_reply === true || args.reply_to !== undefined || args.step_ref !== undefined)) {
+      throw new Error('发给用户的 team_send 只支持正文，不支持 expects_reply、reply_to 或 step_ref');
+    }
     const expectsReply = name === 'team_send' && args.expects_reply === true;
     if (name === 'team_send' && args.reply_to !== undefined) {
       assertReplyTarget(bus.store, group.id, args.reply_to, panelAgent.id, target.id);

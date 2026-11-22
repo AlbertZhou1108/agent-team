@@ -111,6 +111,28 @@ test('directive final output appears as a durable reply without dispatching anot
  await f.restart();assert.equal(replies().length,1);
 });
 
+test('lead can deliver to the user explicitly with send(to=user) without queueing delivery', async t => {
+  const f = await setup(t, async c => {
+    c.onAccepted();
+    const sent = await c.onTool('send', { to: 'user', text: '显式交付给用户' });
+    assert.ok(sent.messageId);
+    await assert.rejects(
+      c.onTool('send', { to: 'user', text: '需要用户额外答复时改用 ask', expects_reply: true }),
+      /只支持正文/,
+    );
+    return '内部收尾文本';
+  });
+  await f.send({ text: '开始', operationId: 'user-send', controllerId: f.group.lead });
+  await until(() => !f.server.bus.running.size); await tick();
+  const rows = f.server.bus.store.all("SELECT * FROM messages WHERE group_id=? AND recipient='user' ORDER BY seq", f.group.id);
+  const explicit = rows.find(row => row.text === '显式交付给用户');
+  assert.equal(explicit.sender, f.group.lead);
+  assert.equal(explicit.kind, 'send');
+  assert.equal(explicit.reply_to, null);
+  assert.equal(explicit.awaiting, 0);
+  assert.equal(f.server.bus.store.pending().filter(message => message.group_id === f.group.id).length, 0);
+});
+
 test('restart recovers a historical final output once without invoking the model again', async t => {
  const f=await setup(t,async c=>{c.onAccepted();return '历史回复'});
  const input=await(await f.send({text:'状态',operationId:'recover',controllerId:f.group.lead})).json();

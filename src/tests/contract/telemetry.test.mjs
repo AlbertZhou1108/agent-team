@@ -10,7 +10,7 @@ import { dshSessionEventFrame, observeTextStream } from '../../member/dsh/teleme
 import { telemetryCapabilitiesFor, telemetryObservation } from '../../telemetry.mjs';
 import { insertPrincipal } from '../../aggregates/external-control.mjs';
 import { startServer } from '../../server.mjs';
-import { createTestGroup } from '../support/fixture.mjs';
+import { createTestGroup, fakeHost, seedPanelAgent } from '../support/fixture.mjs';
 
 const _tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(fn) { const end = Date.now() + 3000; while (!fn()) { if (Date.now() > end) throw new Error('condition timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } }
@@ -117,6 +117,35 @@ test('conversation exposes per-executor attribution, context reference, sessions
   assert.equal(caps.hosts.length, 1);
   assert.equal(Object.keys(caps.hosts[0].metrics).length, 12);
   assert.equal(caps.hosts[0].metrics.inputTokensTotal.capability, 'direct');
+});
+
+test('telemetry members omits panel agents that neither worked nor control the team', async t => {
+  const { bus, group } = fixture(t);
+  const panelId = seedPanelAgent(bus, { name: 'Panel', host: 'fake' });
+  const listed = () => bus.telemetryMembers(group.id).members.some(member => member.executor.kind === 'panel_agent' && member.executor.memberId === panelId);
+  assert.equal(listed(), false, 'an unbound zero-turn panel agent must not appear');
+
+  const now = new Date().toISOString();
+  bus.store.run(
+    "INSERT INTO panel_team_bindings(panel_agent_id,group_id,relation,created,updated) VALUES(?,?,'observer',?,?)",
+    panelId, group.id, now, now,
+  );
+  assert.equal(listed(), false, 'observer binding alone must not add a team telemetry row');
+
+  bus.store.run("UPDATE panel_team_bindings SET relation='main' WHERE panel_agent_id=? AND group_id=?", panelId, group.id);
+  assert.equal(listed(), true, 'a main binding is an active controller');
+
+  bus.store.run('DELETE FROM panel_team_bindings WHERE panel_agent_id=? AND group_id=?', panelId, group.id);
+  bus.store.run(
+    `INSERT INTO team_lead_controllers(group_id,controller_kind,controller_id,state,original_lead_id,revision,updated)
+     VALUES(?,'panel_agent',?,'active',NULL,1,?)
+     ON CONFLICT(group_id) DO UPDATE SET controller_kind='panel_agent',controller_id=excluded.controller_id,state='active',revision=revision+1,updated=excluded.updated`,
+    group.id, panelId, now,
+  );
+  assert.equal(listed(), true, 'an active lead controller should appear');
+
+  bus.store.run("UPDATE team_lead_controllers SET state='suspended' WHERE group_id=?", group.id);
+  assert.equal(listed(), false, 'a suspended controller without batches must not appear');
 });
 
 test('context ratio requires the same model route', async t => {
@@ -585,6 +614,87 @@ send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
   assert.equal(telemetry.find(observation => observation.source === 'dsh.turn_time').timing.hostTurnWallMs, 300);
   assert.equal(host.telemetryCapabilities.metrics.hostTurnWallMs.capability, 'direct');
   assert.equal(host.telemetryCapabilities.metrics.inputTokensTotal.capability, 'derived');
+});
+
+test('DSH context pressure waits for model selection in either event order', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-dsh-model-route-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  const run = async (rows, name) => {
+    const fake = join(directory, `${name}.mjs`);
+    writeFileSync(fake, `#!/usr/bin/env node
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+send({ type: 'session', sessionId: '${name}-session' });
+${rows}
+send({ type: 'final', text: 'ok' });
+send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
+`);
+    chmodSync(fake, 0o700);
+    const host = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
+    const telemetry = [];
+    await host.run({
+      endpoint: { id: 'endpoint', key: 'key', session: null },
+      turnId: 'framework-turn', workspace: directory, prompt: 'metrics', instructions: 'follow',
+      tools: [], policy: { mode: 'communication', allowShell: false }, previousPolicy: null,
+      signal: new AbortController().signal,
+      onSession() {}, onAccepted() {}, onEvent() {}, onTextDelta() {},
+      onTelemetry(observation) { telemetry.push(observation); },
+    });
+    return telemetry.filter(observation => observation.source === 'dsh.context_pressure');
+  };
+  const pressure = `send({ type: 'framework.telemetry.projection', key: 'contextPressure', value: { pressureTokens: 700, contextWindow: 1000 } });`;
+  const selection = `send({ type: 'framework.model.selection', provider: 'deepseek-official', model: 'deepseek-flash' });`;
+
+  const lateModel = await run(`${pressure}\n${selection}`, 'pressure-first');
+  assert.equal(lateModel.length, 1);
+  assert.equal(lateModel[0].context.model.provider, 'deepseek-official');
+  assert.equal(lateModel[0].context.model.model, 'deepseek-flash');
+  assert.equal(lateModel[0].context.model.source, 'dsh.context_pressure');
+
+  const knownModel = await run(`${selection}\n${pressure}`, 'selection-first');
+  assert.equal(knownModel.length, 1);
+  assert.equal(knownModel[0].context.model.model, 'deepseek-flash');
+
+  const noModel = await run(pressure, 'no-selection');
+  assert.equal(noModel.length, 1);
+  assert.equal(noModel[0].context.lastRequestInputTokens, 700);
+  assert.equal(noModel[0].context.model, undefined);
+});
+
+test('DSH context pressure feeds a non-null context ratio into the batch reference', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'agent-dsh-batch-'));
+  const fake = join(directory, 'fake-dsh.mjs');
+  writeFileSync(fake, `#!/usr/bin/env node
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+send({ type: 'session', sessionId: 'dsh-batch-session' });
+send({ type: 'framework.telemetry.projection', key: 'contextPressure', value: { pressureTokens: 700, contextWindow: 1000 } });
+send({ type: 'framework.model.selection', provider: 'deepseek-official', model: 'deepseek-flash' });
+send({ type: 'framework.telemetry.event', event: 'assistant/message', at: 1100, turn: 1, step: 1, usage: { inputTokens: 100, cacheReadTokens: 20, cacheWriteTokens: 0, outputTokens: 5, totalTokens: 125 } });
+send({ type: 'final', text: 'ok' });
+send({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
+`);
+  chmodSync(fake, 0o700);
+  const dsh = createDshHost({ command: fake, directory, socketPath: join(directory, 'unused.sock') });
+  const bus = new Bus({ directory, hosts: new Map([['fake', fakeHost()], ['dsh', dsh]]) });
+  const group = createTestGroup(bus, {
+    name: 'dsh-batch-group',
+    workspace: directory,
+    lead: { name: 'lead', host: 'fake' },
+    members: [{ name: 'one', host: 'dsh' }],
+  });
+  t.after(async () => {
+    if (!bus.closing) await bus.close();
+    await dsh.close?.();
+    rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  });
+  await until(() => bus.running.size === 0);
+  const [lead, one] = bus.members(group.id);
+  await sendFrom(bus, lead, one, 'metrics');
+  const conversation = bus.telemetryConversation(group.id, one.id, lead.id);
+  const executor = conversation.executors.find(item => item.executor.memberId === one.id);
+  assert.equal(executor.contextReference.model.model, 'deepseek-flash');
+  assert.equal(executor.contextReference.model.provider, 'deepseek-official');
+  assert.equal(executor.contextReference.lastRequestInputRatio.value, 0.7);
+  assert.notEqual(executor.contextReference.sampleTurnId, null);
 });
 
 test('DSH observer forwards text and reasoning chunks and deduplicates committed text in the adapter', async t => {

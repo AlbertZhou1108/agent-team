@@ -24,6 +24,21 @@ const overflowing = ref(false);
 const measuredLineHeight = ref(0);
 let observer: ResizeObserver | undefined;
 let heightAnimation: Animation | undefined;
+// 回调里同步读取布局会触发 ResizeObserver 同帧回环告警;合并到下一帧。
+let measureFrame: number | ReturnType<typeof setTimeout> | null = null;
+function scheduleMeasure() {
+  if (measureFrame !== null) return;
+  const run = () => { measureFrame = null; measure(); };
+  measureFrame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(run)
+    : setTimeout(run, 0);
+}
+function cancelMeasure() {
+  if (measureFrame === null) return;
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(measureFrame as number);
+  else clearTimeout(measureFrame);
+  measureFrame = null;
+}
 
 const collapsedHeight = computed(() => measuredLineHeight.value * props.lines);
 
@@ -89,12 +104,13 @@ watch([() => props.text, () => props.lines], async () => {
   measure();
 });
 onMounted(() => {
-  observer = new ResizeObserver(measure);
+  observer = new ResizeObserver(scheduleMeasure);
   if (body.value) observer.observe(body.value);
   if (content.value) observer.observe(content.value);
   measure();
 });
 onBeforeUnmount(() => {
+  cancelMeasure();
   observer?.disconnect();
   heightAnimation?.cancel();
 });

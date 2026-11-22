@@ -157,6 +157,21 @@ test('Panel coordination tools expose messaging and update publishing schemas', 
     const message = bus.store.get('SELECT * FROM messages WHERE id=?', result.messageId);
     assert.equal(message.sender, state.agent.id);
     assert.equal(message.kind, 'send');
+    const delivered = await bus.panelTool(coordination.id, coordination.key, 'team_send', {
+      groupId: group.id,
+      to: 'user',
+      text: '成员汇报后的阶段交付',
+    }, { ...provenance, turnId });
+    const userMessage = bus.store.get('SELECT * FROM messages WHERE id=?', delivered.messageId);
+    assert.equal(userMessage.sender, state.agent.id);
+    assert.equal(userMessage.recipient, 'user');
+    assert.equal(userMessage.awaiting, 0);
+    await assert.rejects(bus.panelTool(coordination.id, coordination.key, 'team_send', {
+      groupId: group.id,
+      to: 'user',
+      text: '需要用户额外答复时改用 ask',
+      expects_reply: true,
+    }, { ...provenance, turnId }), /只支持正文/);
     await assert.rejects(bus.panelTool(coordination.id, coordination.key, 'work_item_update', {
       groupId: group.id,
       command: {},
@@ -180,8 +195,10 @@ test('Panel instructions distinguish coordination and forbid schema-probing writ
   assert.match(privateInstructions, /coordination 上下文/);
   assert.match(privateInstructions, /不是外部进程或另一个 Panel Agent/);
   assert.match(privateInstructions, /team_create/);
+  assert.match(privateInstructions, /不要在正文中暴露内部工具函数名/);
   assert.match(coordinationInstructions, /panel_update_publish/);
   assert.match(coordinationInstructions, /不要穷举猜测字段/);
+  assert.match(coordinationInstructions, /必须显式调用 team_send（to: 'user'）/);
 });
 
 test('Panel Agent is a global non-member identity and automatically observes existing teams', async t => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '@/shared/api/client';
@@ -14,6 +14,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { NoteBlock } from '@/components/ui/note-block';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from '@/components/ui/select';
 import HostStatuses from '@/features/settings/HostStatuses.vue';
+import { hostDisplayLabel } from '@/features/settings/hosts/host-view-model';
+import { prefersReducedMotion } from '@/shared/motion';
 import { buildTeamSummary } from './team-summary';
 
 const router = useRouter(), client = useQueryClient();
@@ -31,20 +33,46 @@ const busy = ref(false), picking = ref(false), error = ref('');
 // 建群前的确认步骤:成员、文件访问范围与工作目录先给用户看一眼。
 const confirming = ref(false);
 const summary = computed(() => buildTeamSummary(form.value));
+const confirmCard = ref<InstanceType<typeof NoteBlock> | null>(null);
 watch(form, value => { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* Keep the in-memory draft. */ } }, { deep: true });
+// 确认摘要展示后，任何字段变化都要回到待确认状态，避免按旧摘要创建。
+watch(() => [form.value.name, form.value.text, form.value.workspace, form.value.host, form.value.worker, form.value.policy], () => { if (confirming.value) confirming.value = false; });
 const canCreate = computed(() => form.value.group || (form.value.name.trim() && form.value.text.trim() && form.value.workspace && form.value.host));
-async function chooseDirectory() {
-  if (picking.value) return;
-  picking.value = true;
-  try { const result = await api.chooseDirectory(); if (result.path) form.value.workspace = result.path; }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
-  finally { picking.value = false; }
+let pickAbort: AbortController | null = null;
+function cancelPicking() {
+  pickAbort?.abort();
+  pickAbort = null;
+  picking.value = false;
 }
+async function chooseDirectory() {
+  if (picking.value) { cancelPicking(); return; }
+  const controller = new AbortController();
+  pickAbort = controller;
+  picking.value = true;
+  error.value = '';
+  try {
+    const result = await api.chooseDirectory(controller.signal);
+    if (controller.signal.aborted) return;
+    if (result.path) form.value.workspace = result.path;
+  } catch (cause) {
+    if (controller.signal.aborted) return;
+    error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    if (pickAbort === controller) { pickAbort = null; picking.value = false; }
+  }
+}
+onBeforeUnmount(cancelPicking);
 async function submit() {
-  if (busy.value || picking.value || !canCreate.value) return;
+  if (busy.value || !canCreate.value) return;
+  if (picking.value) cancelPicking();
   if (!form.value.group && form.value.worker.trim() === '主 Agent') { error.value = '协作助手名称不能与主 Agent 重复'; return; }
   // 首次提交只展开摘要,用户确认后才真正创建。
-  if (!form.value.group && !confirming.value) { confirming.value = true; return; }
+  if (!form.value.group && !confirming.value) {
+    confirming.value = true;
+    await nextTick();
+    confirmCard.value?.$el?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    return;
+  }
   confirming.value = false;
   form.value.submitted = true;
   busy.value = true; error.value = '';
@@ -73,12 +101,12 @@ async function submit() {
           <FieldGroup :disabled="busy || form.submitted">
             <Field><FieldLabel for="team-name">团队名称</FieldLabel><Input id="team-name" v-model="form.name" :disabled="busy || form.submitted" required maxlength="200" /></Field>
             <Field><FieldLabel for="team-request">要完成什么？</FieldLabel><Textarea id="team-request" v-model="form.text" :disabled="busy || form.submitted" required maxlength="48000" placeholder="描述需求、使用材料和希望得到的结果" /></Field>
-            <Field><FieldLabel>使用哪个 AI 工具？</FieldLabel><p v-if="form.host">已选择：{{ form.host }}</p><HostStatuses v-if="!form.group" :active="true" :selectable="!busy" @select="form.host = $event" /></Field>
+            <Field><FieldLabel>使用哪个 AI 工具？</FieldLabel><p v-if="form.host">已选择：{{ hostDisplayLabel(form.host) }}</p><HostStatuses v-if="!form.group" :active="true" :selectable="!busy" :selected="form.host" @select="form.host = $event" /></Field>
             <Field><FieldLabel for="team-worker">协作助手名称</FieldLabel><Input id="team-worker" v-model="form.worker" :disabled="busy || form.submitted" maxlength="100" /><FieldDescription>主 Agent 负责协调与汇总；此成员按消息参与协作。留空则只创建主 Agent。</FieldDescription></Field>
-            <Field><FieldLabel for="team-directory">工作文件夹</FieldLabel><div class="flex gap-2"><Input id="team-directory" v-model="form.workspace" :disabled="busy || form.submitted" placeholder="选择文件夹或粘贴路径" /><Button type="button" variant="outline" :disabled="busy || picking || form.submitted" @click="chooseDirectory">选择</Button></div></Field>
+            <Field><FieldLabel for="team-directory">工作文件夹</FieldLabel><div class="flex gap-2"><Input id="team-directory" v-model="form.workspace" :disabled="busy || form.submitted" placeholder="选择文件夹或粘贴路径" /><Button type="button" variant="outline" :disabled="busy || form.submitted" @click="chooseDirectory">{{ picking ? '取消选择' : '选择' }}</Button></div><p v-if="picking" class="text-sm text-muted-foreground">已打开系统文件夹选择窗口，也可直接粘贴路径。</p></Field>
             <Field><FieldLabel>文件访问范围</FieldLabel><Select v-model="form.policy" :disabled="busy || form.submitted"><SelectTrigger aria-label="文件访问范围"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="communication">仅沟通</SelectItem><SelectItem value="read-only">只读</SelectItem><SelectItem value="workspace-write">允许修改工作文件夹</SelectItem></SelectGroup></SelectContent></Select><FieldDescription>团队说明和聊天中的确认不会改变此权限。</FieldDescription></Field>
           </FieldGroup>
-          <NoteBlock v-if="confirming && !form.group" class="p-4">
+          <NoteBlock v-if="confirming && !form.group" ref="confirmCard" class="p-4">
             <p class="font-medium">确认创建以下团队？</p>
             <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
               <dt class="text-muted-foreground">名称</dt><dd>{{ summary.name }}</dd>
@@ -96,7 +124,7 @@ async function submit() {
           <Alert v-if="form.group"><AlertDescription>团队已创建。需求发送未确认时，再次提交会使用同一请求重试，不会重新建群。<RouterLink :to="`/groups/${form.group.id}`">进入团队</RouterLink></AlertDescription></Alert>
           <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
         </CardContent>
-        <CardFooter class="flex gap-3"><Button type="submit" :disabled="busy || picking || !canCreate">{{ busy ? '提交中…' : form.group ? '重试发送需求' : '创建并发送需求' }}</Button><Button as-child variant="ghost"><RouterLink to="/groups">返回工作台</RouterLink></Button></CardFooter>
+        <CardFooter class="flex gap-3"><Button v-if="!confirming || form.group" type="submit" :disabled="busy || !canCreate">{{ busy ? '提交中…' : form.group ? '重试发送需求' : '创建并发送需求' }}</Button><Button as-child variant="ghost"><RouterLink to="/groups">返回工作台</RouterLink></Button></CardFooter>
       </form>
     </Card>
   </div>

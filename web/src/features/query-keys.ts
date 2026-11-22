@@ -7,6 +7,7 @@ export const queryKeys = {
   directory: ['directory'] as const,
   home: ['home-summary'] as const,
   policy: ['model-policy'] as const,
+  modelCatalog: ['model-catalog'] as const,
   defaults: ['model-policy-defaults'] as const,
   themePacks: ['theme-packs'] as const,
   attachmentSettings: ['attachment-settings'] as const,

@@ -89,8 +89,13 @@ export class ToolDispatch {
     if (name === 'profile_set') { teamsAgg.updateMemberProfile(this.bus.store, member.id, args.text); return { member: member.id, profile: args.text }; }
     if (name === 'send' || name === 'note') {
       this.bus.collaboration.requireCommunication(groupId);
-      const target = this.bus.resolveRecipient(groupId, args.to);
+      // 主 Agent 可在成员唤醒的回合显式向用户交付；user 不是成员，不进入投递队列。
+      const toUser = name === 'send' && member.role === 'lead' && args.to === 'user';
+      const target = toUser ? { id: 'user', name: '用户' } : this.bus.resolveRecipient(groupId, args.to);
       if (target.id === member.id) throw new Error('不能向自己发消息');
+      if (toUser && (args.expects_reply === true || args.reply_to !== undefined || args.step_ref !== undefined)) {
+        throw new Error('发给用户的 send 只支持正文，不支持 expects_reply、reply_to 或 step_ref');
+      }
       const expectsReply = name === 'send' && args.expects_reply === true;
       if (name === 'send' && args.reply_to !== undefined) {
         assertReplyTarget(this.bus.store, groupId, args.reply_to, member.id, target.id);

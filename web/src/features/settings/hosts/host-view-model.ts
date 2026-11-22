@@ -13,6 +13,23 @@ export const HOST_LABELS: Record<HostKind, string> = {
   zcode: 'ZCode',
 };
 
+const DISPLAY_LABELS: Record<string, string> = {
+  codex: 'Codex',
+  claude: 'Claude Code',
+  dsh: 'DSH',
+  zcode: 'ZCode',
+  'codex-desktop': 'Codex 桌面应用',
+  'claude-desktop': 'Claude 桌面应用',
+  'dsh-desktop': 'DSH 桌面应用',
+  'zcode-desktop': 'ZCode 桌面应用',
+};
+
+/** 用户可见的宿主名称；未知值原样返回，避免设置页出现空白。 */
+export function hostDisplayLabel(host?: string | null): string {
+  if (!host) return '未选择';
+  return DISPLAY_LABELS[host] ?? host;
+}
+
 const CLI_NAMES: Record<HostKind, string> = {
   codex: 'codex',
   claude: 'claude',

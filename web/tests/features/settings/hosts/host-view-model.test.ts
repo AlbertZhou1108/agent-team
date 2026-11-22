@@ -9,6 +9,7 @@ import {
   detailCapabilities,
   detailFacts,
   hostCardModel,
+  hostDisplayLabel,
 } from '@/features/settings/hosts/host-view-model';
 
 const available: DesktopApplicationStatus = {
@@ -54,6 +55,19 @@ describe('host view model', () => {
     const capabilities = detailCapabilities('codex', available, { name: 'codex', status: 'missing' });
     expect(capabilities.filter(item => item.action === 'install-cli')).toHaveLength(1);
     expect(capabilities[2].action).toBe('install-cli');
+  });
+
+  it('uses one display name for CLI and desktop hosts', () => {
+    expect(hostDisplayLabel('codex')).toBe('Codex');
+    expect(hostDisplayLabel('claude')).toBe('Claude Code');
+    expect(hostDisplayLabel('dsh')).toBe('DSH');
+    expect(hostDisplayLabel('zcode')).toBe('ZCode');
+    expect(hostDisplayLabel('codex-desktop')).toBe('Codex 桌面应用');
+    expect(hostDisplayLabel('claude-desktop')).toBe('Claude 桌面应用');
+    expect(hostDisplayLabel('dsh-desktop')).toBe('DSH 桌面应用');
+    expect(hostDisplayLabel('zcode-desktop')).toBe('ZCode 桌面应用');
+    expect(hostDisplayLabel('custom')).toBe('custom');
+    expect(hostDisplayLabel()).toBe('未选择');
   });
 
   it('maps missing and error CLI hosts to needs-config', () => {

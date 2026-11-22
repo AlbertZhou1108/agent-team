@@ -89,8 +89,8 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return jsonRequest<T>(path, { headers: { Accept: 'application/json' } }, signal);
 }
 
-async function mutate<T>(path: string, body: unknown): Promise<T> {
-  return jsonRequest<T>(path, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function mutate<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return jsonRequest<T>(path, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal);
 }
 
 /** PATCH/DELETE 用:DELETE 没有请求体,不能复用 mutate 的固定 POST。 */
@@ -162,9 +162,9 @@ export const api = {
   desktopDisable(kind: string, reason?: string) { return mutate<DesktopApplicationStatus>('/api/desktop/disable', { kind, reason }); },
   desktopEnable(kind: string) { return mutate<DesktopApplicationStatus>('/api/desktop/enable', { kind }); },
   desktopRemove(kind: string) { return mutate<DesktopApplicationStatus>('/api/desktop/remove', { kind }); },
-  chooseDirectory() {
+  chooseDirectory(signal?: AbortSignal) {
     return globalThis.agentTeam?.chooseDirectory?.()
-      ?? mutate<{ path: string | null }>('/api/local/directory-picker', {});
+      ?? mutate<{ path: string | null }>('/api/local/directory-picker', {}, signal);
   },
   teamDirectives(groupId: string, signal?: AbortSignal) {
     return request<TeamDirectiveReceipt[]>(`/api/teams/${encodeURIComponent(groupId)}/directives`, signal);

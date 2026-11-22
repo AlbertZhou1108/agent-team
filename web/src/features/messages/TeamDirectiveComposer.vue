@@ -8,7 +8,21 @@ import { Button } from '@/components/ui/button';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
 import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
 import { directiveStatus } from './directive-status';
-const props = defineProps<{ groupId: string; controllerId?: string; archived?: boolean; receipts: TeamDirectiveReceipt[] }>();
+const props = defineProps<{
+  groupId: string;
+  controllerId?: string;
+  archived?: boolean;
+  receipts: TeamDirectiveReceipt[];
+  /** 当前看到的不是主 Agent 统一调度时，明确提示发送仍会交回主调度。 */
+  inCoordination?: boolean;
+  activeSessionLabel?: string;
+  mentions?: Array<{ id: string; name: string; role?: string }>;
+}>();
+const placeholder = computed(() =>
+  props.inCoordination
+    ? `查看「${props.activeSessionLabel ?? '成员会话'}」中；在此发送指令将交给主 Agent 并切回主调度…`
+    : '向主 Agent 发送团队指令或追问…',
+);
 let mounted = true;
 onBeforeUnmount(() => { mounted = false; });
 const emit = defineEmits<{ sent: [] }>();
@@ -47,7 +61,7 @@ async function send() {
         <Button size="sm" variant="outline" :disabled="entry.sending || archived || !controllerId" @click="send">重试发送</Button>
       </AlertDescription>
     </Alert>
-    <MessageComposer v-model="draft" label="发送给主 Agent" placeholder="向主 Agent 发送团队指令或追问…"
+    <MessageComposer v-model="draft" label="发送给主 Agent" :placeholder="placeholder" :mentions="mentions"
       :sending="entry.sending" :disabled="archived || !controllerId" @submit="send" />
   </div>
 </template>

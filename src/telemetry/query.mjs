@@ -177,7 +177,20 @@ export function members(telemetry, groupId, options = {}) {
   const members = telemetry.store.all('SELECT * FROM members WHERE group_id=? AND removed IS NULL ORDER BY rowid', groupId);
   const panelAgent = telemetry.store.panelAgent();
   const entries = members.map(member => ({ kind: 'member', id: member.id, name: member.name, host: member.host }));
-  if (panelAgent) entries.push({ kind: 'panel_agent', id: panelAgent.id, name: panelAgent.name, host: panelAgent.host });
+  // 只列出真正在该团队工作过的 Panel Agent，或仍作为活跃主控存在的 Panel Agent；
+  // 未绑定、零回合的全局 Panel Agent 不进入团队遥测。
+  const panelControlsTeam = panelAgent && (
+    allBatches.some(batch => batch.executor.kind === 'panel_agent' && batch.executor.memberId === panelAgent.id)
+    || Boolean(telemetry.store.get(
+      "SELECT 1 FROM panel_team_bindings WHERE panel_agent_id=? AND group_id=? AND relation='main'",
+      panelAgent.id, groupId,
+    ))
+    || Boolean(telemetry.store.get(
+      "SELECT 1 FROM team_lead_controllers WHERE group_id=? AND controller_kind='panel_agent' AND controller_id=? AND state='active'",
+      groupId, panelAgent.id,
+    ))
+  );
+  if (panelControlsTeam) entries.push({ kind: 'panel_agent', id: panelAgent.id, name: panelAgent.name, host: panelAgent.host });
   const memberRows = entries.map(entry => {
     const batches = allBatches.filter(batch => batch.executor.kind === entry.kind && batch.executor.memberId === entry.id);
     const physicalSessions = telemetry._sessions(batches);

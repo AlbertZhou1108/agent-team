@@ -8,6 +8,7 @@ import { Disclosure } from '@/components/ui/disclosure';
 import { FieldGroup, Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import HostStatuses from '@/features/settings/HostStatuses.vue';
+import { hostDisplayLabel } from '@/features/settings/hosts/host-view-model';
 import PanelAgentModelSelector from './PanelAgentModelSelector.vue';
 import type { AvailableHost, PanelAgentForm } from './types';
 
@@ -69,10 +70,10 @@ async function save() {
         <CardDescription>选择一个 AI 工具，开始与私人助手聊天。需要多人协作时，再创建团队。</CardDescription>
       </CardHeader>
       <CardContent class="flex flex-col gap-4">
-        <HostStatuses :active="true" :selectable="!saving" @select="selectHost" />
+        <HostStatuses :active="true" :selectable="!saving" :selected="form.host" @select="selectHost" />
         <p v-if="loading" role="status">正在准备所选工具…</p>
         <div v-if="hosts.length" class="flex flex-col gap-3">
-          <p>{{ selectedModel ? `已选择 ${form.host} · ${selectedModel.label}` : '此工具没有明确的默认模型，请选择。' }}</p>
+          <p>{{ selectedModel ? `已选择 ${hostDisplayLabel(form.host)} · ${selectedModel.label}` : '此工具没有明确的默认模型，请选择。' }}</p>
           <PanelAgentModelSelector v-if="!selectedModel" v-model:form="form" :hosts="hosts" :disabled="saving" />
           <Disclosure>
             <template #summary>调整模型与名称</template>

@@ -43,4 +43,10 @@ describe('chooseDirectory progressive enhancement', () => {
     expect(await api.chooseDirectory()).toEqual({ path: '/tmp/http' });
     expect(fetchMock).toHaveBeenCalledWith('/api/local/directory-picker', expect.objectContaining({ method: 'POST' }));
   });
+  it('forwards an external abort signal to the HTTP picker', async () => {
+    stalledFetch();
+    const controller = new AbortController();
+    const failed = expect(api.chooseDirectory(controller.signal)).rejects.toHaveProperty('name', 'AbortError');
+    controller.abort(); await failed;
+  });
 });

@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
-import { useQuery } from '@tanstack/vue-query';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { notifyInteraction } from '@/features/messages/interaction-notification';
 import { queryKeys } from '@/features/query-keys';
 import { usePanelAgentQuery, usePanelInteractionsQuery } from '@/features/queries';
@@ -30,8 +30,16 @@ export function usePanelAgentPage() {
   const ui = useUiStore();
   const panelQuery = usePanelAgentQuery();
   const interactionsQuery = usePanelInteractionsQuery();
+  const client = useQueryClient();
   const panel = computed(() => panelQuery.data.value ?? null);
   const catalog = ref<ModelCatalogResponse | null>(null);
+  // 模型目录变化很慢：同一会话里重复打开设置直接吃缓存，显式刷新才重新探测宿主。
+  const catalogQuery = useQuery({
+    queryKey: queryKeys.modelCatalog,
+    queryFn: () => api.modelCatalog(false),
+    staleTime: 60_000,
+    enabled: false,
+  });
   const catalogLoading = ref(false);
   const catalogError = ref('');
   const editing = ref(false);
@@ -180,7 +188,20 @@ export function usePanelAgentPage() {
     try {
       // 设置页要支持切换供应商，必须加载全部宿主目录；按当前 agent 的 host 过滤会
       // 只剩一个宿主，导致供应商切换按钮因 hosts.length <= 1 被禁用。
-      catalog.value = await api.modelCatalog(force);
+      const cached = force ? null : catalogQuery.data.value;
+      if (cached) {
+        catalog.value = cached;
+        // 命中缓存先渲染可读名称；超过 staleTime 时后台刷新，避免切页闪烁。
+        if (catalogQuery.isStale.value) {
+          void api.modelCatalog(false).then((hosts) => {
+            catalog.value = hosts;
+            client.setQueryData(queryKeys.modelCatalog, hosts);
+          }).catch(() => {});
+        }
+      } else {
+        catalog.value = await api.modelCatalog(force);
+        client.setQueryData(queryKeys.modelCatalog, catalog.value);
+      }
       if (!form.value.host && availableHosts.value[0]) {
         selectDefaultModel(availableHosts.value[0]);
       }

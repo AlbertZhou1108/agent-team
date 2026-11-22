@@ -2,7 +2,7 @@ import { chooseDirectory } from '../directory.mjs';
 import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installDesktopIntegration } from '../../desktop/index.mjs';
 
 export function desktopRoutes(context) {
-    const { bus, url, request, fail, readJsonBody } = context;
+    const { bus, url, request, response, fail, readJsonBody } = context;
     const hostInstallMatch = url.pathname.match(/^\/api\/hosts\/([^/]+)\/install$/);
     return [
         { methods: ['GET'], archived: false, matches: url => url.pathname === '/api/hosts/connections', handle: async () =>
@@ -98,8 +98,21 @@ export function desktopRoutes(context) {
                 const body = await readJsonBody(request);
                 if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
                     return fail(400, '文件夹选择不接受路径或脚本参数');
-                value = await chooseDirectory();
-                return value;
+                const controller = new AbortController();
+                // request 的 close 在请求体读完时就会触发，无法区分“页面取消”和“请求正常结束”；
+                // response 的 close 才代表连接提前断开（正常返回时 finally 已移除监听）。
+                const onClose = () => { if (!response.writableEnded) controller.abort(); };
+                response.on('close', onClose);
+                try {
+                    value = await chooseDirectory({ signal: controller.signal });
+                    return value;
+                } catch (error) {
+                    if (error?.name !== 'AbortError') throw error;
+                    if (response.writableEnded || response.destroyed) return undefined;
+                    return fail(499, '文件夹选择已取消');
+                } finally {
+                    response.off('close', onClose);
+                }
             } },
     ];
 }

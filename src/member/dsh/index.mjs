@@ -108,6 +108,35 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       let text, end, streamedText = '';
       const turnStarts = new Map();
       const emittedTurnTiming = new Set();
+      // 模型路由要跟同一次请求的压力采样对齐；selection 可能晚于 projection 到达。
+      const selection = context.modelSelection;
+      let observedModel = selection?.model
+        ? { provider: selection.model_provider ?? null, model: selection.model }
+        : null;
+      let pendingPressure = null;
+      const emitContextPressure = (value, model) => context.onTelemetry?.(telemetryObservation({
+        source: 'dsh.context_pressure', scope: 'request', aggregation: 'snapshot',
+        context: {
+          lastRequestInputTokens: value.pressureTokens,
+          contextWindowTokens: value.contextWindow,
+          ...(model ? {
+            model: {
+              provider: model.provider ?? null,
+              model: model.model,
+              source: 'dsh.context_pressure',
+              observedAt: new Date().toISOString(),
+            },
+          } : {}),
+        },
+        completeness: {
+          lastRequestInputTokens: value.pressureTokens != null ? 'complete' : 'unknown',
+          contextWindowTokens: value.contextWindow != null ? 'complete' : 'unknown',
+        },
+        contextSource: {
+          lastRequestInputTokens: 'dsh.context_pressure',
+          contextWindowTokens: 'dsh.context_pressure',
+        },
+      }));
       await runJsonProcess(command, args, { ...context, env: dshProcessEnv(), onRow(row) {
         const delta = row.type === 'framework.text.delta'
           ? row.text
@@ -211,26 +240,14 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         }
         if (row.type === 'framework.telemetry.projection') {
           if (row.key === 'contextPressure' && row.value && (row.value.pressureTokens != null || row.value.contextWindow != null)) {
-            context.onTelemetry?.(telemetryObservation({
-              source: 'dsh.context_pressure', scope: 'request', aggregation: 'snapshot',
-              context: {
-                lastRequestInputTokens: row.value.pressureTokens,
-                contextWindowTokens: row.value.contextWindow,
-              },
-              completeness: {
-                lastRequestInputTokens: row.value.pressureTokens != null ? 'complete' : 'unknown',
-                contextWindowTokens: row.value.contextWindow != null ? 'complete' : 'unknown',
-              },
-              contextSource: {
-                lastRequestInputTokens: 'dsh.context_pressure',
-                contextWindowTokens: 'dsh.context_pressure',
-              },
-            }));
+            if (observedModel) emitContextPressure(row.value, observedModel);
+            else pendingPressure = row.value;
           }
           return;
         }
         if (row.type === 'framework.model.selection') {
           if (row.model) {
+            observedModel = { provider: row.provider ?? null, model: row.model };
             context.onModel?.({
               phase: 'session',
               model: row.model,
@@ -243,6 +260,10 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
               model: row.model,
               reasoning_effort: row.reasoningEffort ?? null,
             });
+            if (pendingPressure) {
+              emitContextPressure(pendingPressure, observedModel);
+              pendingPressure = null;
+            }
           }
           return;
         }
@@ -262,6 +283,11 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
         if (row.type === 'status' && row.phase === 'turn_end') end = row.reason?.kind;
         if (row.type === 'error') throw new Error(row.message ?? row.error ?? 'DSH 回合失败');
       } });
+      // 没有 selection 时仍保留压力观测；只是模型路由缺失，由批次层标记 scope_mismatch。
+      if (pendingPressure) {
+        emitContextPressure(pendingPressure, null);
+        pendingPressure = null;
+      }
       if (text === undefined || end !== 'completed') throw new Error('DSH 未完成回合，输入接受边界尚无法确认');
       onAccepted();
       return text;

@@ -85,7 +85,19 @@ test('new sessions use fixed rules with a compact dynamic view; legacy sessions 
   assert.match(first.instructions, /固定规则与本轮动态事实分离/);
   assert.match(first.instructions, /send 只发给一个接收者/);
   assert.match(first.instructions, /框架只负责投递消息，不检查工作流程/);
+  assert.doesNotMatch(first.instructions, /必须显式调用 send（to: 'user'）/);
   assert.doesNotMatch(first.instructions, /当前有效契约与执行状态：/);
+  const memberEndpoint = bus.store.endpoint(one.id, 'coordination');
+  await assert.rejects(
+    bus.tool(memberEndpoint.id, memberEndpoint.key, 'send', { to: 'user', text: '非主 Agent 不得直发用户' }),
+    /群内找不到成员: user/,
+  );
+  await bus.tool(memberEndpoint.id, memberEndpoint.key, 'send', { to: lead.id, text: 'member report wakes lead' });
+  await until(() => calls.some(call => call.endpoint.member_id === lead.id && call.endpoint.context === 'coordination')
+    && bus.running.size === 0);
+  const leadCall = calls.filter(call => call.endpoint.member_id === lead.id
+    && call.endpoint.context === 'coordination').at(-1);
+  assert.match(leadCall.instructions, /必须显式调用 send（to: 'user'）/);
   const format = bus.store.get(
     'SELECT * FROM conversation_session_meta WHERE conversation_id=?',
     first.endpoint.id,

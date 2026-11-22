@@ -48,6 +48,27 @@ const barTopHeight = ref(0);
 const atBottom = ref(true);
 const hasNewMessages = ref(false);
 let observer: ResizeObserver | undefined;
+// ResizeObserver 回调里同步测量/滚动会触发同帧回环告警;统一合批到下一帧。
+let resizeFrame: number | ReturnType<typeof setTimeout> | null = null;
+function scheduleResize() {
+  if (resizeFrame !== null) return;
+  const run = () => {
+    resizeFrame = null;
+    measureBars();
+    void revealLinkedInteraction();
+    if (atBottom.value && !anchorPinned()) scrollToBottom();
+    else updatePosition();
+  };
+  resizeFrame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(run)
+    : setTimeout(run, 0);
+}
+function cancelResize() {
+  if (resizeFrame === null) return;
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(resizeFrame as number);
+  else clearTimeout(resizeFrame);
+  resizeFrame = null;
+}
 
 const route = useRoute();
 // 滚到会话底部时通知外层记「读到第几号」。容器只知道位置，不知道是哪个会话。
@@ -169,12 +190,7 @@ onMounted(() => {
   notifyReachBottom();
   window.addEventListener('focus', onPageVisible);
   document.addEventListener('visibilitychange', onPageVisible);
-  observer = new ResizeObserver(() => {
-    measureBars();
-    void revealLinkedInteraction();
-    if (atBottom.value && !anchorPinned()) scrollToBottom();
-    else updatePosition();
-  });
+  observer = new ResizeObserver(scheduleResize);
   if (content.value) observer.observe(content.value);
   if (stream.value) observer.observe(stream.value);
   if (barBottom.value) observer.observe(barBottom.value);
@@ -183,6 +199,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  cancelResize();
   observer?.disconnect();
   window.removeEventListener('focus', onPageVisible);
   document.removeEventListener('visibilitychange', onPageVisible);

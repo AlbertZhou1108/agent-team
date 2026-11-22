@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createComposerActions } from '@/components/ai-elements/composer-actions';
 import MessageComposer from '@/components/ai-elements/MessageComposer.vue';
-import type { ComposerAttachment } from '@/components/ai-elements/MessageComposer.vue';
+import type { ComposerAttachment, ComposerMention } from '@/components/ai-elements/MessageComposer.vue';
 import { useUiStore } from '@/stores/ui';
 describe('shared message composer actions', () => {
   it('keeps IME and Shift+Enter as text input and sends Enter once', () => {
@@ -43,6 +43,7 @@ type MountComposerOptions = {
   sending?: boolean;
   disabled?: boolean;
   attachments?: ComposerAttachment[];
+  mentions?: ComposerMention[];
   modelValue?: string;
 };
 
@@ -139,6 +140,54 @@ describe('MessageComposer 交互（组件级）', () => {
     expect(withAttachment.find('[aria-label="添加附件"]').exists()).toBe(true);
     expect(withAttachment.text()).toContain('note.txt');
     expect(withAttachment.text()).toContain('上传中…');
+  });
+
+  it('@ 提及菜单过滤成员，Enter 只插入成员名而不提交消息', async () => {
+    const wrapper = mountComposer({
+      mentions: [
+        { id: 'lead', name: '主 Agent', role: '主 Agent' },
+        { id: 'helper', name: '协作助手', role: '成员' },
+      ],
+    });
+    const textarea = wrapper.get('textarea');
+
+    await textarea.setValue('@协');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('协作助手');
+    expect(wrapper.text()).not.toContain('主 Agent');
+
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('submit')).toBeUndefined();
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['@协作助手 ']);
+  });
+
+  it('Escape 关闭 @ 候选菜单后 Enter 恢复普通发送', async () => {
+    const wrapper = mountComposer({ mentions: [{ id: 'lead', name: '主 Agent' }], modelValue: '' });
+    const textarea = wrapper.get('textarea');
+
+    await textarea.setValue('@主');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true);
+
+    await textarea.trigger('keydown', { key: 'Escape' });
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('submit')).toHaveLength(1);
+  });
+
+  it('普通邮件地址或空白后的 @ 才触发，菜单未打开时不拦截 Enter', async () => {
+    const wrapper = mountComposer({ mentions: [{ id: 'lead', name: '主 Agent' }] });
+    const textarea = wrapper.get('textarea');
+
+    await textarea.setValue('mail@example.com');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('submit')).toHaveLength(1);
   });
 
   it('展开态与收起态共用输入面，不在外层再包一层 action 黑色底框', () => {

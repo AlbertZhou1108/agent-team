@@ -2,7 +2,7 @@
 import HelpPopover from '@/components/panel/HelpPopover.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { api } from '@/shared/api/client';
 import { Bot, Eye, FolderOpen, LoaderCircle, Radio, ShieldCheck, Users } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
@@ -44,15 +44,30 @@ const emit = defineEmits<{
 
 const pickingDirectory = ref(false);
 const directoryError = ref('');
+let directoryAbort: AbortController | null = null;
+function cancelPickingDirectory() {
+  directoryAbort?.abort();
+  directoryAbort = null;
+  pickingDirectory.value = false;
+}
 async function pickDirectory() {
+  if (pickingDirectory.value) { cancelPickingDirectory(); return; }
+  const controller = new AbortController();
+  directoryAbort = controller;
   pickingDirectory.value = true;
   directoryError.value = '';
   try {
-    const result = await api.chooseDirectory();
+    const result = await api.chooseDirectory(controller.signal);
+    if (controller.signal.aborted) return;
     if (result.path) form.value.workspace = result.path;
-  } catch (error) { directoryError.value = error instanceof Error ? error.message : String(error); }
-  finally { pickingDirectory.value = false; }
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    directoryError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (directoryAbort === controller) { directoryAbort = null; pickingDirectory.value = false; }
+  }
 }
+onBeforeUnmount(cancelPickingDirectory);
 
 const workspaceRequired = computed(() => form.value.access !== 'read-only');
 const workspaceMissing = computed(
@@ -146,9 +161,9 @@ const principles = [
                 <Input id="panel-agent-workspace" :model-value="form.workspace" readonly
                   class="min-w-0 flex-1" placeholder="尚未选择文件夹" :title="form.workspace"
                   :aria-invalid="workspaceMissing || undefined" />
-                <Button type="button" variant="outline" :disabled="saving || catalogLoading || pickingDirectory" @click="pickDirectory">
+                <Button type="button" variant="outline" :disabled="saving || catalogLoading" @click="pickDirectory">
                   <LoaderCircle v-if="pickingDirectory" class="animate-spin" />
-                  <FolderOpen v-else />{{ pickingDirectory ? '选择中…' : '选择文件夹' }}
+                  <FolderOpen v-else />{{ pickingDirectory ? '取消选择' : '选择文件夹' }}
                 </Button>
                 <Button v-if="form.workspace" type="button" variant="ghost" :disabled="saving || pickingDirectory" @click="form.workspace = ''">清除</Button>
               </div>
