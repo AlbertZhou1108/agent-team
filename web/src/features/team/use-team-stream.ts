@@ -50,11 +50,17 @@ export function reduceTeamStream(
   if (!stream || stream.groupId !== groupId) return state;
   const current = state[stream.id];
   if (event.type === 'delta' && typeof event.delta === 'string') {
+    const prevText = current?.text ?? '';
+    const nextText = event.replace
+      ? event.delta.length < prevText.length
+        ? prevText
+        : event.delta
+      : prevText + event.delta;
     return {
       ...state,
       [stream.id]: {
         ...stream,
-        text: event.replace ? event.delta : (current?.text ?? '') + event.delta,
+        text: nextText,
       },
     };
   }
@@ -85,7 +91,15 @@ export function reduceTeamStream(
     return next;
   }
   if (event.type === 'complete') {
-    return { ...state, [stream.id]: { ...stream, phase: 'complete' } };
+    return {
+      ...state,
+      [stream.id]: {
+        ...stream,
+        text: stream.text || current?.text || '',
+        reasoning: stream.reasoning || current?.reasoning || '',
+        phase: 'complete',
+      },
+    };
   }
   return { ...state, [stream.id]: stream };
 }

@@ -8,6 +8,7 @@ import {
   splitBareFileRefs,
 } from '@/features/messages/file-refs';
 import { resultLink, type ResultScope } from '@/shared/result-links';
+import { stabilizeStreamingMarkdown } from './streaming-markdown';
 import DOMPurify from 'dompurify';
 import { Marked } from 'marked';
 
@@ -73,7 +74,8 @@ let lastParsedAt = 0;
 
 function parse(content: string) {
   lastParsedAt = Date.now();
-  html.value = DOMPurify.sanitize(markdown.parse(content) as string, {
+  const source = props.defer ? stabilizeStreamingMarkdown(content) : content;
+  html.value = DOMPurify.sanitize(markdown.parse(source) as string, {
     ADD_ATTR: ['data-file-ref'],
   });
 }

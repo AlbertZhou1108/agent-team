@@ -4,7 +4,9 @@ import { createSSRApp, h } from 'vue';
 import { mount } from '@vue/test-utils';
 import { renderToString } from 'vue/server-renderer';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
+import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
 import MarkdownRenderer from '@/components/ai-elements/MarkdownRenderer.vue';
+import { stabilizeStreamingMarkdown } from '@/components/ai-elements/streaming-markdown';
 import {
   filePreviewContext,
   normalizeFilePathRef,
@@ -160,5 +162,54 @@ describe('AgentMessage quote block', () => {
     expect(sysHtml).toContain('data-tone="neutral"');
     expect(sysHtml).not.toContain('data-slot="bubble"');
     expect(sysHtml).not.toContain('>通知<');
+  });
+
+  it('stabilizes unclosed trailing markdown delimiters while streaming', () => {
+    expect(stabilizeStreamingMarkdown('1. **')).toBe('1. ');
+    expect(stabilizeStreamingMarkdown('**1. 实现位置')).toBe('**1. 实现位置**');
+    expect(stabilizeStreamingMarkdown('**1. 实现位置**')).toBe('**1. 实现位置**');
+    expect(stabilizeStreamingMarkdown('用 `foo')).toBe('用 `foo`');
+    expect(stabilizeStreamingMarkdown('用 `')).toBe('用 ');
+    expect(stabilizeStreamingMarkdown('```ts\nconst x = 1')).toBe('```ts\nconst x = 1\n```');
+  });
+
+  it('preserves expanded state on ExpandableText while streaming', async () => {
+    const wrapper = mount(ExpandableText, {
+      props: {
+        text: 'line1\nline2',
+        lines: 2,
+        streaming: true,
+      },
+    });
+    const vm = wrapper.vm as unknown as { expanded: boolean };
+    vm.expanded = true;
+    await wrapper.setProps({ text: 'line1\nline2\nline3' });
+    expect(vm.expanded).toBe(true);
+
+    await wrapper.setProps({ streaming: false, text: 'line1\nline2\nline3\nline4' });
+    expect(vm.expanded).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('omits maxHeight clamp on ExpandableText while collapse animation is running', async () => {
+    const wrapper = mount(ExpandableText, {
+      props: { text: 'a\nb\nc\nd\ne\nf\ng', lines: 3 },
+    });
+    const vm = wrapper.vm as unknown as {
+      expanded: boolean;
+      animating: boolean;
+      measuredLineHeight: number;
+      bodyStyle: { maxHeight?: string } | undefined;
+    };
+    vm.measuredLineHeight = 20;
+    vm.expanded = false;
+    vm.animating = false;
+    await wrapper.vm.$nextTick();
+    expect(vm.bodyStyle).toEqual({ maxHeight: '60px' });
+
+    vm.animating = true;
+    await wrapper.vm.$nextTick();
+    expect(vm.bodyStyle).toBeUndefined();
+    wrapper.unmount();
   });
 });

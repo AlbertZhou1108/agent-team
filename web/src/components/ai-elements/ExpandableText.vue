@@ -12,8 +12,9 @@ import {
 import { ChevronDown } from '@lucide/vue';
 import { MOTION_EASING, motionDurationMs, prefersReducedMotion } from '@/shared/motion';
 
-const props = withDefaults(defineProps<{ text: string; lines?: number }>(), {
+const props = withDefaults(defineProps<{ text: string; lines?: number; streaming?: boolean }>(), {
   lines: 6,
+  streaming: false,
 });
 const bodyId = useId();
 const body = ref<HTMLElement>();
@@ -50,10 +51,8 @@ function measure() {
   overflowing.value = element.scrollHeight > collapsedHeight.value + 1;
 }
 const bodyStyle = computed(() =>
-  measuredLineHeight.value
-    ? expanded.value
-      ? undefined
-      : { maxHeight: `${collapsedHeight.value}px` }
+  measuredLineHeight.value && !expanded.value && !animating.value
+    ? { maxHeight: `${collapsedHeight.value}px` }
     : undefined,
 );
 
@@ -90,12 +89,20 @@ function toggleExpanded() {
     if (heightAnimation !== animation) return;
     heightAnimation = undefined;
     animating.value = false;
-    animation.cancel();
-    measure();
+    void nextTick(() => {
+      // 等 Vue 把 maxHeight 补回后再撤销 WAAPI fill，避免收起终点闪烁。
+      if (heightAnimation === undefined) animation.cancel();
+      measure();
+    });
   };
 }
 
 watch([() => props.text, () => props.lines], async () => {
+  if (props.streaming) {
+    await nextTick();
+    measure();
+    return;
+  }
   heightAnimation?.cancel();
   heightAnimation = undefined;
   animating.value = false;
@@ -124,6 +131,7 @@ onBeforeUnmount(() => {
       class="expandable-text-body"
       :class="{
         'expandable-text-clamped': !expanded,
+        'expandable-text-masked': !expanded && overflowing,
         'expandable-text-animating': animating,
       }"
       :style="bodyStyle"

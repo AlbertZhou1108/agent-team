@@ -108,6 +108,8 @@ export class ToolStreams {
       }
     }
     const replace = !text.startsWith(state.previousText);
+    // 流式阶段不允许缩水式覆盖（例如工具参数增量重发或截断），最终正文以 complete 落库消息为准。
+    if (replace && state.previousText && text.length < state.previousText.length) return;
     const delta = replace ? text : text.slice(state.previousText.length);
     if (!delta) return;
     state.previousText = text;

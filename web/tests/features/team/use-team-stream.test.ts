@@ -71,6 +71,12 @@ describe('team stream reducer', () => {
       'g1',
     );
     expect(state.s1?.text).toBe('替换');
+    state = reduceTeamStream(
+      state,
+      { type: 'delta', stream, delta: '短', replace: true },
+      'g1',
+    );
+    expect(state.s1?.text).toBe('替换');
     state = reduceTeamStream(state, { type: 'complete', stream }, 'g1');
     expect(state.s1?.phase).toBe('complete');
     expect(

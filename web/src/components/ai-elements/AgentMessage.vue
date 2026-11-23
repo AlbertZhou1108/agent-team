@@ -296,6 +296,7 @@ const timeTitle = computed(() => formatAbsoluteTime(timestamp.value));
               class="message-body text-sm leading-7"
               :text="bodyText"
               :lines="6"
+              :streaming="Boolean(pending)"
             >
               <MarkdownRenderer v-if="useMarkdown" :content="bodyText" :defer="Boolean(pending)" />
               <span v-else-if="plainFileSegments" class="whitespace-pre-wrap wrap-anywhere">
