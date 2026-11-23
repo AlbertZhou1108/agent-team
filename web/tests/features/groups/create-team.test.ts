@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   createGroup: vi.fn(),
   sendTeamDirective: vi.fn(),
   push: vi.fn(),
+  back: vi.fn(),
+  backRoute: null as string | null,
 }));
 
 vi.mock('@/shared/api/client', () => {
@@ -57,7 +59,22 @@ vi.mock('vue-router', async () => {
       return () => h('a', slots.default?.());
     },
   });
-  return { useRouter: () => ({ push: mocks.push }), RouterLink: RouterLinkStub };
+  return {
+    useRouter: () => ({
+      push: mocks.push,
+      back: mocks.back,
+      options: {
+        history: {
+          state: {
+            get back() {
+              return mocks.backRoute;
+            },
+          },
+        },
+      },
+    }),
+    RouterLink: RouterLinkStub,
+  };
 });
 
 vi.mock('@/features/settings/HostStatuses.vue', async () => {
@@ -222,6 +239,8 @@ beforeEach(() => {
   mocks.createGroup.mockResolvedValue(GROUP);
   mocks.sendTeamDirective.mockResolvedValue({ seq: 1 });
   mocks.push.mockResolvedValue(undefined);
+  mocks.back.mockReset();
+  mocks.backRoute = null;
 });
 
 async function settle() {
@@ -609,5 +628,44 @@ describe('CreateTeam 异构建群矩阵', () => {
     expect(document.body.textContent).toContain('DeepSeek Harness');
     expect(document.body.textContent).toContain('关闭');
     wrapper.unmount();
+  });
+
+  it('返回按钮优先返回上一页，无应用内历史时回落团队主页，并清空已填写草稿', async () => {
+    mocks.backRoute = '/agent';
+    const wrapper = await mountCreateTeam();
+    await fillBasics(wrapper);
+    await selectDefaultHost(wrapper, 'dsh');
+    await settle();
+    expect(sessionStorage.getItem('agent-team:create-team-draft')).not.toBeNull();
+
+    await wrapper.find('[data-testid="create-team-back"]').trigger('click');
+    await settle();
+    expect(mocks.back).toHaveBeenCalledTimes(1);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('agent-team:create-team-draft')).toBeNull();
+
+    // 再次进入创建页时表单应为空白草稿。
+    wrapper.unmount();
+    const remounted = await mountCreateTeam();
+    expect((remounted.find('#team-name').element as HTMLInputElement).value).toBe('');
+    expect((remounted.find('#team-request').element as HTMLTextAreaElement).value).toBe('');
+
+    mocks.backRoute = null;
+    await remounted.find('[data-testid="create-team-back"]').trigger('click');
+    await settle();
+    expect(mocks.push).toHaveBeenCalledWith('/groups');
+  });
+
+  it('右侧创建概览实时提示缺项，填齐必填字段后消失', async () => {
+    const wrapper = await mountCreateTeam();
+    const missing = wrapper.find('[data-testid="create-team-missing"]');
+    expect(missing.exists()).toBe(true);
+    expect(missing.text()).toContain('团队名称');
+    expect(missing.text()).toContain('默认 AI 工具');
+
+    await fillBasics(wrapper);
+    await selectDefaultHost(wrapper, 'dsh');
+    await settle();
+    expect(wrapper.find('[data-testid="create-team-missing"]').exists()).toBe(false);
   });
 });

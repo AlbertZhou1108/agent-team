@@ -366,6 +366,15 @@ describe('group workspace page SSR smoke', () => {
     expect(html).not.toContain('data-testid="team-home"');
   });
 
+  it('routes /groups/new to CreateTeam without auto-opening the team secondary panel', async () => {
+    const { html } = await render('/groups/new', { group: ref(undefined), sidebarGroupId: ref(undefined) });
+    expect(html).toContain('data-testid="create-team"');
+    expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-secondary-open="false"/);
+    expect(html).toMatch(/data-testid="group-sidebar"[^>]*data-home-active="false"/);
+    expect(html).not.toContain('secondary-is-open');
+    expect(html).not.toContain('aria-label="调整二级面板宽度（从右侧拖动）"');
+  });
+
   it('renders the disabled-plugin placeholder when a plugin route is off', async () => {
     const { html } = await render('/notes', {
       activePluginRoute: ref({

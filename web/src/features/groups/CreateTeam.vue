@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
-import { Trash2 } from '@lucide/vue';
+import { ArrowLeft, Trash2 } from '@lucide/vue';
 import { api, ApiError } from '@/shared/api/client';
 import { invalidateWorkspaceResources, queryKeys } from '@/features/query-keys';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -10,9 +10,11 @@ import { FieldGroup, Field, FieldLabel, FieldDescription } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { NoteBlock } from '@/components/ui/note-block';
-import { SectionBlock } from '@/components/panel';
+import { HelpPopover, SectionBlock } from '@/components/panel';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import HostStatuses from '@/features/settings/HostStatuses.vue';
@@ -28,6 +30,7 @@ import {
   buildCreateGroupBody,
   buildMemberSummaries,
   clampPolicyCeiling,
+  createEmptyDraft,
   effectivePolicy,
   modelLabel,
   newDraftMember,
@@ -158,6 +161,47 @@ const canCreate = computed(() => Boolean(form.value.group)
     && activeRows(form.value).every((row) => Boolean(row.host || form.value.host)),
   ));
 
+const missingRequirements = computed<string[]>(() => {
+  if (form.value.group) return [];
+  const missing: string[] = [];
+  if (!form.value.name.trim()) missing.push('团队名称');
+  if (!form.value.text.trim()) missing.push('要完成什么');
+  const missingHost = activeRows(form.value).some((row) => !row.host && !form.value.host);
+  if (missingHost) missing.push('默认 AI 工具（或成员宿主）');
+  if (!form.value.workspace) missing.push('工作文件夹');
+  return missing;
+});
+
+let suppressDraftPersist = false;
+
+function clearSavedDraft() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // 忽略 storage 不可用错误。
+  }
+}
+
+function goBack() {
+  suppressDraftPersist = true;
+  form.value = { ...createEmptyDraft(), submitted: false, group: null };
+  confirming.value = false;
+  error.value = '';
+  policyNotice.value = '';
+  charterNotice.value = '';
+  lastTemplateCharter.value = '';
+  clearSavedDraft();
+  void nextTick(() => {
+    suppressDraftPersist = false;
+  });
+  const backTarget = router.options?.history?.state?.back;
+  if (typeof backTarget === 'string' && backTarget.length > 0 && typeof router.back === 'function') {
+    router.back();
+    return;
+  }
+  void router.push('/groups');
+}
+
 interface MatrixRow {
   row: DraftMember;
   isLead: boolean;
@@ -194,6 +238,7 @@ const shellHint = computed(() => {
 });
 
 watch(form, (value) => {
+  if (suppressDraftPersist) return;
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch {
@@ -407,7 +452,17 @@ function browserDisabled(row: DraftMember): boolean {
 function browserHint(row: DraftMember): string {
   const restricted = browserRestrictedReason(effectivePolicy(row, form.value.policy));
   if (restricted) return restricted;
-  return `实际工具由宿主能力与运行期探测决定；${hostDisplayLabel(resolvedHost(row))} 若未报告浏览器工具，创建后仍会显示为不可用。`;
+  const host = resolvedHost(row);
+  if (!host) return '需先选择默认宿主或成员宿主；实际工具由宿主能力与运行期探测决定。';
+  return `实际工具由宿主能力与运行期探测决定；${hostDisplayLabel(host)} 若未报告浏览器工具，创建后仍会显示为不可用。`;
+}
+
+function browserRestricted(row: DraftMember): string | null {
+  return browserRestrictedReason(effectivePolicy(row, form.value.policy));
+}
+
+function worktreeRestricted(item: MatrixRow): string | null {
+  return worktreeRestrictedReason(effectivePolicy(item.row, form.value.policy), item.isLead);
 }
 
 async function submit() {
@@ -452,11 +507,7 @@ async function submit() {
       controllerId: group.lead,
     });
     await invalidateWorkspaceResources(client);
-    try {
-      sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // 建群已成功,草稿清理失败不影响流程。
-    }
+    clearSavedDraft();
     await router.push({ name: 'group', params: { groupId: group.id } });
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
@@ -468,18 +519,30 @@ async function submit() {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl p-4">
-    <Card>
-      <CardHeader>
-        <CardTitle>创建团队</CardTitle>
-        <CardDescription>先确认默认宿主与全局权限；需要不同宿主、模型或更严权限时，在下方成员矩阵逐人覆写。创建成员会调用模型进行能力自述，产生正常调用消耗。</CardDescription>
-      </CardHeader>
-      <form @submit.prevent="submit">
-        <CardContent class="flex flex-col gap-4">
+  <div class="@container mx-auto flex w-full max-w-6xl flex-col gap-5 py-1">
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0 flex-1 space-y-1">
+        <h1 class="text-xl font-semibold tracking-tight text-foreground">创建团队</h1>
+        <p class="text-sm text-muted-foreground">
+          先确定任务目标与默认环境；需要不同宿主、模型或更严权限时，在下方成员矩阵逐人覆写。
+        </p>
+      </div>
+      <Button type="button" variant="outline" size="sm" data-testid="create-team-back" @click="goBack">
+        <ArrowLeft class="size-4" aria-hidden="true" />
+        返回
+      </Button>
+    </header>
+
+    <Separator />
+
+    <form class="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-[minmax(0,1fr)_20rem]" @submit.prevent="submit">
+      <div class="@container flex min-w-0 flex-col gap-6">
+        <section class="flex flex-col gap-4" aria-labelledby="section-goal-title">
+          <h2 id="section-goal-title" class="text-xs font-semibold tracking-wide text-muted-foreground">1. 任务目标</h2>
           <FieldGroup>
             <Field>
               <FieldLabel for="team-name">团队名称</FieldLabel>
-              <Input id="team-name" v-model="form.name" :disabled="isLocked" required maxlength="200" />
+              <Input id="team-name" v-model="form.name" :disabled="isLocked" required maxlength="200" placeholder="例如：前端架构重构组" />
             </Field>
             <Field>
               <FieldLabel for="team-request">要完成什么？</FieldLabel>
@@ -520,221 +583,314 @@ async function submit() {
               <Textarea id="team-charter" v-model="form.charter" :disabled="isLocked" maxlength="48000" rows="4" placeholder="注入团队每回合上下文的协作规范与约束说明（仅作上下文参考）" />
               <p v-if="charterNotice" class="text-xs text-muted-foreground">{{ charterNotice }}</p>
             </Field>
+          </FieldGroup>
+        </section>
+
+        <Separator />
+
+        <section class="flex flex-col gap-4" aria-labelledby="section-env-title">
+          <h2 id="section-env-title" class="text-xs font-semibold tracking-wide text-muted-foreground">2. 默认环境与权限</h2>
+          <FieldGroup>
             <Field>
-              <FieldLabel>默认 AI 工具</FieldLabel>
-              <p v-if="form.host" class="text-sm text-muted-foreground">已选择：{{ hostDisplayLabel(form.host) }}</p>
-              <HostStatuses v-if="!form.group" :active="true" :selectable="!isLocked" :selected="form.host" @select="setDefaultHost" />
-              <FieldDescription>未单独指定宿主的成员默认继承此宿主与模型。</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel for="team-directory">工作文件夹</FieldLabel>
-              <div class="flex gap-2">
-                <Input id="team-directory" v-model="form.workspace" :disabled="isLocked" placeholder="选择文件夹或粘贴路径" />
-                <Button type="button" variant="outline" :disabled="isLocked" @click="chooseDirectory">{{ picking ? '取消选择' : '选择' }}</Button>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <FieldLabel>默认 AI 工具</FieldLabel>
+                <span v-if="form.host" class="text-xs text-muted-foreground">已选择：{{ hostDisplayLabel(form.host) }}</span>
+                <span v-else class="text-xs text-muted-foreground">未单独指定宿主的成员默认继承此宿主</span>
               </div>
-              <p v-if="picking" class="text-sm text-muted-foreground">已打开系统文件夹选择窗口，也可直接粘贴路径。</p>
+              <HostStatuses v-if="!form.group" :active="true" :selectable="!isLocked" :selected="form.host" compact @select="setDefaultHost" />
             </Field>
+            <div class="grid grid-cols-1 gap-4 @lg:grid-cols-[minmax(0,1fr)_14rem]">
+              <Field>
+                <FieldLabel for="team-directory">工作文件夹</FieldLabel>
+                <div class="flex gap-2">
+                  <Input id="team-directory" v-model="form.workspace" :disabled="isLocked" placeholder="选择文件夹或粘贴路径" />
+                  <Button type="button" variant="outline" :disabled="isLocked" @click="chooseDirectory">{{ picking ? '取消选择' : '选择' }}</Button>
+                </div>
+                <p v-if="picking" class="text-xs text-muted-foreground">已打开系统文件夹选择窗口，也可直接粘贴路径。</p>
+              </Field>
+              <Field>
+                <div class="flex items-center gap-1">
+                  <FieldLabel>文件访问范围</FieldLabel>
+                  <HelpPopover title="文件访问范围">
+                    <p>这是全群权限天花板；成员的有效权限不会超过此范围。</p>
+                    <p>团队说明（Charter）和聊天中的确认不会改变此权限。</p>
+                  </HelpPopover>
+                </div>
+                <Select v-model="form.policy" :disabled="isLocked" data-testid="group-policy">
+                  <SelectTrigger aria-label="文件访问范围"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem v-for="mode in POLICY_MODES" :key="mode" :value="mode">{{ policyLabel(mode) }}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
             <Field>
-              <FieldLabel>文件访问范围</FieldLabel>
-              <Select v-model="form.policy" :disabled="isLocked" data-testid="group-policy">
-                <SelectTrigger aria-label="文件访问范围"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem v-for="mode in POLICY_MODES" :key="mode" :value="mode">{{ policyLabel(mode) }}</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldDescription>这是全群权限天花板；成员的有效权限不会超过此范围。团队说明和聊天中的确认不会改变此权限。</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel for="team-allow-shell">允许执行命令</FieldLabel>
-              <div class="flex flex-wrap items-center gap-3">
-                <Switch id="team-allow-shell" data-testid="group-shell-toggle" :model-value="form.allowShell" :disabled="isLocked || form.policy === 'communication'" aria-label="允许执行命令" @update:model-value="setGroupAllowShell" />
-                <span class="text-sm text-muted-foreground">{{ shellHint }}</span>
+              <div class="flex items-center justify-between gap-4">
+                <div class="min-w-0 space-y-0.5">
+                  <FieldLabel for="team-allow-shell">允许执行命令</FieldLabel>
+                  <FieldDescription>{{ shellHint }}</FieldDescription>
+                </div>
+                <Switch
+                  id="team-allow-shell"
+                  data-testid="group-shell-toggle"
+                  :model-value="form.allowShell"
+                  :disabled="isLocked || form.policy === 'communication'"
+                  aria-label="允许执行命令"
+                  @update:model-value="setGroupAllowShell"
+                />
               </div>
             </Field>
           </FieldGroup>
+        </section>
+
+        <Separator />
+
+        <section class="flex flex-col gap-3" aria-labelledby="section-members-title">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <h2 id="section-members-title" class="text-xs font-semibold tracking-wide text-muted-foreground">
+                3. 成员矩阵 · {{ matrixRows.length }} 位成员
+              </h2>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <Button type="button" variant="outline" size="xs" :disabled="isLocked" @click="applyPreset('minimal')">极简（1 协作成员）</Button>
+              <Button type="button" variant="outline" size="xs" :disabled="isLocked" @click="applyPreset('dev-review')">研发 + 只读验收双人组</Button>
+              <Button type="button" variant="secondary" size="xs" data-testid="add-member" :disabled="isLocked" @click="addMember">+ 添加成员</Button>
+            </div>
+          </div>
 
           <p v-if="policyNotice" role="status" data-testid="policy-notice" class="text-sm text-muted-foreground">{{ policyNotice }}</p>
 
-          <SectionBlock title="成员矩阵" :heading-level="3" tone="muted" size="sm" class="gap-3">
-            <template #meta>
-              <span class="text-xs text-muted-foreground">{{ matrixRows.length }} 位成员 · 主 Agent + 0..N 协作成员</span>
+          <SectionBlock
+            v-for="item in matrixRows"
+            :key="item.row.id"
+            :data-testid="item.isLead ? 'member-row-lead' : 'member-row-' + item.index"
+            :tone="item.isLead ? 'default' : 'dashed'"
+            size="sm"
+            :heading-level="3"
+            class="gap-3"
+          >
+            <template #header>
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge :variant="item.isLead ? 'secondary' : 'outline'" size="xs">{{ item.label }}</Badge>
+                <span v-if="!item.row.model" class="truncate text-xs text-muted-foreground">
+                  {{ resolvedHost(item.row) ? `${hostDisplayLabel(resolvedHost(item.row))} · 宿主默认` : '继承默认宿主与模型' }}
+                </span>
+                <span v-else class="truncate text-xs text-muted-foreground">
+                  {{ hostDisplayLabel(resolvedHost(item.row)) }} · {{ modelLabel(item.row, catalogHosts, form.host) }}
+                </span>
+              </div>
+              <Button
+                v-if="!item.isLead"
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                :disabled="isLocked"
+                :data-testid="'remove-member-' + item.index"
+                :aria-label="`删除协作成员 ${item.index}`"
+                @click="removeMember(item.row.id)"
+              >
+                <Trash2 class="size-3.5" />
+              </Button>
             </template>
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-xs text-muted-foreground">快捷预设</span>
-              <Button type="button" variant="outline" size="sm" :disabled="isLocked" @click="applyPreset('minimal')">极简（1 协作成员）</Button>
-              <Button type="button" variant="outline" size="sm" :disabled="isLocked" @click="applyPreset('dev-review')">研发 + 只读验收双人组</Button>
+
+            <div class="grid grid-cols-1 gap-3 @lg:grid-cols-2">
+              <Field>
+                <FieldLabel :for="`member-name-${item.row.id}`">名称</FieldLabel>
+                <Input
+                  :id="`member-name-${item.row.id}`"
+                  v-model="item.row.name"
+                  :disabled="isLocked"
+                  maxlength="100"
+                  :placeholder="item.isLead ? '主 Agent' : '协作成员名称'"
+                />
+              </Field>
+              <Field>
+                <FieldLabel :for="`member-host-${item.row.id}`">宿主</FieldLabel>
+                <Select
+                  :model-value="item.row.host || INHERIT"
+                  :disabled="isLocked"
+                  :data-testid="'member-host-' + item.index"
+                  @update:model-value="setMemberHost(item.row, $event)"
+                >
+                  <SelectTrigger :id="`member-host-${item.row.id}`" :aria-label="`${item.label} 宿主`">
+                    <SelectValue>{{ item.row.host ? hostDisplayLabel(item.row.host) : inheritHostLabel }}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem :value="INHERIT">{{ inheritHostLabel }}</SelectItem>
+                      <SelectItem v-for="choice in hostChoices" :key="choice" :value="choice">{{ hostDisplayLabel(choice) }}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1">
+                    <FieldLabel>模型与思考强度</FieldLabel>
+                    <HelpPopover title="模型与思考强度">
+                      <p>未选择时使用宿主默认模型；实时目录离线时也可以直接创建。</p>
+                    </HelpPopover>
+                  </div>
+                  <Button v-if="item.row.model" type="button" variant="link" size="xs" :disabled="isLocked" @click="resetModel(item.row)">恢复宿主默认</Button>
+                </div>
+                <MemberModelField
+                  :data-testid="'member-model-' + item.index"
+                  :hosts="catalogHosts"
+                  :host="resolvedHost(item.row)"
+                  :model-provider="item.row.model_provider"
+                  :model="item.row.model"
+                  :reasoning-effort="item.row.reasoning_effort"
+                  :disabled="isLocked || !canPickModel(item.row)"
+                  @change="applyModel(item.row, $event)"
+                />
+              </Field>
+              <Field>
+                <div class="flex items-center gap-1">
+                  <FieldLabel :for="`member-ceiling-${item.row.id}`">成员权限上限</FieldLabel>
+                  <HelpPopover title="成员权限上限">
+                    <p>只能比群策略更严；当上方全群「文件访问范围」调严时自动收敛到新上限以内。</p>
+                  </HelpPopover>
+                </div>
+                <Select
+                  :model-value="item.row.policyCeiling || INHERIT"
+                  :disabled="isLocked"
+                  :data-testid="'member-ceiling-' + item.index"
+                  @update:model-value="setMemberPolicyCeiling(item.row, $event)"
+                >
+                  <SelectTrigger :id="`member-ceiling-${item.row.id}`" :aria-label="`${item.label} 权限上限`">
+                    <SelectValue>{{ item.row.policyCeiling ? policyLabel(item.row.policyCeiling) : `继承群策略（${policyLabel(form.policy)}）` }}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem :value="INHERIT">继承群策略（{{ policyLabel(form.policy) }}）</SelectItem>
+                      <SelectItem v-for="mode in policyCeilingOptions(form.policy)" :key="mode" :value="mode">{{ policyLabel(mode) }}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
 
-            <SectionBlock
-              v-for="item in matrixRows"
-              :key="item.row.id"
-              :data-testid="item.isLead ? 'member-row-lead' : 'member-row-' + item.index"
-              :tone="item.isLead ? 'default' : 'dashed'"
-              size="sm"
-              :heading-level="4"
-              class="gap-3"
-            >
-              <template #header>
-                <div class="flex min-w-0 flex-wrap items-center gap-2">
-                  <h4 class="text-xs font-semibold tracking-wide text-muted-foreground">{{ item.label }}</h4>
-                  <span v-if="!item.row.model" class="truncate text-xs text-muted-foreground">继承默认宿主与模型</span>
-                  <span v-else class="truncate text-xs text-muted-foreground">{{ hostDisplayLabel(resolvedHost(item.row)) }} · {{ modelLabel(item.row, catalogHosts, form.host) }}</span>
+            <div class="flex flex-col gap-2 pt-0.5">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0 space-y-0.5">
+                  <div class="flex items-center gap-1">
+                    <FieldLabel :for="`member-browser-${item.row.id}`">允许浏览器 / Computer Use</FieldLabel>
+                    <HelpPopover title="允许浏览器 / Computer Use">
+                      <p>{{ browserHint(item.row) }}</p>
+                    </HelpPopover>
+                  </div>
+                  <p v-if="browserRestricted(item.row)" class="text-xs text-muted-foreground">{{ browserRestricted(item.row) }}</p>
                 </div>
-                <Button
-                  v-if="!item.isLead"
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  :disabled="isLocked"
-                  :data-testid="'remove-member-' + item.index"
-                  :aria-label="`删除协作成员 ${item.index}`"
-                  @click="removeMember(item.row.id)"
-                >
-                  <Trash2 class="size-4" />
-                </Button>
-              </template>
-              <div class="grid gap-3 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel :for="`member-name-${item.row.id}`">名称</FieldLabel>
-                  <Input
-                    :id="`member-name-${item.row.id}`"
-                    v-model="item.row.name"
-                    :disabled="isLocked"
-                    maxlength="100"
-                    :placeholder="item.isLead ? '主 Agent' : '协作成员名称'"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel :for="`member-host-${item.row.id}`">宿主</FieldLabel>
-                  <Select
-                    :model-value="item.row.host || INHERIT"
-                    :disabled="isLocked"
-                    :data-testid="'member-host-' + item.index"
-                    @update:model-value="setMemberHost(item.row, $event)"
-                  >
-                    <SelectTrigger :id="`member-host-${item.row.id}`" :aria-label="`${item.label} 宿主`"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem :value="INHERIT">{{ inheritHostLabel }}</SelectItem>
-                        <SelectItem v-for="choice in hostChoices" :key="choice" :value="choice">{{ hostDisplayLabel(choice) }}</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>默认继承上方宿主，可单独指定。</FieldDescription>
-                </Field>
-                <Field class="sm:col-span-2">
-                  <FieldLabel>模型与思考强度</FieldLabel>
-                  <MemberModelField
-                    :data-testid="'member-model-' + item.index"
-                    :hosts="catalogHosts"
-                    :host="resolvedHost(item.row)"
-                    :model-provider="item.row.model_provider"
-                    :model="item.row.model"
-                    :reasoning-effort="item.row.reasoning_effort"
-                    :disabled="isLocked || !canPickModel(item.row)"
-                    @change="applyModel(item.row, $event)"
-                  />
-                  <div v-if="item.row.model" class="flex justify-end">
-                    <Button type="button" variant="link" size="sm" :disabled="isLocked" @click="resetModel(item.row)">恢复宿主默认</Button>
-                  </div>
-                  <FieldDescription>未选择时使用宿主默认模型；实时目录离线时也可以直接创建。</FieldDescription>
-                </Field>
-                <Field>
-                  <FieldLabel :for="`member-ceiling-${item.row.id}`">成员权限上限</FieldLabel>
-                  <Select
-                    :model-value="item.row.policyCeiling || INHERIT"
-                    :disabled="isLocked"
-                    :data-testid="'member-ceiling-' + item.index"
-                    @update:model-value="setMemberPolicyCeiling(item.row, $event)"
-                  >
-                    <SelectTrigger :id="`member-ceiling-${item.row.id}`" :aria-label="`${item.label} 权限上限`">
-                      <SelectValue>{{ item.row.policyCeiling ? policyLabel(item.row.policyCeiling) : `继承群策略（${policyLabel(form.policy)}）` }}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem :value="INHERIT">继承群策略（{{ policyLabel(form.policy) }}）</SelectItem>
-                        <SelectItem v-for="mode in policyCeilingOptions(form.policy)" :key="mode" :value="mode">{{ policyLabel(mode) }}</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>只能比群策略更严；群策略调严时自动收敛。</FieldDescription>
-                </Field>
-                <Field>
-                  <div class="flex items-start gap-3">
-                    <div class="min-w-0 flex-1 space-y-1">
-                      <FieldLabel :for="`member-browser-${item.row.id}`">允许浏览器 / Computer Use</FieldLabel>
-                      <FieldDescription>{{ browserHint(item.row) }}</FieldDescription>
-                    </div>
-                    <Switch
-                      :id="`member-browser-${item.row.id}`"
-                      :data-testid="'member-browser-' + item.index"
-                      :model-value="item.row.allowBrowser"
-                      :disabled="browserDisabled(item.row)"
-                      :aria-label="`${item.label} 允许浏览器`"
-                      @update:model-value="setMemberBrowser(item.row, $event)"
-                    />
-                  </div>
-                </Field>
-                <Field v-if="!item.isLead" class="sm:col-span-2">
-                  <div class="flex items-start gap-3">
-                    <div class="min-w-0 flex-1 space-y-1">
-                      <FieldLabel :for="`member-worktree-${item.row.id}`">独立工作区（git worktree）</FieldLabel>
-                      <FieldDescription>{{ worktreeHint(item) }}</FieldDescription>
-                    </div>
-                    <Switch
-                      :id="`member-worktree-${item.row.id}`"
-                      :data-testid="'member-worktree-' + item.index"
-                      :model-value="item.row.workspaceMode === 'worktree'"
-                      :disabled="worktreeDisabled(item)"
-                      :aria-label="`${item.label} 独立 worktree`"
-                      @update:model-value="setMemberWorkspaceMode(item, $event)"
-                    />
-                  </div>
-                </Field>
+                <Switch
+                  :id="`member-browser-${item.row.id}`"
+                  :data-testid="'member-browser-' + item.index"
+                  :model-value="item.row.allowBrowser"
+                  :disabled="browserDisabled(item.row)"
+                  :aria-label="`${item.label} 允许浏览器`"
+                  @update:model-value="setMemberBrowser(item.row, $event)"
+                />
               </div>
-            </SectionBlock>
 
-            <div>
-              <Button type="button" variant="outline" size="sm" data-testid="add-member" :disabled="isLocked" @click="addMember">+ 添加成员</Button>
+              <div v-if="!item.isLead" class="flex items-center justify-between gap-3">
+                <div class="min-w-0 space-y-0.5">
+                  <div class="flex items-center gap-1">
+                    <FieldLabel :for="`member-worktree-${item.row.id}`">独立工作区（git worktree）</FieldLabel>
+                    <HelpPopover title="独立工作区（git worktree）">
+                      <p>{{ worktreeHint(item) }}</p>
+                    </HelpPopover>
+                  </div>
+                  <p v-if="worktreeRestricted(item)" class="text-xs text-muted-foreground">{{ worktreeRestricted(item) }}</p>
+                </div>
+                <Switch
+                  :id="`member-worktree-${item.row.id}`"
+                  :data-testid="'member-worktree-' + item.index"
+                  :model-value="item.row.workspaceMode === 'worktree'"
+                  :disabled="worktreeDisabled(item)"
+                  :aria-label="`${item.label} 独立 worktree`"
+                  @update:model-value="setMemberWorkspaceMode(item, $event)"
+                />
+              </div>
             </div>
           </SectionBlock>
+        </section>
+      </div>
 
-          <NoteBlock v-if="confirming && !form.group" ref="confirmCard" size="md" class="p-4" data-testid="create-team-confirm">
-            <p class="font-medium">确认创建以下团队？</p>
-            <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-              <dt class="text-muted-foreground">名称</dt><dd class="break-words">{{ form.name.trim() }}</dd>
-              <dt class="text-muted-foreground">工作文件夹</dt><dd class="break-all">{{ form.workspace }}</dd>
-              <dt class="text-muted-foreground">文件访问</dt><dd>{{ policyLabel(form.policy) }}<span v-if="!form.allowShell" class="text-muted-foreground">（不允许执行命令）</span></dd>
-              <dt v-if="selectedTemplate" class="text-muted-foreground">工作流模板</dt><dd v-if="selectedTemplate">{{ selectedTemplate.name }}</dd>
-              <dt class="text-muted-foreground">成员</dt><dd>{{ memberSummaries.length }} 位</dd>
-              <dt class="text-muted-foreground">需求</dt><dd class="line-clamp-3 whitespace-pre-wrap">{{ form.text.trim() }}</dd>
+      <aside class="min-w-0 @4xl:sticky @4xl:top-4">
+        <Card size="sm" data-surface="context-panel">
+          <CardHeader>
+            <CardTitle class="text-base">创建概览</CardTitle>
+            <CardDescription>创建成员会调用模型进行能力自述，产生正常调用消耗。</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-3">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+              <dt class="text-muted-foreground">团队名称</dt>
+              <dd class="min-w-0 break-words text-foreground">{{ form.name.trim() || '未填写' }}</dd>
+              <dt class="text-muted-foreground">默认宿主</dt>
+              <dd class="min-w-0 text-foreground">{{ form.host ? hostDisplayLabel(form.host) : '未选择' }}</dd>
+              <dt class="text-muted-foreground">工作目录</dt>
+              <dd class="min-w-0 break-all text-foreground">{{ form.workspace || '未选择' }}</dd>
+              <dt class="text-muted-foreground">文件访问</dt>
+              <dd class="min-w-0 text-foreground">
+                {{ policyLabel(form.policy) }}<span v-if="!form.allowShell" class="text-muted-foreground">（禁命令）</span>
+              </dd>
+              <template v-if="selectedTemplate">
+                <dt class="text-muted-foreground">工作流模板</dt>
+                <dd class="min-w-0 text-foreground">{{ selectedTemplate.name }}</dd>
+              </template>
             </dl>
-            <ul class="mt-4 flex flex-col gap-2">
-              <li v-for="member in memberSummaries" :key="member.id" data-testid="member-summary" class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span class="font-medium">{{ member.name }}</span>
-                <span class="text-muted-foreground">{{ member.hostLabel }}</span>
-                <span class="text-muted-foreground">· 模型：{{ member.modelLabel }}</span>
-                <span class="text-muted-foreground">· 权限：{{ member.policyLabel }}</span>
-                <span class="text-muted-foreground">· 浏览器：{{ member.browserLabel }}</span>
-                <span class="text-muted-foreground">· 工作区：{{ member.workspaceLabel }}</span>
-              </li>
-            </ul>
-            <div class="mt-4 flex gap-2">
-              <Button type="button" :disabled="busy" @click="submit">确认创建</Button>
-              <Button type="button" variant="ghost" :disabled="busy" @click="confirming = false">返回修改</Button>
+
+            <Separator />
+
+            <div class="flex flex-col gap-1.5">
+              <p class="text-xs font-medium text-foreground">成员生效配置（{{ memberSummaries.length }} 位）</p>
+              <ul class="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                <li v-for="member in memberSummaries" :key="member.id" class="leading-5">
+                  <span class="font-medium text-foreground">{{ member.name }}</span>
+                  · {{ member.hostLabel }} · {{ member.modelLabel }} · {{ member.policyLabel }}
+                  <span v-if="member.browserLabel === '允许'"> · 浏览器</span>
+                  <span v-if="member.workspaceLabel !== '继承主工作区'"> · {{ member.workspaceLabel }}</span>
+                </li>
+              </ul>
             </div>
-          </NoteBlock>
-          <p v-if="form.submitted && !form.group && !busy" class="text-sm text-muted-foreground">创建结果尚未确认，请重试同一请求以找回结果。</p>
-          <Alert v-if="form.group"><AlertDescription>团队已创建。需求发送未确认时，再次提交会使用同一请求重试，不会重新建群。<RouterLink :to="`/groups/${form.group.id}`">进入团队</RouterLink></AlertDescription></Alert>
-          <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-        </CardContent>
-        <CardFooter class="flex gap-3">
-          <Button v-if="!confirming || form.group" type="submit" :disabled="busy || !canCreate">{{ busy ? '提交中…' : form.group ? '重试发送需求' : '创建并发送需求' }}</Button>
-          <Button as-child variant="ghost"><RouterLink to="/groups">返回工作台</RouterLink></Button>
-        </CardFooter>
-      </form>
-    </Card>
+
+            <NoteBlock v-if="confirming && !form.group" ref="confirmCard" size="sm" class="p-3" data-testid="create-team-confirm">
+              <p class="text-sm font-medium text-foreground">确认创建以下团队？</p>
+              <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                <dt class="text-muted-foreground">名称</dt><dd class="break-words">{{ form.name.trim() }}</dd>
+                <dt class="text-muted-foreground">目录</dt><dd class="break-all">{{ form.workspace }}</dd>
+                <dt class="text-muted-foreground">需求</dt><dd class="line-clamp-3 whitespace-pre-wrap">{{ form.text.trim() }}</dd>
+              </dl>
+              <ul class="mt-2.5 flex flex-col gap-1">
+                <li v-for="member in memberSummaries" :key="member.id" data-testid="member-summary" class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                  <span class="font-medium text-foreground">{{ member.name }}</span>
+                  <span class="text-muted-foreground">{{ member.hostLabel }}</span>
+                  <span class="text-muted-foreground">· 模型：{{ member.modelLabel }}</span>
+                  <span class="text-muted-foreground">· 权限：{{ member.policyLabel }}</span>
+                  <span class="text-muted-foreground">· 浏览器：{{ member.browserLabel }}</span>
+                  <span class="text-muted-foreground">· 工作区：{{ member.workspaceLabel }}</span>
+                </li>
+              </ul>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" class="flex-1" :disabled="busy" @click="submit">确认创建</Button>
+                <Button type="button" variant="outline" size="sm" :disabled="busy" @click="confirming = false">返回修改</Button>
+              </div>
+            </NoteBlock>
+
+            <p v-if="!confirming && missingRequirements.length" class="text-xs text-muted-foreground" data-testid="create-team-missing">
+              还需填写：{{ missingRequirements.join('、') }}
+            </p>
+            <p v-if="form.submitted && !form.group && !busy" class="text-xs text-muted-foreground">创建结果尚未确认，请重试同一请求以找回结果。</p>
+            <Alert v-if="form.group"><AlertDescription>团队已创建。需求发送未确认时，再次提交会使用同一请求重试，不会重新建群。<RouterLink :to="`/groups/${form.group.id}`" class="underline underline-offset-4">进入团队</RouterLink></AlertDescription></Alert>
+            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
+          </CardContent>
+          <CardFooter v-if="!confirming || form.group" class="pt-0">
+            <Button type="submit" class="w-full" :disabled="busy || !canCreate">{{ busy ? '提交中…' : form.group ? '重试发送需求' : '创建并发送需求' }}</Button>
+          </CardFooter>
+        </Card>
+      </aside>
+    </form>
   </div>
 </template>

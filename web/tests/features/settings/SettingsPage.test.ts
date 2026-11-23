@@ -99,6 +99,24 @@ describe('settings page', () => {
     expect(html).not.toContain('codex-desktop');
   });
 
+  it('renders compact HostStatuses grid with attention disclosure when compact is true', async () => {
+    hostData.statuses = [
+      { name: 'codex', status: 'available' },
+      { name: 'claude', status: 'missing' },
+    ];
+    hostData.installations = [];
+    const { html } = await renderPage(
+      { render: () => h(HostStatuses, { active: true, selectable: true, selected: 'codex', compact: true }) },
+      '/groups/new',
+    );
+    expect(html).toContain('Codex');
+    expect(html).toContain('Claude Code');
+    expect(html).toContain('data-selected="true"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).not.toContain('已选');
+    expect(html).toContain('未就绪或异常适配器详情与安装（1）');
+  });
+
   it('tools tab lists builtin plugins and slots derived from BUILTIN_PLUGINS', async () => {
     const { html } = await render(SettingsPage, '/settings?section=tools');
     expect(html).toContain('全局搜索');

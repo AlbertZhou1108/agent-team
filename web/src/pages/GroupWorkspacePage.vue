@@ -55,17 +55,15 @@ const ui = useUiStore();
 const preferences = usePreferencesStore();
 const compactScreen = useMediaQuery('(max-width: 760px)');
 const groupId = computed(() => routeString(route.params.groupId));
-const secondaryOpen = ref(Boolean(groupId.value) || route.name === 'create-team');
+const secondaryOpen = ref(Boolean(groupId.value));
 watch(
   [groupId, () => route.name],
-  ([id, name], [prevId, prevName]) => {
-    const isTeamRoute = Boolean(id) || name === 'create-team';
-    const wasTeamRoute = Boolean(prevId) || prevName === 'create-team';
-    if (!isTeamRoute) {
+  ([id, name], [prevId]) => {
+    if (!id || name === 'create-team') {
       secondaryOpen.value = false;
       return;
     }
-    if (!wasTeamRoute) {
+    if (!prevId) {
       secondaryOpen.value = true;
     }
   },
@@ -254,6 +252,7 @@ function teamTabLabel(entry: MountedPlugin): string {
 }
 
 function openCreateTeam() {
+  secondaryOpen.value = false;
   ui.closeInspector();
   router.push({ name: 'create-team' });
 }
@@ -412,7 +411,7 @@ function onMemberPolicySaved() {
       :groups="groups"
       :members="members"
       :current-group-id="sidebarGroupId"
-      :home-active="!isPanelAgentRoute && !isSettingsRoute && !activePluginRoute && !group"
+      :home-active="!isPanelAgentRoute && !isSettingsRoute && !activePluginRoute && !group && route.name !== 'create-team'"
       :tool-entries="navPluginEntries"
       :agent-active="isPanelAgentRoute"
       :agent-unread-count="agentUnreadCount"
