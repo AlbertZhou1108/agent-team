@@ -5,7 +5,7 @@ import type { MessageFeedProps } from './message-feed-types';
 import { filePreviewContext } from './file-refs';
 import FilePreviewDialog from './FilePreviewDialog.vue';
 import PanelState from '@/components/panel/PanelState.vue';
-import { LoaderCircle, MessagesSquare, Clock3 } from '@lucide/vue';
+import { ChevronRight, LoaderCircle, MessagesSquare } from '@lucide/vue';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
 import ConversationPanel from '@/components/ai-elements/ConversationPanel.vue';
 import ConversationOutline from './ConversationOutline.vue';
@@ -59,10 +59,10 @@ provide(filePreviewContext, {
 
 // 多路并发时由运行卡决定展示哪一路正文;切换会话时清空选择。
 const selectedRunKey = ref<string | null>(null);
-// 执行轨迹的开关收进消息头:收起时零占位(药丸形态曾占会话两成高度),
-// 展开状态在这里统一持有 —— 普通消息按消息 id,群发组只有一颗开关、
-// 展开堆叠组内全部轨迹,键取组首消息 id。
+// 执行轨迹以轻量折叠条挂在消息气泡上方:收起时只占一行文字,
+// 展开状态与摘要文案在这里统一持有 —— 普通消息按消息 id,群发组取组首消息 id。
 const expandedTraces = ref(new Set<string>());
+const traceSummaries = ref<Record<string, string>>({});
 // 已加载消息超过上限时只渲染最近一段,避免超长会话累积数千 DOM 节点;
 // 更早的消息已在内存里,点按钮即时展开,不需要重新请求。
 const RENDER_STEP = 600;
@@ -72,6 +72,7 @@ watch(
   () => {
     selectedRunKey.value = null;
     expandedTraces.value = new Set();
+    traceSummaries.value = {};
     renderedLimit.value = RENDER_STEP;
   },
 );
@@ -81,6 +82,10 @@ function toggleTrace(id: string) {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expandedTraces.value = next;
+}
+function setTraceSummary(id: string, summary: string) {
+  if (!summary || traceSummaries.value[id] === summary) return;
+  traceSummaries.value = { ...traceSummaries.value, [id]: summary };
 }
 
 const filtered = computed(() =>
@@ -236,18 +241,18 @@ const messageIds = computed(() => {
         label="系统通知"
         :count="group.messages.length"
       >
-        <div class="flex flex-col gap-2 p-3">
+        <div class="flex flex-col gap-1 px-2 py-1.5">
           <AgentMessage
             v-for="message in group.messages"
             :key="message.id"
             :message="message"
+            stacked
           />
         </div>
       </FeedPanel>
       <template v-else-if="group.fanout">
         <!-- 轨迹以消息为单位:同一指令发往多个成员是多次独立的发送,各自一段轨迹。
-             正文只展示一次,但每条消息保留自己的锚点、轨迹与回执。
-             开关只有消息头上一颗,展开后组内全部轨迹按接收者标注堆叠。 -->
+             正文只展示一次,折叠开关挂在气泡上方,展开后组内全部轨迹按接收者标注堆叠。 -->
         <div
           v-for="(message, index) in group.messages"
           :key="message.id"
@@ -259,37 +264,51 @@ const messageIds = computed(() => {
             :fanout-recipients="group.messages.map(item => item.recipientName)"
             :markdown="markdown"
           >
-            <template #header-actions>
-              <Button
-                v-if="traceable && traceCandidates.has(message.id)"
-                variant="ghost"
-                size="icon-xs"
-                class="message-actions message-trace-toggle"
-                :data-active="traceExpanded(message.id)"
-                :aria-expanded="traceExpanded(message.id)"
-                :aria-label="`本次群发的执行轨迹`"
-                title="执行轨迹"
-                @click="toggleTrace(message.id)"
-              >
-                <Clock3 />
-              </Button>
+            <template
+              v-if="traceable && group.messages.some(item => traceCandidates.has(item.id))"
+              #above
+            >
+              <div class="inline-trace-wrap" :class="message.senderIsUser && 'inline-trace-wrap--end'">
+                <button
+                  type="button"
+                  class="inline-trace-toggle"
+                  :data-active="traceExpanded(message.id)"
+                  :aria-expanded="traceExpanded(message.id)"
+                  aria-label="本次群发的执行轨迹"
+                  @click="toggleTrace(message.id)"
+                >
+                  <span>{{ traceSummaries[message.id] ?? '执行轨迹' }}</span>
+                  <ChevronRight
+                    class="size-3.5 shrink-0 transition-transform duration-(--component-feedback-duration)"
+                    :class="traceExpanded(message.id) && 'rotate-90'"
+                    aria-hidden="true"
+                  />
+                </button>
+                <template v-if="traceExpanded(message.id)">
+                  <template v-for="traceMessage in group.messages" :key="traceMessage.id">
+                    <MessageTrace
+                      v-if="traceCandidates.has(traceMessage.id)"
+                      :message-id="traceMessage.id"
+                      :hosts="hosts ?? {}"
+                      expanded
+                      :align="traceMessage.senderIsUser ? 'end' : 'start'"
+                      :label="traceMessage.recipientName"
+                    />
+                  </template>
+                </template>
+              </div>
             </template>
-            <template v-if="$slots.footer" #footer="{ message }">
-              <slot name="footer" :message="message" />
-            </template>
-          </AgentMessage>
-          <template v-if="index === 0 && traceExpanded(message.id)">
-            <template v-for="traceMessage in group.messages" :key="traceMessage.id">
-              <MessageTrace
-                v-if="traceCandidates.has(traceMessage.id)"
-                :message-id="traceMessage.id"
-                :hosts="hosts ?? {}"
-                expanded
-                :align="traceMessage.senderIsUser ? 'end' : 'start'"
-                :label="traceMessage.recipientName"
+            <template v-if="receipts[message.id]" #below>
+              <MessageReceipt
+                :receipt="receipts[message.id]!"
+                :align="message.senderIsUser ? 'end' : 'start'"
+                @open="openReceipt"
               />
             </template>
-          </template>
+            <template v-if="$slots.footer" #footer="{ message: footerMessage }">
+              <slot name="footer" :message="footerMessage" />
+            </template>
+          </AgentMessage>
           <p
             v-if="index > 0"
             class="sr-only"
@@ -302,7 +321,7 @@ const messageIds = computed(() => {
             class="mt-2"
           />
           <MessageReceipt
-            v-if="receipts[message.id]"
+            v-if="index > 0 && receipts[message.id]"
             :receipt="receipts[message.id]!"
             :align="message.senderIsUser ? 'end' : 'start'"
             @open="openReceipt"
@@ -311,7 +330,7 @@ const messageIds = computed(() => {
       </template>
       <template v-else>
         <!-- 每条消息保留独立锚点;同发送者连续消息仅首条显示身份。
-             轨迹跟随各自的消息,不同消息对应不同的产出事件段。 -->
+             轨迹折叠挂在气泡上方,先轨迹后正文。 -->
         <div
           v-for="(message, index) in group.messages"
           :key="message.id"
@@ -319,32 +338,43 @@ const messageIds = computed(() => {
         >
           <!-- 卡片锚点:正文与卡片重复,只保留卡片本体。 -->
           <AgentMessage v-if="!isCardAnchor(message)" :message="message" :compact="index > 0" :markdown="markdown">
-            <template #header-actions>
-              <Button
-                v-if="traceable && traceCandidates.has(message.id)"
-                variant="ghost"
-                size="icon-xs"
-                class="message-actions message-trace-toggle"
-                :data-active="traceExpanded(message.id)"
-                :aria-expanded="traceExpanded(message.id)"
-                :aria-label="`消息 #${message.seq} 的执行轨迹`"
-                title="执行轨迹"
-                @click="toggleTrace(message.id)"
-              >
-                <Clock3 />
-              </Button>
+            <template v-if="traceable && traceCandidates.has(message.id)" #above>
+              <div class="inline-trace-wrap" :class="message.senderIsUser && 'inline-trace-wrap--end'">
+                <button
+                  type="button"
+                  class="inline-trace-toggle"
+                  :data-active="traceExpanded(message.id)"
+                  :aria-expanded="traceExpanded(message.id)"
+                  :aria-label="`消息 #${message.seq} 的执行轨迹`"
+                  @click="toggleTrace(message.id)"
+                >
+                  <span>{{ traceSummaries[message.id] ?? '执行轨迹' }}</span>
+                  <ChevronRight
+                    class="size-3.5 shrink-0 transition-transform duration-(--component-feedback-duration)"
+                    :class="traceExpanded(message.id) && 'rotate-90'"
+                    aria-hidden="true"
+                  />
+                </button>
+                <MessageTrace
+                  :message-id="message.id"
+                  :hosts="hosts ?? {}"
+                  :expanded="traceExpanded(message.id)"
+                  :align="message.senderIsUser ? 'end' : 'start'"
+                  @summary="setTraceSummary(message.id, $event)"
+                />
+              </div>
             </template>
-            <template v-if="$slots.footer" #footer="{ message }">
-              <slot name="footer" :message="message" />
+            <template v-if="receipts[message.id]" #below>
+              <MessageReceipt
+                :receipt="receipts[message.id]!"
+                :align="message.senderIsUser ? 'end' : 'start'"
+                @open="openReceipt"
+              />
+            </template>
+            <template v-if="$slots.footer" #footer="{ message: footerMessage }">
+              <slot name="footer" :message="footerMessage" />
             </template>
           </AgentMessage>
-          <MessageTrace
-            v-if="!isCardAnchor(message) && traceable && traceCandidates.has(message.id)"
-            :message-id="message.id"
-            :hosts="hosts ?? {}"
-            :expanded="traceExpanded(message.id)"
-            :align="message.senderIsUser ? 'end' : 'start'"
-          />
           <InteractionCard
             v-for="interaction in messageInteractions[message.id] ?? []"
             :key="interaction.id"
@@ -353,7 +383,7 @@ const messageIds = computed(() => {
             class="mt-2"
           />
           <MessageReceipt
-            v-if="receipts[message.id]"
+            v-if="isCardAnchor(message) && receipts[message.id]"
             :receipt="receipts[message.id]!"
             :align="message.senderIsUser ? 'end' : 'start'"
             @open="openReceipt"

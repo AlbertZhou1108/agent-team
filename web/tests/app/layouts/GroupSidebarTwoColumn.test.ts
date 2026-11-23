@@ -267,12 +267,12 @@ describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近
       '团队11', '团队10', '团队9', '团队8', '团队7', '团队6', '团队5', '团队4', '团队3',
     ]);
 
-    // 再次点击较早访问的团队（team-5）时，移到最前位且不重复。
+    // 再次点击较早访问的团队（team-5）时，保持原位不移动到最前位且不重复。
     await panel.get('.recent-team-avatar[title="团队5"]').trigger('click');
     expect(wrapper.emitted('select')).toEqual([['team-5']]);
     await nextTick();
     expect(recentIds()).toEqual([
-      '团队5', '团队11', '团队10', '团队9', '团队8', '团队7', '团队6', '团队4', '团队3',
+      '团队11', '团队10', '团队9', '团队8', '团队7', '团队6', '团队5', '团队4', '团队3',
     ]);
 
     // 若团队被归档移除出 groups，自动从最近访问过滤掉。
@@ -281,7 +281,7 @@ describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近
     });
     await nextTick();
     expect(recentIds()).toEqual([
-      '团队5', '团队11', '团队9', '团队8', '团队7', '团队6', '团队4', '团队3',
+      '团队11', '团队9', '团队8', '团队7', '团队6', '团队5', '团队4', '团队3',
     ]);
   });
 

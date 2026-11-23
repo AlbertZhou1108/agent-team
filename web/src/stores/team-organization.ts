@@ -179,8 +179,8 @@ export const useTeamOrganization = defineStore('team-organization', {
     toggleFolder(id: string) { const folder = this.folders.find(item => item.id === id); if (folder) folder.collapsed = !folder.collapsed; this.persist(); },
     recordVisit(id: string) {
       const trimmed = id.trim();
-      if (!trimmed || this.recentIds[0] === trimmed) return;
-      this.recentIds = [trimmed, ...this.recentIds.filter(item => item !== trimmed)].slice(0, MAX_RECENT_TEAMS);
+      if (!trimmed || this.recentIds.includes(trimmed)) return;
+      this.recentIds = [trimmed, ...this.recentIds].slice(0, MAX_RECENT_TEAMS);
       this.persist();
     },
   },

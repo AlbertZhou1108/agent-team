@@ -1318,6 +1318,11 @@ button {
   --message-avatar-column: 44px;
 }
 
+.message-item {
+  width: 100%;
+  min-width: 0;
+}
+
 .message-row {
   display: flex;
   width: 100%;
@@ -1330,25 +1335,51 @@ button {
   flex-direction: row-reverse;
 }
 
-/* 消息操作(引用/复制)。每条消息都常驻一颗按钮时,长会话整列都是按钮,
-   正文反而被压下去了 —— 只在指针进入这条消息或键盘聚焦时出现。
-   菜单展开期间用 data-state 兜住:那时焦点已经移进浮层,依赖不到行内状态。
-   触屏没有悬停,直接常驻。 */
+.message-body-col {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.message-body-col--end {
+  align-items: flex-end;
+}
+
+.message-below {
+  display: flex;
+  min-height: 24px;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.message-below--end {
+  justify-content: flex-end;
+}
+
+.message-below .message-receipt {
+  padding-block-start: 0;
+  padding-inline: 0;
+}
+
+/* 消息操作(引用/复制)。放在气泡下方,只在指针进入整条消息(含下方动作区)
+   或键盘聚焦时出现。菜单展开期间用 data-state 兜住:那时焦点已经移进浮层。
+   使用 opacity 原地占位,不引起右侧投递状态 tag 左右跳动。触屏直接常驻。 */
 .message-actions {
   opacity: 0;
   transition: opacity var(--component-feedback-duration) var(--component-layout-easing);
 }
 
+.message-item:hover .message-actions,
+.message-item:focus-within .message-actions,
 .message-row:hover .message-actions,
 .message-row:focus-within .message-actions,
 .message-actions[data-state='open'] {
   opacity: 1;
-}
-
-/* 轨迹开关:与 ⋯ 一致的悬停显隐;展开期间常驻并用前景色提示"这张消息的轨迹开着"。 */
-.message-trace-toggle[data-active='true'] {
-  opacity: 1;
-  color: var(--foreground);
 }
 
 @media (hover: none) {
@@ -1721,40 +1752,173 @@ button {
   margin-inline: -4px;
 }
 
-/* 展开的行内轨迹:跟在气泡后面,是消息的一部分。
-   左边让开头像列与气泡对齐;宽度取「这一类气泡能长到的最大宽」,
-   不是当前气泡的实宽:短消息的气泡很窄,但轨迹里是步骤列表,跟着缩成一条窄柱
-   就没法读了。气泡自己的上限是 max-w-[80%](ghost 变体为 max-w-full),而轨迹的
-   包含块与气泡所在的 .message-row 同宽 —— 照抄同一个百分比就得到同一个像素值,
-   不需要测量。 */
+/* 气泡上方的无边框行内轨迹（先轨迹、后正文）。位于 .message-body-col 内部,
+   天然与气泡同侧对齐,不再额外让开头像列。 */
+.inline-trace-wrap {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.inline-trace-wrap--end {
+  align-items: flex-end;
+}
+
+.inline-trace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color var(--component-feedback-duration) var(--component-layout-easing);
+}
+
+.inline-trace-toggle:hover,
+.inline-trace-toggle[data-active='true'] {
+  color: var(--foreground);
+}
+
 .inline-trace {
   inline-size: 100%;
-  max-inline-size: 80%;
+  max-inline-size: 100%;
   min-inline-size: 0;
-  margin-block-start: 6px;
-  margin-inline-start: var(--message-avatar-column);
 }
 
-/* 成员发言的气泡是 ghost(max-w-full):轨迹跟着铺满整行(扣掉头像列)。 */
-[data-message-id]:has([data-slot='bubble'][data-variant='ghost']) .inline-trace {
-  max-inline-size: calc(100% - var(--message-avatar-column));
-}
-
-/* 用户侧的消息(对齐右):让开右端头像位,与气泡同侧。 */
 .inline-trace--end {
-  margin-inline-start: 0;
-  margin-inline-end: var(--message-avatar-column);
+  display: flex;
+  justify-content: flex-end;
 }
 
-
-
-/* 行内轨迹现在是单张卡片:高度上限与滚动留在卡片本身,内距交给 Card 契约,
-   这里只管"超长时在卡片内滚动"这一件事。不要在这里写 padding —— 它会覆盖
-   Card 的 --card-padding。 */
 .inline-trace-content {
-  max-height: min(480px, 55vh);
+  max-height: min(440px, 50vh);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* 消息正文内的可点击文件引用筹码:融入行内文本语境,点击直接预览工作区文件。 */
+.inline-file-chip {
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: -0.15em;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--component-chip-radius);
+  background-color: color-mix(in oklch, var(--muted) 55%, transparent);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+  cursor: pointer;
+  transition:
+    background-color var(--component-feedback-duration) var(--component-layout-easing),
+    border-color var(--component-feedback-duration) var(--component-layout-easing);
+}
+
+.inline-file-chip:hover {
+  background-color: var(--accent);
+  border-color: color-mix(in oklch, var(--foreground) 22%, var(--border));
+}
+
+.inline-file-chip-icon {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background-color: var(--muted-foreground);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* 轻量级系统通知时间线事件条：替代原全宽描边气泡卡片，避免抢占对话流视觉权重。 */
+.system-notice-item {
+  padding: 2px 0;
+}
+
+.system-notice-line {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.system-notice-hairline {
+  flex: 1 1 24px;
+  min-width: 12px;
+  height: 1px;
+  background-color: color-mix(in oklch, var(--border) 75%, transparent);
+}
+
+.system-notice-pill {
+  display: inline-flex;
+  max-width: min(100%, 46rem);
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background-color: color-mix(in oklch, var(--muted) 55%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.system-notice-pill[data-tone='danger'] {
+  background-color: color-mix(in oklch, var(--destructive) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--destructive) 30%, transparent);
+  color: var(--destructive);
+}
+
+.system-notice-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.system-notice-row[data-tone='danger'],
+.system-notice-item[data-tone='danger'] .system-notice-row {
+  color: var(--destructive);
+}
+
+.system-notice-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  align-self: center;
+}
+
+.system-notice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-notice-sep,
+.system-notice-time {
+  flex: none;
+  opacity: 0.85;
+}
+
+.system-notice-menu {
+  width: 20px;
+  height: 20px;
 }
 
 .message-icon {

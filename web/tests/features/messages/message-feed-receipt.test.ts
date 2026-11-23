@@ -31,6 +31,7 @@ vi.mock('@/components/ai-elements/AgentMessage.vue', () => ({
     setup: (props, { slots }) => () =>
       h('div', { 'data-testid': 'agent-message' }, [
         h('span', props.message.text),
+        slots.below?.({ message: props.message }) ?? null,
         slots.footer?.({ message: props.message }) ?? null,
       ]),
   }),

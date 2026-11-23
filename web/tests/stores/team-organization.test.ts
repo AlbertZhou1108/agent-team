@@ -197,17 +197,17 @@ describe('最近访问记录', () => {
       'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-4', 'g-3', 'g-2',
     ]);
 
-    // 再次访问已有项应移至首位而不重复，空白 ID 忽略。
+    // 再次访问已有项应保持原位而不移至首位，空白 ID 忽略。
     store.recordVisit('g-4');
     store.recordVisit('   ');
     expect(store.recentIds).toEqual([
-      'g-4', 'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-3', 'g-2',
+      'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-4', 'g-3', 'g-2',
     ]);
 
     setActivePinia(createPinia());
     const restored = useTeamOrganization();
     expect(restored.recentIds).toEqual([
-      'g-4', 'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-3', 'g-2',
+      'g-10', 'g-9', 'g-8', 'g-7', 'g-6', 'g-5', 'g-4', 'g-3', 'g-2',
     ]);
   });
 

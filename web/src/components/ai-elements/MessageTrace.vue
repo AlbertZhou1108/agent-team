@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle } from '@lucide/vue';
+import { computed, watch } from 'vue';
+import { AlertTriangle, CircleDot, LoaderCircle } from '@lucide/vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
 import { buildTurns } from '@/features/traces/reducer';
 import { useMessageTraceQuery } from '@/features/messages/trace-query';
@@ -14,9 +13,8 @@ import TraceStepCard from './TraceStepCard.vue';
 type Host = 'codex' | 'claude' | 'dsh' | 'zcode' | 'unknown';
 
 /**
- * 展开后的行内轨迹面板:只负责渲染,开合归消息头里的时钟按钮(见 MessageFeed)。
- * 药丸形态已移除 —— 每条可追溯消息一颗 38px 的药丸占掉会话两成高度,
- * 现在收起时零占位,展开才出现这张卡片。
+ * 气泡上方的行内执行轨迹（无外框折叠列表，先轨迹、后正文）。
+ * 开关归外层触发条（见 MessageFeed），收起时零占位，展开才按消息段拉取事件并铺开步骤。
  */
 const props = defineProps<{
   messageId: string;
@@ -25,10 +23,14 @@ const props = defineProps<{
   /** 轨迹跟随消息气泡的一侧:用户的提问在右,其他人的发言在左。 */
   align?: 'start' | 'end';
   /**
-   * 归属标注。群发指令下同一次下发有多条轨迹堆叠,卡片头部带上接收者,
-   * 否则分不清哪张卡是谁的产出。
+   * 归属标注。群发指令下同一次下发有多条轨迹堆叠,头部带上接收者,
+   * 否则分不清哪段是谁的产出。
    */
   label?: string;
+}>();
+
+const emit = defineEmits<{
+  summary: [text: string];
 }>();
 
 // 一条消息对应一段事件:后端按该消息的 call_id 切好段,不需要再拉整轮事件。
@@ -77,6 +79,20 @@ const duration = computed(() => {
   if (seconds < 60) return `${seconds} 秒`;
   return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 });
+
+const summaryText = computed(() => {
+  if (!trace.value) return '';
+  const timePart = duration.value ? `用时 ${duration.value} · ` : '';
+  return `${timePart}${trace.value.steps.length} 步 · ${statusLabels[trace.value.status]}`;
+});
+
+watch(
+  summaryText,
+  (value) => {
+    if (value) emit('summary', value);
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -90,47 +106,44 @@ const duration = computed(() => {
       <Button variant="outline" size="sm" @click="traceQuery.refetch()">重试</Button>
     </PanelState>
     <PanelState v-else-if="!trace" title="此消息没有可用的执行轨迹" />
-    <!-- 一张卡片承载整条轨迹:用时、步数与状态都在卡片头部,步骤直接铺开。
-         行内轨迹只含一条消息的一段,所以不需要「本回合」这类区分标签。 -->
-    <Card v-else size="md" class="inline-trace-content">
-      <CardContent class="flex min-w-0 flex-col gap-1">
-        <div class="message-head gap-2">
-          <span class="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
-            <template v-if="label">{{ label }} · </template>用时 {{ duration }} · {{ trace.steps.length }} 步
-          </span>
-          <Badge
-            :variant="
-              trace.status === 'error'
-                ? 'destructive'
-                : trace.status === 'running'
-                  ? 'secondary'
-                  : 'outline'
-            "
-          >
-            <LoaderCircle
-              v-if="trace.status === 'running'"
-              class="animate-spin"
-            /><CheckCircle2
-              v-else-if="trace.status === 'completed'"
-            /><AlertTriangle v-else-if="trace.status === 'error'" /><CircleDot
-              v-else
-            />
-            {{ statusLabels[trace.status] }}
-          </Badge>
-        </div>
-        <div class="flex min-w-0 flex-col">
-          <TraceStepCard
-            v-for="step in trace.steps"
-            :key="step.id"
-            :step="step"
-            data-record-row
+    <div v-else class="inline-trace-content flex min-w-0 flex-col gap-0.5 border-l border-border/70 pl-3">
+      <div v-if="label || trace.status !== 'completed'" class="flex items-center gap-2 pb-1">
+        <span v-if="label" class="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
+          {{ label }} · {{ summaryText }}
+        </span>
+        <Badge
+          v-if="trace.status !== 'completed'"
+          :variant="
+            trace.status === 'error'
+              ? 'destructive'
+              : trace.status === 'running'
+                ? 'secondary'
+                : 'outline'
+          "
+        >
+          <LoaderCircle
+            v-if="trace.status === 'running'"
+            class="animate-spin"
+          /><AlertTriangle v-else-if="trace.status === 'error'" /><CircleDot
+            v-else
           />
-        </div>
-        <Disclosure v-if="trace.id !== 'unknown'">
-          <template #summary>回合标识</template>
-          <p class="mt-2 break-all font-mono">{{ trace.id }}</p>
-        </Disclosure>
-      </CardContent>
-    </Card>
+          {{ statusLabels[trace.status] }}
+        </Badge>
+      </div>
+      <div class="flex min-w-0 flex-col">
+        <TraceStepCard
+          v-for="step in trace.steps"
+          :key="step.id"
+          :step="step"
+          data-record-row
+        />
+      </div>
+      <Disclosure v-if="trace.id !== 'unknown'" class="trace-step">
+        <template #summary>
+          <span class="text-xs text-muted-foreground">回合标识</span>
+        </template>
+        <p class="mt-1 break-all pl-5 font-mono text-xs text-muted-foreground">{{ trace.id }}</p>
+      </Disclosure>
+    </div>
   </div>
 </template>
