@@ -554,7 +554,7 @@ test('workflowTemplate and member worktree isolation work end-to-end across HTTP
   });
   assert.equal(mergeRes.status, 200);
   assert.equal((await mergeRes.json()).merged, true);
-  assert.equal(readFileSync(join(repo, `${coderA.id}.txt`), 'utf8'), `written by ${coderA.id}\n`);
+  assert.equal(readFileSync(join(repo, `${coderA.id}.txt`), 'utf8').replace(/\r\n/g, '\n'), `written by ${coderA.id}\n`);
 
   // coderA 已合入且干净：自动安全清理切回 inherit；coderB 含未提交文件：removeMember 保守保留目录。
   const removeClean = await fetch(`${url}/api/teams/${group.id}/members/${coderA.id}/worktree/remove`, {

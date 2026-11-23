@@ -130,7 +130,7 @@ test('create, isolate writes, protected merge, conflict abort and conservative r
   // 合入主分支成功后，wtA 未合并计数归零，随后可自动安全清理。
   const merged = mergeMemberWorktree({ repoRoot: repo, worktreePath: wtA.worktreePath, branch: wtA.worktreeBranch });
   assert.equal(merged.merged, true);
-  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'from A\n');
+  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8').replace(/\r\n/g, '\n'), 'from A\n');
   const cleanedAfterMerge = removeMemberWorktree({
     dataDir, repoRoot: repo, worktreePath: wtA.worktreePath, branch: wtA.worktreeBranch,
   });
