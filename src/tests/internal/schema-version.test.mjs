@@ -323,8 +323,12 @@ test('a v25 database gains member policy columns and the member_policy interacti
   store.run("INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g1','worker','fake','member')");
   store.run(`INSERT INTO messages(id,group_id,sender,recipient,kind,text,created) VALUES('msg1','g1','lead','m1','send','历史派工',?)`, NOW);
   store.run(`INSERT INTO interactions(id,group_id,context,turn_id,call_id,kind,payload,created) VALUES('i1','g1','pair:lead','t1','c1','member_model','{}',?)`, NOW);
-  // 回退为 v25 形状：members 去掉三列，interactions 重建为不含 member_policy 的 CHECK。
-  store.db.exec(`ALTER TABLE members DROP COLUMN policy_ceiling;
+  // 回退为 v25 形状：同时剥离 v26 与后续版本追加列，按真实升级阶梯依次经 migrateV26 → migrateV27。
+  store.db.exec(`ALTER TABLE groups DROP COLUMN workflow_template;
+    ALTER TABLE members DROP COLUMN worktree_branch;
+    ALTER TABLE members DROP COLUMN worktree_path;
+    ALTER TABLE members DROP COLUMN workspace_mode;
+    ALTER TABLE members DROP COLUMN policy_ceiling;
     ALTER TABLE members DROP COLUMN allow_shell;
     ALTER TABLE members DROP COLUMN allow_browser;`);
   store.db.exec(`ALTER TABLE interactions RENAME TO interactions_v25;
@@ -339,7 +343,7 @@ test('a v25 database gains member policy columns and the member_policy interacti
 
   store = new Store(directory);
   try {
-    assert.equal(SCHEMA_VERSION, 26);
+    assert.ok(SCHEMA_VERSION >= 26);
     assert.equal(store.schemaVersion(), SCHEMA_VERSION);
     // 旧成员自动继承群策略(NULL)，浏览器默认关闭。
     const member = store.get("SELECT * FROM members WHERE id='m1'");
@@ -689,4 +693,72 @@ test('a fresh database carries the widened kind enum directly', t => {
   assert.match(tableSql, /'zcode'/);
   assert.equal(store.schemaVersion(), SCHEMA_VERSION);
   store.close();
+});
+
+test('a v26 database gains workflow_template and member worktree isolation columns', t => {
+  const directory = tempDir(t);
+  const freshDirectory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run("INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g1','worker','fake','member')");
+  store.db.exec(`ALTER TABLE groups DROP COLUMN workflow_template;
+    ALTER TABLE members DROP COLUMN workspace_mode;
+    ALTER TABLE members DROP COLUMN worktree_path;
+    ALTER TABLE members DROP COLUMN worktree_branch;`);
+  store.setSchemaVersion(26);
+  store.close();
+
+  store = new Store(directory);
+  try {
+    assert.equal(SCHEMA_VERSION, 27);
+    assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+    const group = store.get("SELECT * FROM groups WHERE id='g1'");
+    assert.equal(group.workflow_template, null);
+    const member = store.get("SELECT * FROM members WHERE id='m1'");
+    assert.equal(member.workspace_mode, 'inherit');
+    assert.equal(member.worktree_path, null);
+    assert.equal(member.worktree_branch, null);
+
+    // 约束校验:workspace_mode 只允许 'inherit' / 'worktree'。
+    assert.throws(
+      () => store.run("INSERT INTO members(id,group_id,name,host,role,workspace_mode) VALUES('bad','g1','bad','fake','member','custom')"),
+      /CHECK/,
+    );
+
+    const fresh = new Store(freshDirectory);
+    try {
+      const shape = (database, table) => database.all(`PRAGMA table_info(${table})`)
+        .map(column => [column.name, column.type, column.notnull, column.dflt_value, column.pk]);
+      assert.deepEqual(shape(store, 'groups'), shape(fresh, 'groups'));
+      assert.deepEqual(shape(store, 'members'), shape(fresh, 'members'));
+      const normalize = sql => sql.replace(/\s+/g, ' ').trim();
+      for (const table of ['groups', 'members']) {
+        assert.equal(
+          normalize(store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).sql),
+          normalize(fresh.get("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).sql),
+          `${table} 的迁移 DDL 与新库直建不一致`,
+        );
+      }
+    } finally {
+      fresh.close();
+    }
+
+    teams.insertGroup(store, {
+      id: 'g2', name: 'G2', workspace: directory, created: NOW,
+      charter: null, policy: 'workspace-write', allowShell: 1, workflowTemplate: 'standard-dev',
+    });
+    assert.equal(store.get("SELECT workflow_template FROM groups WHERE id='g2'").workflow_template, 'standard-dev');
+    teams.insertMember(store, {
+      id: 'm2', groupId: 'g2', name: 'coder', host: 'fake', role: 'member',
+      workspaceMode: 'worktree', worktreePath: '/tmp/wt/m2', worktreeBranch: 'agent-team/g2-coder',
+    });
+    const wtMember = store.get("SELECT * FROM members WHERE id='m2'");
+    assert.equal(wtMember.workspace_mode, 'worktree');
+    assert.equal(wtMember.worktree_path, '/tmp/wt/m2');
+    assert.equal(wtMember.worktree_branch, 'agent-team/g2-coder');
+    teams.updateMemberWorkspace(store, { memberId: 'm2', workspaceMode: 'inherit', worktreePath: null, worktreeBranch: null });
+    assert.equal(store.get("SELECT workspace_mode FROM members WHERE id='m2'").workspace_mode, 'inherit');
+  } finally {
+    store.close();
+  }
 });

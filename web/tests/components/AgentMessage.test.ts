@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSSRApp, h } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
+import { extractFilePathRefs } from '@/features/messages/file-refs';
 import type { MessageView } from '@/shared/models/view-types';
 
 vi.mock('vue-router', () => ({
@@ -38,5 +39,28 @@ describe('AgentMessage quote block', () => {
     expect(quoteButton).toContain('shrink');
     expect(quoteButton).not.toMatch(/(?:^|\s)shrink-0(?:\s|$)/);
     expect(html).toContain('Panel Agent · #780');
+  });
+
+  it('extracts markdown/source file refs while skipping urls and parent traversal, and renders file ref chips', async () => {
+    const sample = '已完成设计，详见 [spec.md](docs/flows/2026-11-23/spec.md#L12) 与 `web/src/App.vue`，忽略 https://example.com/a.md 与 ../secret.md。';
+    expect(extractFilePathRefs(sample)).toEqual([
+      'docs/flows/2026-11-23/spec.md#L12',
+      'web/src/App.vue',
+    ]);
+    const html = await renderToString(
+      createSSRApp({
+        render: () => h(AgentMessage, {
+          markdown: false,
+          message: {
+            ...messageWithQuote(),
+            senderIsUser: false,
+            text: sample,
+          },
+        }),
+      }),
+    );
+    expect(html).toContain('data-testid="message-file-refs"');
+    expect(html).toContain('spec.md');
+    expect(html).toContain('App.vue');
   });
 });

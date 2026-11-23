@@ -227,8 +227,8 @@ defineExpose({ scrollToBottom });
         <div ref="content" class="min-w-0 flex-1" :class="contentClass">
           <slot />
         </div>
-        <!-- sticky 载体必须是滚动列的直接子元素(包含块=整列才有粘住余量);
-             槽内容(输入区组件)常自带根 wrapper,内层 sticky 会被它约束住。 -->
+        <!-- sticky 载体必须是滚动列的直接子元素(包含块=整列才有粘住余量),
+             底栏沿用聊天画布同底色且不加边框,遮住滚过的消息同时保留输入框悬浮感。 -->
         <div ref="barBottom" class="conversation-bar-bottom shrink-0">
           <slot name="bar-bottom" />
         </div>

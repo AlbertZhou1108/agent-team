@@ -32,7 +32,8 @@ export class ToolDispatch {
     const member = this.bus.store.member(endpoint.member_id);
     if (schema === CONTEXT_SCHEMA_VERSION) {
       const modelPolicy = member.role === 'lead' && ['coordination', 'private'].includes(endpoint.context) ? this.bus.modelPolicy() : null;
-      return memberRules(member, { modelPolicy });
+      const group = this.bus.store.group(member.group_id);
+      return memberRules(member, { modelPolicy, workflowTemplate: group.workflow_template ?? null });
     }
     // Legacy sessions keep plain communication rules; their turn inputs stay
     // raw JSON so old host conversations remain readable.
@@ -92,12 +93,13 @@ export class ToolDispatch {
     if (name === 'model_catalog') return this.bus.modelCatalog({ refresh: true });
     if (name === 'members') {
       const cards = await this.bus.capabilities.memberCards(this.bus.store.group(groupId));
-      return cards.map(({ id, name: displayName, host, role, profile, capabilityCard }) => ({
+      return cards.map(({ id, name: displayName, host, role, profile, workspace_mode, worktree_branch, worktree_path, capabilityCard }) => ({
         id,
         name: displayName,
         host,
         role,
         profile,
+        ...(workspace_mode === 'worktree' ? { workspaceMode: 'worktree', worktreeBranch: worktree_branch, worktreePath: worktree_path } : {}),
         capabilityCard,
       }));
     }
@@ -232,12 +234,23 @@ export class ToolDispatch {
     if (name === 'group_add') {
       this.bus.requireHost(args.host);
       if (args.name.trim().length > 100) throw new Error('成员名称无效');
+      const group = this.bus.store.group(groupId);
       const policyPatch = memberPolicyPatch(args);
-      normalizeMemberPolicyPatch(this.bus.store.group(groupId).policy, policyPatch);
+      const normalizedPatch = normalizeMemberPolicyPatch(group.policy, policyPatch);
+      const rawWorkspaceMode = args.workspace_mode !== undefined ? args.workspace_mode : args.workspaceMode;
+      const workspaceMode = rawWorkspaceMode !== undefined
+        ? this.bus.lifecycle.assertWorktreePreconditions(group.policy, { role: 'member', policyCeiling: normalizedPatch.policyCeiling ?? null, workspaceMode: rawWorkspaceMode }, group.workspace)
+        : undefined;
       const selection = args.selection === undefined ? undefined : this.bus.resolveMemberSelection(args.host, args.selection);
       return this.bus.requestGroupAction(member, endpoint, origin, 'group_add',
-        `请求向本群添加成员 ${args.name}（${args.host}）`,
-        { name: args.name, host: args.host, ...policyPatch, ...(selection ? { selection } : {}) });
+        `请求向本群添加成员 ${args.name}（${args.host}${workspaceMode === 'worktree' ? '，worktree 隔离' : ''}）`,
+        {
+          name: args.name,
+          host: args.host,
+          ...policyPatch,
+          ...(workspaceMode !== undefined ? { workspaceMode } : {}),
+          ...(selection ? { selection } : {}),
+        });
     }
     if (name === 'group_remove') return this.bus.removeMember(groupId, args.member);
     if (name === 'group_delete') {

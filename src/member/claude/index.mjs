@@ -5,6 +5,7 @@ import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
 import { connectionProbe, probeClaude, initializeClaude } from '../../host-runtime/probe.mjs';
 import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
 import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { worktreeGitWritableRoots } from '../../hosts/worktree.mjs';
 import { probeBrowserMcpServers, normalizeBrowserProbeResult, BROWSER_MCP_UNAVAILABLE_REASON } from '../../hosts/browser-mcp-probe.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
@@ -133,7 +134,8 @@ export function createClaudeHost({
       // 探测到的浏览器 MCP 只在本轮获授权时合并进受控 mcp-config 并放行工具；未授权保持默认禁用。
       const browserServers = policy.allowBrowser ? inspectBrowserMcp().servers : [];
       const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId, undefined, { browserServers });
-      const { builtins, allowed, sandbox } = claudeExecutionConfig(policy, context.tools, context.workspace, browserServers);
+      const extraWritableRoots = policy.mode === 'workspace-write' ? worktreeGitWritableRoots(context.workspace) : [];
+      const { builtins, allowed, sandbox } = claudeExecutionConfig(policy, context.tools, context.workspace, browserServers, extraWritableRoots);
       const settings = { disableAllHooks: true };
       if (sandbox) settings.sandbox = sandbox;
       if (selectedEffort) settings.env = { CLAUDE_CODE_EFFORT_LEVEL: selectedEffort };

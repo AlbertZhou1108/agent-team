@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bus } from '../../bus.mjs';
+import { startServer } from '../../server.mjs';
 import { until } from '../support/wait.mjs';
 import { validateTool } from '../../tools/registry.mjs';
 
@@ -413,4 +415,177 @@ test('read-only host with readOnlyKeepsShell retains exec.shell and receives all
   assert.equal(seenPolicies[0].mode, 'read-only');
   assert.equal(seenPolicies[0].allowShell, true);
   assert.equal(seenPolicies[0].allowBrowser, true);
+});
+
+function runGit(cwd, args) {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+test('workflowTemplate and member worktree isolation work end-to-end across HTTP and lifecycle', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'spec3-wt-e2e-'));
+  const repo = join(root, 'repo');
+  const nonGit = join(root, 'non-git');
+  const dataDir = join(root, 'data');
+  mkdirSync(repo, { recursive: true });
+  mkdirSync(nonGit, { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
+  runGit(repo, ['init']);
+  runGit(repo, ['config', 'user.email', 'test@example.com']);
+  runGit(repo, ['config', 'user.name', 'Test User']);
+  writeFileSync(join(repo, 'README.md'), '# Repo Root\n');
+  runGit(repo, ['add', 'README.md']);
+  runGit(repo, ['commit', '-m', 'init']);
+
+  const seenWorkspaces = new Map();
+  const stubHost = {
+    async listModels() {
+      return { version: 1, host: 'codex', source: 'test', defaultModel: CODER.key, reasoningEfforts: [], models: [CODER] };
+    },
+    executionCapabilities({ mode, allowShell }) {
+      if (mode === 'communication') return { effectivePolicy: 'communication', capabilities: [] };
+      return {
+        effectivePolicy: mode === 'read-only' ? 'read-only' : 'workspace-write',
+        capabilities: mode === 'read-only' ? ['exec.read', 'exec.shell'] : ['exec.read', 'exec.write', ...(allowShell ? ['exec.shell'] : [])],
+      };
+    },
+    async run(context) {
+      context.onSession(context.endpoint.session ?? context.endpoint.id);
+      if (context.endpoint.context === 'profile') {
+        await context.onTool('profile_set', { text: 'ready' });
+        context.onAccepted();
+        return '';
+      }
+      const memberId = context.endpoint.member_id;
+      seenWorkspaces.set(memberId, context.workspace);
+      writeFileSync(join(context.workspace, `${memberId}.txt`), `written by ${memberId}\n`);
+      context.onAccepted();
+      return '';
+    },
+  };
+
+  const server = await startServer({ directory: dataDir, hosts: new Map([['codex', stubHost]]) });
+  const { bus, url: rawUrl } = server;
+  const url = rawUrl.replace(/\/$/, '');
+  t.after(async () => {
+    await server.close();
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* ignore */ }
+  });
+
+  // 强前置校验：非 Git、lead、仅沟通均同步拒绝，绝不静默回退共享主目录。
+  assert.throws(() => bus.createGroup({
+    name: '非仓库', workspace: nonGit, lead: { name: 'lead', host: 'codex' },
+    members: [{ name: 'A', host: 'codex', workspaceMode: 'worktree' }],
+  }), /Git 仓库根目录/);
+  assert.throws(() => bus.createGroup({
+    name: '主控禁wt', workspace: repo, lead: { name: 'lead', host: 'codex', workspaceMode: 'worktree' },
+  }), /不支持 worktree 隔离/);
+  assert.throws(() => bus.createGroup({
+    name: '仅沟通禁wt', workspace: repo, policy: 'workspace-write', lead: { name: 'lead', host: 'codex' },
+    members: [{ name: 'A', host: 'codex', policyCeiling: 'communication', workspaceMode: 'worktree' }],
+  }), /不需要 worktree 隔离/);
+
+  // 建群：standard-dev 模板 + 两个并发写作者各得独立 worktree。
+  const templates = await fetch(`${url}/api/workflow-templates`).then(r => r.json());
+  assert.equal(templates[0].id, 'standard-dev');
+
+  const createRes = await fetch(`${url}/api/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operationId: 'spec3-create-1',
+      name: '并行研发团',
+      workspace: repo,
+      workflowTemplate: 'standard-dev',
+      policy: 'workspace-write',
+      allowShell: true,
+      lead: { name: 'lead', host: 'codex' },
+      members: [
+        { name: 'coderA', host: 'codex', workspaceMode: 'worktree' },
+        { name: 'coderB', host: 'codex', workspaceMode: 'worktree' },
+        { name: 'reviewer', host: 'codex', policyCeiling: 'read-only', workspaceMode: 'inherit' },
+      ],
+    }),
+  });
+  assert.equal(createRes.status, 200);
+  const group = await createRes.json();
+  assert.equal(group.workflow_template, 'standard-dev');
+  await until(() => bus.running.size === 0);
+
+  const lead = memberNamed(bus, group, 'lead');
+  const coderA = memberNamed(bus, group, 'coderA');
+  const coderB = memberNamed(bus, group, 'coderB');
+  const reviewer = memberNamed(bus, group, 'reviewer');
+  assert.equal(coderA.workspace_mode, 'worktree');
+  assert.equal(coderB.workspace_mode, 'worktree');
+  assert.equal(reviewer.workspace_mode, 'inherit');
+  assert.notEqual(coderA.worktree_path, coderB.worktree_path);
+
+  // 派工执行：两位并发写作者的 context.workspace 各自指向独立 worktree，主仓库无未跟踪污染。
+  const leadEp = bus.store.endpoint(lead.id, 'coordination');
+  await bus.tool(leadEp.id, leadEp.key, 'send', { to: coderA.id, text: '写文件 A' });
+  await bus.tool(leadEp.id, leadEp.key, 'send', { to: coderB.id, text: '写文件 B' });
+  await until(() => seenWorkspaces.size === 2 && bus.running.size === 0);
+  assert.equal(seenWorkspaces.get(coderA.id), coderA.worktree_path);
+  assert.equal(seenWorkspaces.get(coderB.id), coderB.worktree_path);
+  assert.equal(existsSync(join(repo, `${coderA.id}.txt`)), false);
+  assert.equal(existsSync(join(repo, `${coderB.id}.txt`)), false);
+
+  // worktree 状态与受限文件预览路由。
+  const wtStatuses = await fetch(`${url}/api/teams/${group.id}/worktrees`).then(r => r.json());
+  assert.equal(wtStatuses.length, 2);
+  assert.equal(wtStatuses.find(w => w.memberId === coderA.id).untrackedCount, 1);
+
+  const previewOk = await fetch(`${url}/api/teams/${group.id}/file-preview?path=README.md`);
+  assert.equal(previewOk.status, 200);
+  assert.match((await previewOk.json()).content, /Repo Root/);
+  const previewEscape = await fetch(`${url}/api/teams/${group.id}/file-preview?path=../non-git/no.md`);
+  assert.equal(previewEscape.status, 403);
+
+  // coderA 还有未提交改动时：普通清理返回 409 保守保留；提交后安全合入主工作区。
+  const removeConflict = await fetch(`${url}/api/teams/${group.id}/members/${coderA.id}/worktree/remove`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  assert.equal(removeConflict.status, 409);
+
+  runGit(coderA.worktree_path, ['add', `${coderA.id}.txt`]);
+  runGit(coderA.worktree_path, ['commit', '-m', 'coderA work']);
+  const mergeRes = await fetch(`${url}/api/teams/${group.id}/members/${coderA.id}/worktree/merge`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  assert.equal(mergeRes.status, 200);
+  assert.equal((await mergeRes.json()).merged, true);
+  assert.equal(readFileSync(join(repo, `${coderA.id}.txt`), 'utf8'), `written by ${coderA.id}\n`);
+
+  // coderA 已合入且干净：自动安全清理切回 inherit；coderB 含未提交文件：removeMember 保守保留目录。
+  const removeClean = await fetch(`${url}/api/teams/${group.id}/members/${coderA.id}/worktree/remove`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  assert.equal(removeClean.status, 200);
+  assert.equal(memberNamed(bus, group, 'coderA').workspace_mode, 'inherit');
+
+  const removedB = await bus.removeMember(group.id, coderB.id);
+  assert.ok(removedB.retainedWorktree?.retained);
+  assert.equal(existsSync(coderB.worktree_path), true);
+
+  // 通过 addMember 再加一名 worktree 成员：模拟磁盘 worktree 缺失时回合必须拦截且不回退主工作区；
+  // 修复或重建另一名干净 worktree 后删群，干净成员自动清理，脏/未合入成员保守保留。
+  const addedC = await bus.addMember(group.id, { name: 'coderC', host: 'codex', workspaceMode: 'worktree' });
+  await until(() => bus.running.size === 0);
+  const pathC = realpathSync(addedC.worktree_path);
+  rmSync(pathC, { recursive: true, force: true });
+  await bus.tool(leadEp.id, leadEp.key, 'send', { to: addedC.id, text: 'worktree 已删除应阻断执行' });
+  await until(() => bus.running.size === 0);
+  assert.equal(existsSync(join(repo, `${addedC.id}.txt`)), false, 'worktree 缺失时绝不得回退在主工作区写入');
+
+  const addedD = await bus.addMember(group.id, { name: 'coderD', host: 'codex', workspaceMode: 'worktree' });
+  await until(() => bus.running.size === 0);
+  const pathD = realpathSync(addedD.worktree_path);
+
+  const archived = await bus.archiveGroup(group.id);
+  assert.equal(archived.state, 'archived');
+  const deleted = await bus.deleteGroup(group.id, { archivedOnly: true });
+  assert.equal(deleted.deleted, group.id);
+  assert.equal(existsSync(pathD), false);
+  assert.equal(existsSync(coderB.worktree_path), true);
+  assert.equal(deleted.retainedWorktrees?.some(item => item.memberId === coderB.id), true);
 });

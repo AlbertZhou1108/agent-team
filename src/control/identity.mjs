@@ -44,6 +44,7 @@ export function normalizedMembers(value) {
       ...(item.policyCeiling !== undefined ? { policyCeiling: item.policyCeiling } : {}),
       ...(item.allowShell !== undefined ? { allowShell: item.allowShell } : {}),
       ...(item.allowBrowser !== undefined ? { allowBrowser: item.allowBrowser } : {}),
+      ...(item.workspaceMode !== undefined ? { workspaceMode: item.workspaceMode } : {}),
     };
   });
 }

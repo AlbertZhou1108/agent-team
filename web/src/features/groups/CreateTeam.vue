@@ -37,12 +37,49 @@ import {
   restoreDraft,
   unknownModelMemberNames,
 } from './create-team-model';
+import type { WorkflowTemplate } from '@/shared/api/raw-types';
 import type { DraftMember, DraftState, PresetKind } from './create-team-model';
+import {
+  membersFromWorkflowTemplate,
+  worktreeRestrictedReason,
+} from './create-team-model';
 
 const router = useRouter();
 const client = useQueryClient();
 const STORAGE_KEY = 'agent-team:create-team-draft';
 const INHERIT = '__inherit__';
+const NO_TEMPLATE = '__none__';
+
+const FALLBACK_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: 'standard-dev',
+    name: '标准完整档研发（规划 → 实现 → 独立验收）',
+    summary: '主 Agent 规划调度，研发在独立 git worktree 并发编码，验收只读复核；大文档写文件传路径。',
+    charter: [
+      '【研发协作规范 · 标准完整档】',
+      '1. 参考节奏：先澄清需求并经 ask 拍板关键取舍 → 用 tasks_set 公布切片 → 研发成员在各自工作区/worktree 编码并本地验证 → 独立验收成员只读复核 → 主 Agent 汇总结果待用户确认提交。',
+      '2. 大文档路径交付：禁止在 send/note 正文粘贴长篇方案或整文件源码；Spec、设计评审与验证报告须写入工作区内 .md 文件（如 docs/flows/<topic>/spec.md、verify.md），群消息仅发送「核心结论 + 文件路径 + 关键章节锚点/验收清单」。',
+      '3. Worktree 并行约定：使用独立 worktree 的研发成员完成修改并自测后，在分支提交变更并在汇报中注明分支名、修改文件与实测命令结果，避免并行覆盖。',
+    ].join('\n'),
+    presetMembers: [
+      { name: '研发', roleHint: '编码实现与自测', policyCeiling: 'workspace-write', allowShell: true, allowBrowser: false, workspaceMode: 'worktree' },
+      { name: '只读验收', roleHint: '只读与浏览器独立验收', preferredHost: 'codex', policyCeiling: 'read-only', allowShell: true, allowBrowser: true, workspaceMode: 'inherit' },
+    ],
+  },
+  {
+    id: 'quick-fix',
+    name: '轻量修复直通（定位 → 修复 → 回归）',
+    summary: '主 Agent 直接派发研发定位修复与回归验证，附修改文件路径与实测结果，不展开冗余文档。',
+    charter: [
+      '【研发协作规范 · 轻量修复】',
+      '1. 聚焦最小复现与最小改动范围，不展开冗余设计文档；如中途发现需扩展交互或架构边界，及时上报调整。',
+      '2. 完成修改后实跑相关测试/门禁，并在 send 回报中列出改动文件路径、实际执行的验证命令与输出摘要；长报告写文件传路径。',
+    ].join('\n'),
+    presetMembers: [
+      { name: '研发', roleHint: '定位缺陷、修复与回归验证', policyCeiling: 'workspace-write', allowShell: true, allowBrowser: false, workspaceMode: 'inherit' },
+    ],
+  },
+];
 
 function readSavedDraft(): unknown {
   try {
@@ -80,6 +117,19 @@ const hostStatuses = useQuery({
   queryFn: () => api.probeHosts(),
   staleTime: 30_000,
 });
+const workflowTemplatesQuery = useQuery({
+  queryKey: ['workflow-templates'],
+  queryFn: async () => (await api.workflowTemplates?.()) ?? FALLBACK_WORKFLOW_TEMPLATES,
+  staleTime: 60_000,
+});
+const workflowTemplates = computed<WorkflowTemplate[]>(() =>
+  workflowTemplatesQuery.data.value?.length ? workflowTemplatesQuery.data.value : FALLBACK_WORKFLOW_TEMPLATES,
+);
+const selectedTemplate = computed<WorkflowTemplate | null>(
+  () => workflowTemplates.value.find((item) => item.id === form.value.workflowTemplate) ?? null,
+);
+const lastTemplateCharter = ref('');
+const charterNotice = ref('');
 const hostChoices = computed<string[]>(() => {
   const names = new Set<string>();
   for (const status of hostStatuses.data.value ?? []) {
@@ -166,7 +216,10 @@ watch(() => form.value.policy, (policy) => {
   if (policy === 'communication') {
     form.value.allowShell = false;
     form.value.lead.allowBrowser = false;
-    for (const row of form.value.members) row.allowBrowser = false;
+    for (const row of form.value.members) {
+      row.allowBrowser = false;
+      row.workspaceMode = 'inherit';
+    }
   }
   policyNotice.value = clamped
     ? `群策略已调严，${clamped} 个成员的权限上限已收敛到「${policyLabel(policy)}」以内。`
@@ -262,12 +315,64 @@ function setMemberPolicyCeiling(row: DraftMember, value: unknown) {
   if (isLocked.value) return;
   const ceiling = String(value) === INHERIT ? '' : String(value);
   row.policyCeiling = clampPolicyCeiling(ceiling, form.value.policy);
-  if (browserRestrictedReason(effectivePolicy(row, form.value.policy))) row.allowBrowser = false;
+  const effective = effectivePolicy(row, form.value.policy);
+  if (browserRestrictedReason(effective)) row.allowBrowser = false;
+  if (worktreeRestrictedReason(effective, row.id === form.value.lead.id)) row.workspaceMode = 'inherit';
 }
 
 function setMemberBrowser(row: DraftMember, value: boolean) {
   if (isLocked.value || browserRestrictedReason(effectivePolicy(row, form.value.policy))) return;
   row.allowBrowser = Boolean(value);
+}
+
+function worktreeDisabled(item: MatrixRow): boolean {
+  return isLocked.value || Boolean(worktreeRestrictedReason(effectivePolicy(item.row, form.value.policy), item.isLead));
+}
+
+function worktreeHint(item: MatrixRow): string {
+  const restricted = worktreeRestrictedReason(effectivePolicy(item.row, form.value.policy), item.isLead);
+  if (restricted) return restricted;
+  return '开启后框架为该成员创建独立 Git 分支与受管 worktree，禁止并发覆写主工作区；仅在有效 Git 仓库根目录且已有提交时可用。';
+}
+
+function setMemberWorkspaceMode(item: MatrixRow, enabled: boolean) {
+  if (worktreeDisabled(item)) return;
+  item.row.workspaceMode = enabled ? 'worktree' : 'inherit';
+}
+
+function applyWorkflowTemplate(value: unknown) {
+  if (isLocked.value) return;
+  const nextId = String(value) === NO_TEMPLATE ? '' : String(value);
+  form.value.workflowTemplate = nextId;
+  charterNotice.value = '';
+  const template = workflowTemplates.value.find((item) => item.id === nextId) ?? null;
+  if (!template) {
+    if (form.value.charter.trim() === lastTemplateCharter.value.trim()) {
+      form.value.charter = '';
+    }
+    lastTemplateCharter.value = '';
+    return;
+  }
+  form.value.members = membersFromWorkflowTemplate(template, {
+    defaultHost: form.value.host,
+    availableHosts: hostChoices.value,
+    groupPolicy: form.value.policy,
+  });
+  const currentCharter = form.value.charter.trim();
+  if (!currentCharter || currentCharter === lastTemplateCharter.value.trim()) {
+    form.value.charter = template.charter;
+    lastTemplateCharter.value = template.charter;
+  } else {
+    charterNotice.value = '保留了你手动编辑的团队说明；如需改用当前模板默认规范，可点击右侧按钮填入。';
+  }
+  policyNotice.value = '';
+}
+
+function applyTemplateCharterForce() {
+  if (isLocked.value || !selectedTemplate.value) return;
+  form.value.charter = selectedTemplate.value.charter;
+  lastTemplateCharter.value = selectedTemplate.value.charter;
+  charterNotice.value = '';
 }
 
 function applyModel(row: DraftMember, value: { host: string; model_provider: string; model: string; reasoning_effort: string }) {
@@ -379,6 +484,41 @@ async function submit() {
             <Field>
               <FieldLabel for="team-request">要完成什么？</FieldLabel>
               <Textarea id="team-request" v-model="form.text" :disabled="isLocked" required maxlength="48000" placeholder="描述需求、使用材料和希望得到的结果" />
+            </Field>
+            <Field>
+              <FieldLabel>研发工作流模板（可选）</FieldLabel>
+              <Select
+                :model-value="form.workflowTemplate || NO_TEMPLATE"
+                :disabled="isLocked"
+                data-testid="workflow-template"
+                @update:model-value="applyWorkflowTemplate"
+              >
+                <SelectTrigger aria-label="研发工作流模板"><SelectValue>{{ selectedTemplate?.name ?? '自由协作（不套用模板）' }}</SelectValue></SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem :value="NO_TEMPLATE">自由协作（不套用模板）</SelectItem>
+                    <SelectItem v-for="tpl in workflowTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>{{ selectedTemplate ? selectedTemplate.summary : '仅提供成员预设与协作规范（大文档写文件传路径、不贴全文），绝不锁死沟通顺序。' }}</FieldDescription>
+            </Field>
+            <Field v-if="form.workflowTemplate || form.charter.trim()">
+              <div class="flex items-center justify-between gap-2">
+                <FieldLabel for="team-charter">团队说明与协作规范（Charter，可选）</FieldLabel>
+                <Button
+                  v-if="charterNotice && selectedTemplate"
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  :disabled="isLocked"
+                  @click="applyTemplateCharterForce"
+                >
+                  填入模板默认规范
+                </Button>
+              </div>
+              <Textarea id="team-charter" v-model="form.charter" :disabled="isLocked" maxlength="48000" rows="4" placeholder="注入团队每回合上下文的协作规范与约束说明（仅作上下文参考）" />
+              <p v-if="charterNotice" class="text-xs text-muted-foreground">{{ charterNotice }}</p>
             </Field>
             <Field>
               <FieldLabel>默认 AI 工具</FieldLabel>
@@ -537,6 +677,22 @@ async function submit() {
                     />
                   </div>
                 </Field>
+                <Field v-if="!item.isLead" class="sm:col-span-2">
+                  <div class="flex items-start gap-3">
+                    <div class="min-w-0 flex-1 space-y-1">
+                      <FieldLabel :for="`member-worktree-${item.row.id}`">独立工作区（git worktree）</FieldLabel>
+                      <FieldDescription>{{ worktreeHint(item) }}</FieldDescription>
+                    </div>
+                    <Switch
+                      :id="`member-worktree-${item.row.id}`"
+                      :data-testid="'member-worktree-' + item.index"
+                      :model-value="item.row.workspaceMode === 'worktree'"
+                      :disabled="worktreeDisabled(item)"
+                      :aria-label="`${item.label} 独立 worktree`"
+                      @update:model-value="setMemberWorkspaceMode(item, $event)"
+                    />
+                  </div>
+                </Field>
               </div>
             </SectionBlock>
 
@@ -551,6 +707,7 @@ async function submit() {
               <dt class="text-muted-foreground">名称</dt><dd class="break-words">{{ form.name.trim() }}</dd>
               <dt class="text-muted-foreground">工作文件夹</dt><dd class="break-all">{{ form.workspace }}</dd>
               <dt class="text-muted-foreground">文件访问</dt><dd>{{ policyLabel(form.policy) }}<span v-if="!form.allowShell" class="text-muted-foreground">（不允许执行命令）</span></dd>
+              <dt v-if="selectedTemplate" class="text-muted-foreground">工作流模板</dt><dd v-if="selectedTemplate">{{ selectedTemplate.name }}</dd>
               <dt class="text-muted-foreground">成员</dt><dd>{{ memberSummaries.length }} 位</dd>
               <dt class="text-muted-foreground">需求</dt><dd class="line-clamp-3 whitespace-pre-wrap">{{ form.text.trim() }}</dd>
             </dl>
@@ -561,6 +718,7 @@ async function submit() {
                 <span class="text-muted-foreground">· 模型：{{ member.modelLabel }}</span>
                 <span class="text-muted-foreground">· 权限：{{ member.policyLabel }}</span>
                 <span class="text-muted-foreground">· 浏览器：{{ member.browserLabel }}</span>
+                <span class="text-muted-foreground">· 工作区：{{ member.workspaceLabel }}</span>
               </li>
             </ul>
             <div class="mt-4 flex gap-2">

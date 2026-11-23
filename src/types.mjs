@@ -83,9 +83,10 @@
  * @property {(groupId: string, expectedRevision?: number) => Promise<unknown>} handbackTeam
  * @property {(args: object) => object} createGroup
  * @property {(groupId: string, args: object) => Promise<object>} addMember
+ * @property {(groupId: string, args: object) => object} addMemberSync
  * @property {(groupId: string, memberId: string, selection: Record<string, any> | null) => Record<string, any>} applyMemberModel
  * @property {(groupId: string, memberId: string, patch?: Record<string, any>) => Promise<Record<string, any>>} applyMemberPolicy
- * @property {(groupId: string, options?: { archivedOnly?: boolean }) => Promise<{ deleted: string, cleanupWarnings?: string[] }>} deleteGroup
+ * @property {(groupId: string, options?: { archivedOnly?: boolean }) => Promise<{ deleted: string, cleanupWarnings?: string[], retainedWorktrees?: Array<Record<string, any>> }>} deleteGroup
  */
 
 /**

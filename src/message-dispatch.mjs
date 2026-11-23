@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { toolsFor } from './tools/registry.mjs';
 import { CONTEXT_SCHEMA_VERSION } from './information.mjs';
 import { legacyGroupDeliveryPrompt, legacyPanelDeliveryPrompt } from './prompts.mjs';
+import { assertWorktreeUsable } from './hosts/worktree.mjs';
 import * as messagesAgg from './aggregates/messages.mjs';
 import * as turnsAgg from './aggregates/turns.mjs';
 import * as conversationsAgg from './aggregates/conversations.mjs';
@@ -397,6 +398,12 @@ export class MessageDispatch {
       host: member.host,
       context: endpoint.context,
     };
+    let executionWorkspace = group.workspace;
+    // 成员启用 git worktree 隔离且允许项目操作时，回合强制在成员 worktree 内运行；目录失效绝不回退主工作区。
+    if (member.workspace_mode === 'worktree' && policy.mode !== 'communication') {
+      assertWorktreeUsable(member.worktree_path);
+      executionWorkspace = member.worktree_path;
+    }
     return this.bus.turnExecutor.run({
       conversation: endpoint,
       actor: member,
@@ -409,7 +416,7 @@ export class MessageDispatch {
       schema,
       policy,
       previousPolicy: previousPolicy ? { signature: previousPolicy } : null,
-      workspace: group.workspace,
+      workspace: executionWorkspace,
       tools: toolsFor(member.role, endpoint.context),
       hostEndpoint: effectiveEndpoint,
       liveEndpoint: effectiveEndpoint,

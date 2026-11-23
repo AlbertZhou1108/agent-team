@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import MessageReceipt from '@/features/messages/MessageReceipt.vue';
+import TeamDirectiveComposer from '@/features/messages/TeamDirectiveComposer.vue';
+import { useTeamDirectiveStore } from '@/stores/team-directives';
 import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
 
 const receipt = (over: Partial<TeamDirectiveReceipt> = {}): TeamDirectiveReceipt => ({
@@ -89,5 +93,29 @@ describe('投递回执标签', () => {
   it('用户发言的回执跟随气泡靠右', () => {
     const wrapper = mount(MessageReceipt, { props: { receipt: receipt(), align: 'end' } });
     expect(wrapper.get('.message-receipt').classes()).toContain('message-receipt--end');
+  });
+
+  it('TeamDirectiveComposer 不在输入区上方重复渲染已投递徽标，仅保留归档提示', () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useTeamDirectiveStore();
+    store.entries['g-receipt'] = {
+      draft: '',
+      sending: false,
+      error: '',
+      receipt: receipt({ status: 'delivered', error: null }),
+    };
+    const active = mount(TeamDirectiveComposer, {
+      props: { groupId: 'g-receipt', controllerId: 'lead-1', archived: false },
+      global: { plugins: [pinia, VueQueryPlugin], stubs: { MessageComposer: true } },
+    });
+    expect(active.text()).not.toContain('已投递');
+
+    const archived = mount(TeamDirectiveComposer, {
+      props: { groupId: 'g-receipt', controllerId: 'lead-1', archived: true },
+      global: { plugins: [pinia, VueQueryPlugin], stubs: { MessageComposer: true } },
+    });
+    expect(archived.text()).toContain('团队已归档，不能发送消息。');
+    expect(archived.text()).not.toContain('已投递');
   });
 });

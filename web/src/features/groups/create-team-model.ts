@@ -1,6 +1,6 @@
 import type { CreateGroupBody, GroupMemberInput } from '@/shared/api/client';
 import type { AvailableHost } from '@/features/panel-agent/types';
-import type { Group } from '@/shared/api/raw-types';
+import type { Group, WorkflowTemplate } from '@/shared/api/raw-types';
 import { policyLabel } from './team-summary';
 
 /**
@@ -37,12 +37,15 @@ export interface DraftMember {
   reasoning_effort: string;
   policyCeiling: string;
   allowBrowser: boolean;
+  workspaceMode: 'inherit' | 'worktree';
 }
 
 export interface TeamDraft {
   operationId: string;
   name: string;
   text: string;
+  charter: string;
+  workflowTemplate: string;
   workspace: string;
   host: string;
   policy: string;
@@ -74,6 +77,7 @@ export function newDraftMember(overrides: Partial<DraftMember> = {}): DraftMembe
     reasoning_effort: '',
     policyCeiling: '',
     allowBrowser: false,
+    workspaceMode: 'inherit',
     ...overrides,
   };
 }
@@ -83,6 +87,8 @@ export function createEmptyDraft(): TeamDraft {
     operationId: memberId(),
     name: '',
     text: '',
+    charter: '',
+    workflowTemplate: '',
     workspace: '',
     host: '',
     policy: 'workspace-write',
@@ -116,6 +122,13 @@ export function browserRestrictedReason(groupPolicy: string): string | null {
   return groupPolicy === 'communication' ? '仅沟通策略下不能开启浏览器 / Computer Use' : null;
 }
 
+/** 仅普通协作成员且允许读写文件时可开启 git worktree 隔离。 */
+export function worktreeRestrictedReason(rowEffectivePolicy: string, isLead = false): string | null {
+  if (isLead) return '主 Agent 与协调席必须共享主工作区，不支持 worktree 隔离';
+  if (rowEffectivePolicy === 'communication') return '仅沟通策略下不读写文件，不需要 worktree 隔离';
+  return null;
+}
+
 export function resolveMemberHost(row: DraftMember, defaultHost: string): string {
   return row.host || defaultHost;
 }
@@ -134,7 +147,7 @@ export function memberSelection(row: DraftMember): GroupMemberInput['selection']
   };
 }
 
-function toMemberInput(row: DraftMember, form: TeamDraft): GroupMemberInput {
+function toMemberInput(row: DraftMember, form: TeamDraft, isLead = false): GroupMemberInput {
   const host = resolveMemberHost(row, form.host);
   const ceiling = clampPolicyCeiling(row.policyCeiling, form.policy);
   const rowEffectivePolicy = effectivePolicy(row, form.policy);
@@ -146,16 +159,20 @@ function toMemberInput(row: DraftMember, form: TeamDraft): GroupMemberInput {
     ...(ceiling ? { policyCeiling: ceiling } : {}),
   };
   if (row.allowBrowser && !browserRestrictedReason(rowEffectivePolicy)) input.allowBrowser = true;
+  if (!isLead && row.workspaceMode === 'worktree' && !worktreeRestrictedReason(rowEffectivePolicy, false)) {
+    input.workspaceMode = 'worktree';
+  }
   return input;
 }
 
 /** 提交体:协作者名留空视为不创建,其余行按解析后的宿主与覆写字段组装。 */
 export function buildCreateGroupBody(form: TeamDraft): CreateGroupBody {
-  const lead = toMemberInput(form.lead, form);
+  const lead = toMemberInput(form.lead, form, true);
   lead.name = lead.name || '主 Agent';
   const members = form.members
-    .map(row => toMemberInput(row, form))
+    .map(row => toMemberInput(row, form, false))
     .filter(row => row.name !== '');
+  const charter = form.charter.trim();
   return {
     operationId: form.operationId,
     name: form.name.trim(),
@@ -164,6 +181,8 @@ export function buildCreateGroupBody(form: TeamDraft): CreateGroupBody {
     allowShell: form.policy === 'communication' ? false : form.allowShell,
     lead,
     members,
+    ...(charter ? { charter } : {}),
+    ...(form.workflowTemplate ? { workflowTemplate: form.workflowTemplate } : {}),
   };
 }
 
@@ -202,11 +221,18 @@ export interface MemberSummary {
   policy: string;
   policyLabel: string;
   browserLabel: string;
+  workspaceLabel: string;
 }
 
 function browserLabel(row: DraftMember, groupPolicy: string): string {
   if (browserRestrictedReason(groupPolicy)) return '不适用（仅沟通策略）';
   return row.allowBrowser ? '允许（实际工具由宿主能力决定）' : '未授权';
+}
+
+function workspaceSummaryLabel(row: DraftMember, groupPolicy: string, isLead: boolean): string {
+  if (isLead) return '共享主工作区（主 Agent）';
+  if (worktreeRestrictedReason(groupPolicy, false)) return '仅沟通（不读写文件）';
+  return row.workspaceMode === 'worktree' ? '独立 git worktree' : '共享主工作区';
 }
 
 /** 确认卡汇总:每位成员的名称、宿主、模型、生效策略与浏览器授权,顺序与提交体一致。 */
@@ -215,17 +241,34 @@ export function buildMemberSummaries(form: TeamDraft, context: MemberSummaryCont
   return [form.lead, ...form.members.filter(row => row.name.trim() !== '')].map((row, index) => {
     const host = resolveMemberHost(row, defaultHost);
     const policy = effectivePolicy(row, form.policy);
+    const isLead = index === 0;
     return {
       id: row.id,
-      name: memberName(row, index === 0),
-      isLead: index === 0,
+      name: memberName(row, isLead),
+      isLead,
       host,
       hostLabel: context.hostLabel(host),
       modelLabel: context.modelLabel(row, host),
       policy,
       policyLabel: policyLabel(policy),
       browserLabel: browserLabel(row, policy),
+      workspaceLabel: workspaceSummaryLabel(row, policy, isLead),
     };
+  });
+}
+
+export function membersFromWorkflowTemplate(template: WorkflowTemplate, context: PresetContext): DraftMember[] {
+  return template.presetMembers.map((item) => {
+    const preferred = item.preferredHost && context.availableHosts.includes(item.preferredHost) ? item.preferredHost : '';
+    const ceiling = policyRank(item.policyCeiling) < policyRank(context.groupPolicy) ? item.policyCeiling : '';
+    const effective = ceiling || context.groupPolicy;
+    return newDraftMember({
+      name: item.name,
+      host: preferred === context.defaultHost ? '' : preferred,
+      policyCeiling: ceiling,
+      allowBrowser: Boolean(item.allowBrowser) && !browserRestrictedReason(effective),
+      workspaceMode: item.workspaceMode === 'worktree' && !worktreeRestrictedReason(effective, false) ? 'worktree' : 'inherit',
+    });
   });
 }
 
@@ -277,6 +320,7 @@ function asMember(value: unknown, fallbackName: string): DraftMember {
     reasoning_effort: asString(record.reasoning_effort),
     policyCeiling: asString(record.policyCeiling),
     allowBrowser: record.allowBrowser === true,
+    workspaceMode: record.workspaceMode === 'worktree' ? 'worktree' : 'inherit',
   });
 }
 
@@ -298,6 +342,8 @@ export function restoreDraft(saved: unknown): RestoredDraft {
   draft.operationId = record.operationId;
   draft.name = asString(record.name);
   draft.text = asString(record.text);
+  draft.charter = asString(record.charter);
+  draft.workflowTemplate = asString(record.workflowTemplate);
   draft.workspace = asString(record.workspace);
   draft.host = asString(record.host);
   if (isPolicyMode(record.policy)) draft.policy = record.policy;
@@ -318,8 +364,9 @@ export function restoreDraft(saved: unknown): RestoredDraft {
   if (draft.policy === 'communication') {
     draft.allowShell = false;
     draft.lead.allowBrowser = false;
-    draft.members = draft.members.map(row => ({ ...row, allowBrowser: false }));
+    draft.members = draft.members.map(row => ({ ...row, allowBrowser: false, workspaceMode: 'inherit' }));
   }
+  draft.lead.workspaceMode = 'inherit';
   const group = record.group && typeof record.group === 'object' && typeof (record.group as Group).id === 'string'
     ? record.group as Group
     : null;

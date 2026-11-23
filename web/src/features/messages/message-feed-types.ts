@@ -31,5 +31,7 @@ export interface MessageFeedProps {
   viewportClass?: string;
   streamClass?: string;
   contentClass?: string;
+  /** 可选群 ID：用于对话气泡内 Markdown/源码路径筹码的受控只读预览。 */
+  groupId?: string;
 
 }

@@ -72,7 +72,7 @@ export function claudeBuiltins(policy) {
 
 // Panel Agent 私人会话的 Claude 配置：Write/Edit 不受 Bash 沙箱约束，
 // workspace-write 必须用权限路径规则把文件工具收在私人工作区内。
-export function claudeExecutionConfig(policy, tools, workspace, browserServers = []) {
+export function claudeExecutionConfig(policy, tools, workspace, browserServers = [], extraWritableRoots = []) {
   const panelAccess = policy.access ?? null;
   const builtins = claudeBuiltins(policy);
   const allowed = tools.map(tool => `mcp__agent_team__${tool.name}`);
@@ -83,6 +83,8 @@ export function claudeExecutionConfig(policy, tools, workspace, browserServers =
       if (rule && !allowed.includes(rule)) allowed.push(rule);
     }
   }
+  const extraRoots = (Array.isArray(extraWritableRoots) ? extraWritableRoots : [])
+    .filter(root => typeof root === 'string' && root && root !== workspace);
   let sandbox = null;
   if (panelAccess === 'workspace-write') {
     allowed.push('Read', 'Glob', 'Grep', 'Bash', 'Edit(**)', 'Write(**)');
@@ -90,18 +92,25 @@ export function claudeExecutionConfig(policy, tools, workspace, browserServers =
   } else {
     allowed.push(...builtins);
     if (panelAccess !== 'full-access' && policy.allowShell) {
-      sandbox = { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, ...(policy.mode === 'read-only' ? { filesystem: { denyWrite: [workspace] } } : {}) };
+      const filesystem = policy.mode === 'read-only'
+        ? { denyWrite: [workspace] }
+        : extraRoots.length
+          ? { allowWrite: extraRoots }
+          : null;
+      sandbox = { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, ...(filesystem ? { filesystem } : {}) };
     }
   }
   return { builtins, allowed, sandbox };
 }
 
-export function codexSandboxConfig(policy, workspace) {
+export function codexSandboxConfig(policy, workspace, extraWritableRoots = []) {
   const sandbox = sandboxMode(policy.mode);
+  const extraRoots = (Array.isArray(extraWritableRoots) ? extraWritableRoots : [])
+    .filter(root => typeof root === 'string' && root && root !== workspace);
   const turnSandboxPolicy = policy.mode === 'full-access'
     ? { type: 'dangerFullAccess' }
     : policy.mode === 'workspace-write'
-      ? { type: 'workspaceWrite', writableRoots: [workspace], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
+      ? { type: 'workspaceWrite', writableRoots: [workspace, ...extraRoots], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
       : { type: 'readOnly', networkAccess: false };
   return { sandbox, turnSandboxPolicy };
 }

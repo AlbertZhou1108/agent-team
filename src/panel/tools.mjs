@@ -231,6 +231,7 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
       host: args.host,
       ...(selection ? { selection } : {}),
       ...policyPatch,
+      ...(args.workspaceMode !== undefined ? { workspaceMode: args.workspaceMode } : {}),
     });
   }
   if (name === 'group_remove') return bus.removeMember(group.id, args.member);

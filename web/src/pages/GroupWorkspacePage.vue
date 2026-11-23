@@ -464,6 +464,7 @@ function onMemberPolicySaved() {
           }"
         >
         <ConversationWorkspace
+          :group-id="groupId"
           :heading="group.name"
           :description="group.workspace"
           :custom-body="workspaceView !== 'chat'"
@@ -581,7 +582,7 @@ function onMemberPolicySaved() {
           <template #composer>
             <TeamDirectiveComposer v-if="group" :key="groupId" :group-id="groupId"
               :controller-id="currentControllerId"
-              :archived="group.state === 'archived'" :receipts="directivesQuery.data.value ?? []"
+              :archived="group.state === 'archived'"
               :in-coordination="Boolean(selectedPair) || Boolean(selectedEndpoint && selectedEndpoint.context !== 'coordination' && selectedEndpoint.context !== 'panel-coordination')"
               :active-session-label="conversationTitle"
               :mentions="currentMembers"

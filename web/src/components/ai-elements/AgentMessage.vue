@@ -6,8 +6,9 @@ import { referenceContext, parseReferences } from '@/features/messages/reference
 import { tidyNoticeText } from '@/features/messages/system-notice';
 import { formatAbsoluteTime, formatMessageTime } from '@/shared/message-time';
 import { useNowMinute } from '@/shared/use-now-minute';
-import { Bot, Quote, Copy, Ellipsis, Megaphone, MessageSquareText } from '@lucide/vue';
+import { Bot, Quote, Copy, Ellipsis, FileText, Megaphone, MessageSquareText } from '@lucide/vue';
 import MessageAttachments from './MessageAttachments.vue';
+import { extractFilePathRefs, filePreviewContext, fileRefBasename } from '@/features/messages/file-refs';
 import { useClipboard } from '@vueuse/core';
 import type { MessageView } from '@/shared/models/view-types';
 import { Badge } from '@/components/ui/badge';
@@ -42,11 +43,13 @@ const props = withDefaults(
   { compact: false, fanoutRecipients: undefined, markdown: true },
 );
 const references=inject(referenceContext,null);
+const filePreview=inject(filePreviewContext,null);
 const route=useRoute();
 const router=useRouter();
 const quoted=computed(()=>parseReferences(props.message.text));
 // 历史投递失败通知里嵌着内部 UUID,展示时清掉;非 system 正文原样保留。
 const bodyText=computed(()=>props.message.kind==='system'?tidyNoticeText(quoted.value.text):quoted.value.text);
+const fileRefs=computed(()=>props.message.kind==='system'?[]:extractFilePathRefs(bodyText.value));
 function quote(){references?.add({id:props.message.id,seq:props.message.seq,sender:props.message.senderName,text:props.message.text});}
 async function reveal(id:string){const {interaction: _interaction,...rest}=route.query;await router.replace({query:{...rest,message:id}});await nextTick();document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'center'});}
 const { copy } = useClipboard({ copiedDuring: 1500, legacy: true });
@@ -200,6 +203,40 @@ const timeTitle = computed(() => formatAbsoluteTime(timestamp.value));
         </ExpandableText>
         <LoadingDots v-else class="text-muted-foreground" />
         <MessageAttachments v-if="message.attachments?.length" :attachments="message.attachments" />
+        <div
+          v-if="fileRefs.length"
+          class="mt-2 flex flex-wrap items-center gap-1.5"
+          data-testid="message-file-refs"
+        >
+          <div
+            v-for="refPath in fileRefs"
+            :key="refPath"
+            class="inline-flex max-w-full items-center gap-1 rounded-(--component-chip-radius) border border-border bg-muted/40 px-2 py-0.5 text-xs"
+          >
+            <FileText class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <button
+              v-if="filePreview"
+              type="button"
+              class="min-w-0 truncate font-mono text-xs text-foreground hover:underline"
+              :title="`预览 ${refPath}`"
+              @click="filePreview.open(refPath)"
+            >
+              {{ fileRefBasename(refPath) }}
+            </button>
+            <span v-else class="min-w-0 truncate font-mono text-xs text-foreground" :title="refPath">
+              {{ fileRefBasename(refPath) }}
+            </span>
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center text-muted-foreground transition-colors hover:text-foreground"
+              :aria-label="`复制文件路径 ${refPath}`"
+              :title="`复制路径：${refPath}`"
+              @click="copy(refPath)"
+            >
+              <Copy class="size-3" />
+            </button>
+          </div>
+        </div>
         <slot name="footer" :message="message" />
       </BubbleContent>
     </Bubble>

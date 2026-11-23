@@ -1,15 +1,57 @@
 import { createStreamRoute } from './shared.mjs';
+import { listWorkflowTemplates } from '../../hosts/workflow-templates.mjs';
+import { previewGroupTextFile } from '../../hosts/file-preview.mjs';
 
 // 消息列表统一带上产出它的回合:一个回合可以产出多条消息,前端据此让行内
 // 执行轨迹只渲染一份。用户/系统消息没有回合,列为 null。
 const MESSAGE_WITH_TURN = `SELECT m.*,(SELECT o.turn_id FROM message_origins o WHERE o.message_id=m.id) AS turn_id FROM messages m`;
 
 export function teamsRoutes(context) {
-    const { bus, url, request, fail, failJson, readJsonBody, cursor } = context;
+    const { bus, url, request, response, fail, failJson, readJsonBody, cursor } = context;
     const streamRoute = (pattern, options) => createStreamRoute(context, pattern, options);
     const directiveMatch = url.pathname.match(/^\/api\/teams\/([^/]+)\/directives$/);
     const isDirectiveMutation = request.method === 'POST';
     return [
+        { methods: ['GET'], archived: true, matches: url => url.pathname === '/api/workflow-templates', handle: async () => listWorkflowTemplates() },
+        { methods: ['GET'], archived: true, matches: url => /^\/api\/teams\/[^/]+\/worktrees$/.test(url.pathname), handle: async () => {
+            const groupId = decodeURIComponent(url.pathname.split('/')[3]);
+            return bus.listWorktrees(groupId);
+        } },
+        { methods: ['POST'], archived: false, matches: url => /^\/api\/teams\/[^/]+\/members\/[^/]+\/worktree\/merge$/.test(url.pathname), handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return fail(400, '合入分支不接受额外参数');
+            const match = url.pathname.match(/^\/api\/teams\/([^/]+)\/members\/([^/]+)\/worktree\/merge$/);
+            try { return bus.mergeMemberWorktree(decodeURIComponent(match[1]), decodeURIComponent(match[2])); }
+            catch (error) { return failJson(400, error); }
+        } },
+        { methods: ['POST'], archived: false, matches: url => /^\/api\/teams\/[^/]+\/members\/[^/]+\/worktree\/remove$/.test(url.pathname), handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'force')) return fail(400, '清理参数无效');
+            const match = url.pathname.match(/^\/api\/teams\/([^/]+)\/members\/([^/]+)\/worktree\/remove$/);
+            try {
+                const result = bus.removeMemberWorktree(decodeURIComponent(match[1]), decodeURIComponent(match[2]), { force: Boolean(body.force) });
+                if (result.retained) {
+                    response.writeHead(409, { 'Content-Type': 'application/json' });
+                    response.end(JSON.stringify({ error: result.reason, worktree: result }));
+                    return;
+                }
+                return result;
+            } catch (error) { return failJson(400, error); }
+        } },
+        { methods: ['GET'], archived: true, matches: url => /^\/api\/teams\/[^/]+\/file-preview$/.test(url.pathname), handle: async () => {
+            const groupId = decodeURIComponent(url.pathname.split('/')[3]);
+            try {
+                const group = bus.store.group(groupId);
+                return previewGroupTextFile({
+                    group,
+                    members: bus.members(groupId),
+                    filePath: url.searchParams.get('path') ?? '',
+                    memberId: url.searchParams.get('memberId') || null,
+                });
+            } catch (error) { return failJson(error?.status ?? 400, error); }
+        } },
         { methods: ['POST'], archived: true, matches: url => /^\/api\/teams\/[^/]+\/delete$/.test(url.pathname), handle: async () => {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
@@ -36,8 +78,9 @@ export function teamsRoutes(context) {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);
             if (!body || typeof body !== 'object' || Array.isArray(body) || !body.operationId) return fail(400, '需要建群请求编号');
-            if (Object.keys(body).some(key => !['operationId', 'name', 'workspace', 'lead', 'members', 'charter', 'policy', 'allowShell'].includes(key))) return fail(400, '未知建群参数');
-            return bus.createGroup(body);
+            if (Object.keys(body).some(key => !['operationId', 'name', 'workspace', 'lead', 'members', 'charter', 'policy', 'allowShell', 'workflowTemplate'].includes(key))) return fail(400, '未知建群参数');
+            try { return bus.createGroup(body); }
+            catch (error) { return failJson(400, error); }
         } },
         streamRoute(/^\/api\/teams\/([^/]+)\/events$/, {
             eventName: 'team-stream',

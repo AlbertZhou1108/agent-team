@@ -20,6 +20,8 @@ import * as identity from './control/identity.mjs';
 import * as wake from './control/wake-scheduler.mjs';
 import { READ_ONLY_CONTROL_TOOLS, toolsForControlCapabilities } from './control/tools.mjs';
 import { normalizeMemberPolicyPatch } from './hosts/capability-routing.mjs';
+import { normalizeWorkflowTemplateId } from './hosts/workflow-templates.mjs';
+import { provisionMemberWorktrees } from './hosts/worktree.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -580,6 +582,7 @@ export class ControlPlane {
     ])];
     assertControlWorkspace({ ...capabilities, workspaceRoots }, workspace);
     const policy = assertControlPolicy(capabilities, args.policy ?? 'read-only');
+    const workflowTemplate = normalizeWorkflowTemplateId(args.workflowTemplate);
     const people = identity.normalizedMembers(args.members);
     const operationId = typeof args.operationId === 'string' && /^[\w-]{1,128}$/.test(args.operationId)
       ? args.operationId
@@ -594,6 +597,7 @@ export class ControlPlane {
       allowShell: args.allowShell === true,
       people,
       charter: args.charter ?? null,
+      ...(workflowTemplate ? { workflowTemplate } : {}),
     });
     if (operationId) {
       const previous = this.bus.store.get(
@@ -622,49 +626,65 @@ export class ControlPlane {
     }
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.bus.store.transaction(() => {
-      teamsAgg.insertGroup(this.bus.store, {
-        id,
-        name,
-        workspace,
-        created: now,
-        charter: typeof args.charter === 'string' && args.charter.trim() ? args.charter.trim() : null,
-        policy,
-        allowShell: args.allowShell === true ? 1 : 0,
-      });
-      teamsAgg.insertExternalController(this.bus.store, {
-        groupId: id,
-        principalId: binding.principal_id,
-        bindingId: binding.id,
-        now,
-      });
-      externalAgg.establishRelation(this.bus.store, {
-        groupId: id,
-        principalId: binding.principal_id,
-        bindingId: binding.id,
-        origin: 'creator',
-        created: now,
-        now,
-      });
-      for (const person of people) {
-        const memberId = randomUUID();
-        teamsAgg.insertMember(this.bus.store, {
-          id: memberId,
-          groupId: id,
-          name: person.name,
-          host: person.host,
-          role: 'member',
-          selection: person.selection ?? this.bus.defaultModelSelection(person.host),
-          policyCeiling: person.policyCeiling ?? null,
-          allowShell: person.allowShell === undefined ? null : person.allowShell,
-          allowBrowser: person.allowBrowser === true,
-        });
-        this.bus.collaboration.reserveMemberName(id, memberId, person.name);
-      }
-      if (operationId) {
-        externalAgg.recordTeamCreateOperation(this.bus.store, { principalId: binding.principal_id, operationId, payload, groupId: id, created: now });
-      }
+    const provisioned = provisionMemberWorktrees({
+      dataDir: this.bus.store.directory,
+      groupId: id,
+      workspace,
+      groupPolicy: policy,
+      people: people.map(person => ({ ...person, role: 'member' })),
+      idFactory: () => randomUUID(),
     });
+    try {
+      this.bus.store.transaction(() => {
+        teamsAgg.insertGroup(this.bus.store, {
+          id,
+          name,
+          workspace,
+          created: now,
+          charter: typeof args.charter === 'string' && args.charter.trim() ? args.charter.trim() : null,
+          policy,
+          allowShell: args.allowShell === true ? 1 : 0,
+          workflowTemplate,
+        });
+        teamsAgg.insertExternalController(this.bus.store, {
+          groupId: id,
+          principalId: binding.principal_id,
+          bindingId: binding.id,
+          now,
+        });
+        externalAgg.establishRelation(this.bus.store, {
+          groupId: id,
+          principalId: binding.principal_id,
+          bindingId: binding.id,
+          origin: 'creator',
+          created: now,
+          now,
+        });
+        for (const person of provisioned.members) {
+          teamsAgg.insertMember(this.bus.store, {
+            id: person.id,
+            groupId: id,
+            name: person.name,
+            host: person.host,
+            role: 'member',
+            selection: person.selection ?? this.bus.defaultModelSelection(person.host),
+            policyCeiling: person.policyCeiling ?? null,
+            allowShell: person.allowShell === undefined ? null : person.allowShell,
+            allowBrowser: person.allowBrowser === true,
+            workspaceMode: person.workspaceMode,
+            worktreePath: person.worktreePath,
+            worktreeBranch: person.worktreeBranch,
+          });
+          this.bus.collaboration.reserveMemberName(id, person.id, person.name);
+        }
+        if (operationId) {
+          externalAgg.recordTeamCreateOperation(this.bus.store, { principalId: binding.principal_id, operationId, payload, groupId: id, created: now });
+        }
+      });
+    } catch (error) {
+      provisioned.rollback();
+      throw error;
+    }
     const createdMembers = this.bus.members(id);
     for (const member of createdMembers) await this.executionPolicyFor(this.bus.store.group(id), member);
     for (const member of createdMembers) if (!member.profile) this.bus.introduce(member);

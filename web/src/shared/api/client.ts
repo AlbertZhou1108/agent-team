@@ -28,6 +28,11 @@ import type {
   PanelAccess,
   PanelAgentState,
   Snapshot,
+  WorkflowTemplate,
+  MemberWorktreeStatus,
+  WorktreeMergeResult,
+  WorktreeRemoveResult,
+  FilePreviewResult,
   TeamDirectiveReceipt,
   TelemetryConversationResponse,
   TelemetryCoordinationResponse,
@@ -130,6 +135,7 @@ export interface GroupMemberInput {
   policyCeiling?: string;
   allowShell?: boolean;
   allowBrowser?: boolean;
+  workspaceMode?: 'inherit' | 'worktree';
 }
 
 /** POST /api/groups 的请求体:旧字段保持兼容,新增成员级覆写全部可选。 */
@@ -142,6 +148,7 @@ export interface CreateGroupBody {
   lead: GroupMemberInput;
   members: GroupMemberInput[];
   charter?: string;
+  workflowTemplate?: string;
 }
 
 /** 成员权限收敛请求:null 表示恢复继承,缺省表示不改该字段。 */
@@ -182,6 +189,25 @@ export const api = {
     return request<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>(`/api/groups/${encodeURIComponent(groupId)}/controllers`);
   },
   hostStatuses() { return request<HostStatus[]>('/api/hosts'); },
+  workflowTemplates(signal?: AbortSignal) { return request<WorkflowTemplate[]>('/api/workflow-templates', signal); },
+  teamWorktrees(groupId: string, signal?: AbortSignal) {
+    return request<MemberWorktreeStatus[]>(`/api/teams/${encodeURIComponent(groupId)}/worktrees`, signal);
+  },
+  mergeMemberWorktree(groupId: string, memberId: string) {
+    return mutate<WorktreeMergeResult>(`/api/teams/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/worktree/merge`, {});
+  },
+  removeMemberWorktree(groupId: string, memberId: string, force = false) {
+    return mutate<WorktreeRemoveResult>(
+      `/api/teams/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/worktree/remove`,
+      force ? { force: true } : {},
+    );
+  },
+  previewTeamFile(groupId: string, filePath: string, memberId?: string, signal?: AbortSignal) {
+    return request<FilePreviewResult>(
+      query(`/api/teams/${encodeURIComponent(groupId)}/file-preview`, { path: filePath, memberId }),
+      signal,
+    );
+  },
   hostInstallations() { return request<Array<Pick<HostStatus, 'name' | 'installing' | 'installation'>>>('/api/hosts/installations'); },
   installHost(name: string) { return mutate<HostStatus>(`/api/hosts/${encodeURIComponent(name)}/install`, {}); },
 
@@ -329,7 +355,11 @@ export const api = {
     return mutate<ArchiveSnapshot>(`/api/teams/${encodeURIComponent(teamId)}/archive-snapshot`, {});
   },
   deleteTeam(teamId: string) {
-    return mutate<{ deleted: string; cleanupWarnings?: string[] }>(`/api/teams/${encodeURIComponent(teamId)}/delete`, {});
+    return mutate<{
+      deleted: string;
+      cleanupWarnings?: string[];
+      retainedWorktrees?: Array<{ memberId: string; memberName: string; path: string | null; branch: string | null; reason: string }>;
+    }>(`/api/teams/${encodeURIComponent(teamId)}/delete`, {});
   },
   archiveTeam(teamId: string) {
     return mutate<Group>(`/api/teams/${encodeURIComponent(teamId)}/archive`, {});

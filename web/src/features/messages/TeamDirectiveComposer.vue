@@ -3,16 +3,12 @@ import { computed, onBeforeUnmount } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import MessageComposer from '@/components/ai-elements/MessageComposer.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTeamDirectiveStore } from '@/stores/team-directives';
-import type { TeamDirectiveReceipt } from '@/shared/api/raw-types';
-import { directiveStatus } from './directive-status';
 const props = defineProps<{
   groupId: string;
   controllerId?: string;
   archived?: boolean;
-  receipts: TeamDirectiveReceipt[];
   /** 当前看到的不是主 Agent 统一调度时，明确提示发送仍会交回主调度。 */
   inCoordination?: boolean;
   activeSessionLabel?: string;
@@ -30,7 +26,6 @@ const store = useTeamDirectiveStore();
 const client = useQueryClient();
 const entry = computed(() => store.entry(props.groupId));
 const draft = computed({ get: () => entry.value.draft, set: text => store.setDraft(props.groupId, text) });
-const latest = computed(() => props.receipts.find(r => r.messageId === entry.value.receipt?.messageId) ?? entry.value.receipt);
 async function send() {
   if (props.archived || !props.controllerId) return;
   const groupId = props.groupId;
@@ -46,15 +41,12 @@ async function send() {
 </script>
 <template>
   <div class="flex flex-col gap-2">
-    <!-- 输入区占位符已说明发送对象,这里只保留需要处理的状态。 -->
-    <div
-      v-if="latest || archived"
-      class="flex flex-wrap items-center gap-2 px-4 text-xs text-muted-foreground"
+    <!-- 每条消息的投递回执已由消息流 MessageReceipt 承担，输入区只保留真正阻塞发送的归档提示与失败告警。 -->
+    <p
+      v-if="archived"
+      class="px-4 pt-2 text-xs text-muted-foreground"
       aria-live="polite"
-    >
-      <Badge v-if="latest" variant="outline">{{ directiveStatus(latest).label }}</Badge>
-      <span v-if="archived">团队已归档，不能发送消息。</span>
-    </div>
+    >团队已归档，不能发送消息。</p>
     <Alert v-if="entry.error" variant="destructive" class="mx-4 w-auto">
       <AlertDescription class="flex items-center gap-2">
         <span class="flex-1">{{ entry.error }}</span>

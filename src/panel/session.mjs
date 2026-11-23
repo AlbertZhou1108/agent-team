@@ -72,7 +72,17 @@ export async function panelTeamSnapshot(bus, groupId) {
 
 /** 会话系统提示词:coordination 用协作提示词,private 带工作区/访问级别/当前团队。 */
 export function panelInstructions(bus, session, panelAgent, activeTeamId = null) {
-  if (session.context === 'coordination') return panelCoordinationInstructions(panelAgent, session.group_id);
+  if (session.context === 'coordination') {
+    let group = null;
+    try {
+      if (session.group_id) group = bus.store.group(session.group_id);
+    } catch {
+      group = null;
+    }
+    return panelCoordinationInstructions(panelAgent, session.group_id, {
+      workflowTemplate: group?.workflow_template ?? null,
+    });
+  }
   const relation = activeTeamId ? bus.panelTeamRelation(activeTeamId) : null;
   return panelPrivateInstructions(panelAgent, {
     workspace: panelAgent.workspace ?? '未设置（宿主 cwd 使用数据目录）',
@@ -212,11 +222,12 @@ function memberConfigPerson(config) {
     ...(config.policyCeiling !== undefined ? { policyCeiling: config.policyCeiling } : {}),
     ...(config.allowShell !== undefined ? { allowShell: config.allowShell } : {}),
     ...(config.allowBrowser !== undefined ? { allowBrowser: config.allowBrowser } : {}),
+    ...(config.workspaceMode !== undefined ? { workspaceMode: config.workspaceMode } : {}),
   };
 }
 
 /** 创建 Panel Agent 主控的团队:members(名称=宿主)与 memberConfigs 两种成员来源可并存,重名由 createGroup 拒绝。 */
-export function createPanelTeam(bus, agent, { name, workspace, members = '', memberConfigs = [], charter, policy, allowShell }) {
+export function createPanelTeam(bus, agent, { name, workspace, members = '', memberConfigs = [], charter, policy, allowShell, workflowTemplate }) {
   const people = [];
   for (const item of String(members ?? '').split(',').filter(Boolean)) {
     const [memberName, host, ...extra] = item.trim().split('=');
@@ -236,6 +247,7 @@ export function createPanelTeam(bus, agent, { name, workspace, members = '', mem
     charter,
     ...(policy !== undefined ? { policy } : {}),
     ...(allowShell !== undefined ? { allowShell } : {}),
+    ...(workflowTemplate !== undefined ? { workflowTemplate } : {}),
     lead: { name: agent.name, host: agent.host },
     members: people,
     panelAgentId: agent.id,

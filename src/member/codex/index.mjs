@@ -5,6 +5,7 @@ import { connectionProbe, probeCodex } from '../../host-runtime/probe.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { executionPolicy, codexPolicyConfig, codexSandboxConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { worktreeGitWritableRoots } from '../../hosts/worktree.mjs';
 import { ATTACHMENT_IMAGE_TYPES } from '../../attachments.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
@@ -321,7 +322,8 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
       if ((context.attachments ?? []).length && !panelAttachmentsAllowed(context.policy)) {
         throw new Error('当前会话模式不支持附件输入');
       }
-      const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace);
+      const extraWritableRoots = policy.mode === 'workspace-write' ? worktreeGitWritableRoots(context.workspace) : [];
+      const { sandbox, turnSandboxPolicy } = codexSandboxConfig(policy, context.workspace, extraWritableRoots);
       // 模型与思考强度走 turn/start 的逐回合覆盖（协议语义：对本回合及后续回合生效），
       // 不进 config/签名：会话中途调整配置不再要求 reset-session。
       const config = codexPolicyConfig(policy, serverNames);

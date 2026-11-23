@@ -318,7 +318,7 @@ export function messageRequirements(row) {
 }
 
 /** 精简行：仅用于回合上下文的 teamCapabilities 投影。 */
-export function capabilityRow(card, { id = null, name = null, role = null, kind = null } = {}) {
+export function capabilityRow(card, { id = null, name = null, role = null, kind = null, workspace_mode = null, worktree_branch = null } = {}) {
   const row = {
     id,
     name,
@@ -334,6 +334,10 @@ export function capabilityRow(card, { id = null, name = null, role = null, kind 
     toolBrowser: card.effectiveCapabilities['tool.browser'],
   };
   if (kind) row.kind = kind;
+  if (workspace_mode === 'worktree') {
+    row.workspaceMode = 'worktree';
+    if (worktree_branch) row.worktreeBranch = worktree_branch;
+  }
   return row;
 }
 

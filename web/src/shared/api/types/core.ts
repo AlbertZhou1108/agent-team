@@ -24,6 +24,10 @@ export interface Group {
   policy?: string | null;
   /** 群级是否允许执行命令(1/0);仅作群上限,成员级还可再收敛。 */
   allow_shell?: number | null;
+  /** 团队说明文本（可选）。 */
+  charter?: string | null;
+  /** 研发工作流引导模板 ID（可选，仅提示与预设，无状态机）。 */
+  workflow_template?: string | null;
 }
 
 export interface Member {
@@ -43,8 +47,82 @@ export interface Member {
   allow_shell?: number | null;
   /** 成员级浏览器 / Computer Use 授权:1 允许,0 或未返回表示未授权。 */
   allow_browser?: number;
+  /** 成员工作区隔离模式：inherit 共享群主工作区，worktree 为受管独立工作树。 */
+  workspace_mode?: 'inherit' | 'worktree';
+  /** 受管 git worktree 路径（仅 worktree 模式有效）。 */
+  worktree_path?: string | null;
+  /** 受管 git worktree 分支名（仅 worktree 模式有效）。 */
+  worktree_branch?: string | null;
   /** 只读能力名片;由服务端按真实模型目录与有效策略投影,前端不自行推断。 */
   capabilityCard?: CapabilityCard;
+}
+
+export interface WorkflowTemplatePresetMember {
+  name: string;
+  roleHint: string;
+  preferredHost?: string;
+  policyCeiling: string;
+  allowShell: boolean;
+  allowBrowser: boolean;
+  workspaceMode: 'inherit' | 'worktree';
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  summary: string;
+  charter: string;
+  presetMembers: WorkflowTemplatePresetMember[];
+}
+
+export interface MemberWorktreeStatus {
+  memberId: string;
+  memberName: string;
+  host: string;
+  path: string | null;
+  branch: string | null;
+  branchExists: boolean;
+  exists: boolean;
+  dirtyCount: number;
+  untrackedCount: number;
+  aheadCount: number;
+  headCommit: string | null;
+  baseCommit: string | null;
+  changedFiles: string[];
+  diffStat: string;
+  error: string | null;
+}
+
+export interface WorktreeMergeResult {
+  memberId: string;
+  memberName: string;
+  merged: boolean;
+  alreadyUpToDate: boolean;
+  branch: string;
+  commit: string | null;
+}
+
+export interface WorktreeRemoveResult {
+  memberId: string;
+  memberName: string;
+  removed: boolean;
+  retained: boolean;
+  path: string | null;
+  branch: string | null;
+  dirtyCount?: number;
+  untrackedCount?: number;
+  aheadCount?: number;
+  reason?: string;
+}
+
+export interface FilePreviewResult {
+  path: string;
+  rootKind: 'workspace' | 'worktree';
+  memberId: string | null;
+  memberName: string | null;
+  size: number;
+  truncated: boolean;
+  content: string;
 }
 
 /** 能力名片里的模型维投影:未在实时目录中命中时 knownInCatalog=false,未知字段保持 null。 */

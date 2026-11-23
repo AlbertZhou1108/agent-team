@@ -25,10 +25,10 @@ export function groupExists(store, groupId) {
 }
 
 /** 建群行:lead 先写 NULL,成员落库后再回填(避免循环外键顺序问题)。 */
-export function insertGroup(store, { id, name, workspace, created, charter, policy, allowShell }) {
+export function insertGroup(store, { id, name, workspace, created, charter, policy, allowShell, workflowTemplate = null }) {
   return store.run(
-    'INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell) VALUES(?,?,?,?,?,?,?,?)',
-    id, name, workspace, null, created, charter, policy, allowShell,
+    'INSERT INTO groups(id,name,workspace,lead,created,charter,policy,allow_shell,workflow_template) VALUES(?,?,?,?,?,?,?,?,?)',
+    id, name, workspace, null, created, charter, policy, allowShell, workflowTemplate ?? null,
   );
 }
 
@@ -70,15 +70,24 @@ export function activeMemberById(store, memberId) {
   return store.get('SELECT * FROM members WHERE id=? AND removed IS NULL', memberId) ?? null;
 }
 
-/** 成员落库:模型选择与成员级策略字段都可缺省(继承群策略/宿主默认)。 */
-export function insertMember(store, { id, groupId, name, host, role, selection = null, policyCeiling = null, allowShell = null, allowBrowser = false }) {
+/** 成员落库:模型选择、策略字段与工作区隔离字段均可缺省(继承群策略/宿主默认/共享主工作区)。 */
+export function insertMember(store, {
+  id, groupId, name, host, role, selection = null, policyCeiling = null, allowShell = null, allowBrowser = false,
+  workspaceMode = 'inherit', worktreePath = null, worktreeBranch = null,
+}) {
   return store.run(
-    'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort,policy_ceiling,allow_shell,allow_browser) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+    `INSERT INTO members(
+      id,group_id,name,host,role,model_provider,model,reasoning_effort,
+      policy_ceiling,allow_shell,allow_browser,workspace_mode,worktree_path,worktree_branch
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, groupId, name, host, role,
     selection?.model_provider ?? null, selection?.model ?? null, selection?.reasoning_effort ?? null,
     policyCeiling ?? null,
     allowShell === null || allowShell === undefined ? null : (allowShell ? 1 : 0),
     allowBrowser ? 1 : 0,
+    workspaceMode ?? 'inherit',
+    worktreePath ?? null,
+    worktreeBranch ?? null,
   );
 }
 
@@ -253,6 +262,14 @@ export function updateMemberPolicy(store, { memberId, policyCeiling = null, allo
     allowShell === null || allowShell === undefined ? null : (allowShell ? 1 : 0),
     allowBrowser ? 1 : 0,
     memberId,
+  );
+}
+
+/** 成员级工作区隔离写点:仅在工作树创建或显式移除后切换模式/路径/分支。 */
+export function updateMemberWorkspace(store, { memberId, workspaceMode = 'inherit', worktreePath = null, worktreeBranch = null }) {
+  return store.run(
+    'UPDATE members SET workspace_mode=?,worktree_path=?,worktree_branch=? WHERE id=?',
+    workspaceMode, worktreePath ?? null, worktreeBranch ?? null, memberId,
   );
 }
 

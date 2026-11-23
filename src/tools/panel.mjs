@@ -22,6 +22,7 @@ const memberConfigItems = {
     policyCeiling: memberPolicyCeiling,
     allowShell: { type: ['boolean', 'null'] },
     allowBrowser: { type: 'boolean' },
+    workspaceMode: { type: 'string', enum: ['inherit', 'worktree'] },
   },
   required: ['name', 'host'],
   additionalProperties: false,
@@ -65,6 +66,7 @@ const preparationDefinitions = [
     charter: { type: 'string', maxLength: 48000 },
     policy: { type: 'string', enum: ['communication', 'read-only', 'workspace-write'] },
     allowShell: { type: 'boolean' },
+    workflowTemplate: { type: 'string', enum: ['none', 'standard-dev', 'quick-fix'] },
   }, ['name', 'workspace']],
   ['request_team_takeover', '请求接管一个当前处于观察状态的团队；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
   ['request_team_handback', '请求将当前主控团队交还原主 Agent；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
@@ -113,6 +115,7 @@ const mainDefinitions = [
     policyCeiling: memberPolicyCeiling,
     allowShell: { type: ['boolean', 'null'] },
     allowBrowser: { type: 'boolean' },
+    workspaceMode: { type: 'string', enum: ['inherit', 'worktree'] },
   }, ['groupId', 'name', 'host']],
   ['group_remove', '主 Agent 移除普通成员。', { groupId, member: string }, ['groupId', 'member']],
   ['group_tasks_set', '把你（主控）自己在当前团队的计划步骤整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {id, text, state}；id 为 1-32 位小写字母、数字或连字符，计划内唯一且不可复用；state 为 doing/done/dropped；开始、推进或完成工作时更新，空数组清空。', {

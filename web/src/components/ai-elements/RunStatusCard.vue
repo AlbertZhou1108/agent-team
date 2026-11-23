@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Brain } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
 import { identityColor } from '@/features/messages/identity';
-import { Surface } from '@/components/surface';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { DisclosureChevron } from '@/components/ui/disclosure';
 import {
@@ -75,9 +74,8 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
 </script>
 
 <template>
-<!-- 会话操作区表面:与顶栏/输入区同为 action 角色,由材质体系统一渲染底面
-     (实色不透底、玻璃带折射描边、纸质带纹理),本组件只负责布局与内容。 -->
-  <Surface v-if="rows.length" role="action" class="run-card" data-testid="run-status-card">
+<!-- 底栏整块由 ConversationScroller 统一承担 action 表面，这里只作底栏内的状态子区，避免双层毛玻璃与边界嵌套。 -->
+  <aside v-if="rows.length" class="run-card" data-testid="run-status-card">
     <p class="sr-only" role="status" aria-live="polite">{{ liveSummary }}</p>
 
     <div class="run-card-head">
@@ -166,5 +164,5 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         </div>
       </div>
     </CollapseReveal>
-  </Surface>
+  </aside>
 </template>

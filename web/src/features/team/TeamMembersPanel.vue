@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Coins, Database, Radio, Users } from '@lucide/vue';
+import { Coins, Database, GitBranch, Radio, Users } from '@lucide/vue';
 import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
 import { SectionBlock } from '@/components/panel';
 import PanelState from '@/components/panel/PanelState.vue';
@@ -11,6 +11,7 @@ import { isPolicyMode } from '@/features/groups/create-team-model';
 import { compactNumber, numeric, ratioPercent } from '@/features/telemetry/visuals';
 import type { Member, SessionEndpoint } from '@/shared/api/raw-types';
 import MemberPolicyDialog from './MemberPolicyDialog.vue';
+import MemberWorktreeDialog from './MemberWorktreeDialog.vue';
 
 /**
  * 右栏「成员」视图：专注成员身份、宿主/模型配置与快捷联动。
@@ -73,6 +74,10 @@ function capabilityBadges(member: Member): CapabilityBadge[] {
   if (card?.effectiveCapabilities['exec.shell'] === true) {
     badges.push({ key: 'shell', label: '可执行命令', variant: 'secondary' });
   }
+  if (member.workspace_mode === 'worktree') {
+    const branchTail = member.worktree_branch?.split('/').at(-1) ?? 'worktree';
+    badges.push({ key: 'worktree', label: `worktree · ${branchTail}`, variant: 'outline' });
+  }
   return badges;
 }
 
@@ -91,6 +96,16 @@ function openMemberPolicyDialog(member: Member) {
 }
 function onMemberPolicySaved(member: Member) {
   emit('member-policy-saved', member);
+}
+
+const worktreeDialogMember = ref<Member | null>(null);
+const worktreeDialogOpen = ref(false);
+function openWorktreeDialog(member: Member) {
+  worktreeDialogMember.value = member;
+  worktreeDialogOpen.value = true;
+}
+function onWorktreeUpdated() {
+  if (worktreeDialogMember.value) emit('member-policy-saved', worktreeDialogMember.value);
 }
 
 const telemetryQuery = useMembersTelemetryQuery(() => props.groupId || undefined);
@@ -229,6 +244,17 @@ function modelSummary(member: Member): string {
 
         <div class="flex flex-wrap items-center justify-end gap-2 pt-0.5">
           <Button
+            v-if="member.workspace_mode === 'worktree'"
+            variant="outline"
+            size="xs"
+            :data-testid="`member-worktree-btn-${member.id}`"
+            :aria-label="`管理 ${member.name} 的独立 worktree`"
+            @click="openWorktreeDialog(member)"
+          >
+            <GitBranch class="size-3.5" />
+            工作区
+          </Button>
+          <Button
             variant="outline"
             size="xs"
             :aria-label="`调整 ${member.name} 的模型`"
@@ -265,6 +291,13 @@ function modelSummary(member: Member): string {
       :group-policy="groupPolicy ?? null"
       :group-allow-shell="groupAllowShell"
       @saved="onMemberPolicySaved"
+    />
+    <MemberWorktreeDialog
+      v-model:open="worktreeDialogOpen"
+      :group-id="groupId"
+      :member="worktreeDialogMember"
+      :running="Boolean(worktreeDialogMember && runningMemberIds.has(worktreeDialogMember.id))"
+      @updated="onWorktreeUpdated"
     />
   </div>
 </template>

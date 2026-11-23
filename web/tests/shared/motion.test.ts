@@ -74,5 +74,7 @@ describe('motion transition coverage contracts', () => {
     const html = await renderToString(app);
     expect(html).toContain('class="collapse-reveal"');
     expect(html).toContain('data-open="false"');
+    // 外层 .conversation-bar-bottom 统一承载 action 表面，RunStatusCard 内不再套第二层 action。
+    expect(html).not.toContain('data-surface="action"');
   });
 });

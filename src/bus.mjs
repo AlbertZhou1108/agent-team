@@ -182,7 +182,11 @@ export class Bus extends EventEmitter {
   resolveMember(...args) { return this.lifecycle.resolveMember(...args); }
   resolveRecipient(...args) { return this.lifecycle.resolveRecipient(...args); }
   addMember(...args) { return this.lifecycle.addMember(...args); }
+  addMemberSync(...args) { return this.lifecycle.addMemberSync(...args); }
   applyMemberPolicy(...args) { return this.lifecycle.applyMemberPolicy(...args); }
+  listWorktrees(...args) { return this.lifecycle.listWorktrees(...args); }
+  mergeMemberWorktree(...args) { return this.lifecycle.mergeMemberWorktree(...args); }
+  removeMemberWorktree(...args) { return this.lifecycle.removeMemberWorktree(...args); }
   removeMember(...args) { return this.lifecycle.removeMember(...args); }
   deleteGroup(...args) { return this.lifecycle.deleteGroup(...args); }
   archiveSnapshot(groupId) { return this.archiveSnapshots.read(groupId); }

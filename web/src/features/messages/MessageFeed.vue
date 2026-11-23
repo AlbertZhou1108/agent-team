@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import FeedPanel from '@/components/ai-elements/FeedPanel.vue';
-import { computed, ref, watch } from 'vue';
+import { computed, provide, ref, watch } from 'vue';
 import type { MessageFeedProps } from './message-feed-types';
+import { filePreviewContext } from './file-refs';
+import FilePreviewDialog from './FilePreviewDialog.vue';
 import PanelState from '@/components/panel/PanelState.vue';
 import { LoaderCircle, MessagesSquare, Clock3 } from '@lucide/vue';
 import AgentMessage from '@/components/ai-elements/AgentMessage.vue';
@@ -44,6 +46,16 @@ const props = withDefaults(
 const emit = defineEmits<{
   loadMore: [];
 }>();
+
+const previewPath = ref('');
+const previewOpen = ref(false);
+provide(filePreviewContext, {
+  open(path: string) {
+    if (!props.groupId || !path) return;
+    previewPath.value = path;
+    previewOpen.value = true;
+  },
+});
 
 // 多路并发时由运行卡决定展示哪一路正文;切换会话时清空选择。
 const selectedRunKey = ref<string | null>(null);
@@ -361,5 +373,6 @@ const messageIds = computed(() => {
     </slot>
 
     <DeliveryFailureDialog v-model:open="receiptOpen" :receipt="activeReceipt" />
+    <FilePreviewDialog v-if="groupId" v-model:open="previewOpen" :group-id="groupId" :file-path="previewPath" />
   </ConversationPanel>
 </template>

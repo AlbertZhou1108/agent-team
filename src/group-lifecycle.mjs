@@ -8,6 +8,16 @@ import * as teamsAgg from './aggregates/teams.mjs';
 import * as readState from './aggregates/read-state.mjs';
 import * as panelAgg from './aggregates/panel.mjs';
 import { normalizeMemberPolicyPatch } from './hosts/capability-routing.mjs';
+import { normalizeWorkflowTemplateId } from './hosts/workflow-templates.mjs';
+import {
+  assertWorktreeMemberEligible,
+  inspectGitRepoForWorktree,
+  inspectMemberWorktree,
+  mergeMemberWorktree as gitMergeMemberWorktree,
+  normalizeWorkspaceMode,
+  provisionMemberWorktrees,
+  removeMemberWorktree as gitRemoveMemberWorktree,
+} from './hosts/worktree.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
@@ -466,9 +476,13 @@ export class GroupLifecycle {
   }
   // its user, or a confirmed group_create tool call) supplies the people and an
   // optional charter. No contract negotiation or confirmation protocol.
-  createGroup({ name, workspace, lead, members = [], panelAgentId, charter, policy, allowShell, operationId }) {
+  createGroup({ name, workspace, lead, members = [], panelAgentId, charter, policy, allowShell, workflowTemplate, operationId }) {
     if (operationId !== undefined && (typeof operationId !== 'string' || !/^[\w-]{1,128}$/.test(operationId))) throw new Error('请求编号无效');
-    const creationPayload = JSON.stringify({ name, workspace, lead, members, panelAgentId, charter, policy, allowShell });
+    const normalizedTemplate = normalizeWorkflowTemplateId(workflowTemplate);
+    const creationPayload = JSON.stringify({
+      name, workspace, lead, members, panelAgentId, charter, policy, allowShell,
+      ...(normalizedTemplate ? { workflowTemplate: normalizedTemplate } : {}),
+    });
     if (operationId) {
       const previous = teamsAgg.groupCreateOperation(this.bus.store, operationId);
       if (previous) {
@@ -496,7 +510,7 @@ export class GroupLifecycle {
       if (!key || person.name.length > 100 || names.has(key)) throw new Error('成员名称为空、重复或过长');
       names.add(key);
     }
-    // 群策略是成员级收敛的硬上限:先校验并归一化每人的模型选择与策略字段,再进事务落库。
+    // 群策略是成员级收敛的硬上限:先校验并归一化每人的模型选择、策略字段与 worktree 隔离,再进事务落库。
     const groupPolicy = policy ?? 'workspace-write';
     const resolvedPeople = people.map(person => ({
       ...person,
@@ -505,41 +519,57 @@ export class GroupLifecycle {
     }));
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.bus.store.transaction(() => {
-      teamsAgg.insertGroup(this.bus.store, {
-        id,
-        name,
-        workspace,
-        created: now,
-        charter: typeof charter === 'string' && charter.trim() ? charter.trim() : null,
-        policy: groupPolicy,
-        allowShell: allowShell === undefined ? 1 : allowShell ? 1 : 0,
-      });
-      for (const person of resolvedPeople) {
-        const memberId = randomUUID();
-        teamsAgg.insertMember(this.bus.store, {
-          id: memberId,
-          groupId: id,
-          name: person.name,
-          host: person.host,
-          role: person.role,
-          selection: person.selection,
-          policyCeiling: person.policyCeiling,
-          allowShell: person.allowShell,
-          allowBrowser: person.allowBrowser,
-        });
-        this.bus.collaboration.reserveMemberName(id, memberId, person.name);
-        if (person.role === 'lead') teamsAgg.setGroupLead(this.bus.store, id, memberId);
-      }
-      if (operationId) teamsAgg.recordGroupCreate(this.bus.store, { operationId, payload: creationPayload, groupId: id, created: new Date().toISOString() });
-      if (panelAgent) {
-        teamsAgg.insertPanelController(this.bus.store, { groupId: id, panelAgentId: panelAgent.id, now });
-        panelAgg.setTeamRelation(this.bus.store, { panelAgentId: panelAgent.id, groupId: id, relation: 'main', now });
-      } else if (this.bus.panelAgent()) {
-        const owner = this.bus.panelAgent();
-        panelAgg.setTeamRelation(this.bus.store, { panelAgentId: owner.id, groupId: id, relation: 'observer', now });
-      }
+    const provisioned = provisionMemberWorktrees({
+      dataDir: this.bus.store.directory,
+      groupId: id,
+      workspace,
+      groupPolicy,
+      people: resolvedPeople,
+      idFactory: () => randomUUID(),
     });
+    try {
+      this.bus.store.transaction(() => {
+        teamsAgg.insertGroup(this.bus.store, {
+          id,
+          name,
+          workspace,
+          created: now,
+          charter: typeof charter === 'string' && charter.trim() ? charter.trim() : null,
+          policy: groupPolicy,
+          allowShell: allowShell === undefined ? 1 : allowShell ? 1 : 0,
+          workflowTemplate: normalizedTemplate,
+        });
+        for (const person of provisioned.members) {
+          teamsAgg.insertMember(this.bus.store, {
+            id: person.id,
+            groupId: id,
+            name: person.name,
+            host: person.host,
+            role: person.role,
+            selection: person.selection,
+            policyCeiling: person.policyCeiling,
+            allowShell: person.allowShell,
+            allowBrowser: person.allowBrowser,
+            workspaceMode: person.workspaceMode,
+            worktreePath: person.worktreePath,
+            worktreeBranch: person.worktreeBranch,
+          });
+          this.bus.collaboration.reserveMemberName(id, person.id, person.name);
+          if (person.role === 'lead') teamsAgg.setGroupLead(this.bus.store, id, person.id);
+        }
+        if (operationId) teamsAgg.recordGroupCreate(this.bus.store, { operationId, payload: creationPayload, groupId: id, created: new Date().toISOString() });
+        if (panelAgent) {
+          teamsAgg.insertPanelController(this.bus.store, { groupId: id, panelAgentId: panelAgent.id, now });
+          panelAgg.setTeamRelation(this.bus.store, { panelAgentId: panelAgent.id, groupId: id, relation: 'main', now });
+        } else if (this.bus.panelAgent()) {
+          const owner = this.bus.panelAgent();
+          panelAgg.setTeamRelation(this.bus.store, { panelAgentId: owner.id, groupId: id, relation: 'observer', now });
+        }
+      });
+    } catch (error) {
+      provisioned.rollback();
+      throw error;
+    }
     for (const member of this.bus.members(id)) if (!member.profile) this.bus.introduce(member);
     return this.bus.store.group(id);
   }
@@ -569,7 +599,10 @@ export class GroupLifecycle {
     }
     return this.bus.resolveMember(groupId, value);
   }
-  async addMember(groupId, { name, host, selection, policyCeiling, allowShell, allowBrowser }) {
+  async addMember(groupId, options) {
+    return this.addMemberSync(groupId, options);
+  }
+  addMemberSync(groupId, { name, host, selection, policyCeiling, allowShell, allowBrowser, workspaceMode }) {
     this.bus.collaboration.requireCommunication(groupId); this.bus.requireHost(host);
     if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
     if (teamsAgg.roleNameTaken(this.bus.store, groupId, roleNameKey(name))) throw new Error('名称已被本团队历史使用');
@@ -577,20 +610,106 @@ export class GroupLifecycle {
     const resolvedSelection = this.bus.models.resolveSelection(host, selection);
     const policyFields = memberPolicyFields(group.policy, { policyCeiling, allowShell, allowBrowser });
     const id = randomUUID();
-    this.bus.store.transaction(() => {
-      teamsAgg.insertMember(this.bus.store, {
-        id,
-        groupId,
-        name: name.trim(),
-        host,
-        role: 'member',
-        selection: resolvedSelection,
-        ...policyFields,
-      });
-      this.bus.collaboration.reserveMemberName(groupId, id, name);
+    const provisioned = provisionMemberWorktrees({
+      dataDir: this.bus.store.directory,
+      groupId,
+      workspace: group.workspace,
+      groupPolicy: group.policy,
+      people: [{ id, name: name.trim(), role: 'member', ...policyFields, workspaceMode }],
+      idFactory: () => id,
     });
+    const person = provisioned.members[0];
+    try {
+      this.bus.store.transaction(() => {
+        teamsAgg.insertMember(this.bus.store, {
+          id,
+          groupId,
+          name: person.name,
+          host,
+          role: 'member',
+          selection: resolvedSelection,
+          ...policyFields,
+          workspaceMode: person.workspaceMode,
+          worktreePath: person.worktreePath,
+          worktreeBranch: person.worktreeBranch,
+        });
+        this.bus.collaboration.reserveMemberName(groupId, id, name);
+      });
+    } catch (error) {
+      provisioned.rollback();
+      throw error;
+    }
     this.bus.introduce(this.bus.store.member(id));
     return this.bus.store.member(id);
+  }
+  assertWorktreePreconditions(groupPolicy, { role = 'member', policyCeiling = null, workspaceMode } = {}, workspace) {
+    const mode = normalizeWorkspaceMode(workspaceMode);
+    assertWorktreeMemberEligible(groupPolicy, { role, policyCeiling }, mode);
+    if (mode === 'worktree') inspectGitRepoForWorktree(workspace);
+    return mode;
+  }
+  listWorktrees(groupId) {
+    const group = this.bus.store.group(groupId);
+    return this.bus.members(groupId)
+      .filter(member => member.workspace_mode === 'worktree')
+      .map(member => ({
+        memberId: member.id,
+        memberName: member.name,
+        host: member.host,
+        ...inspectMemberWorktree({
+          repoRoot: group.workspace,
+          worktreePath: member.worktree_path,
+          branch: member.worktree_branch,
+        }),
+      }));
+  }
+  mergeMemberWorktree(groupId, memberId) {
+    const group = this.bus.store.group(groupId);
+    if (group.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
+    const member = this.bus.resolveMember(groupId, memberId);
+    if (member.workspace_mode !== 'worktree' || !member.worktree_path || !member.worktree_branch) {
+      throw new Error('该成员未启用 git worktree 隔离');
+    }
+    const running = [...this.bus.running.values()].some(item => item.endpoint.member_id === member.id);
+    if (running) throw new Error('成员正在运行中，请等待当前回合结束后再合入分支');
+    const result = gitMergeMemberWorktree({
+      repoRoot: group.workspace,
+      worktreePath: member.worktree_path,
+      branch: member.worktree_branch,
+    });
+    if (result.merged) {
+      this.bus.notify(group.id, member.id, `已将成员分支 ${member.worktree_branch} 安全合入主工作区（提交 ${result.commit}）`);
+    }
+    return { memberId: member.id, memberName: member.name, ...result };
+  }
+  removeMemberWorktree(groupId, memberId, { force = false } = {}) {
+    const group = this.bus.store.group(groupId);
+    if (group.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
+    const member = this.bus.resolveMember(groupId, memberId);
+    if (member.workspace_mode !== 'worktree' || !member.worktree_path) {
+      throw new Error('该成员未启用 git worktree 隔离');
+    }
+    const running = [...this.bus.running.values()].some(item => item.endpoint.member_id === member.id);
+    if (running) throw new Error('成员正在运行中，请等待当前回合结束或先停止成员后再清理 worktree');
+    const result = gitRemoveMemberWorktree({
+      dataDir: this.bus.store.directory,
+      repoRoot: group.workspace,
+      worktreePath: member.worktree_path,
+      branch: member.worktree_branch,
+      force: Boolean(force),
+    });
+    if (result.retained) return { memberId: member.id, memberName: member.name, ...result };
+    this.bus.store.transaction(() => {
+      teamsAgg.updateMemberWorkspace(this.bus.store, {
+        memberId: member.id,
+        workspaceMode: 'inherit',
+        worktreePath: null,
+        worktreeBranch: null,
+      });
+      conversationsAgg.clearSessionsForMember(this.bus.store, member.id);
+    });
+    this.bus.notify(group.id, member.id, `已清理成员 worktree（分支 ${member.worktree_branch}），后续回合切回共享主工作区`);
+    return { memberId: member.id, memberName: member.name, ...result };
   }
   /**
    * 运行期调整成员策略/工具放行:面板 HTTP 入口与 member_policy 确认卡共用的唯一写入点。
@@ -643,6 +762,7 @@ export class GroupLifecycle {
     return this.bus.store.member(member.id);
   }
   async removeMember(groupId, memberId) {
+    const group = this.bus.store.group(groupId);
     const member = this.bus.resolveMember(groupId, memberId);
     if (member.role === 'lead') throw new Error('不能移除主 Agent；可删除群');
     teamsAgg.markMemberRemoved(this.bus.store, member.id);
@@ -652,7 +772,29 @@ export class GroupLifecycle {
     // 已移除成员不会再接收输入。等待回合收尾后丢弃未接受的投递队列，
     // 消息与回合历史仍保留；避免重试重新激活永远无法投递的条目。
     messagesAgg.discardPendingDeliveriesForMember(this.bus.store, member.id);
-    return { removed: member.id };
+    let retainedWorktree = null;
+    if (member.workspace_mode === 'worktree' && member.worktree_path) {
+      const disposed = gitRemoveMemberWorktree({
+        dataDir: this.bus.store.directory,
+        repoRoot: group.workspace,
+        worktreePath: member.worktree_path,
+        branch: member.worktree_branch,
+        force: false,
+      });
+      if (disposed.retained) {
+        retainedWorktree = { memberId: member.id, memberName: member.name, ...disposed };
+        this.bus.notify(groupId, 'user',
+          `成员 ${member.name} 已移除；其 worktree 含未保存改动或未合入提交，已保守保留：分支 ${disposed.branch}，路径 ${disposed.path}`);
+      } else {
+        teamsAgg.updateMemberWorkspace(this.bus.store, {
+          memberId: member.id,
+          workspaceMode: 'inherit',
+          worktreePath: null,
+          worktreeBranch: null,
+        });
+      }
+    }
+    return { removed: member.id, ...(retainedWorktree ? { retainedWorktree } : {}) };
   }
   async deleteGroup(groupId, { archivedOnly = false } = {}) {
     const group = this.bus.store.group(groupId);
@@ -665,6 +807,10 @@ export class GroupLifecycle {
       if (snapshot) await this.bus.archiveSnapshots.pending.get(snapshot.id);
       const s = this.bus.store;
       const conversations = conversationsAgg.idsForGroup(s, groupId);
+      const worktreeMembers = s.all(
+        "SELECT id,name,worktree_path,worktree_branch FROM members WHERE group_id=? AND workspace_mode='worktree' AND worktree_path IS NOT NULL",
+        groupId,
+      );
       s.transaction(() => {
         // 这些引用没有外键，需要在级联删除来源行之前清理。
         s.run(`DELETE FROM workbench_dismissals WHERE
@@ -679,12 +825,31 @@ export class GroupLifecycle {
         this.bus.information.pruneOrphanTurnSchemas();
       });
       const cleanupWarnings = [];
+      const retainedWorktrees = [];
       for (const { id } of conversations) {
         try { rmSync(resolve(s.directory, 'endpoints', id), { recursive: true, force: true }); }
         catch (error) { cleanupWarnings.push(error.message); }
       }
-      // 数据库已提交，文件清理失败不能再报告“团队删除失败”。
-      return { deleted: groupId, ...(cleanupWarnings.length ? { cleanupWarnings } : {}) };
+      for (const member of worktreeMembers) {
+        try {
+          const disposed = gitRemoveMemberWorktree({
+            dataDir: s.directory,
+            repoRoot: group.workspace,
+            worktreePath: member.worktree_path,
+            branch: member.worktree_branch,
+            force: false,
+          });
+          if (disposed.retained) retainedWorktrees.push({ memberId: member.id, memberName: member.name, ...disposed });
+        } catch (error) {
+          cleanupWarnings.push(error.message);
+        }
+      }
+      // 数据库已提交，文件清理失败或保守保留不能再报告“团队删除失败”。
+      return {
+        deleted: groupId,
+        ...(cleanupWarnings.length ? { cleanupWarnings } : {}),
+        ...(retainedWorktrees.length ? { retainedWorktrees } : {}),
+      };
     } finally {
       this.bus.deletingGroups.delete(groupId);
     }

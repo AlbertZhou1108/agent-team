@@ -145,7 +145,7 @@ export class Interactions {
       takeover: () => this.bus.takeoverTeam(payload.groupId, payload.baseRevision),
       handback: () => this.bus.handbackTeam(payload.groupId, payload.baseRevision),
       group_create: () => this.bus.createGroup(payload.args),
-      group_add: () => this.bus.addMember(row.group_id, payload.args),
+      group_add: () => this.bus.addMemberSync(row.group_id, payload.args),
       member_model: () => this.bus.applyMemberModel(row.group_id, payload.args.member, payload.args.model ? {
         model_provider: payload.args.model_provider ?? null,
         model: payload.args.model,

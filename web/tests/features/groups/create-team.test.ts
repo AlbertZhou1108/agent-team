@@ -518,4 +518,49 @@ describe('CreateTeam 异构建群矩阵', () => {
     await nextTick();
     expect(wrapper.find('[data-testid="create-team-confirm"]').exists()).toBe(false);
   });
+
+  it('套用工作流模板会填入成员与 charter 引导，按成员开启 worktree 并在仅沟通下关闭', async () => {
+    const wrapper = await mountCreateTeam();
+    await fillBasics(wrapper);
+    await selectDefaultHost(wrapper, 'dsh');
+
+    await chooseOption(wrapper, 'workflow-template', 'standard-dev');
+    await settle();
+    expect((wrapper.find('#team-charter').element as HTMLTextAreaElement).value).toContain('大文档路径交付');
+    // 标准研发模板预设：研发（开启 worktree） + 只读验收（继承共享主工作区）
+    expect(wrapper.find('[data-testid="member-worktree-1"]').attributes('data-state')).toBe('checked');
+    expect(wrapper.find('[data-testid="member-worktree-2"]').attributes('data-state')).toBe('unchecked');
+
+    // 用户手改 charter 后再切模板，保留用户手写文本。
+    await wrapper.find('#team-charter').setValue('自定义团队准则');
+    await chooseOption(wrapper, 'workflow-template', 'quick-fix');
+    await settle();
+    expect((wrapper.find('#team-charter').element as HTMLTextAreaElement).value).toBe('自定义团队准则');
+
+    // 切回 standard-dev 并确认提交：携带 workflowTemplate、charter 与 worktree 成员。
+    await chooseOption(wrapper, 'workflow-template', 'standard-dev');
+    await settle();
+    await confirmCreate(wrapper);
+    const body = mocks.createGroup.mock.calls[0][0];
+    expect(body.workflowTemplate).toBe('standard-dev');
+    expect(body.charter).toBe('自定义团队准则');
+    expect(body.members[0].workspaceMode).toBe('worktree');
+    expect(body.members[1].workspaceMode).toBeUndefined();
+    expect(body.lead.workspaceMode).toBeUndefined();
+  });
+
+  it('全局切到 communication 时重置协作成员 worktree 并禁用开关', async () => {
+    const wrapper = await mountCreateTeam();
+    await fillBasics(wrapper);
+    await selectDefaultHost(wrapper, 'dsh');
+    await wrapper.find('[data-testid="member-worktree-1"]').trigger('click');
+    await nextTick();
+    expect(wrapper.find('[data-testid="member-worktree-1"]').attributes('data-state')).toBe('checked');
+
+    await chooseOption(wrapper, 'group-policy', 'communication');
+    await settle();
+    const wtSwitch = wrapper.find('[data-testid="member-worktree-1"]');
+    expect(wtSwitch.attributes('data-state')).toBe('unchecked');
+    expect(wtSwitch.attributes()).toHaveProperty('disabled');
+  });
 });

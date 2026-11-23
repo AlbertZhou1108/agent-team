@@ -169,6 +169,7 @@ export function migrateSchema(store, fromVersion) {
     if (fromVersion < 24) migrateV24(store);
     if (fromVersion < 25) migrateV25(store);
     if (fromVersion < 26) migrateV26(store);
+    if (fromVersion < 27) migrateV27(store);
 }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -367,6 +368,25 @@ export function migrateV26(store) {
       ensureColumn('members', 'allow_shell', 'INTEGER DEFAULT NULL');
       ensureColumn('members', 'allow_browser', 'INTEGER NOT NULL DEFAULT 0');
       migrateInteractions(store);
+    });
+  }
+
+  // v27:研发工作流模板（groups.workflow_template）与成员级 git worktree 隔离字段。
+  // 缺省分别保持 NULL（自由协作）与 'inherit'（共享主工作区），旧成员零侵入兼容。
+
+export function migrateV27(store) {
+    const ensureColumn = (table, name, definition) => {
+      const columns = store.all(`PRAGMA table_info(${table})`);
+      if (!columns.length) return;
+      if (!columns.some(column => column.name === name)) {
+        store.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    store.transaction(() => {
+      ensureColumn('groups', 'workflow_template', 'TEXT DEFAULT NULL');
+      ensureColumn('members', 'workspace_mode', "TEXT NOT NULL DEFAULT 'inherit' CHECK(workspace_mode IN ('inherit','worktree'))");
+      ensureColumn('members', 'worktree_path', 'TEXT DEFAULT NULL');
+      ensureColumn('members', 'worktree_branch', 'TEXT DEFAULT NULL');
     });
   }
 

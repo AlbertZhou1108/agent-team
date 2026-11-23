@@ -9,10 +9,18 @@ import TeamMembersPanel from '@/features/team/TeamMembersPanel.vue';
 // API 与成员用量查询全部替身，断言「看到什么 → 提交了什么」。
 const mocks = vi.hoisted(() => ({
   updateMemberPolicy: vi.fn(),
+  teamWorktrees: vi.fn(),
+  mergeMemberWorktree: vi.fn(),
+  removeMemberWorktree: vi.fn(),
 }));
 
 vi.mock('@/shared/api/client', () => ({
-  api: { updateMemberPolicy: mocks.updateMemberPolicy },
+  api: {
+    updateMemberPolicy: mocks.updateMemberPolicy,
+    teamWorktrees: mocks.teamWorktrees,
+    mergeMemberWorktree: mocks.mergeMemberWorktree,
+    removeMemberWorktree: mocks.removeMemberWorktree,
+  },
 }));
 
 vi.mock('vue-sonner', () => ({
@@ -372,6 +380,86 @@ describe('调整权限弹窗的防御性分支', () => {
     resolveSave({ member: member({ allow_browser: 1 }) });
     await settle();
     expect(wrapper.emitted('member-policy-saved')).toBeTruthy();
+    wrapper.unmount();
+  });
+});
+
+describe('成员独立 worktree 面板与操作弹窗', () => {
+  it('worktree 成员显示分支徽标并支持合入与保守保留二次强删', async () => {
+    const wtMember = member({
+      id: 'm-wt',
+      name: '并发研发',
+      workspace_mode: 'worktree',
+      worktree_path: '/tmp/data/worktrees/g1/m-wt',
+      worktree_branch: 'agent-team/g1-dev-mwt1',
+    });
+    mocks.teamWorktrees.mockResolvedValue([
+      {
+        memberId: 'm-wt',
+        memberName: '并发研发',
+        host: 'dsh',
+        path: '/tmp/data/worktrees/g1/m-wt',
+        branch: 'agent-team/g1-dev-mwt1',
+        branchExists: true,
+        exists: true,
+        dirtyCount: 0,
+        untrackedCount: 0,
+        aheadCount: 1,
+        headCommit: 'abc1234',
+        baseCommit: '0001111',
+        changedFiles: [],
+        diffStat: ' src/a.ts | 3 +++',
+        error: null,
+      },
+    ]);
+    mocks.mergeMemberWorktree.mockResolvedValue({
+      memberId: 'm-wt',
+      memberName: '并发研发',
+      merged: true,
+      alreadyUpToDate: false,
+      branch: 'agent-team/g1-dev-mwt1',
+      commit: 'def5678',
+    });
+    mocks.removeMemberWorktree
+      .mockResolvedValueOnce({
+        memberId: 'm-wt',
+        memberName: '并发研发',
+        removed: false,
+        retained: true,
+        path: '/tmp/data/worktrees/g1/m-wt',
+        branch: 'agent-team/g1-dev-mwt1',
+        aheadCount: 1,
+        reason: '成员 worktree 仍含1 个未合入提交，已保守保留现场',
+      })
+      .mockResolvedValueOnce({
+        memberId: 'm-wt',
+        memberName: '并发研发',
+        removed: true,
+        retained: false,
+        path: '/tmp/data/worktrees/g1/m-wt',
+        branch: 'agent-team/g1-dev-mwt1',
+      });
+
+    const wrapper = mountPanel({ members: [wtMember] });
+    expect(wrapper.find('[data-capability="worktree"]').text()).toContain('g1-dev-mwt1');
+
+    await wrapper.find('[data-testid="member-worktree-btn-m-wt"]').trigger('click');
+    await settle();
+    expect(dialogEl('member-worktree-dialog')).not.toBeNull();
+    expect(document.body.textContent).toContain('未合入 1 提交');
+
+    // 合入主工作区
+    (dialogEl('worktree-merge-btn') as HTMLButtonElement).click();
+    await settle();
+    expect(mocks.mergeMemberWorktree).toHaveBeenCalledWith('g1', 'm-wt');
+
+    // 先触发普通清理 → 保守保留警告；点击二次强制删除 → 传入 force=true。
+    (dialogEl('worktree-remove-btn') as HTMLButtonElement).click();
+    await settle();
+    expect(dialogEl('worktree-retained-warning')).not.toBeNull();
+    (dialogEl('worktree-force-remove') as HTMLButtonElement).click();
+    await settle();
+    expect(mocks.removeMemberWorktree).toHaveBeenNthCalledWith(2, 'g1', 'm-wt', true);
     wrapper.unmount();
   });
 });
