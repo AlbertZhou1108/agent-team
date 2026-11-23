@@ -12,12 +12,12 @@ docs/*
 !docs/adr/
 !docs/adr/**
 !docs/DESIGN.md
+!docs/dev-flow-spec.md
 
 # 本机技能文件，由 skills-lock.json 管理，不入库
 .agents/
 
-# 本地 DSH 工作区指令，不入库
-/AGENTS.md
+# 本地 IDE 配置，不入库
 .idea/
 
 # 本机工具产物，不入库
