@@ -5,10 +5,11 @@ import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
 import { connectionProbe, probeClaude, initializeClaude } from '../../host-runtime/probe.mjs';
 import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
 import { executionPolicy, claudeExecutionConfig, policyObservation, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { probeBrowserMcpServers, normalizeBrowserProbeResult, BROWSER_MCP_UNAVAILABLE_REASON } from '../../hosts/browser-mcp-probe.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
+import { memberExecutionCapabilities, browserToolCapability } from '../../hosts/execution.mjs';
 
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -64,9 +65,21 @@ export function claudeCapabilities() {
 export function createClaudeHost({
   directory, socketPath, command = 'claude', model, reasoningEffort,
   permissionMode: _permissionMode = 'dontAsk', allowEdits: _allowEdits = false, configDirectory,
+  browserProbe,
 }) {
   if (reasoningEffort && !efforts.has(reasoningEffort)) throw new Error(`Claude 思考强度无效: ${reasoningEffort}`);
   configDirectory ??= process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+  // 只读探测宿主配置里真实可用的浏览器 MCP；注入假函数供单测，真实实现同步、可超时、绝不抛错。
+  const inspectBrowserMcp = () => {
+    try {
+      const result = browserProbe
+        ? browserProbe({ configDirectory, home: homedir(), env: process.env })
+        : probeBrowserMcpServers({ host: 'claude', configDirectory, home: homedir(), env: process.env });
+      return normalizeBrowserProbeResult(result);
+    } catch (error) {
+      return { servers: [], reason: `${BROWSER_MCP_UNAVAILABLE_REASON}（探测异常：${error?.message ?? 'unknown'}）` };
+    }
+  };
   const verified = new Map();
   const lifecycle = createCliLifecycle('claude', command, value => { command = value; });
   return {
@@ -90,8 +103,22 @@ export function createClaudeHost({
         defaultModel: models.find(item => item.isDefault)?.id ?? null });
     },
     telemetryCapabilities: claudeCapabilities(),
-    executionCapabilities({ mode, allowShell }) {
-      return memberExecutionCapabilities(CLAUDE_TRAITS, { mode, allowShell });
+    executionCapabilities({ mode, allowShell, allowBrowser }) {
+      const report = memberExecutionCapabilities(CLAUDE_TRAITS, { mode, allowShell });
+      // Claude Code 无原生浏览器开关：只有宿主配置里探测到真实可用的浏览器 MCP，
+      // 且本轮受控启动配置会一并挂载并用 --allowedTools 放行时才点亮；否则如实 false 并说明原因。
+      const browser = allowBrowser === true && report.effectivePolicy !== 'communication'
+        ? inspectBrowserMcp()
+        : { servers: [], reason: null };
+      return {
+        ...report,
+        ...browserToolCapability({
+          effectivePolicy: report.effectivePolicy,
+          requested: allowBrowser === true,
+          supported: browser.servers.length > 0,
+          reason: browser.servers.length ? null : browser.reason ?? BROWSER_MCP_UNAVAILABLE_REASON,
+        }),
+      };
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
@@ -103,8 +130,10 @@ export function createClaudeHost({
       const selectedModel = context.modelSelection?.model ?? model;
       const selectedEffort = context.modelSelection?.reasoning_effort ?? reasoningEffort;
       const policy = executionPolicy(context);
-      const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId);
-      const { builtins, allowed, sandbox } = claudeExecutionConfig(policy, context.tools, context.workspace);
+      // 探测到的浏览器 MCP 只在本轮获授权时合并进受控 mcp-config 并放行工具；未授权保持默认禁用。
+      const browserServers = policy.allowBrowser ? inspectBrowserMcp().servers : [];
+      const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId, undefined, { browserServers });
+      const { builtins, allowed, sandbox } = claudeExecutionConfig(policy, context.tools, context.workspace, browserServers);
       const settings = { disableAllHooks: true };
       if (sandbox) settings.sandbox = sandbox;
       if (selectedEffort) settings.env = { CLAUDE_CODE_EFFORT_LEVEL: selectedEffort };

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import {
   ROUTING_CAPABILITY_IDS,
-  TOOL_BROWSER_SUPPORTED,
   buildCapabilityCard,
   capabilityRequirementError,
   capabilityRow,
@@ -13,8 +12,11 @@ import {
   executionCapabilityMap,
   hasDispatchRequirements,
   mediaCapabilityRequirements,
+  memberPolicyCeiling,
+  memberPolicyRequest,
   messageRequirements,
   normalizeRequiredCapabilities,
+  policyRank,
   projectModelCapabilities,
   resolveCatalogModel,
   teamCapabilityView,
@@ -126,7 +128,6 @@ function cardFor({ catalog, selection = null, policy = null }) {
 }
 
 test('capability card projects both dimensions and never invents browser access', () => {
-  assert.equal(TOOL_BROWSER_SUPPORTED, false);
   const catalog = catalogOf([VISION]);
   const card = cardFor({
     catalog,
@@ -136,7 +137,7 @@ test('capability card projects both dimensions and never invents browser access'
   assert.equal(card.memberId, 'm1');
   assert.equal(card.model.id, 'vision');
   assert.equal(card.model.knownInCatalog, true);
-  assert.deepEqual(card.effectivePolicy, { ceiling: 'read-only', mode: 'read-only', reason: '群策略只允许读取' });
+  assert.deepEqual(card.effectivePolicy, { ceiling: 'read-only', mode: 'read-only', reason: '群策略只允许读取', browserReason: null });
   assert.deepEqual(card.effectiveCapabilities, {
     'exec.read': true,
     'exec.write': false,
@@ -193,7 +194,7 @@ test('dispatch evaluation fails closed on unknown facts', () => {
   });
   assert.deepEqual(execGap.missingCapabilities, ['exec.write', 'exec.shell', 'tool.browser']);
   assert.match(execGap.reasons[0], /群策略上限为 workspace-write/);
-  assert.match(execGap.reasons[2], /tool.browser/);
+  assert.match(execGap.reasons[2], /浏览器|Computer Use/);
 
   const windowGap = evaluateDispatchRequirements(cardFor({ catalog, selection: { model: 'text-only' }, policy: readonly }), {
     minContextWindow: 128000,
@@ -262,3 +263,46 @@ test('compact capability rows feed team context without leaking the full card', 
   assert.equal(view.members[0].execWrite, true);
   assert.equal(Object.hasOwn(view.members[0], 'effectivePolicy'), false);
 });
+
+test('member policy never exceeds the group ceiling and intersects shell/browser flags', () => {
+  const group = { policy: 'workspace-write', allow_shell: 1 };
+  assert.equal(policyRank('communication'), 0);
+  assert.equal(policyRank('full-access') > policyRank('workspace-write'), true);
+  assert.deepEqual(memberPolicyRequest(group, {}), { ceiling: 'workspace-write', allowShell: true, allowBrowser: false });
+
+  // 成员只能向下收敛：更严格的上限生效，更宽松的上限被群策略钳住。
+  assert.equal(memberPolicyCeiling(group, { policy_ceiling: 'read-only' }), 'read-only');
+  assert.equal(memberPolicyCeiling(group, { policy_ceiling: 'full-access' }), 'workspace-write');
+  assert.equal(memberPolicyCeiling({ policy: 'read-only' }, { policy_ceiling: 'workspace-write' }), 'read-only');
+  assert.equal(memberPolicyCeiling(group, { policy_ceiling: null }), 'workspace-write');
+
+  // 命令与浏览器开关同样取交集：成员显式关闭优先，通信上限下浏览器恒关闭。
+  assert.deepEqual(memberPolicyRequest(group, { policy_ceiling: 'read-only', allow_shell: 0, allow_browser: 1 }), {
+    ceiling: 'read-only', allowShell: false, allowBrowser: true,
+  });
+  assert.deepEqual(memberPolicyRequest(group, { policy_ceiling: 'communication', allow_browser: 1 }), {
+    ceiling: 'communication', allowShell: true, allowBrowser: false,
+  });
+  assert.deepEqual(memberPolicyRequest({ policy: 'workspace-write', allow_shell: 0 }, { allow_shell: 1 }), {
+    ceiling: 'workspace-write', allowShell: false, allowBrowser: false,
+  });
+  assert.equal(memberPolicyRequest(group, { allow_shell: null }).allowShell, true);
+  assert.equal(memberPolicyRequest(group, { allow_shell: 0 }).allowShell, false);
+});
+
+test('browser capability is only claimed from an explicit host toolBrowser report', () => {
+  const catalog = catalogOf([VISION]);
+  const projection = { requested: 'workspace-write', effective: 'workspace-write', capabilities: ['exec.read', 'exec.write'] };
+  const unauthorized = cardFor({ catalog, selection: { model: 'vision' }, policy: { ...projection, allowBrowser: false, browserReason: '成员未获浏览器授权' } });
+  assert.equal(unauthorized.effectiveCapabilities['tool.browser'], false);
+  assert.equal(unauthorized.effectivePolicy.browserReason, '成员未获浏览器授权');
+
+  const reported = cardFor({ catalog, selection: { model: 'vision' }, policy: { ...projection, allowBrowser: true, toolBrowser: true } });
+  assert.equal(reported.effectiveCapabilities['tool.browser'], true);
+
+  // 通信策略下即使宿主报告可用也强制关闭。
+  const communication = cardFor({ catalog, selection: { model: 'vision' }, policy: { requested: 'communication', effective: 'communication', capabilities: [], toolBrowser: true } });
+  assert.equal(communication.effectiveCapabilities['tool.browser'], false);
+  assert.equal(communication.effectivePolicy.browserReason, null);
+});
+

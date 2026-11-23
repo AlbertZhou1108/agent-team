@@ -56,6 +56,9 @@ const props = defineProps<{
   pausedMemberIds: Set<string>;
   actors: Array<{ id: string; name: string; host?: string }>;
   currentEndpoints: SessionEndpoint[];
+  /** 群策略与群命令开关，透传给成员面板的调整权限弹窗。 */
+  groupPolicy?: string | null;
+  groupAllowShell?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -65,6 +68,7 @@ const emit = defineEmits<{
   retry: [];
   close: [];
   'member-model-saved': [];
+  'member-policy-saved': [member: Member];
 }>();
 
 const ui = useUiStore();
@@ -169,6 +173,9 @@ function openMemberModelDialog(member: Member) {
   modelDialogMember.value = member;
   modelDialogOpen.value = true;
 }
+function onMemberPolicySaved(member: Member) {
+  emit('member-policy-saved', member);
+}
 
 function onCollapsed(value: boolean) {
   ui.contextCollapsed = value;
@@ -266,9 +273,12 @@ function onTab(value: string | number) {
             :endpoints="currentEndpoints"
             :running-member-ids="runningMemberIds"
             :paused-member-ids="pausedMemberIds"
+            :group-policy="groupPolicy ?? null"
+            :group-allow-shell="groupAllowShell === 1"
             @edit-model="openMemberModelDialog"
             @open-usage="emit('open-usage', $event)"
             @open-trace="emit('open-trace', $event)"
+            @member-policy-saved="onMemberPolicySaved"
           />
         </div>
 

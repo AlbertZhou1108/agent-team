@@ -738,6 +738,10 @@ test('legacy interactions table rebuilds to accept member_model kind', async t =
   const store = new Store(directory);
   const sql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql;
   assert.ok(sql.includes("'member_model'"));
+  assert.ok(sql.includes("'member_policy'"));
+  const columns = store.all("PRAGMA table_info(interactions)").map(column => column.name);
+  assert.ok(columns.includes('conversation_id'));
+  assert.ok(!columns.includes('endpoint_id'));
   store.run("INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,detail,created) VALUES('m1',NULL,NULL,NULL,NULL,'coordination','t','c',NULL,NULL,'member_model','{}','pending',NULL,'2026-01-01T00:00:00.000Z')");
   assert.equal(store.interaction('m1').kind, 'member_model');
   store.close();

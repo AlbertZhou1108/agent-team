@@ -1,15 +1,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCliLifecycle } from '../../host-runtime/lifecycle.mjs';
 import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
 import { writeMcpFiles, runJsonProcess } from '../../host-runtime/process.mjs';
-import { executionPolicy, policyObservation, sandboxMode, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { executionPolicy, policyObservation, sandboxMode, dshMcpToolPrefix, attachmentManifest, panelAttachmentsAllowed } from '../../hosts/policies.mjs';
+import { probeBrowserMcpServers, normalizeBrowserProbeResult, BROWSER_MCP_UNAVAILABLE_REASON } from '../../hosts/browser-mcp-probe.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { dshProcessEnv } from './credentials.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
+import { memberExecutionCapabilities, browserToolCapability } from '../../hosts/execution.mjs';
 
 export const DSH_TRAITS = Object.freeze({});
 
@@ -58,9 +60,21 @@ export function dshCapabilities() {
     });
 }
 
-export function createDshHost({ directory, socketPath, command = 'dsh', model }) {
+export function createDshHost({ directory, socketPath, command = 'dsh', model, browserProbe }) {
   if (model) throw new Error('DSH 模型由其 headless profile 设置；本版本不伪造未验证的模型参数');
   const lifecycle = createCliLifecycle('dsh', command, value => { command = value; });
+  // DSH 的受控启动会用 headless profile，用户 patch 层里声明的 MCP 会随启动继承；
+  // 只读探测这些声明，命中白名单才由 dsh/policy.mjs 放行对应工具前缀。
+  const inspectBrowserMcp = () => {
+    try {
+      const result = browserProbe
+        ? browserProbe({ home: homedir(), env: process.env })
+        : probeBrowserMcpServers({ host: 'dsh', home: homedir(), env: process.env });
+      return normalizeBrowserProbeResult(result);
+    } catch (error) {
+      return { servers: [], reason: `${BROWSER_MCP_UNAVAILABLE_REASON}（探测异常：${error?.message ?? 'unknown'}）` };
+    }
+  };
   return {
     ...lifecycle,
     ...connectionProbe(lifecycle, signal => runDshCatalogProbe(command, directory, { signal })),
@@ -75,8 +89,22 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
       });
     },
     telemetryCapabilities: dshCapabilities(),
-    executionCapabilities({ mode, allowShell }) {
-      return memberExecutionCapabilities(DSH_TRAITS, { mode, allowShell });
+    executionCapabilities({ mode, allowShell, allowBrowser }) {
+      const report = memberExecutionCapabilities(DSH_TRAITS, { mode, allowShell });
+      // DSH 无原生浏览器开关：只有 headless profile 用户 patch 里探测到真实可用的浏览器 MCP，
+      // 且本轮启动会继承该配置并由 agent-team-policy 放行其工具时才点亮；否则如实 false。
+      const browser = allowBrowser === true && report.effectivePolicy !== 'communication'
+        ? inspectBrowserMcp()
+        : { servers: [], reason: null };
+      return {
+        ...report,
+        ...browserToolCapability({
+          effectivePolicy: report.effectivePolicy,
+          requested: allowBrowser === true,
+          supported: browser.servers.length > 0,
+          reason: browser.servers.length ? null : browser.reason ?? BROWSER_MCP_UNAVAILABLE_REASON,
+        }),
+      };
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
@@ -86,11 +114,17 @@ export function createDshHost({ directory, socketPath, command = 'dsh', model })
     async run(context) {
       const { endpoint, prompt, instructions, onSession, onAccepted } = context;
       const policy = executionPolicy(context);
+      // 浏览器 MCP 不克隆进 patch（同 serverName 重复注册会让 dsh 启动失败）；
+      // headless profile 用户 patch 会随启动继承，因此只把探测结果交给 policy 放行工具前缀。
+      const browserServers = policy.allowBrowser ? inspectBrowserMcp().servers : [];
       const files = writeMcpFiles(directory, socketPath, endpoint, context.turnId, {
         ...policy,
         access: context.policy?.access ?? null,
         workspace: context.workspace,
         tools: context.tools.map(t => `mcp__agent_team__${t.name}`),
+        browserServers: browserServers
+          .map(server => ({ name: server.name, toolPrefix: dshMcpToolPrefix(server.name) }))
+          .filter(server => server.toolPrefix),
         modelSelection: context.modelSelection,
       });
       const args = ['headless', '--patch', files.dsh, '--json'];

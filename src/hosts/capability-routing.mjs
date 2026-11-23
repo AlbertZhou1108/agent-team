@@ -26,8 +26,63 @@ export const ROUTING_CAPABILITY_ENUM = Object.freeze([
   ...Object.keys(LEGACY_MEMBER_CAPABILITIES),
 ]);
 
-/** 本专项内浏览器/Computer Use 在所有宿主策略里被显式禁用（src/hosts/policies.mjs）。 */
-export const TOOL_BROWSER_SUPPORTED = false;
+/** 策略等级：成员上限只能在群上限内向下收敛。full-access 仅面板私有场景，按最高级处理。 */
+export const POLICY_RANK = Object.freeze({ communication: 0, 'read-only': 1, 'workspace-write': 2, 'full-access': 3 });
+
+export function policyRank(mode) {
+  return Number.isInteger(POLICY_RANK[mode]) ? POLICY_RANK[mode] : 0;
+}
+
+/** 成员有效策略上限 = min(群上限, 成员 policy_ceiling)；NULL 表示继承群策略。 */
+export function memberPolicyCeiling(group, member = null) {
+  const ceiling = group?.policy ?? 'communication';
+  const requested = member?.policy_ceiling ?? null;
+  if (!requested) return ceiling;
+  return policyRank(requested) < policyRank(ceiling) ? requested : ceiling;
+}
+
+/**
+ * 成员级收敛请求：策略上限、shell 与浏览器授权。
+ * - allowShell 只会在群允许的前提下由成员开关进一步收敛，绝不越级打开；
+ * - allowBrowser 仅是策略授权，真实工具是否存在由宿主执行能力报告（toolBrowser）。
+ */
+export function memberPolicyRequest(group, member = null) {
+  const ceiling = memberPolicyCeiling(group, member);
+  const groupShell = group?.allow_shell === 1;
+  const memberShell = member?.allow_shell;
+  return {
+    ceiling,
+    allowShell: groupShell && (memberShell === null || memberShell === undefined || memberShell === 1),
+    allowBrowser: member?.allow_browser === 1 && ceiling !== 'communication',
+  };
+}
+
+/** 成员策略上限的合法取值：NULL 表示继承群策略，其余只能向下收敛。 */
+export const MEMBER_POLICY_CEILINGS = Object.freeze(['communication', 'read-only', 'workspace-write']);
+
+/**
+ * 归一化成员策略补丁（建群行、加人、运行期调整共用）：
+ * 只处理显式传入的字段；缺省字段不出现，交由调用方保留现值。
+ * 越级 policyCeiling 直接拒绝，不做静默截断（调用方必须明确知道被拒）。
+ */
+export function normalizeMemberPolicyPatch(groupPolicy, patch = {}) {
+  const next = {};
+  if (patch.policyCeiling !== undefined) {
+    const ceiling = patch.policyCeiling;
+    if (ceiling !== null && !MEMBER_POLICY_CEILINGS.includes(ceiling)) throw new Error('成员策略上限无效');
+    if (ceiling !== null && policyRank(ceiling) > policyRank(groupPolicy)) throw new Error('成员策略上限不能超过群策略');
+    next.policyCeiling = ceiling;
+  }
+  if (patch.allowShell !== undefined) {
+    if (patch.allowShell !== null && typeof patch.allowShell !== 'boolean') throw new Error('成员命令开关无效');
+    next.allowShell = patch.allowShell;
+  }
+  if (patch.allowBrowser !== undefined) {
+    if (typeof patch.allowBrowser !== 'boolean') throw new Error('成员浏览器授权无效');
+    next.allowBrowser = patch.allowBrowser;
+  }
+  return next;
+}
 
 export function canonicalRoutingCapabilityId(value) {
   const id = typeof value === 'string' ? value.trim() : '';
@@ -167,13 +222,15 @@ export function buildCapabilityCard({ member = null, selection = null, catalog =
       ceiling: policy?.requested ?? null,
       mode: policy?.effective ?? null,
       reason: policy?.reason ?? null,
+      browserReason: policy?.browserReason ?? null,
     },
     effectiveCapabilities: {
       'exec.read': exec['exec.read'],
       'exec.write': exec['exec.write'],
       'exec.shell': exec['exec.shell'],
       'modal.image': projection.modalImage,
-      'tool.browser': TOOL_BROWSER_SUPPORTED,
+      // 浏览器工具只认宿主执行能力报告的真实结果；communication 一律 false。
+      'tool.browser': policy?.toolBrowser === true && policy?.effective !== 'communication',
     },
   };
   if (controller) card.controller = controller;
@@ -188,7 +245,8 @@ function capabilityGapReason(card, id) {
     if (!model.inputModalities) return '当前模型未声明输入模态（未返回 inputModalities），无法证实支持 image';
     return `当前模型仅声明支持 ${model.inputModalities.join('/')}，未声明支持 image`;
   }
-  if (id === 'tool.browser') return '当前宿主策略未放行 tool.browser（团队默认禁用浏览器/Computer Use）';
+  if (id === 'tool.browser') return card.effectivePolicy.browserReason
+    ?? '当前宿主未放行浏览器/Computer Use 工具';
   const ceiling = card.effectivePolicy.ceiling;
   const reason = card.effectivePolicy.reason;
   const policy = ceiling && mode && ceiling !== mode

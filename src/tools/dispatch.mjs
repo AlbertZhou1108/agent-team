@@ -3,11 +3,25 @@
 import { randomUUID } from 'node:crypto';
 import { validateTool } from './registry.mjs';
 import { memberModelSummary } from '../model-policy.mjs';
-import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from './ops.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages, memberPolicyCardText } from './ops.mjs';
 import { memberRules, legacyMemberRules, profileIntro } from '../prompts.mjs';
 import { CONTEXT_SCHEMA_VERSION } from '../information.mjs';
 import * as teamsAgg from '../aggregates/teams.mjs';
 import * as conversationsAgg from '../aggregates/conversations.mjs';
+import { normalizeMemberPolicyPatch } from '../hosts/capability-routing.mjs';
+
+/** 成员工具策略字段归一化:工具 schema 的 snake_case 与互动卡 payload 的 camelCase 都接受。 */
+function memberPolicyPatch(args) {
+  const pick = (snake, camel) => (args[snake] !== undefined ? args[snake] : args[camel]);
+  const patch = {};
+  const ceiling = pick('policy_ceiling', 'policyCeiling');
+  if (ceiling !== undefined) patch.policyCeiling = ceiling;
+  const shell = pick('allow_shell', 'allowShell');
+  if (shell !== undefined) patch.allowShell = shell;
+  const browser = pick('allow_browser', 'allowBrowser');
+  if (browser !== undefined) patch.allowBrowser = browser;
+  return patch;
+}
 
 export class ToolDispatch {
   constructor(bus) {
@@ -218,9 +232,12 @@ export class ToolDispatch {
     if (name === 'group_add') {
       this.bus.requireHost(args.host);
       if (args.name.trim().length > 100) throw new Error('成员名称无效');
+      const policyPatch = memberPolicyPatch(args);
+      normalizeMemberPolicyPatch(this.bus.store.group(groupId).policy, policyPatch);
+      const selection = args.selection === undefined ? undefined : this.bus.resolveMemberSelection(args.host, args.selection);
       return this.bus.requestGroupAction(member, endpoint, origin, 'group_add',
         `请求向本群添加成员 ${args.name}（${args.host}）`,
-        { name: args.name, host: args.host });
+        { name: args.name, host: args.host, ...policyPatch, ...(selection ? { selection } : {}) });
     }
     if (name === 'group_remove') return this.bus.removeMember(groupId, args.member);
     if (name === 'group_delete') {
@@ -235,6 +252,15 @@ export class ToolDispatch {
       return this.bus.requestGroupAction(member, endpoint, origin, 'member_model',
         `请求将成员 ${target.name} 的模型调整为 ${memberModelSummary(selection)}`,
         { member: args.member, ...(selection ?? {}) });
+    }
+    if (name === 'member_policy') {
+      const target = this.bus.resolveMember(groupId, args.member);
+      if (target.role !== 'member') throw new Error('member_policy 只能调整普通成员');
+      const patch = memberPolicyPatch(args);
+      if (!Object.keys(patch).length) throw new Error('需要至少一项权限调整');
+      normalizeMemberPolicyPatch(this.bus.store.group(groupId).policy, patch);
+      return this.bus.requestGroupAction(member, endpoint, origin, 'member_policy',
+        memberPolicyCardText(target, patch), { member: args.member, ...patch });
     }
     throw new Error('工具不存在');
   }

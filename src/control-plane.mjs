@@ -19,6 +19,7 @@ import { surfaceFollowsConversation } from './hosts/definitions.mjs';
 import * as identity from './control/identity.mjs';
 import * as wake from './control/wake-scheduler.mjs';
 import { READ_ONLY_CONTROL_TOOLS, toolsForControlCapabilities } from './control/tools.mjs';
+import { normalizeMemberPolicyPatch } from './hosts/capability-routing.mjs';
 
 const CONTROL_GUIDE = [
   'Agent Team 是宿主无关的协作控制面。',
@@ -612,6 +613,12 @@ export class ControlPlane {
       const key = roleNameKey(person.name);
       if (names.has(key)) throw new Error('成员名称重复');
       names.add(key);
+      // 群策略是成员级上限的硬天花板:越级配置同步拒绝。
+      normalizeMemberPolicyPatch(policy, {
+        policyCeiling: person.policyCeiling,
+        allowShell: person.allowShell,
+        allowBrowser: person.allowBrowser,
+      });
     }
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -648,6 +655,9 @@ export class ControlPlane {
           host: person.host,
           role: 'member',
           selection: person.selection ?? this.bus.defaultModelSelection(person.host),
+          policyCeiling: person.policyCeiling ?? null,
+          allowShell: person.allowShell === undefined ? null : person.allowShell,
+          allowBrowser: person.allowBrowser === true,
         });
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
       }

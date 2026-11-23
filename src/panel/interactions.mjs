@@ -53,6 +53,24 @@ export function requestPanelControllerAction(bus, panelAgent, session, origin, a
   return interactionView(row);
 }
 
+/** 请求调整成员权限:复用 interactions 域的动作卡实现,锚点由面板锚点补。 */
+export function requestPanelMemberPolicy(bus, panelAgent, session, origin, group, text, args) {
+  return bus.interactions.requestActionCard({
+    requesterKind: 'panel_agent',
+    requesterId: panelAgent.id,
+    groupId: group.id,
+    endpoint: session,
+    origin,
+    kind: 'member_policy',
+    text,
+    args,
+    anchor: anchorText => {
+      const anchor = bus.panelInteractionAnchor(session, panelAgent, origin, anchorText);
+      return { groupId: group.id, messageId: anchor.messageId, panelMessageId: anchor.panelMessageId };
+    },
+  });
+}
+
 /** 请求调整成员模型:复用 interactions 域的动作卡实现,锚点由面板锚点补。 */
 export function requestPanelMemberModel(bus, panelAgent, session, origin, group, text, args) {
   return bus.interactions.requestActionCard({

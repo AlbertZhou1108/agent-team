@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, SCHEMA_VERSION } from '../../store.mjs';
+import * as teams from '../../aggregates/teams.mjs';
 import { createLegacyV1 } from '../support/legacy-v1.mjs';
 
 function tempDir(t) {
@@ -311,6 +312,88 @@ test('a v24 database gains the dispatch context-window column without losing mes
   store.run('UPDATE messages SET min_context_window=32000 WHERE id=?', 'm1');
   assert.equal(store.get('SELECT min_context_window FROM messages WHERE id=?', 'm1').min_context_window, 32000);
   store.close();
+});
+
+
+test('a v25 database gains member policy columns and the member_policy interaction kind', t => {
+  const directory = tempDir(t);
+  const freshDirectory = tempDir(t);
+  let store = new Store(directory);
+  store.run("INSERT INTO groups(id,name,workspace,created) VALUES('g1','G',?,?)", directory, NOW);
+  store.run("INSERT INTO members(id,group_id,name,host,role) VALUES('m1','g1','worker','fake','member')");
+  store.run(`INSERT INTO messages(id,group_id,sender,recipient,kind,text,created) VALUES('msg1','g1','lead','m1','send','历史派工',?)`, NOW);
+  store.run(`INSERT INTO interactions(id,group_id,context,turn_id,call_id,kind,payload,created) VALUES('i1','g1','pair:lead','t1','c1','member_model','{}',?)`, NOW);
+  // 回退为 v25 形状：members 去掉三列，interactions 重建为不含 member_policy 的 CHECK。
+  store.db.exec(`ALTER TABLE members DROP COLUMN policy_ceiling;
+    ALTER TABLE members DROP COLUMN allow_shell;
+    ALTER TABLE members DROP COLUMN allow_browser;`);
+  store.db.exec(`ALTER TABLE interactions RENAME TO interactions_v25;
+    CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+    INSERT INTO interactions SELECT * FROM interactions_v25;
+    DROP TABLE interactions_v25;
+    CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);
+    CREATE INDEX IF NOT EXISTS interactions_panel ON interactions(panel_agent_id,created);`);
+  assert.ok(!store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql.includes('member_policy'));
+  store.setSchemaVersion(25);
+  store.close();
+
+  store = new Store(directory);
+  try {
+    assert.equal(SCHEMA_VERSION, 26);
+    assert.equal(store.schemaVersion(), SCHEMA_VERSION);
+    // 旧成员自动继承群策略(NULL)，浏览器默认关闭。
+    const member = store.get("SELECT * FROM members WHERE id='m1'");
+    assert.equal(member.name, 'worker');
+    assert.equal(member.policy_ceiling, null);
+    assert.equal(member.allow_shell, null);
+    assert.equal(member.allow_browser, 0);
+    assert.equal(store.get("SELECT text FROM messages WHERE id='msg1'").text, '历史派工');
+    assert.equal(store.get("SELECT kind FROM interactions WHERE id='i1'").kind, 'member_model');
+    // interactions 重建后列名与新库一致，并接受 member_policy。
+    const interactionColumns = store.all('PRAGMA table_info(interactions)').map(column => column.name);
+    assert.ok(interactionColumns.includes('conversation_id'));
+    assert.ok(!interactionColumns.includes('endpoint_id'));
+    const interactionsSql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'").sql;
+    assert.ok(interactionsSql.includes("'member_policy'"));
+    store.run(`INSERT INTO interactions(id,group_id,context,turn_id,call_id,kind,payload,created) VALUES('i2','g1','coordination','t2','c2','member_policy','{}',?)`, NOW);
+    assert.equal(store.get("SELECT kind FROM interactions WHERE id='i2'").kind, 'member_policy');
+
+    // 新库与迁移库的 members/interactions 列形状完全一致。
+    const fresh = new Store(freshDirectory);
+    try {
+      const shape = (database, table) => database.all(`PRAGMA table_info(${table})`)
+        .map(column => [column.name, column.type, column.notnull, column.dflt_value, column.pk]);
+      assert.deepEqual(shape(store, 'members'), shape(fresh, 'members'));
+      assert.deepEqual(shape(store, 'interactions'), shape(fresh, 'interactions'));
+      const normalize = sql => sql.replace(/\s+/g, ' ').trim();
+      for (const table of ['members', 'interactions']) {
+        assert.equal(
+          normalize(store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).sql),
+          normalize(fresh.get("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).sql),
+          table + ' 的迁移 DDL 与新库直建不一致',
+        );
+      }
+    } finally {
+      fresh.close();
+    }
+
+    // 聚合写点：插入时可带策略字段，运行期可整体更新（NULL 表示继承）。
+    teams.insertMember(store, {
+      id: 'm2', groupId: 'g1', name: '审查', host: 'fake', role: 'member',
+      policyCeiling: 'read-only', allowShell: false, allowBrowser: true,
+    });
+    let created = store.get("SELECT * FROM members WHERE id='m2'");
+    assert.equal(created.policy_ceiling, 'read-only');
+    assert.equal(created.allow_shell, 0);
+    assert.equal(created.allow_browser, 1);
+    teams.updateMemberPolicy(store, { memberId: 'm2', policyCeiling: null, allowShell: null, allowBrowser: false });
+    created = store.get("SELECT * FROM members WHERE id='m2'");
+    assert.equal(created.policy_ceiling, null);
+    assert.equal(created.allow_shell, null);
+    assert.equal(created.allow_browser, 0);
+  } finally {
+    store.close();
+  }
 });
 
 test('a database created by a newer schema is rejected instead of being opened', t => {

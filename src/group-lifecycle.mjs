@@ -7,9 +7,24 @@ import * as conversationsAgg from './aggregates/conversations.mjs';
 import * as teamsAgg from './aggregates/teams.mjs';
 import * as readState from './aggregates/read-state.mjs';
 import * as panelAgg from './aggregates/panel.mjs';
+import { normalizeMemberPolicyPatch } from './hosts/capability-routing.mjs';
 
 // 团队生命周期:创建/删除、成员增删、归档恢复、控制者切换与任务面板。
 // 本模块不反向依赖 Bus;跨职责调用经 bus 引用。
+
+/** 建群/加人行上的成员策略字段:归一化后补默认值(NULL 继承群策略、浏览器默认关闭)。 */
+function memberPolicyFields(groupPolicy, person) {
+  const patch = normalizeMemberPolicyPatch(groupPolicy, {
+    policyCeiling: person.policyCeiling,
+    allowShell: person.allowShell,
+    allowBrowser: person.allowBrowser,
+  });
+  return {
+    policyCeiling: patch.policyCeiling ?? null,
+    allowShell: patch.allowShell === undefined ? null : patch.allowShell,
+    allowBrowser: patch.allowBrowser ?? false,
+  };
+}
 
 export class GroupLifecycle {
   constructor(bus) {
@@ -481,6 +496,13 @@ export class GroupLifecycle {
       if (!key || person.name.length > 100 || names.has(key)) throw new Error('成员名称为空、重复或过长');
       names.add(key);
     }
+    // 群策略是成员级收敛的硬上限:先校验并归一化每人的模型选择与策略字段,再进事务落库。
+    const groupPolicy = policy ?? 'workspace-write';
+    const resolvedPeople = people.map(person => ({
+      ...person,
+      selection: this.bus.models.resolveSelection(person.host, person.selection),
+      ...memberPolicyFields(groupPolicy, person),
+    }));
     const id = randomUUID();
     const now = new Date().toISOString();
     this.bus.store.transaction(() => {
@@ -490,19 +512,21 @@ export class GroupLifecycle {
         workspace,
         created: now,
         charter: typeof charter === 'string' && charter.trim() ? charter.trim() : null,
-        policy: policy ?? 'workspace-write',
+        policy: groupPolicy,
         allowShell: allowShell === undefined ? 1 : allowShell ? 1 : 0,
       });
-      for (const person of people) {
+      for (const person of resolvedPeople) {
         const memberId = randomUUID();
-        const selection = person.selection ?? this.bus.defaultModelSelection(person.host);
         teamsAgg.insertMember(this.bus.store, {
           id: memberId,
           groupId: id,
           name: person.name,
           host: person.host,
           role: person.role,
-          selection,
+          selection: person.selection,
+          policyCeiling: person.policyCeiling,
+          allowShell: person.allowShell,
+          allowBrowser: person.allowBrowser,
         });
         this.bus.collaboration.reserveMemberName(id, memberId, person.name);
         if (person.role === 'lead') teamsAgg.setGroupLead(this.bus.store, id, memberId);
@@ -545,11 +569,13 @@ export class GroupLifecycle {
     }
     return this.bus.resolveMember(groupId, value);
   }
-  async addMember(groupId, { name, host }) {
+  async addMember(groupId, { name, host, selection, policyCeiling, allowShell, allowBrowser }) {
     this.bus.collaboration.requireCommunication(groupId); this.bus.requireHost(host);
     if (!name?.trim() || name.length > 100) throw new Error('成员名称无效');
     if (teamsAgg.roleNameTaken(this.bus.store, groupId, roleNameKey(name))) throw new Error('名称已被本团队历史使用');
-    const selection = this.bus.defaultModelSelection(host);
+    const group = this.bus.store.group(groupId);
+    const resolvedSelection = this.bus.models.resolveSelection(host, selection);
+    const policyFields = memberPolicyFields(group.policy, { policyCeiling, allowShell, allowBrowser });
     const id = randomUUID();
     this.bus.store.transaction(() => {
       teamsAgg.insertMember(this.bus.store, {
@@ -558,12 +584,63 @@ export class GroupLifecycle {
         name: name.trim(),
         host,
         role: 'member',
-        selection,
+        selection: resolvedSelection,
+        ...policyFields,
       });
       this.bus.collaboration.reserveMemberName(groupId, id, name);
     });
     this.bus.introduce(this.bus.store.member(id));
     return this.bus.store.member(id);
+  }
+  /**
+   * 运行期调整成员策略/工具放行:面板 HTTP 入口与 member_policy 确认卡共用的唯一写入点。
+   * 只接受显式传入的字段(缺省保留当前值);写库后重算有效策略并落库,
+   * 只要策略/shell/浏览器放行发生实质变化就清理该成员旧宿主会话并写系统通知,
+   * 仅换模型继续沿用既有会话(member_model 路径不经过这里)。
+   */
+  async applyMemberPolicy(groupId, memberId, patch = {}) {
+    const group = this.bus.store.group(groupId);
+    if (group.state === 'archived') throw new Error('团队已归档，请在设置中恢复后访问');
+    const member = this.bus.resolveMember(groupId, memberId);
+    const running = [...this.bus.running.values()].some(item => item.endpoint.member_id === member.id);
+    if (running) throw new Error('成员正在运行中，请等待当前回合结束或先停止该成员后再调整权限');
+    const resolved = {
+      policyCeiling: patch.policyCeiling === undefined ? (member.policy_ceiling ?? null) : patch.policyCeiling,
+      allowShell: patch.allowShell === undefined
+        ? (member.allow_shell === null || member.allow_shell === undefined ? null : member.allow_shell === 1)
+        : patch.allowShell,
+      allowBrowser: patch.allowBrowser === undefined ? member.allow_browser === 1 : patch.allowBrowser,
+    };
+    // 越级判断按最终值做:即使本次只改 allowBrowser,也不能让既有越级上限继续存在。
+    const normalized = normalizeMemberPolicyPatch(group.policy, resolved);
+    // 写库前先取旧有效策略,用于判断本次调整是否需要清理旧宿主会话。
+    const beforePolicy = await this.bus.capabilities.executionPolicyFor(group, member, { persist: false });
+    teamsAgg.updateMemberPolicy(this.bus.store, {
+      memberId: member.id,
+      policyCeiling: normalized.policyCeiling,
+      allowShell: normalized.allowShell,
+      allowBrowser: normalized.allowBrowser,
+    });
+    const updated = this.bus.store.member(member.id);
+    const policy = await this.bus.capabilities.executionPolicyFor(group, updated, { persist: true });
+    const policyChanged = beforePolicy.effective !== policy.effective
+      || JSON.stringify(beforePolicy.capabilities) !== JSON.stringify(policy.capabilities)
+      || beforePolicy.allowShell !== policy.allowShell
+      || beforePolicy.toolBrowser !== policy.toolBrowser;
+    if (policyChanged) {
+      // executionPolicyFor 已按「有效策略/能力变化」清过会话并发过通知时避免重复写;
+      // 仅浏览器/命令开关等策略字段变化(有效策略与能力集合均未变)由这里补清理与通知。
+      const previousCapabilities = member.capabilities ? JSON.parse(member.capabilities) : [];
+      const notifyInsideService = member.effective_policy !== null && member.effective_policy !== undefined
+        && (member.effective_policy !== policy.effective
+          || JSON.stringify(previousCapabilities) !== JSON.stringify(policy.capabilities));
+      if (!notifyInsideService) {
+        conversationsAgg.clearSessionsForMember(this.bus.store, member.id);
+        this.bus.notify(group.id, member.id,
+          `执行能力已更新为 ${policy.effective}（${policy.capabilities.join(', ') || '无项目能力'}）${policy.reason ? `：${policy.reason}` : ''}`);
+      }
+    }
+    return this.bus.store.member(member.id);
   }
   async removeMember(groupId, memberId) {
     const member = this.bus.resolveMember(groupId, memberId);

@@ -39,7 +39,11 @@ export function normalizedMembers(value) {
       name: String(item.name).trim(),
       host: String(item.host).trim(),
       ...(item.model !== undefined ? { model: String(item.model).trim() } : {}),
+      ...(item.modelProvider !== undefined ? { modelProvider: String(item.modelProvider).trim() } : {}),
       ...(item.reasoningEffort !== undefined ? { reasoningEffort: String(item.reasoningEffort).trim() } : {}),
+      ...(item.policyCeiling !== undefined ? { policyCeiling: item.policyCeiling } : {}),
+      ...(item.allowShell !== undefined ? { allowShell: item.allowShell } : {}),
+      ...(item.allowBrowser !== undefined ? { allowBrowser: item.allowBrowser } : {}),
     };
   });
 }

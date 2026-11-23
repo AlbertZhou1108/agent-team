@@ -199,18 +199,43 @@ export async function updatePanelAgent(bus, { name, host, model_provider, model,
   return bus.panelAgentState();
 }
 
-/** 创建 Panel Agent 主控的团队:成员格式 名称=宿主,主 Agent 复用 Panel Agent 身份。 */
-export function createPanelTeam(bus, agent, { name, workspace, members = '', charter }) {
-  const people = String(members ?? '').split(',').filter(Boolean).map(item => {
+/** Panel 建群行的结构化成员配置:显式模型/策略字段原样交给 bus.createGroup 同步校验。 */
+function memberConfigPerson(config) {
+  const model = typeof config.model === 'string' && config.model.trim() ? config.model.trim() : null;
+  const provider = typeof config.modelProvider === 'string' && config.modelProvider.trim() ? config.modelProvider.trim() : null;
+  const effort = typeof config.reasoningEffort === 'string' && config.reasoningEffort.trim() ? config.reasoningEffort.trim() : null;
+  if (!model && (provider || effort)) throw new Error('成员模型选择无效');
+  return {
+    name: config.name,
+    host: config.host,
+    ...(model ? { selection: { model_provider: provider, model, reasoning_effort: effort } } : {}),
+    ...(config.policyCeiling !== undefined ? { policyCeiling: config.policyCeiling } : {}),
+    ...(config.allowShell !== undefined ? { allowShell: config.allowShell } : {}),
+    ...(config.allowBrowser !== undefined ? { allowBrowser: config.allowBrowser } : {}),
+  };
+}
+
+/** 创建 Panel Agent 主控的团队:members(名称=宿主)与 memberConfigs 两种成员来源可并存,重名由 createGroup 拒绝。 */
+export function createPanelTeam(bus, agent, { name, workspace, members = '', memberConfigs = [], charter, policy, allowShell }) {
+  const people = [];
+  for (const item of String(members ?? '').split(',').filter(Boolean)) {
     const [memberName, host, ...extra] = item.trim().split('=');
     if (!memberName || !host || extra.length) throw new Error('成员格式应为 名称=宿主');
     bus.requireHost(host);
-    return { name: memberName, host };
-  });
+    people.push({ name: memberName, host });
+  }
+  if (memberConfigs !== undefined && !Array.isArray(memberConfigs)) throw new Error('成员配置必须是数组');
+  for (const config of memberConfigs) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('成员配置格式无效');
+    bus.requireHost(config.host);
+    people.push(memberConfigPerson(config));
+  }
   return bus.createGroup({
     name,
     workspace,
     charter,
+    ...(policy !== undefined ? { policy } : {}),
+    ...(allowShell !== undefined ? { allowShell } : {}),
     lead: { name: agent.name, host: agent.host },
     members: people,
     panelAgentId: agent.id,

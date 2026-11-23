@@ -79,13 +79,34 @@ export function mcpConfig({ socketPath, endpoint, turnId, runner = nodeRunner(),
   };
 }
 
-export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution) {
+/**
+ * Claude 受控启动的 mcp-config 内容：agent_team 永远优先；浏览器 MCP 只克隆探测到的 stdio 配置，
+ * 名字冲突/形状不完整一律跳过，绝不替换 agent_team 或猜测配置。
+ */
+export function claudeMcpServersConfig(config, browserServers = []) {
+  const mcpServers = { agent_team: config };
+  for (const server of Array.isArray(browserServers) ? browserServers : []) {
+    const name = server?.name;
+    if (typeof name !== 'string' || !name || name === 'agent_team' || mcpServers[name]) continue;
+    const entry = server?.config ?? {};
+    if (typeof entry.command !== 'string' || !entry.command) continue;
+    mcpServers[name] = {
+      command: entry.command,
+      args: Array.isArray(entry.args) ? [...entry.args] : [],
+      env: entry.env && typeof entry.env === 'object' && !Array.isArray(entry.env) ? { ...entry.env } : {},
+      ...(typeof entry.cwd === 'string' && entry.cwd ? { cwd: entry.cwd } : {}),
+    };
+  }
+  return { mcpServers };
+}
+
+export function writeMcpFiles(directory, socketPath, endpoint, turnId, execution, { browserServers = [] } = {}) {
   const dir = resolve(directory, 'endpoints', endpoint.id);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const config = mcpConfig({ socketPath, endpoint, turnId });
   const claude = resolve(dir, 'claude.json');
   const dsh = resolve(dir, 'dsh.patch.json');
-  writeFileSync(claude, JSON.stringify({ mcpServers: { agent_team: config } }), { mode: 0o600 });
+  writeFileSync(claude, JSON.stringify(claudeMcpServersConfig(config, browserServers)), { mode: 0o600 });
   const overlay = [{ insert: [{ id: 'agent-team-mcp', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'agent_team', transport: 'stdio', ...config, failOnStartupError: true, reconnect: { enabled: false } } }] }];
   if (execution) {
     // dsh ≥0.2.2-rc.1 移除了 tools.mode（"Removed. Mount a native or PTC tool

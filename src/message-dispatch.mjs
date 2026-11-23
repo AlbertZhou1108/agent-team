@@ -347,20 +347,28 @@ export class MessageDispatch {
     const host = this.bus.hosts.get(member.host);
     if (!host) throw new Error(`宿主未配置: ${member.host}`);
     const requestedPolicy = this.bus.collaboration.policy(endpoint);
-    const effectiveMode = requestedPolicy.mode === 'communication'
-      ? 'communication'
-      : (member.effective_policy ?? requestedPolicy.mode);
-    const allowShell = effectiveMode === 'workspace-write' && requestedPolicy.allowShell === true;
+    // 执行前按最新成员策略上限 × 群策略 × 宿主执行能力重算，禁止用 Group 字段覆盖成员级收敛值。
+    // 协调边界与未声明执行能力的宿主走同步分支，保持原有回合启动时序（不额外插入 tick）。
+    const executionPolicy = this.bus.capabilities.runPolicy(group, member, requestedPolicy)
+      ?? await this.bus.capabilities.executionPolicyFor(group, member, { persist: false });
+    const effectiveMode = executionPolicy.effective;
+    const shellCapable = Array.isArray(executionPolicy.capabilities) && executionPolicy.capabilities.includes('exec.shell');
+    const allowShell = effectiveMode === 'communication'
+      ? false
+      : (shellCapable && executionPolicy.allowShell === true);
+    const allowBrowser = effectiveMode === 'communication' ? false : executionPolicy.allowBrowser === true;
     // 执行能力随策略进入回合上下文：宿主执行、附件边界与失败归因共用同一份裁剪结果。
-    const execution = typeof host.executionCapabilities === 'function'
-      ? await host.executionCapabilities({ mode: effectiveMode, allowShell, workspace: group.workspace })
-      : null;
     const policy = {
       ...requestedPolicy,
       mode: effectiveMode,
       allowShell,
+      allowBrowser,
       requestedMode: requestedPolicy.mode,
-      capabilities: Array.isArray(execution?.capabilities) ? execution.capabilities : [],
+      capabilities: effectiveMode === 'communication' ? [] : [...(executionPolicy.capabilities ?? [])],
+      toolBrowser: effectiveMode === 'communication' ? false : executionPolicy.toolBrowser === true,
+      browserReason: effectiveMode === 'communication'
+        ? 'communication 策略下浏览器/Computer Use 工具一律禁用'
+        : executionPolicy.browserReason ?? null,
     };
     this.bus.requirePolicy(member, policy);
     const sessionKey = typeof host.sessionKey === 'function' ? host.sessionKey({ policy, endpoint, member }) : 'default';

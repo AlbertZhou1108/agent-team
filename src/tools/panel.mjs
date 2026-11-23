@@ -4,6 +4,28 @@ import { askInputProperties, dispatchRequirementProperties } from './ops.mjs';
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
 const updateText = { type: 'string', minLength: 1, maxLength: 8000 };
 const groupId = { type: 'string', minLength: 1, maxLength: 200 };
+// 成员策略上限:null 表示继承群策略;合法值只能向下收敛。
+const memberPolicyCeiling = { type: ['string', 'null'], enum: ['communication', 'read-only', 'workspace-write', null] };
+const memberSelectionProperties = {
+  model_provider: string,
+  model: string,
+  reasoning_effort: string,
+};
+const memberConfigItems = {
+  type: 'object',
+  properties: {
+    name: string,
+    host: string,
+    model: string,
+    modelProvider: string,
+    reasoningEffort: string,
+    policyCeiling: memberPolicyCeiling,
+    allowShell: { type: ['boolean', 'null'] },
+    allowBrowser: { type: 'boolean' },
+  },
+  required: ['name', 'host'],
+  additionalProperties: false,
+};
 const readRange = {
   messageId: string,
   hash: string,
@@ -35,10 +57,14 @@ const observerDefinitions = [
 ];
 
 const preparationDefinitions = [
-  ['team_create', '基于用户明确需求直接创建团队。名称、工作区必填；members 为逗号分隔的 名称=宿主 列表。用户在私人会话中要求建群时使用；创建后当前 Panel Agent 成为该团队主 Agent。', {
+  ['team_create', '基于用户明确需求直接创建团队。名称、工作区必填；members 为逗号分隔的 名称=宿主 列表，或改用 memberConfigs 逐人指定宿主、模型与思考强度、策略上限、命令与浏览器/Computer Use 放行；两者并存时按重复/冲突校验。policy 与 allowShell 是群级安全基线，成员策略上限不可超过群策略。用户在私人会话中要求建群时使用；创建后当前 Panel Agent 成为该团队主 Agent。', {
     name: string,
     workspace: string,
     members: string,
+    memberConfigs: { type: 'array', minItems: 0, maxItems: 20, items: memberConfigItems },
+    charter: { type: 'string', maxLength: 48000 },
+    policy: { type: 'string', enum: ['communication', 'read-only', 'workspace-write'] },
+    allowShell: { type: 'boolean' },
   }, ['name', 'workspace']],
   ['request_team_takeover', '请求接管一个当前处于观察状态的团队；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
   ['request_team_handback', '请求将当前主控团队交还原主 Agent；创建互动卡等待用户在面板上确认，确认后生效。', { groupId }, ['groupId']],
@@ -72,10 +98,21 @@ const mainDefinitions = [
     to: string,
     text: string,
   }, ['groupId', 'to', 'text']],
-  ['group_add', '主 Agent 直接添加普通成员。', {
+  ['group_add', '主 Agent 直接添加普通成员。可按成员指定模型与思考强度（selection 或 model/model_provider/reasoning_effort，须在宿主实时目录内）、策略上限 policyCeiling（不可超过群策略）、命令开关 allowShell（只能向下收敛）、浏览器/Computer Use 放行 allowBrowser（默认关闭）。', {
     groupId,
     name: string,
     host: string,
+    selection: {
+      type: 'object',
+      properties: memberSelectionProperties,
+      additionalProperties: false,
+    },
+    model: string,
+    model_provider: string,
+    reasoning_effort: string,
+    policyCeiling: memberPolicyCeiling,
+    allowShell: { type: ['boolean', 'null'] },
+    allowBrowser: { type: 'boolean' },
   }, ['groupId', 'name', 'host']],
   ['group_remove', '主 Agent 移除普通成员。', { groupId, member: string }, ['groupId', 'member']],
   ['group_tasks_set', '把你（主控）自己在当前团队的计划步骤整体写到团队任务面板（不阻塞任何流程）。tasks 为全量替换：每条 {id, text, state}；id 为 1-32 位小写字母、数字或连字符，计划内唯一且不可复用；state 为 doing/done/dropped；开始、推进或完成工作时更新，空数组清空。', {
@@ -103,6 +140,13 @@ const mainDefinitions = [
     model_provider: string,
     model: string,
     reasoning_effort: string,
+  }, ['groupId', 'member']],
+  ['group_member_policy', '为当前团队的普通成员申请调整权限：策略上限、命令开关与浏览器/Computer Use 放行。只能向下收敛，绝不能超过群策略；创建互动卡等待用户在面板上确认，同意后生效，成员旧宿主会话会被清理并以新权限重启。省略的字段保留成员当前值。', {
+    groupId,
+    member: string,
+    policyCeiling: memberPolicyCeiling,
+    allowShell: { type: ['boolean', 'null'] },
+    allowBrowser: { type: 'boolean' },
   }, ['groupId', 'member']],
   ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。单问用 kind=choice（须提供 options，2-8 个选项，确认类事项用 同意/拒绝）或 kind=input（请用户填写一段文本）；需要用户连续确认多件事时改用 steps 一次发出 2-8 步，面板用一张卡片逐步作答，全部答完才把汇总答复送回。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', askInputProperties, []],
   ['model_catalog', '读取当前实时模型目录。', {}, []],

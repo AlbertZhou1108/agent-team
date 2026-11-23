@@ -121,6 +121,36 @@ function query(path: string, values: Record<string, string | number | undefined>
   return `${path}?${params.toString()}`;
 }
 
+/** 建群成员输入:host 由前端解析默认宿主后必填;其余字段只在用户显式覆写时出现。 */
+export interface GroupMemberInput {
+  name: string;
+  host: string;
+  selection?: { model_provider?: string; model?: string; reasoning_effort?: string };
+  /** 成员策略上限,只能比群策略更严;缺省表示继承群策略。 */
+  policyCeiling?: string;
+  allowShell?: boolean;
+  allowBrowser?: boolean;
+}
+
+/** POST /api/groups 的请求体:旧字段保持兼容,新增成员级覆写全部可选。 */
+export interface CreateGroupBody {
+  operationId: string;
+  name: string;
+  workspace: string;
+  policy?: string;
+  allowShell?: boolean;
+  lead: GroupMemberInput;
+  members: GroupMemberInput[];
+  charter?: string;
+}
+
+/** 成员权限收敛请求:null 表示恢复继承,缺省表示不改该字段。 */
+export interface MemberPolicyUpdate {
+  policyCeiling?: string | null;
+  allowShell?: boolean | null;
+  allowBrowser?: boolean;
+}
+
 export const api = {
   groups(signal?: AbortSignal) { return request<Group[]>('/api/groups', signal); },
   archivedGroups(signal?: AbortSignal) { return request<Group[]>('/api/groups?archived=1', signal); },
@@ -146,7 +176,7 @@ export const api = {
   probeHosts(host?: string) { return mutate<HostStatus[]>('/api/hosts/probe', host ? { host } : {}); },
   service() { return request<{ version: string; directory: string; url: string }>('/api/service'); },
   stopService() { return mutate<{ stopping: boolean }>('/api/service/stop', {}); },
-  createGroup(body: { operationId: string; name: string; workspace: string; lead: { name: string; host: string }; members: Array<{ name: string; host: string }>; policy: string }) { return mutate<Group>('/api/groups', body); },
+  createGroup(body: CreateGroupBody) { return mutate<Group>('/api/groups', body); },
   /** 团队的主控关系:哪些连接建立过访问、当前谁持有写入席位。 */
   getTeamControllers(groupId: string) {
     return request<Array<{ binding_name: string | null; surface: string | null; active: number; updated: string }>>(`/api/groups/${encodeURIComponent(groupId)}/controllers`);
@@ -317,6 +347,10 @@ export const api = {
   },
   updateMemberModel(groupId: string, memberId: string, body: { model_provider?: string | null; model?: string | null; reasoning_effort?: string | null }) {
     return mutate<Member>(`/api/teams/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/model`, body);
+  },
+  /** 收敛成员策略上限 / 命令执行 / 浏览器授权;返回更新后的成员投影。 */
+  updateMemberPolicy(groupId: string, memberId: string, body: MemberPolicyUpdate) {
+    return mutate<{ member: Member }>(`/api/teams/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/policy`, body);
   },
   panelInteractions(signal?: AbortSignal) {
     return request<Interaction[]>(query('/api/interactions', { panel: 1 }), signal);

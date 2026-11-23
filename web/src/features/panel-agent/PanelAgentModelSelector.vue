@@ -14,10 +14,13 @@ const props = withDefaults(
     hosts: AvailableHost[];
     disabled?: boolean;
     size?: ButtonVariants['size'];
+    /** 未选择模型时的触发按钮文案:面板智能体用“选择模型”,建群成员行用“宿主默认”。 */
+    emptyLabel?: string;
   }>(),
   {
     disabled: false,
     size: 'md',
+    emptyLabel: '选择模型',
   },
 );
 const form = defineModel<PanelAgentForm>('form', { required: true });
@@ -133,10 +136,10 @@ function modalityLabel(model: CatalogModel) {
         :size="size"
         :disabled="disabled"
         class="min-w-0 shrink justify-start"
-        :aria-label="`模型：${selectedModel?.label ?? (form.model || '未选择')}`"
+        :aria-label="`模型：${selectedModel?.label ?? (form.model || emptyLabel)}`"
       >
         <Bot data-icon="inline-start" />
-        <span class="truncate">{{ selectedModel?.label ?? (form.model || '选择模型') }}</span>
+        <span class="truncate">{{ selectedModel?.label ?? (form.model || emptyLabel) }}</span>
         <ChevronRight data-icon="inline-end" class="text-muted-foreground" />
       </Button>
     </PopoverTrigger>

@@ -59,6 +59,9 @@ export class PanelSessions {
   requestPanelMemberModel(panelAgent, session, origin, group, text, args) {
     return interactionsDomain.requestPanelMemberModel(this.bus, panelAgent, session, origin, group, text, args);
   }
+  requestPanelMemberPolicy(panelAgent, session, origin, group, text, args) {
+    return interactionsDomain.requestPanelMemberPolicy(this.bus, panelAgent, session, origin, group, text, args);
+  }
   enqueuePanelPrivateAnswer(agentId, text) {
     return turnsDomain.enqueuePanelPrivateAnswer(this.bus, agentId, text);
   }

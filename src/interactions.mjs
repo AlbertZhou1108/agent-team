@@ -4,7 +4,7 @@ import * as messagesAgg from './aggregates/messages.mjs';
 // 互动卡:成员与 Panel 发起的问答、控制动作的决策、答复投递与请求卡创建。
 // 本模块不反向依赖 Bus;跨职责调用一律经由传入的 bus 引用。
 
-const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
+const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model', 'member_policy']);
 
 /** 卡片问题预览:答复文本里的引用前缀,按 code point 截断避免切坏表情。
  *  @param {unknown} text */
@@ -49,7 +49,7 @@ function flowAnswerText(payload, steps) {
  *  member_model/group_add/group_create 的主体记录在 args 里;takeover/handback/group_delete 每群只有一个决策槽。
  *  @param {string} kind @param {Record<string, any> | null | undefined} args */
 export function actionSubjectKey(kind, args = {}) {
-  if (kind === 'member_model') return args?.member ?? '';
+  if (kind === 'member_model' || kind === 'member_policy') return args?.member ?? '';
   if (kind === 'group_add' || kind === 'group_create') return args?.name ?? '';
   return '';
 }
@@ -169,6 +169,31 @@ export class Interactions {
         this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,但执行失败:${error.message}`);
         throw error;
       });
+    }
+    if (row.kind === 'member_policy' && answer.approved) {
+      // 权限调整要重算宿主策略并清理旧会话，必须等 Promise 完成后再宣布生效；
+      // 只转发卡片里显式携带的字段，缺省字段保留成员当前值。
+      const args = payload.args ?? {};
+      /** @type {Record<string, unknown>} */
+      const patch = {};
+      for (const key of ['policyCeiling', 'allowShell', 'allowBrowser']) {
+        if (Object.hasOwn(args, key)) patch[key] = args[key];
+      }
+      // 保持其他卡类型同步返回视图(HTTP 答复接口直接回包)；权限卡是异步落库的，
+      // 用闭包等待结果，失败要记录 failed 状态并把原因回报给发起会话。
+      const apply = async () => {
+        try {
+          await this.bus.applyMemberPolicy(row.group_id, args.member, patch);
+          this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,已生效。`);
+          return interactionView(this.bus.store.interaction(row.id));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.bus.store.setInteractionState(row.id, 'failed', null, null, message);
+          this.bus.deliverOutcomeSafe(row, deliverOutcome, `${payload.text}:用户已同意,但执行失败:${message}`);
+          throw error;
+        }
+      };
+      return apply();
     }
     let outcome;
     if (!answer.approved) {

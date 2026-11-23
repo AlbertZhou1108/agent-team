@@ -31,7 +31,8 @@ export class BusQueries {
     const panelAgent = this.bus.panelAgent();
     return {
       groups: this.bus.store.all('SELECT * FROM groups ORDER BY created'),
-      members: this.bus.store.all('SELECT * FROM members ORDER BY rowid'),
+      // 成员行保留既有字段，并附带只读能力名片（展示用，不落库）。
+      members: this.bus.capabilities.decorateMemberRows(this.bus.store.all('SELECT * FROM members ORDER BY rowid')),
       panelAgent: panelAgent ? {
         id: panelAgent.id,
         name: panelAgent.name,
@@ -67,7 +68,7 @@ export class BusQueries {
   queryDirectory() {
     const panelAgent = this.bus.panelAgent();
     return {
-      members: this.bus.store.all('SELECT * FROM members ORDER BY rowid'),
+      members: this.bus.capabilities.decorateMemberRows(this.bus.store.all('SELECT * FROM members ORDER BY rowid')),
       actors: [
         ...this.bus.store.all('SELECT id,name FROM members ORDER BY rowid'),
         ...this.bus.store.all('SELECT id,name FROM external_principals ORDER BY created'),

@@ -21,6 +21,17 @@ export function teamsRoutes(context) {
             const groupId = decodeURIComponent(url.pathname.split('/')[3]);
             return request.method === 'POST' ? bus.summarizeArchive(groupId) : bus.archiveSnapshot(groupId);
         } },
+        { methods: ['POST'], archived: false, matches: url => /^\/api\/teams\/[^/]+\/members\/[^/]+\/policy$/.test(url.pathname), handle: async () => {
+            if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['policyCeiling', 'allowShell', 'allowBrowser'].includes(key))) return fail(400, '权限参数无效');
+            const match = url.pathname.match(/^\/api\/teams\/([^/]+)\/members\/([^/]+)\/policy$/);
+            try {
+                const member = await bus.applyMemberPolicy(decodeURIComponent(match[1]), decodeURIComponent(match[2]), body);
+                const capabilityCard = await bus.capabilities.memberCard(bus.store.group(member.group_id), member);
+                return { member: { ...member, capabilityCard } };
+            } catch (error) { return failJson(400, error); }
+        } },
         { methods: ['POST'], archived: false, matches: url => url.pathname === '/api/groups', handle: async () => {
             if (!(request.headers['content-type'] ?? '').startsWith('application/json')) return fail(415, '需要 application/json');
             const body = await readJsonBody(request);

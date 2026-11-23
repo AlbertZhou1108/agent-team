@@ -154,6 +154,7 @@ export class Bus extends EventEmitter {
   panelInteractionAnchor(...args) { return this.panel.panelInteractionAnchor(...args); }
   requestPanelControllerAction(...args) { return this.panel.requestPanelControllerAction(...args); }
   requestPanelMemberModel(...args) { return this.panel.requestPanelMemberModel(...args); }
+  requestPanelMemberPolicy(...args) { return this.panel.requestPanelMemberPolicy(...args); }
   enqueuePanelPrivateAnswer(...args) { return this.panel.enqueuePanelPrivateAnswer(...args); }
   panelUnknown(...args) { return this.panel.panelUnknown(...args); }
   deliverPanel(...args) { return this.dispatch.deliverPanel(...args); }
@@ -181,6 +182,7 @@ export class Bus extends EventEmitter {
   resolveMember(...args) { return this.lifecycle.resolveMember(...args); }
   resolveRecipient(...args) { return this.lifecycle.resolveRecipient(...args); }
   addMember(...args) { return this.lifecycle.addMember(...args); }
+  applyMemberPolicy(...args) { return this.lifecycle.applyMemberPolicy(...args); }
   removeMember(...args) { return this.lifecycle.removeMember(...args); }
   deleteGroup(...args) { return this.lifecycle.deleteGroup(...args); }
   archiveSnapshot(groupId) { return this.archiveSnapshots.read(groupId); }
@@ -209,6 +211,7 @@ export class Bus extends EventEmitter {
   attachmentDescribeMessage(...args) { return this.attachments.describeMessage(...args); }
   attachmentCleanup(...args) { return this.attachments.cleanup(...args); }
   defaultModelSelection(...args) { return this.models.defaultSelection(...args); }
+  resolveMemberSelection(...args) { return this.models.resolveSelection(...args); }
   validateMemberModelSelection(...args) { return this.models.validate(...args); }
   applyMemberModel(...args) { return this.models.apply(...args); }
   setMemberModel(...args) { return this.models.set(...args); }

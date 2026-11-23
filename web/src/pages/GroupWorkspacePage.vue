@@ -370,6 +370,11 @@ async function runArchiveTeam() {
 function onMemberModelSaved() {
   void workspaceState.refetch();
 }
+
+/** 权限调整成功后刷新资源，让成员能力徽标与上限摘要立即反映服务端结果。 */
+function onMemberPolicySaved() {
+  void workspaceState.refetch();
+}
 </script>
 
 <template>
@@ -623,12 +628,15 @@ function onMemberModelSaved() {
           :paused-member-ids="pausedMemberIds"
           :actors="actors"
           :current-endpoints="currentEndpoints"
+          :group-policy="group?.policy ?? null"
+          :group-allow-shell="group?.allow_shell ?? null"
           @update:panel="setContextPanel"
           @open-trace="openMemberTrace"
           @open-usage="openMemberUsage"
           @retry="retryContext"
           @close="closeContextPanel"
           @member-model-saved="onMemberModelSaved"
+          @member-policy-saved="onMemberPolicySaved"
         />
       </div>
     </main>

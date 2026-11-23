@@ -168,6 +168,7 @@ export function migrateSchema(store, fromVersion) {
     if (fromVersion < 23) migrateV23(store);
     if (fromVersion < 24) migrateV24(store);
     if (fromVersion < 25) migrateV25(store);
+    if (fromVersion < 26) migrateV26(store);
 }
 
   // v19: 能力声明即有效——删除从未真正写入探测结果的 probed_capabilities。
@@ -346,6 +347,26 @@ export function migrateV25(store) {
     };
     store.transaction(() => {
       ensureColumn('messages', 'min_context_window', 'INTEGER DEFAULT NULL');
+    });
+  }
+
+  // v26:成员级策略上限、shell/浏览器开关落库;interactions 增加 member_policy 确认卡 kind。
+  // 三列缺省即继承(NULL/NULL/0),旧成员继续沿用 groups.policy 与 groups.allow_shell;
+  // interactions 沿用重建探测,保证新库直建与迁移库的 DDL 完全一致。
+
+export function migrateV26(store) {
+    const ensureColumn = (table, name, definition) => {
+      const columns = store.all(`PRAGMA table_info(${table})`);
+      if (!columns.length) return;
+      if (!columns.some(column => column.name === name)) {
+        store.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    };
+    store.transaction(() => {
+      ensureColumn('members', 'policy_ceiling', 'TEXT DEFAULT NULL');
+      ensureColumn('members', 'allow_shell', 'INTEGER DEFAULT NULL');
+      ensureColumn('members', 'allow_browser', 'INTEGER NOT NULL DEFAULT 0');
+      migrateInteractions(store);
     });
   }
 
@@ -666,6 +687,10 @@ export function migrateV2(store) {
           DROP INDEX IF EXISTS interactions_group;
           DROP INDEX IF EXISTS interactions_panel;`);
         ensureV2Schema(store);
+        // v0 路径会先跑一次 migrate()(含 migrateInteractions 重建)，旧表可能已是 conversation_id；
+        // 纯 v1 库则仍是 endpoint_id。两种来源都要能读。
+        const legacyConversationColumn = store.all('PRAGMA table_info(interactions_v1)')
+          .some(column => column.name === 'conversation_id') ? 'conversation_id' : 'endpoint_id';
         store.db.exec(`INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
             SELECT e.id,e.group_id,e.member_id,NULL,e.context,e.peer,e.session,(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=e.id),e.key,'${now}','${now}' FROM endpoints e;
           INSERT INTO conversations(id,group_id,member_id,panel_agent_id,context,peer,session,policy_signature,key,created,updated)
@@ -697,7 +722,7 @@ export function migrateV2(store) {
           INSERT INTO panel_updates(id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered)
             SELECT id,panel_agent_id,group_id,source_turn_id,kind,text,source_message_ids,created,delivered_turn_id,delivered FROM panel_updates_v1;
           INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
-            SELECT id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered FROM interactions_v1;
+            SELECT id,group_id,member_id,panel_agent_id,${legacyConversationColumn},context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered FROM interactions_v1;
           UPDATE conversations SET policy_signature=(SELECT p.signature FROM endpoint_policy p WHERE p.endpoint_id=conversations.id)
             WHERE member_id IS NOT NULL AND EXISTS(SELECT 1 FROM endpoint_policy p WHERE p.endpoint_id=conversations.id);
           DROP TABLE turns_v1; DROP TABLE turn_inputs_v1; DROP TABLE message_origins_v1; DROP TABLE history_v1;
@@ -795,17 +820,19 @@ export function migrateAgentTasks(store) {
 export function migrateInteractions(store) {    const info = store.all('PRAGMA table_info(interactions)');
     if (!info.length) return;
     const tableSql = store.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='interactions'")?.sql ?? '';
-    const neededKinds = ['choice', 'input', 'flow', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model'];
+    const neededKinds = ['choice', 'input', 'flow', 'takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model', 'member_policy'];
     const missingKinds = neededKinds.filter(kind => !tableSql.includes(`'${kind}'`));
-    const needsRebuild = missingKinds.length > 0 || !info.some(column => column.name === 'panel_agent_id');
+    const needsRebuild = missingKinds.length > 0
+      || !info.some(column => column.name === 'panel_agent_id')
+      || !info.some(column => column.name === 'conversation_id');
     if (needsRebuild) {
       const cols = new Set(info.map(column => column.name));
       const pick = (name, fallback = 'NULL') => (cols.has(name) ? name : fallback);
       store.transaction(() => {
         store.db.exec(`ALTER TABLE interactions RENAME TO interactions_legacy;
-          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,endpoint_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
-          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,endpoint_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
-            SELECT id,group_id,member_id,${pick('panel_agent_id')},${pick('endpoint_id')},context,turn_id,call_id,message_id,${pick('panel_message_id')},kind,payload,state,answer,${pick('detail')},answer_message_id,created,answered FROM interactions_legacy;
+          CREATE TABLE interactions(id TEXT PRIMARY KEY,group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,member_id TEXT REFERENCES members(id) ON DELETE CASCADE,panel_agent_id TEXT REFERENCES panel_agents(id) ON DELETE CASCADE,conversation_id TEXT,context TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,panel_message_id TEXT,kind TEXT NOT NULL CHECK(kind IN ('choice','input','flow','takeover','handback','group_create','group_add','group_delete','member_model','member_policy')),payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','answered','cancelled','failed')),answer TEXT,detail TEXT,answer_message_id TEXT,created TEXT NOT NULL,answered TEXT);
+          INSERT INTO interactions(id,group_id,member_id,panel_agent_id,conversation_id,context,turn_id,call_id,message_id,panel_message_id,kind,payload,state,answer,detail,answer_message_id,created,answered)
+            SELECT id,group_id,member_id,${pick('panel_agent_id')},${pick('conversation_id', pick('endpoint_id'))},context,turn_id,call_id,message_id,${pick('panel_message_id')},kind,payload,state,answer,${pick('detail')},answer_message_id,created,answered FROM interactions_legacy;
           DROP TABLE interactions_legacy;
           CREATE INDEX IF NOT EXISTS interactions_group ON interactions(group_id,created);`);
       });

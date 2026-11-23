@@ -1,9 +1,10 @@
 // Panel 工具:工具调用的鉴权/事件记账入口(panelTool)与实际工具分发(executePanelTool)。
 // 接收 bus;面板表访问走聚合,其余域沿用 store 方法与 bus 既有入口。
 import { randomUUID } from 'node:crypto';
-import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages } from '../tools/ops.mjs';
+import { assertReplyTarget, appendRoutedMessage, assertAskCard, askCardPayload, readSharedMessages, memberPolicyCardText } from '../tools/ops.mjs';
 import { memberModelSummary } from '../model-policy.mjs';
 import { validatePanelTool } from '../tools/panel.mjs';
+import { normalizeMemberPolicyPatch } from '../hosts/capability-routing.mjs';
 import * as messagesAgg from '../aggregates/messages.mjs';
 import * as turnsAgg from '../aggregates/turns.mjs';
 import * as conversationsAgg from '../aggregates/conversations.mjs';
@@ -211,7 +212,26 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
   }
   if (name === 'group_add') {
     bus.requireHost(args.host);
-    return bus.addMember(group.id, args);
+    const policyPatch = {};
+    for (const key of ['policyCeiling', 'allowShell', 'allowBrowser']) {
+      if (args[key] !== undefined) policyPatch[key] = args[key];
+    }
+    normalizeMemberPolicyPatch(group.policy, policyPatch);
+    let selection;
+    if (args.selection !== undefined) selection = args.selection;
+    else if (args.model !== undefined || args.model_provider !== undefined || args.reasoning_effort !== undefined) {
+      selection = {
+        ...(args.model_provider ? { model_provider: args.model_provider } : {}),
+        ...(args.model ? { model: args.model } : {}),
+        ...(args.reasoning_effort ? { reasoning_effort: args.reasoning_effort } : {}),
+      };
+    }
+    return bus.addMember(group.id, {
+      name: args.name,
+      host: args.host,
+      ...(selection ? { selection } : {}),
+      ...policyPatch,
+    });
   }
   if (name === 'group_remove') return bus.removeMember(group.id, args.member);
   if (name === 'team_member_stop') {
@@ -226,6 +246,19 @@ export async function executePanelTool(bus, session, panelAgent, name, args, ori
     return bus.requestPanelMemberModel(panelAgent, session, origin, group,
       `请求将成员 ${target.name} 的模型调整为 ${memberModelSummary(selection)}`,
       { member: args.member, ...(selection ?? {}) });
+  }
+  if (name === 'group_member_policy') {
+    const target = bus.resolveMember(group.id, args.member);
+    if (target.role !== 'member') throw new Error('group_member_policy 只能调整普通成员');
+    const patch = {};
+    for (const key of ['policyCeiling', 'allowShell', 'allowBrowser']) {
+      if (args[key] !== undefined) patch[key] = args[key];
+    }
+    if (!Object.keys(patch).length) throw new Error('需要至少一项权限调整');
+    normalizeMemberPolicyPatch(group.policy, patch);
+    return bus.requestPanelMemberPolicy(panelAgent, session, origin, group,
+      memberPolicyCardText(target, patch),
+      { member: args.member, ...patch });
   }
   if (name === 'group_tasks_set') {
     return bus.setAgentTasks({ groupId: group.id, ownerId: panelAgent.id, tasks: args.tasks });

@@ -9,7 +9,7 @@ import { ATTACHMENT_IMAGE_TYPES } from '../../attachments.mjs';
 import { modelCatalog } from '../../hosts/catalog.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
-import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
+import { memberExecutionCapabilities, browserToolCapability } from '../../hosts/execution.mjs';
 
 /** 项目操作依赖沙箱命令；只读策略下仍保留只读沙箱 shell。 */
 export const CODEX_TRAITS = Object.freeze({
@@ -297,8 +297,13 @@ export function createCodexHost({ command = 'codex', model, reasoningEffort, env
         ? { supported: true }
         : { supported: false, reason: '当前 Codex 项目模式没有独立文件编辑工具，需要群策略允许沙箱命令' };
     },
-    executionCapabilities({ mode, allowShell }) {
-      return memberExecutionCapabilities(CODEX_TRAITS, { mode, allowShell });
+    executionCapabilities({ mode, allowShell, allowBrowser }) {
+      const report = memberExecutionCapabilities(CODEX_TRAITS, { mode, allowShell });
+      // Codex 具备原生 browser_use/computer_use 开关：获授权且非通信策略时才报告可用。
+      return {
+        ...report,
+        ...browserToolCapability({ effectivePolicy: report.effectivePolicy, requested: allowBrowser === true, supported: true }),
+      };
     },
     supportsPanelAccess() {
       return { supported: true };

@@ -2,6 +2,8 @@ import { validateToolValue } from './schema.mjs';
 import { askInputProperties, dispatchRequirementProperties } from './ops.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 48000 };
+// 成员策略上限:null 表示继承群策略;合法值只能向下收敛。
+const memberPolicyCeiling = { type: ['string', 'null'], enum: ['communication', 'read-only', 'workspace-write', null] };
 const definitions = [
   ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。跨能力派工前先对照 members 返回的能力名片：需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 别名自动归一化），需要大上下文模型时传 minContextWindow；写库前与执行前各校验一次，不满足即拒绝并保留消息。', {
     to: string,
@@ -29,9 +31,24 @@ const definitions = [
   ['members', '读取本群成员、能力自述与只读能力名片（当前模型、modal.image、contextWindow、exec.*、tool.browser 及有效策略）。派工前据此对照目标能力。', {}, []],
   ['profile_set', '只更新自己的能力自述，不可代写他人自述。', { text: string }, ['text']],
   ['ask', '向用户发出互动卡：需要用户明确选择、确认或补充信息时使用。单问用 kind=choice（须提供 options，2-8 个选项，确认类事项用 同意/拒绝）或 kind=input（请用户填写一段文本）；需要用户连续确认多件事时改用 steps 一次发出 2-8 步，面板用一张卡片逐步作答，全部答完才把汇总答复送回。工具立即返回，不等待；发出后结束当前回合，用户的答复会以用户消息（sender=user）自动送达。不要用它提开放性讨论，也不要用普通消息模拟需要用户点击的确认。', askInputProperties, []],
-  ['group_add', '主 Agent 请求添加成员；创建互动卡等待用户在面板上确认，同意后生效。', {
+  ['group_add', '主 Agent 请求添加成员；创建互动卡等待用户在面板上确认，同意后生效。可按成员指定 selection（模型与思考强度，须在宿主实时目录内）、policy_ceiling（策略上限，不可超过群策略）、allow_shell（命令开关，只能向下收敛）、allow_browser（浏览器/Computer Use 放行，默认关闭）；省略则继承群策略与宿主默认模型。', {
     name: string,
     host: string,
+    selection: {
+      type: 'object',
+      properties: {
+        model_provider: string,
+        model: string,
+        reasoning_effort: string,
+      },
+      additionalProperties: false,
+    },
+    policy_ceiling: memberPolicyCeiling,
+    allow_shell: { type: ['boolean', 'null'] },
+    allow_browser: { type: 'boolean' },
+    policyCeiling: memberPolicyCeiling,
+    allowShell: { type: ['boolean', 'null'] },
+    allowBrowser: { type: 'boolean' },
   }, ['name', 'host']],
   ['group_remove', '主 Agent 移除成员；立即撤销框架访问并尽力停止相关会话。', { member: string }, ['member']],
   ['group_delete', '主 Agent 删除本群；框架会创建互动卡请求用户确认，同意后生效。项目工作文件、宿主原生历史及 Panel Agent 私人聊天保留；本群框架会话记录删除。', {}, []],
@@ -71,6 +88,15 @@ const definitions = [
     model_provider: string,
     model: string,
     reasoning_effort: string,
+  }, ['member']],
+  ['member_policy', '主 Agent 为普通成员申请调整权限：策略上限、命令开关与浏览器/Computer Use 放行。只能向下收敛，绝不能超过群策略；创建互动卡等待用户在面板上确认，同意后生效，成员旧宿主会话会被清理并以新权限重启。成员自己不能用本工具提权，省略的字段保留当前值。', {
+    member: string,
+    policy_ceiling: memberPolicyCeiling,
+    allow_shell: { type: ['boolean', 'null'] },
+    allow_browser: { type: 'boolean' },
+    policyCeiling: memberPolicyCeiling,
+    allowShell: { type: ['boolean', 'null'] },
+    allowBrowser: { type: 'boolean' },
   }, ['member']],
 ];
 export function toolsFor(role, context = 'coordination') {

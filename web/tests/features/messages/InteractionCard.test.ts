@@ -170,3 +170,47 @@ describe('InteractionCard 非待答状态', () => {
     expect(wrapper.find('textarea').exists()).toBe(false);
   });
 });
+
+describe('InteractionCard 成员权限确认', () => {
+  it('成员权限卡显示权限标签与结构化摘要，同意仍走 approved 答复', async () => {
+    const wrapper = mountCard({
+      kind: 'member_policy',
+      text: '允许研发使用只读权限吗？',
+      args: {
+        member: '研发',
+        policyCeiling: 'read-only',
+        allowShell: false,
+        allowBrowser: true,
+      },
+    });
+
+    // 动作类卡片的标题带权限标签，摘要只在 args 存在时展示。
+    expect(wrapper.text()).toContain('用户互动 · 权限');
+    const summary = wrapper.find('[data-testid="member-policy-summary"]');
+    expect(summary.exists()).toBe(true);
+    expect(summary.text()).toContain('成员：研发');
+    expect(summary.text()).toContain('策略上限：只读');
+    expect(summary.text()).toContain('命令：禁止');
+    expect(summary.text()).toContain('浏览器：允许');
+
+    await buttonByText(wrapper, '同意').trigger('click');
+    await flushPromises();
+
+    expect(answerInteraction).toHaveBeenCalledTimes(1);
+    expect(answerInteraction).toHaveBeenCalledWith('i1', { approved: true });
+  });
+
+  it('策略上限为继承或 args 缺省时摘要按继承展示，缺 args 不显示摘要', () => {
+    const inherited = mountCard({
+      kind: 'member_policy',
+      text: '按群策略放行吗？',
+      args: { member: '测试', policyCeiling: null },
+    });
+    expect(inherited.find('[data-testid="member-policy-summary"]').text()).toContain(
+      '策略上限：继承群策略',
+    );
+
+    const bare = mountCard({ kind: 'member_policy', text: '按群策略放行吗？' });
+    expect(bare.find('[data-testid="member-policy-summary"]').exists()).toBe(false);
+  });
+});

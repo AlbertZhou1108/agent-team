@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Coins, Database, Radio, Users } from '@lucide/vue';
 import ExpandableText from '@/components/ai-elements/ExpandableText.vue';
 import { SectionBlock } from '@/components/panel';
@@ -7,8 +7,10 @@ import PanelState from '@/components/panel/PanelState.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useMembersTelemetryQuery } from '@/features/queries';
+import { isPolicyMode } from '@/features/groups/create-team-model';
 import { compactNumber, numeric, ratioPercent } from '@/features/telemetry/visuals';
 import type { Member, SessionEndpoint } from '@/shared/api/raw-types';
+import MemberPolicyDialog from './MemberPolicyDialog.vue';
 
 /**
  * 右栏「成员」视图：专注成员身份、宿主/模型配置与快捷联动。
@@ -21,13 +23,75 @@ const props = defineProps<{
   endpoints: SessionEndpoint[];
   runningMemberIds: Set<string>;
   pausedMemberIds?: Set<string>;
+  /** 群策略上限与群命令开关，只用于调整权限弹窗的选项与禁用判断。 */
+  groupPolicy?: string | null;
+  groupAllowShell?: boolean;
 }>();
 
 const emit = defineEmits<{
   editModel: [member: Member];
   openUsage: [memberId: string];
   openTrace: [sessionId: string];
+  'member-policy-saved': [member: Member];
 }>();
+
+const POLICY_MODE_LABELS: Record<string, string> = {
+  communication: '仅通信',
+  'read-only': '只读',
+  'workspace-write': '可写',
+};
+
+interface CapabilityBadge {
+  key: string;
+  label: string;
+  variant: 'secondary' | 'outline' | 'success' | 'warning';
+}
+
+/** 能力徽标只展示关键差异事实；缺失时明确标注未同步，不按模型名推断。 */
+function capabilityBadges(member: Member): CapabilityBadge[] {
+  const badges: CapabilityBadge[] = [];
+  const card = member.capabilityCard;
+  const mode = card?.effectivePolicy.mode ?? '';
+  if (POLICY_MODE_LABELS[mode]) {
+    badges.push({
+      key: 'policy',
+      label: POLICY_MODE_LABELS[mode],
+      variant: mode === 'workspace-write' ? 'secondary' : 'outline',
+    });
+  }
+  const image = card?.effectiveCapabilities['modal.image'];
+  if (image === true) badges.push({ key: 'image', label: '多模态', variant: 'success' });
+  else if (image === false) badges.push({ key: 'image', label: '仅文本', variant: 'outline' });
+  else if (image === 'unknown') badges.push({ key: 'image', label: '模态未知', variant: 'warning' });
+  else badges.push({ key: 'image', label: '能力未同步', variant: 'outline' });
+
+  const browser = card?.effectiveCapabilities['tool.browser'];
+  if (browser === true) badges.push({ key: 'browser', label: '浏览器可用', variant: 'success' });
+  else if (browser === false) badges.push({ key: 'browser', label: '浏览器禁用', variant: 'outline' });
+
+  // 只有确实可执行命令才占一个徽标；false 属于常态，不再加噪音。
+  if (card?.effectiveCapabilities['exec.shell'] === true) {
+    badges.push({ key: 'shell', label: '可执行命令', variant: 'secondary' });
+  }
+  return badges;
+}
+
+/** 能力未同步时只用成员请求上限做弱化说明，不推断生效档位。 */
+function policyFallbackLabel(member: Member): string | null {
+  if (POLICY_MODE_LABELS[member.capabilityCard?.effectivePolicy.mode ?? '']) return null;
+  const ceiling = member.policy_ceiling;
+  return isPolicyMode(ceiling) ? `上限：${POLICY_MODE_LABELS[ceiling]}` : '继承群策略';
+}
+
+const policyDialogMember = ref<Member | null>(null);
+const policyDialogOpen = ref(false);
+function openMemberPolicyDialog(member: Member) {
+  policyDialogMember.value = member;
+  policyDialogOpen.value = true;
+}
+function onMemberPolicySaved(member: Member) {
+  emit('member-policy-saved', member);
+}
 
 const telemetryQuery = useMembersTelemetryQuery(() => props.groupId || undefined);
 
@@ -110,6 +174,28 @@ function modelSummary(member: Member): string {
           {{ modelSummary(member) }}
         </p>
 
+        <div
+          class="flex min-w-0 flex-wrap items-center gap-1.5"
+          :data-testid="`member-capabilities-${member.id}`"
+        >
+          <Badge
+            v-for="badge in capabilityBadges(member)"
+            :key="badge.key"
+            :variant="badge.variant"
+            size="xs"
+            :data-capability="badge.key"
+          >
+            {{ badge.label }}
+          </Badge>
+          <span
+            v-if="policyFallbackLabel(member)"
+            class="text-xs text-muted-foreground"
+            :title="'能力未同步；这里只展示成员请求上限，不推断实际生效档位'"
+          >
+            {{ policyFallbackLabel(member) }}
+          </span>
+        </div>
+
         <ExpandableText
           v-if="member.profile"
           class="text-xs text-muted-foreground"
@@ -153,6 +239,16 @@ function modelSummary(member: Member): string {
           <Button
             variant="outline"
             size="xs"
+            :disabled="runningMemberIds.has(member.id)"
+            :aria-label="runningMemberIds.has(member.id) ? `运行中不可调整 ${member.name} 的权限：请先等待回合结束或停止成员` : `调整 ${member.name} 的权限`"
+            :title="runningMemberIds.has(member.id) ? '运行中不可调整权限：请先等待回合结束或停止成员' : undefined"
+            @click="openMemberPolicyDialog(member)"
+          >
+            调整权限
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
             :disabled="!memberSessionId(member.id)"
             :aria-label="`查看 ${member.name} 的执行轨迹`"
             @click="emit('openTrace', memberSessionId(member.id))"
@@ -162,5 +258,13 @@ function modelSummary(member: Member): string {
         </div>
       </SectionBlock>
     </div>
+
+    <MemberPolicyDialog
+      v-model:open="policyDialogOpen"
+      :member="policyDialogMember"
+      :group-policy="groupPolicy ?? null"
+      :group-allow-shell="groupAllowShell"
+      @saved="onMemberPolicySaved"
+    />
   </div>
 </template>

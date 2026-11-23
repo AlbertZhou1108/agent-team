@@ -20,6 +20,10 @@ export interface Group {
   revision?: number;
   /** 待生效的工作目录:有成员回合在跑时,切换目录会先挂起。 */
   workspace_pending?: string | null;
+  /** 群级文件访问范围(communication / read-only / workspace-write);旧后端可能不返回。 */
+  policy?: string | null;
+  /** 群级是否允许执行命令(1/0);仅作群上限,成员级还可再收敛。 */
+  allow_shell?: number | null;
 }
 
 export interface Member {
@@ -33,6 +37,62 @@ export interface Member {
   model_provider: string | null;
   model: string | null;
   reasoning_effort: string | null;
+  /** 成员策略上限;null/缺省表示继承群策略,只能比群策略更严。 */
+  policy_ceiling?: string | null;
+  /** 成员级命令执行授权:1 允许(仍需群级放行),0 拒绝,null 表示继承。 */
+  allow_shell?: number | null;
+  /** 成员级浏览器 / Computer Use 授权:1 允许,0 或未返回表示未授权。 */
+  allow_browser?: number;
+  /** 只读能力名片;由服务端按真实模型目录与有效策略投影,前端不自行推断。 */
+  capabilityCard?: CapabilityCard;
+}
+
+/** 能力名片里的模型维投影:未在实时目录中命中时 knownInCatalog=false,未知字段保持 null。 */
+export interface CapabilityModelView {
+  id: string | null;
+  provider: string | null;
+  label: string | null;
+  knownInCatalog: boolean;
+  inputModalities: string[] | null;
+  contextWindow: number | null;
+  reasoningEffort: string | null;
+  reasoningEfforts: string[];
+}
+
+/** 模型摘要:宿主 + 供应商 + 模型,只表达事实,不含推断。 */
+export interface CapabilityModelSummary {
+  host: string | null;
+  provider: string | null;
+  model: string | null;
+  label: string | null;
+  knownInCatalog: boolean;
+}
+
+/** 有效策略:ceiling 是请求上限,mode 是实际生效档位,reason/browserReason 说明收敛原因。 */
+export interface CapabilityEffectivePolicy {
+  ceiling: string | null;
+  mode: string | null;
+  reason?: string | null;
+  browserReason?: string | null;
+}
+
+/** 执行维与模型模态的真实能力;modal.image 为 unknown 表示宿主目录未声明,不能当作支持。 */
+export interface CapabilityEffectiveCapabilities {
+  'exec.read': boolean;
+  'exec.write': boolean;
+  'exec.shell': boolean;
+  'modal.image': boolean | 'unknown';
+  'tool.browser': boolean;
+}
+
+/** 成员只读能力名片(快照 / API 返回)。 */
+export interface CapabilityCard {
+  memberId: string | null;
+  model: CapabilityModelView;
+  modelSummary: CapabilityModelSummary;
+  effectivePolicy: CapabilityEffectivePolicy;
+  effectiveCapabilities: CapabilityEffectiveCapabilities;
+  controller?: { kind: string; id: string; name: string | null };
 }
 
 export interface SessionEndpoint {
@@ -178,7 +238,8 @@ export type InteractionKind =
   | 'group_create'
   | 'group_add'
   | 'group_delete'
-  | 'member_model';
+  | 'member_model'
+  | 'member_policy';
 
 /** 卡片即唯一展示面:锚点消息只为答复线程与群记录存在,不再渲染正文。 */
 interface InteractionCardFlag {
@@ -211,7 +272,7 @@ export interface InteractionFlowPayload extends InteractionCardFlag {
 }
 
 export interface InteractionActionPayload extends InteractionCardFlag {
-  kind: 'takeover' | 'handback' | 'group_create' | 'group_add' | 'group_delete' | 'member_model';
+  kind: 'takeover' | 'handback' | 'group_create' | 'group_add' | 'group_delete' | 'member_model' | 'member_policy';
   text: string;
   groupId?: string;
   baseRevision?: number;

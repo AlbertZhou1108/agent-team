@@ -70,11 +70,15 @@ export function activeMemberById(store, memberId) {
   return store.get('SELECT * FROM members WHERE id=? AND removed IS NULL', memberId) ?? null;
 }
 
-/** 成员落库:模型选择允许为空(宿主默认)。 */
-export function insertMember(store, { id, groupId, name, host, role, selection = null }) {
+/** 成员落库:模型选择与成员级策略字段都可缺省(继承群策略/宿主默认)。 */
+export function insertMember(store, { id, groupId, name, host, role, selection = null, policyCeiling = null, allowShell = null, allowBrowser = false }) {
   return store.run(
-    'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort) VALUES(?,?,?,?,?,?,?,?)',
-    id, groupId, name, host, role, selection?.model_provider ?? null, selection?.model ?? null, selection?.reasoning_effort ?? null,
+    'INSERT INTO members(id,group_id,name,host,role,model_provider,model,reasoning_effort,policy_ceiling,allow_shell,allow_browser) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+    id, groupId, name, host, role,
+    selection?.model_provider ?? null, selection?.model ?? null, selection?.reasoning_effort ?? null,
+    policyCeiling ?? null,
+    allowShell === null || allowShell === undefined ? null : (allowShell ? 1 : 0),
+    allowBrowser ? 1 : 0,
   );
 }
 
@@ -238,6 +242,17 @@ export function recordGroupCreate(store, { operationId, payload, groupId, create
   return store.run(
     "INSERT INTO operation_records(scope,scope_id,client_key,payload,ref,created) VALUES('group-create','',?,?,?,?)",
     operationId, payload, groupId, created,
+  );
+}
+
+/** 成员级策略写点:NULL 表示继承群策略;布尔开关按 INTEGER 0/1 落库。越级校验由调用方负责。 */
+export function updateMemberPolicy(store, { memberId, policyCeiling = null, allowShell = null, allowBrowser = false }) {
+  return store.run(
+    'UPDATE members SET policy_ceiling=?,allow_shell=?,allow_browser=? WHERE id=?',
+    policyCeiling ?? null,
+    allowShell === null || allowShell === undefined ? null : (allowShell ? 1 : 0),
+    allowBrowser ? 1 : 0,
+    memberId,
   );
 }
 

@@ -241,10 +241,18 @@ test('zcode execution capabilities follow the group policy', t => {
   t.after(() => { try { rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
   const host = createZcodeHost({ directory: root, socketPath: 'unused', command: 'unused-host' });
   assert.deepEqual(host.executionCapabilities({ mode: 'communication', allowShell: true }), {
-    effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信',
+    effectivePolicy: 'communication',
+    capabilities: [],
+    reason: '仅允许团队通信',
+    toolBrowser: false,
+    browserReason: 'communication 策略下浏览器/Computer Use 工具一律禁用',
   });
   assert.deepEqual(host.executionCapabilities({ mode: 'read-only', allowShell: true }), {
-    effectivePolicy: 'read-only', capabilities: ['exec.read'], reason: '群策略只允许读取',
+    effectivePolicy: 'read-only',
+    capabilities: ['exec.read'],
+    reason: '群策略只允许读取',
+    toolBrowser: false,
+    browserReason: '成员未获浏览器/Computer Use 授权（allowBrowser=false）',
   });
   const write = host.executionCapabilities({ mode: 'workspace-write', allowShell: false });
   assert.equal(write.effectivePolicy, 'workspace-write');

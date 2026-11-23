@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { connectionProbe, exchange } from '../../host-runtime/probe.mjs';
 import { mcpConfig } from '../../host-runtime/process.mjs';
@@ -8,7 +9,8 @@ import { capability, capabilities, executionConditions, tokenConditions } from '
 import { telemetryObservation } from '../../observation.mjs';
 import { createZcodeProtocol, headlessInteractionReply } from './protocol.mjs';
 import { resolveZcodeLaunch } from './wake.mjs';
-import { memberExecutionCapabilities } from '../../hosts/execution.mjs';
+import { memberExecutionCapabilities, browserToolCapability } from '../../hosts/execution.mjs';
+import { probeBrowserMcpServers, normalizeBrowserProbeResult, BROWSER_MCP_UNAVAILABLE_REASON } from '../../hosts/browser-mcp-probe.mjs';
 
 const ZCODE_EFFORTS = new Set(['disabled', 'low', 'high', 'max']);
 
@@ -171,27 +173,70 @@ async function zcodeModelCatalog(launch, home, options = {}) {
  * 授信状态持久于 workspace；已授信则跳过。
  * 桌面接入的验证策略（desktop/zcode.mjs）同样驱动无头会话，复用本函数。
  */
-export async function trustAgentTeamServer(protocol, workspace) {
+export async function trustWorkspaceMcpServers(protocol, workspace, serverNames = ['agent_team']) {
   const listed = await protocol.request('mcp/list', { workspace }, { timeout: 30000 });
-  const server = listed?.statuses?.agent_team;
-  if (!server) throw new Error('ZCode 会话未加载 agent_team MCP server；请检查 endpoint 配置');
-  const trust = server.workspaceTrust;
-  if (!trust?.declarationDigest || trust.trusted === true) return;
-  const result = await protocol.request('workspace/mcp/trust', {
-    workspace,
-    serverName: 'agent_team',
-    declarationDigest: trust.declarationDigest,
-    trusted: true,
-  }, { timeout: 30000 });
-  if (result?.accepted === false) {
-    throw new Error(`agent_team MCP server 授信失败: ${result.reasonCode ?? 'unknown'}`);
+  for (const serverName of serverNames) {
+    const server = listed?.statuses?.[serverName];
+    if (!server) {
+      if (serverName === 'agent_team') throw new Error('ZCode 会话未加载 agent_team MCP server；请检查 endpoint 配置');
+      throw new Error(`ZCode 会话未加载 ${serverName} MCP server；请检查宿主配置`);
+    }
+    const trust = server.workspaceTrust;
+    if (!trust?.declarationDigest || trust.trusted === true) continue;
+    const result = await protocol.request('workspace/mcp/trust', {
+      workspace,
+      serverName,
+      declarationDigest: trust.declarationDigest,
+      trusted: true,
+    }, { timeout: 30000 });
+    if (result?.accepted === false) {
+      throw new Error(`${serverName} MCP server 授信失败: ${result.reasonCode ?? 'unknown'}`);
+    }
   }
 }
 
+/** agent_team 单 server 授信包装；桌面接入（desktop/zcode.mjs）复用同一入口。 */
+export async function trustAgentTeamServer(protocol, workspace) {
+  return trustWorkspaceMcpServers(protocol, workspace, ['agent_team']);
+}
+
+/**
+ * ZCode 隔离 HOME 的 mcp.servers 合并：agent_team 永远优先；浏览器 MCP 只克隆探测到的 stdio 配置，
+ * 名字冲突/形状不完整一律跳过（绝不替换 agent_team 或猜测配置）。
+ */
+export function zcodeMcpConfig(mcp, browserServers = []) {
+  const servers = { agent_team: { command: mcp.command, args: mcp.args, env: mcp.env } };
+  for (const server of Array.isArray(browserServers) ? browserServers : []) {
+    const name = server?.name;
+    if (typeof name !== 'string' || !name || name === 'agent_team' || servers[name]) continue;
+    const entry = server?.config ?? {};
+    if (typeof entry.command !== 'string' || !entry.command) continue;
+    servers[name] = {
+      type: 'stdio',
+      command: entry.command,
+      args: Array.isArray(entry.args) ? [...entry.args] : [],
+      env: entry.env && typeof entry.env === 'object' && !Array.isArray(entry.env) ? { ...entry.env } : {},
+    };
+  }
+  return { mcp: { servers } };
+}
+
 export function createZcodeHost({
-  directory, socketPath, command = 'zcode', model, reasoningEffort,
+  directory, socketPath, command = 'zcode', model, reasoningEffort, browserProbe,
 }) {
   if (reasoningEffort && !ZCODE_EFFORTS.has(reasoningEffort)) throw new Error(`ZCode 思考强度无效: ${reasoningEffort}`);
+  // ZCode 无原生浏览器开关：只读探测用户 ~/.zcode/cli/config.json 里真实声明的浏览器 MCP，
+  // 命中白名单且本轮授权时才克隆进隔离 HOME 启动配置；否则如实 false。
+  const inspectBrowserMcp = () => {
+    try {
+      const result = browserProbe
+        ? browserProbe({ home: homedir(), env: process.env })
+        : probeBrowserMcpServers({ host: 'zcode', home: homedir(), env: process.env });
+      return normalizeBrowserProbeResult(result);
+    } catch (error) {
+      return { servers: [], reason: `${BROWSER_MCP_UNAVAILABLE_REASON}（探测异常：${error?.message ?? 'unknown'}）` };
+    }
+  };
   const lifecycle = {
     installationStatus: () => ({ installing: false }),
     async checkStatus() {
@@ -216,8 +261,22 @@ export function createZcodeHost({
     checkStatus: lifecycle.checkStatus,
     install: lifecycle.install,
     telemetryCapabilities: zcodeCapabilities(),
-    executionCapabilities({ mode, allowShell }) {
-      return memberExecutionCapabilities(ZCODE_TRAITS, { mode, allowShell });
+    executionCapabilities({ mode, allowShell, allowBrowser }) {
+      const report = memberExecutionCapabilities(ZCODE_TRAITS, { mode, allowShell });
+      // ZCode 无原生浏览器开关：只有宿主配置里探测到真实可用的浏览器 MCP，
+      // 且本轮隔离 HOME 启动配置会克隆并授信它时才点亮；否则如实 false。
+      const browser = allowBrowser === true && report.effectivePolicy !== 'communication'
+        ? inspectBrowserMcp()
+        : { servers: [], reason: null };
+      return {
+        ...report,
+        ...browserToolCapability({
+          effectivePolicy: report.effectivePolicy,
+          requested: allowBrowser === true,
+          supported: browser.servers.length > 0,
+          reason: browser.servers.length ? null : browser.reason ?? BROWSER_MCP_UNAVAILABLE_REASON,
+        }),
+      };
     },
     supportsPanelAccess({ access }) {
       return ['read-only', 'workspace-write', 'full-access'].includes(access)
@@ -232,14 +291,14 @@ export function createZcodeHost({
       const { endpoint, prompt, instructions, onSession, onAccepted, onTextDelta, onReasoningDelta, onTelemetry, onModel, onSelection, onPolicy, signal, turnId, workspace } = context;
       if ((context.attachments ?? []).length) throw new Error('ZCode 会话暂不支持附件输入');
       const launch = resolveZcodeLaunch({ command, cwd: workspace });
-      // 每 endpoint 独立 HOME：会话库与 agent_team MCP 配置都在该目录内，互不串扰。
+      const policy = executionPolicy(context);
+      // 未获授权绝对不挂载；授权时也只克隆探测到且通过白名单校验的 stdio 浏览器 MCP。
+      const browserServers = policy.allowBrowser ? inspectBrowserMcp().servers : [];
+      // 每 endpoint 独立 HOME：会话库与 agent_team/浏览器 MCP 配置都在该目录内，互不串扰。
       const home = join(directory, 'zcode-endpoints', endpoint.id);
       mkdirSync(join(home, '.zcode', 'cli'), { recursive: true, mode: 0o700 });
       const mcp = mcpConfig({ socketPath, endpoint, turnId });
-      writeFileSync(join(home, '.zcode', 'cli', 'config.json'), JSON.stringify({
-        mcp: { servers: { agent_team: { command: mcp.command, args: mcp.args, env: mcp.env } } },
-      }), { mode: 0o600 });
-      const policy = executionPolicy(context);
+      writeFileSync(join(home, '.zcode', 'cli', 'config.json'), JSON.stringify(zcodeMcpConfig(mcp, browserServers)), { mode: 0o600 });
       onPolicy?.(policyObservation('zcode', policy, { mode: 'zcode-permission', sandbox: null, panelAccess: context.policy?.access ?? null }));
       const selectedModel = context.modelSelection?.model ?? model;
       const selectedEffort = context.modelSelection?.reasoning_effort ?? reasoningEffort;
@@ -416,7 +475,11 @@ export function createZcodeHost({
         if (selectedModel || selectedEffort) {
           onSelection?.({ model: selectedModel ?? null, reasoning_effort: selectedEffort ?? null });
         }
-        await trustAgentTeamServer(protocol, { workspacePath: workspace, workspaceKey: workspace });
+        // agent_team 与探测到的浏览器 MCP 都要在本 workspace 内逐个授信后才能使用。
+        await trustWorkspaceMcpServers(protocol, { workspacePath: workspace, workspaceKey: workspace }, [
+          'agent_team',
+          ...browserServers.map(server => server.name),
+        ]);
         await protocol.request('session/subscribe', { sessionId, deliveryKind: 'desktop-continuous' }, { timeout: 30000 });
         const content = instructions ? `${instructions}\n\n当前输入：\n${prompt}` : prompt;
         const accepted = await protocol.request('session/send', { sessionId, content }, { timeout: 60000 });

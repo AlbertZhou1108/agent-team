@@ -37,38 +37,91 @@ export class CapabilityService {
    * 成员有效执行策略：宿主真实能力 × Group policy 天花板，结果落库并在变化时清会话。
    * 从 ControlPlane 迁出后，三入口与消息调度共用同一计算。
    */
-  async executionPolicyFor(group, member, { persist = true } = {}) {
-    const host = this.bus.hosts.get(member.host);
-    let report;
-    if (host?.executionCapabilities) {
-      report = await host.executionCapabilities({
-        mode: group.policy,
-        allowShell: group.allow_shell === 1,
-        workspace: group.workspace,
-      });
-    } else {
-      report = {
-        effectivePolicy: group.policy === 'workspace-write' ? 'read-only' : group.policy,
-        capabilities: group.policy === 'communication' ? [] : ['exec.read'],
-        reason: group.policy === 'workspace-write' ? '宿主未声明工作区写边界保证' : null,
-      };
-    }
+  /** 最小宿主（未声明 executionCapabilities）的保守报告：门禁与名片按不保证写边界处理。 */
+  fallbackReport(request) {
+    return {
+      effectivePolicy: request.ceiling === 'workspace-write' ? 'read-only' : request.ceiling,
+      capabilities: request.ceiling === 'communication' ? [] : ['exec.read'],
+      reason: request.ceiling === 'workspace-write' ? '宿主未声明工作区写边界保证' : null,
+    };
+  }
+
+  /** 纯计算：请求策略 × 宿主报告 → 有效策略与浏览器/命令开关。不写库、不探测。 */
+  composePolicy(group, member, report) {
+    const request = routing.memberPolicyRequest(group, member);
     let effective = report.effectivePolicy;
     let capabilities = [...new Set(report.capabilities ?? [])];
     let reason = report.reason ?? null;
-    if (group.policy === 'communication') {
+    const ceilingFromGroup = request.ceiling === group.policy;
+    if (request.ceiling === 'communication') {
       effective = 'communication';
       capabilities = [];
-      reason = '群策略仅允许通信';
-    } else if (group.policy === 'read-only' && effective === 'workspace-write') {
+      reason = ceilingFromGroup ? '群策略仅允许通信' : '成员策略仅允许通信';
+    } else if (request.ceiling === 'read-only' && effective === 'workspace-write') {
       effective = 'read-only';
       capabilities = capabilities.filter(capability => capability === 'exec.read');
-      reason = '群策略仅允许读取';
+      reason = ceilingFromGroup ? '群策略仅允许读取' : '成员策略仅允许读取';
     }
-    if (effective !== 'workspace-write') {
-      capabilities = capabilities.filter(capability => capability === 'exec.read');
+    if (effective === 'communication') {
+      capabilities = [];
+    } else if (effective !== 'workspace-write') {
+      // 只读档位禁止写边界，同时保留宿主明确声明的只读沙箱命令能力（如 Codex readOnlyKeepsShell）。
+      const keepReadOnlyShell = report.effectivePolicy === 'read-only' && request.allowShell === true;
+      capabilities = capabilities.filter(capability => capability === 'exec.read'
+        || (keepReadOnlyShell && capability === 'exec.shell'));
     }
-    const policy = { requested: group.policy, effective, capabilities, reason };
+    // 浏览器/Computer Use 能力只来自宿主真实执行结果：通信策略、未授权或宿主未检测到即 false。
+    let toolBrowser = false;
+    let browserReason;
+    if (effective === 'communication') {
+      browserReason = 'communication 策略下浏览器/Computer Use 工具一律禁用';
+    } else if (request.allowBrowser !== true) {
+      browserReason = '成员未获浏览器/Computer Use 授权（allowBrowser=false）';
+    } else {
+      toolBrowser = report.toolBrowser === true;
+      browserReason = toolBrowser ? null : (report.browserReason ?? '已开启浏览器授权，但当前宿主未检测到可用的浏览器/Computer Use 工具');
+    }
+    return {
+      requested: request.ceiling,
+      ceiling: request.ceiling,
+      effective,
+      capabilities,
+      reason,
+      allowShell: effective === 'communication' ? false : request.allowShell,
+      allowBrowser: effective === 'communication' ? false : request.allowBrowser,
+      toolBrowser: effective === 'communication' ? false : toolBrowser,
+      browserReason,
+    };
+  }
+
+  communicationPolicy(group) {
+    return {
+      requested: group.policy,
+      ceiling: group.policy,
+      effective: 'communication',
+      capabilities: [],
+      reason: '仅允许团队通信',
+      allowShell: false,
+      allowBrowser: false,
+      toolBrowser: false,
+      browserReason: 'communication 策略下浏览器/Computer Use 工具一律禁用',
+    };
+  }
+
+  async executionPolicyFor(group, member, { persist = true } = {}) {
+    const host = this.bus.hosts.get(member.host);
+    // 成员级策略只能向下收敛：有效天花板 = min(群策略, 成员策略上限)，命令/浏览器取交集。
+    const request = routing.memberPolicyRequest(group, member);
+    const report = host?.executionCapabilities
+      ? await host.executionCapabilities({
+        mode: request.ceiling,
+        allowShell: request.allowShell,
+        allowBrowser: request.allowBrowser,
+        workspace: group.workspace,
+      })
+      : this.fallbackReport(request);
+    const policy = this.composePolicy(group, member, report);
+    const { effective, capabilities, reason } = policy;
     // 纯计算（名片/回合上下文）不写库、不清会话：避免"展示一次就把后续回合策略收窄"的副作用。
     if (!persist) return policy;
     const previousEffective = member.effective_policy ?? null;
@@ -82,6 +135,39 @@ export class CapabilityService {
         `执行能力已更新为 ${effective}（${capabilities.join(', ') || '无项目能力'}）${reason ? `：${reason}` : ''}`);
     }
     return policy;
+  }
+
+  /**
+   * 回合执行策略（同步分支）：协调/未声明执行能力的最小宿主不等待宿主回调，
+   * 保持「请求策略 + 继承 shell」的既有启动时序；返回 null 表示需要走异步统一交集。
+   */
+  runPolicy(group, member, requestedPolicy) {
+    if (requestedPolicy.mode === 'communication') return this.communicationPolicy(group);
+    const host = this.bus.hosts.get(member.host);
+    if (typeof host?.executionCapabilities === 'function') return null;
+    const request = routing.memberPolicyRequest(group, member);
+    const base = this.composePolicy(group, member, this.fallbackReport(request));
+    const effective = member.effective_policy ?? requestedPolicy.mode;
+    const allowShell = effective === 'workspace-write' && request.allowShell === true;
+    const capabilities = effective === 'workspace-write'
+      ? ['exec.read', 'exec.write', ...(allowShell ? ['exec.shell'] : [])]
+      : effective === 'read-only' ? ['exec.read'] : [];
+    return {
+      ...base,
+      effective,
+      capabilities,
+      reason: effective === 'read-only' ? '宿主未声明工作区写边界保证' : null,
+      allowShell,
+      allowBrowser: false,
+      toolBrowser: false,
+      browserReason: '宿主未声明浏览器/Computer Use 支持',
+    };
+  }
+
+  /** 回合执行策略：有同步结论直接用，否则按最新宿主报告异步计算统一交集。 */
+  async executionPolicyForRun(group, member, { requestedPolicy }) {
+    return this.runPolicy(group, member, requestedPolicy)
+      ?? this.executionPolicyFor(group, member, { persist: false });
   }
 
   /** 展示用目录：只读已探测缓存，不在这里触发宿主探测。 */
@@ -106,6 +192,70 @@ export class CapabilityService {
     }
   }
 
+  /** 展示用报告：宿主同步返回真实报告时采信；异步/异常宿主回退最近落库的有效策略或保守报告。 */
+  persistedReport(member, request) {
+    if (member.effective_policy) {
+      return {
+        effectivePolicy: member.effective_policy,
+        capabilities: member.capabilities ? JSON.parse(member.capabilities) : [],
+        reason: member.capability_reason ?? null,
+        toolBrowser: false,
+        browserReason: '宿主执行能力未同步返回，浏览器工具按保守值展示',
+      };
+    }
+    return this.fallbackReport(request);
+  }
+
+  /**
+   * 同步只读策略（展示投影用）：不写库、不触发探测；真实宿主为同步计算，
+   * 异步宿主直接回退持久化事实，避免把列表查询变成宿主探测。
+   */
+  policyForDisplay(group, member) {
+    const request = routing.memberPolicyRequest(group, member);
+    const host = this.bus.hosts.get(member.host);
+    const probe = host?.executionCapabilities;
+    let report;
+    if (typeof probe === 'function' && probe.constructor?.name !== 'AsyncFunction') {
+      try {
+        const value = probe.call(host, {
+          mode: request.ceiling,
+          allowShell: request.allowShell,
+          allowBrowser: request.allowBrowser,
+          workspace: group.workspace,
+        });
+        if (value && typeof value.then === 'function') {
+          Promise.resolve(value).catch(() => {});
+          report = this.persistedReport(member, request);
+        } else report = value;
+      } catch {
+        report = this.persistedReport(member, request);
+      }
+    } else report = this.persistedReport(member, request);
+    return this.composePolicy(group, member, report);
+  }
+
+  /** 成员行投影：保留既有字段，附加只读能力名片与执行策略视图（异步/同步名单片共用）。 */
+  memberCardRow(group, member, policy) {
+    return {
+      ...member,
+      capabilityCard: routing.buildCapabilityCard({
+        member,
+        selection: memberSelection(member),
+        catalog: this.catalogFor(member.host),
+        policy,
+      }),
+      executionPolicy: {
+        requested: policy.requested,
+        effective: policy.effective,
+        capabilities: policy.capabilities,
+        reason: policy.reason,
+      },
+      capabilities: policy.capabilities,
+      effective_policy: policy.effective,
+      capability_reason: policy.reason,
+    };
+  }
+
   async memberCard(group, member, { policy = null, catalog = null, persist = true } = {}) {
     const effectivePolicy = policy ?? await this.executionPolicyFor(group, member, { persist });
     return routing.buildCapabilityCard({
@@ -124,21 +274,29 @@ export class CapabilityService {
     const members = this.bus.members(group.id);
     return Promise.all(members.map(async member => {
       const policy = await this.executionPolicyFor(group, member, { persist });
-      const capabilityCard = routing.buildCapabilityCard({
-        member,
-        selection: memberSelection(member),
-        catalog: this.catalogFor(member.host),
-        policy,
-      });
-      return {
-        ...member,
-        capabilityCard,
-        executionPolicy: policy,
-        capabilities: policy.capabilities,
-        effective_policy: policy.effective,
-        capability_reason: policy.reason,
-      };
+      // executionPolicy 保持四字段只读视图，新增的浏览器/命令字段只进 capabilityCard。
+      return this.memberCardRow(group, member, policy);
     }));
+  }
+
+  /** 同步名单片（overview/directory 等同步投影）：按活跃成员计算，不写库。 */
+  memberCardsSync(group) {
+    return this.bus.members(group.id)
+      .map(member => this.memberCardRow(group, member, this.policyForDisplay(group, member)));
+  }
+
+  /** 装饰既有成员行（含已移除成员）：保留原行字段，按 group_id 取群策略补只读名片。 */
+  decorateMemberRows(rows) {
+    const groups = new Map();
+    return rows.map(row => {
+      let group = groups.get(row.group_id);
+      if (group === undefined) {
+        group = this.bus.store.get('SELECT * FROM groups WHERE id=?', row.group_id) ?? null;
+        groups.set(row.group_id, group);
+      }
+      if (!group) return row;
+      return this.memberCardRow(group, row, this.policyForDisplay(group, row));
+    });
   }
 
   /** 当前主控能力投影：成员主控与普通成员同构，但受协调会话 communication 边界。 */

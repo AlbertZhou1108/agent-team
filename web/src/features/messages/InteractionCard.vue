@@ -26,6 +26,7 @@ import { api } from '@/shared/api/client';
 import { motionDurationMs } from '@/shared/motion';
 import type {
   Interaction,
+  InteractionActionPayload,
   InteractionAnswer,
   InteractionChoicePayload,
   InteractionFlowPayload,
@@ -40,7 +41,7 @@ const props = defineProps<{
   anchor?: { senderName: string; createdAt: string };
 }>();
 
-const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model']);
+const actionInteractionKinds = new Set(['takeover', 'handback', 'group_create', 'group_add', 'group_delete', 'member_model', 'member_policy']);
 
 const queryClient = useQueryClient();
 const busy = ref(false);
@@ -105,6 +106,7 @@ const actionLabel = computed(
       group_add: '加人',
       group_delete: '删群',
       member_model: '调模',
+      member_policy: '权限',
       flow: '问答',
     } as Partial<Record<InteractionKind, string>>)[kind.value] ?? '',
 );
@@ -113,6 +115,29 @@ const options = computed(() =>
     ? (payload.value as InteractionChoicePayload).options ?? []
     : [],
 );
+const POLICY_LABELS: Record<string, string> = {
+  communication: '仅通信',
+  'read-only': '只读',
+  'workspace-write': '可写',
+};
+/** member_policy 卡只复述请求里显式出现的字段，不猜测未提交的变化。 */
+const memberPolicySummary = computed<string[]>(() => {
+  if (kind.value !== 'member_policy') return [];
+  const args = (payload.value as InteractionActionPayload).args ?? {};
+  if (!Object.keys(args).length) return [];
+  const rows: string[] = [];
+  if (typeof args.member === 'string' && args.member) rows.push(`成员：${args.member}`);
+  const ceiling = args.policyCeiling;
+  const ceilingLabel = typeof ceiling === 'string' ? (POLICY_LABELS[ceiling] ?? ceiling) : '继承群策略';
+  rows.push(`策略上限：${ceilingLabel}`);
+  if (Object.prototype.hasOwnProperty.call(args, 'allowShell')) {
+    rows.push(`命令：${args.allowShell === true ? '允许' : '禁止'}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(args, 'allowBrowser')) {
+    rows.push(`浏览器：${args.allowBrowser === true ? '允许' : '禁止'}`);
+  }
+  return rows;
+});
 const answerSummary = computed(() => {
   const answer = props.interaction.answer;
   if (!answer) return '';
@@ -354,6 +379,13 @@ async function submitInput() {
       <template v-else>
         <!-- 单问卡与多步卡共用同一套记录样式:问题用正文色,答复用左侧细边 + 次要色。 -->
         <p class="text-sm leading-normal whitespace-pre-wrap wrap-anywhere">{{ payload.text }}</p>
+        <p
+          v-if="memberPolicySummary.length"
+          class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+          data-testid="member-policy-summary"
+        >
+          <span v-for="row in memberPolicySummary" :key="row">{{ row }}</span>
+        </p>
         <template v-if="interaction.state === 'answered'">
           <p class="border-l border-border pl-2 text-sm leading-normal text-muted-foreground whitespace-pre-wrap wrap-anywhere">
             {{ answerSummary }}

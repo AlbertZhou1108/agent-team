@@ -73,6 +73,27 @@ export class ModelCatalog {
     return this.catalogs.get(host)?.value?.catalog ?? null;
   }
 
+  /** 同步解析成员模型选择:显式模型只用已探测目录校验（不触发探测、不阻塞建群/加人）；
+   *  未指定模型时返回宿主默认选择（未探测则为 null）。目录未就绪时显式模型直接拒绝。 */
+  resolveSelection(hostName, selection) {
+    if (selection === undefined || selection === null) return this.defaultSelection(hostName);
+    if (typeof selection !== 'object' || Array.isArray(selection)) throw new Error('成员模型选择无效');
+    const model = typeof selection.model === 'string' && selection.model.trim() ? selection.model.trim() : '';
+    if (!model) {
+      if (selection.model_provider !== undefined || selection.reasoning_effort !== undefined) throw new Error('成员模型选择无效');
+      return this.defaultSelection(hostName);
+    }
+    const catalog = this.peek(hostName);
+    if (!catalog) throw new Error(`宿主 ${hostName} 没有可用模型目录`);
+    const provider = typeof selection.model_provider === 'string' && selection.model_provider.trim() ? selection.model_provider.trim() : null;
+    const selected = catalog.models.find(item => item.id === model && (!provider || item.provider === provider));
+    if (!selected) throw new Error('选择的模型不在该成员宿主目录中');
+    const supported = selected.reasoningEfforts?.length ? selected.reasoningEfforts : (catalog.reasoningEfforts ?? []);
+    const effort = selection.reasoning_effort ?? selected.defaultReasoningEffort ?? supported[0]?.id ?? null;
+    if (!effort || (supported.length && !supported.some(item => item.id === effort))) throw new Error('模型思考强度不受支持');
+    return { model_provider: selected.provider ?? provider ?? null, model: selected.id, reasoning_effort: effort };
+  }
+
   async validate(member, { model_provider, model, reasoning_effort } = {}) {
     if (model === undefined || model === null || String(model).trim() === '') return null;
     const catalog = await this.list({ refresh: true, host: member.host });

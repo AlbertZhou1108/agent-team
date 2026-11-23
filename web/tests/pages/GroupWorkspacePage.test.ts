@@ -163,13 +163,25 @@ vi.mock('@/features/team/TeamContextPanel.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return {
     default: defineComponent({
-      props: ['groupId', 'panel', 'visible', 'selectedSessionId', 'activeTab', 'historyRows', 'observations'],
+      props: [
+        'groupId',
+        'panel',
+        'visible',
+        'selectedSessionId',
+        'activeTab',
+        'historyRows',
+        'observations',
+        'groupPolicy',
+        'groupAllowShell',
+      ],
       setup: (props) => () =>
         h('aside', {
           'data-testid': 'team-context-panel',
           'data-group-id': String(props.groupId),
           'data-panel': String(props.panel),
           'data-visible': String(props.visible),
+          'data-group-policy': String(props.groupPolicy),
+          'data-group-allow-shell': String(props.groupAllowShell),
         }),
     }),
   };
@@ -181,6 +193,8 @@ const group: Group = {
   workspace: '/tmp/g1',
   lead: 'm1',
   created: '2026-01-01T00:00:00Z',
+  policy: 'read-only',
+  allow_shell: 1,
 };
 const members = [
   { id: 'm1', group_id: 'g1', name: '甲', host: 'codex', role: 'lead', removed: null },
@@ -286,6 +300,9 @@ describe('group workspace page SSR smoke', () => {
     expect(html).toContain('data-group-id="g1"');
     expect(html).toContain('data-testid="team-context-panel"');
     expect(html).toContain('data-panel="collaboration"');
+    // 群策略与命令开关透传给成员面板，用于调整权限弹窗的上限截断与开关禁用判定。
+    expect(html).toContain('data-group-policy="read-only"');
+    expect(html).toContain('data-group-allow-shell="1"');
     expect(html).toContain('secondary-is-open');
     expect(html).toContain('aria-label="调整二级面板宽度（从右侧拖动）"');
     expect(html).toContain('aria-label="调整右侧栏宽度"');
@@ -310,6 +327,14 @@ describe('group workspace page SSR smoke', () => {
     expect(html).toContain('data-testid="team-trace-workspace"');
     expect(html).toContain('data-mode="trace"');
     expect(html).toContain('data-panel="collaboration"');
+  });
+
+  it('passes unknown group policy and shell flags through as nullish defaults', async () => {
+    const { html } = await render('/groups/g1', {
+      group: ref({ ...group, policy: null, allow_shell: null } as Group),
+    });
+    expect(html).toContain('data-group-policy="null"');
+    expect(html).toContain('data-group-allow-shell="null"');
   });
 
   it('shows the loading card when a team id is present but the team is not resolved', async () => {

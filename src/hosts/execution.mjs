@@ -14,6 +14,23 @@
  * - boundaryUnsupported：某些平台无法保证写边界（Claude / win32）；
  * - noShellReason：未启用 shell 时的降级说明文案（ZCode 与默认文案不同）。
  */
+/**
+ * 浏览器工具位：allowBrowser 只是策略授权，真实是否具备工具由宿主报告 supported。
+ * 未授权、communication 或宿主没检测到工具时一律 false，并给出可读原因（不虚构）。
+ */
+export function browserToolCapability({ effectivePolicy = null, requested = false, supported = false, reason = null } = {}) {
+  if (effectivePolicy === 'communication') {
+    return { toolBrowser: false, browserReason: 'communication 策略下浏览器/Computer Use 工具一律禁用' };
+  }
+  if (requested !== true) {
+    return { toolBrowser: false, browserReason: '成员未获浏览器/Computer Use 授权（allowBrowser=false）' };
+  }
+  if (supported !== true) {
+    return { toolBrowser: false, browserReason: reason ?? '已开启浏览器授权，但当前宿主未检测到可用的浏览器/Computer Use 工具' };
+  }
+  return { toolBrowser: true, browserReason: null };
+}
+
 export function memberExecutionCapabilities(traits = {}, { mode, allowShell, platform = process.platform } = {}) {
   if (mode === 'communication') {
     return { effectivePolicy: 'communication', capabilities: [], reason: '仅允许团队通信' };

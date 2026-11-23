@@ -8,6 +8,15 @@ import { ROUTING_CAPABILITY_ENUM } from '../hosts/capability-routing.mjs';
  * 共用同一组属性名与枚举,未知能力 ID 在 validateToolValue 阶段即报参数无效。
  * 旧 file.* 别名保留在枚举里,服务层按规范归一化到 exec.*。
  */
+/** 权限调整确认卡文案:只描述本次显式调整的字段,缺省字段保留成员当前值。 */
+export function memberPolicyCardText(target, patch) {
+  const parts = [];
+  if (Object.hasOwn(patch, 'policyCeiling')) parts.push(`策略上限 ${patch.policyCeiling ?? '继承群策略'}`);
+  if (Object.hasOwn(patch, 'allowShell')) parts.push(`命令 ${patch.allowShell === null ? '继承群策略' : patch.allowShell ? '允许' : '禁用'}`);
+  if (Object.hasOwn(patch, 'allowBrowser')) parts.push(`浏览器/Computer Use ${patch.allowBrowser ? '允许' : '禁用'}`);
+  return `请求调整成员 ${target.name} 的权限：${parts.join('、')}`;
+}
+
 export const dispatchRequirementProperties = {
   requiredCapabilities: {
     type: 'array',
