@@ -208,6 +208,7 @@ export interface Overview {
   modelPolicy: ModelPolicy;
   modelPolicyDefaults: ModelPolicyDefaults;
   groupStates: GroupStateRow[];
+  runningByGroup?: Record<string, number>;
 }
 
 export interface Snapshot extends Overview {

@@ -37,11 +37,11 @@ export async function installDshDesktopIntegration(store, {
 } = {}) {
   if (!socketPath) throw new Error('桌面接入安装需要总线 socket 路径');
   const detected = detections?.find?.(item => item.kind === 'dsh' && item.found);
-  if (!detected) throw new Error('未检测到 DSH Desktop 安装;请先安装桌面应用再接入');
+  if (!detected) throw new Error('未检测到 DeepSeek Harness Desktop 安装;请先安装桌面应用再接入');
 
   const identity = createExternalIdentity(store, {
     principalName,
-    bindingName: 'DSH Desktop 接入',
+    bindingName: 'DeepSeek Harness Desktop 接入',
     host: 'dsh',
     session: null,
     declared: {
@@ -72,7 +72,7 @@ export async function installDshDesktopIntegration(store, {
       'MCP 子进程不带会话身份:每个桌面会话要用 bind-session 显式绑定后才能执行工具。',
       'Desktop standard preset 的主动唤醒桥未验证;唤醒能力以 control_wake_test 的真实结果为准。',
     ],
-    nextStep: '把 mcpConfig 粘贴进 DSH Desktop Profile 的 MCP 设置;在桌面会话内调用 Agent Team Skill 并用 bind-session 绑定会话。',
+    nextStep: '把 mcpConfig 粘贴进 DeepSeek Harness Desktop Profile 的 MCP 设置;在桌面会话内调用 Agent Team Skill 并用 bind-session 绑定会话。',
   };
 }
 

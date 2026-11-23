@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
 import { buildRunRows, elapsedLabel, runPhaseOf, toolActionLabel } from '@/features/messages/run-rows';
 import type { StreamView } from '@/features/messages/adapters';
 
@@ -62,5 +66,31 @@ describe('run rows', () => {
     expect(elapsedLabel('2026-10-30T00:00:00.000Z', Date.parse('2026-10-30T00:00:12.000Z'))).toBe('12 秒');
     expect(elapsedLabel('2026-10-30T00:00:00.000Z', Date.parse('2026-10-30T00:00:00.400Z'))).toBe('');
     expect(elapsedLabel(null, Date.now())).toBe('');
+  });
+
+  it('propagates memberId and invokes stop callback for header and per-row stop buttons', async () => {
+    setActivePinia(createPinia());
+    const onStop = vi.fn().mockResolvedValue(undefined);
+    const streams = [
+      view({ turnId: 'a', memberId: 'm-lead', message: { ...view().message, id: 'stream:a', senderName: '主控' } }),
+      view({ turnId: 'b', memberId: 'm-worker', message: { ...view().message, id: 'stream:b', senderName: '成员A' } }),
+    ];
+    expect(buildRunRows(streams).map(row => row.memberId)).toEqual(['m-lead', 'm-worker']);
+
+    const wrapper = mount(RunStatusCard, {
+      props: {
+        source: () => streams,
+        onStop,
+      },
+    });
+    await wrapper.get('[data-testid="run-card-stop"]').trigger('click');
+    await flushPromises();
+    expect(onStop).toHaveBeenNthCalledWith(1);
+
+    await wrapper.get('.run-card-toggle').trigger('click');
+    await wrapper.get('[data-stop-member="m-worker"]').trigger('click');
+    await flushPromises();
+    expect(onStop).toHaveBeenCalledWith('m-worker');
+    wrapper.unmount();
   });
 });

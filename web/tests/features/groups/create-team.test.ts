@@ -414,7 +414,7 @@ describe('CreateTeam 异构建群矩阵', () => {
     const summaries = confirm.findAll('[data-testid="member-summary"]');
     expect(summaries).toHaveLength(2);
     expect(summaries[0].text()).toContain('主 Agent');
-    expect(summaries[0].text()).toContain('DSH');
+    expect(summaries[0].text()).toContain('DeepSeek Harness');
     expect(summaries[0].text()).toContain('宿主默认');
     expect(summaries[1].text()).toContain('研发');
     expect(summaries[1].text()).toContain('Codex');
@@ -562,5 +562,52 @@ describe('CreateTeam 异构建群矩阵', () => {
     const wtSwitch = wrapper.find('[data-testid="member-worktree-1"]');
     expect(wtSwitch.attributes('data-state')).toBe('unchecked');
     expect(wtSwitch.attributes()).toHaveProperty('disabled');
+  });
+
+  it('PanelAgentModelSelector 统一展示官方宿主名并将 disabled/none 思考强度本地化为关闭', async () => {
+    const { default: PanelAgentModelSelector } = await import('@/features/panel-agent/PanelAgentModelSelector.vue');
+    const baseForm = { name: '助手', workspace: '/tmp/ws', access: 'read-only' as const };
+    const wrapper = mount(PanelAgentModelSelector, {
+      attachTo: document.body,
+      props: {
+        form: { ...baseForm, host: 'zcode', model_provider: 'glm', model: 'glm-5', reasoning_effort: 'disabled' },
+        hosts: [
+          {
+            host: 'zcode',
+            catalog: {
+              version: 1,
+              host: 'zcode',
+              source: 'test',
+              defaultModel: 'glm/glm-5',
+              models: [{ id: 'glm-5', key: 'glm/glm-5', isDefault: true, label: 'GLM-5', provider: 'glm', reasoningEfforts: [{ id: 'disabled', label: 'disabled' }, { id: 'low', label: 'low' }], defaultReasoningEffort: 'low' }],
+              reasoningEfforts: [],
+            },
+          },
+          {
+            host: 'dsh',
+            catalog: {
+              version: 1,
+              host: 'dsh',
+              source: 'test',
+              defaultModel: 'deepseek/ds-r',
+              models: [{ id: 'ds-r', key: 'deepseek/ds-r', isDefault: true, label: 'DeepSeek R', provider: 'deepseek', reasoningEfforts: [{ id: 'none', label: 'none' }, { id: 'high', label: 'high' }], defaultReasoningEffort: 'high' }],
+              reasoningEfforts: [],
+            },
+          },
+        ],
+      },
+    });
+    await wrapper.find('button').trigger('click');
+    await settle();
+    expect(document.body.textContent).toContain('关闭');
+    expect(document.body.textContent).not.toContain('disabled');
+
+    await wrapper.setProps({
+      form: { ...baseForm, host: 'dsh', model_provider: 'deepseek', model: 'ds-r', reasoning_effort: 'none' },
+    });
+    await settle();
+    expect(document.body.textContent).toContain('DeepSeek Harness');
+    expect(document.body.textContent).toContain('关闭');
+    wrapper.unmount();
   });
 });

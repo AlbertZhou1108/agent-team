@@ -161,6 +161,24 @@ const { activeStreams: activeTeamStreaming } = useTeamStream({
   rows: () => messagesQuery.rows.value,
   refetch: () => messagesQuery.refetch(),
 });
+// 左侧团队列表运行指示：聚合全量 homeQuery 与当前团队实时流，当前团队零延迟响应。
+const sidebarRunningByGroup = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = { ...homeRunningByGroup.value };
+  if (groupId.value) {
+    const streamTurns = new Set(activeTeamStreaming.value.map(item => item.turnId || item.id)).size;
+    counts[groupId.value] = Math.max(runningEndpoints.value.length, streamTurns);
+  }
+  return counts;
+});
+async function stopTeamRun(memberId?: string) {
+  if (!groupId.value) return;
+  try {
+    await api.stopTeam(groupId.value, memberId);
+    await refreshResources();
+  } catch (error) {
+    toast.error('停止运行失败', { description: error instanceof Error ? error.message : String(error) });
+  }
+}
 // 流视图以取值函数交给消息流:token 级更新只重渲染流式子组件,不波及已定稿消息。
 const readTeamStreamViews = () => toStreamMessageViews(
   messageViews.value,
@@ -401,6 +419,7 @@ function onMemberPolicySaved() {
       :settings-active="isSettingsRoute"
       :group-unread-by-team="unreadIndex.groupByTeam?.value"
       :activity-by-team="unreadIndex.activityByTeam?.value"
+      :running-by-group="sidebarRunningByGroup"
       @select="selectGroup"
       @create-team="openCreateTeam"
       @archive="archiveTeams"
@@ -485,6 +504,7 @@ function onMemberPolicySaved() {
           @retry="refreshResources(); messagesQuery.refetch()"
           @load-more="messagesQuery.fetchNextPage()"
           :on-reach-bottom="markGroupRead"
+          :on-stop-run="stopTeamRun"
         >
           <template #heading-meta>
             <Badge v-if="currentController" variant="outline">{{ currentController.kind === 'panel_agent' ? 'Panel Agent 主控' : currentController.name === '主 Agent' ? '主 Agent' : currentController.name + ' · 主 Agent' }}</Badge>

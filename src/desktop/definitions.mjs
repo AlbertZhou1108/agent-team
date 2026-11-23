@@ -131,7 +131,7 @@ export const DESKTOP_DEFINITIONS = new Map([
     engineVersionArgs: ['--version'],
   }],
   ['dsh', {
-    label: 'DSH',
+    label: 'DeepSeek Harness',
     bundleCandidates: context => {
       const roots = rootsOf(context);
       if (context.platform === 'darwin') {

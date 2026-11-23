@@ -33,5 +33,7 @@ export interface MessageFeedProps {
   contentClass?: string;
   /** 可选群 ID：用于对话气泡内 Markdown/源码路径筹码的受控只读预览。 */
   groupId?: string;
+  /** 可选停止回调：供运行状态卡中止整队或指定成员的运行中回合。 */
+  onStopRun?: (memberId?: string) => Promise<void> | void;
 
 }

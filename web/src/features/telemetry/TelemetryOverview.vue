@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 
 import type { TelemetryMetrics } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import { compactNumber } from './visuals';
 type Team = { id:string;name:string;status:string;batchCount:number;metrics:TelemetryMetrics;expectedTurns:number;tokenBatches:number };
 type Distribution = {id:string;name:string;batchCount:number;metrics:TelemetryMetrics};
@@ -131,7 +132,7 @@ function time(value:string){return new Date(value).toLocaleString(undefined,days
           <div class="flex justify-between text-xs text-muted-foreground"><span>{{time(data.series[0]!.from)}}</span><span>{{time(data.series.at(-1)!.to)}}</span></div>
         </CardContent></Card>
         <TelemetryDistribution title="团队消耗" :rows="data.teams" :selected="filters.team" @select="id=>filter('team',id,data!.teams.find(t=>t.id===id)!.name)" />
-        <TelemetryDistribution title="宿主分布" :rows="data.hosts ?? []" :selected="filters.host" @select="id=>filter('host',id,data!.hosts.find(t=>t.id===id)!.name)" />
+        <TelemetryDistribution title="宿主分布" :rows="(data.hosts ?? []).map(row => ({ ...row, name: hostDisplayLabel(row.name) }))" :selected="filters.host" @select="id=>filter('host',id,hostDisplayLabel(data!.hosts.find(t=>t.id===id)!.name))" />
         <TelemetryDistribution title="模型排行" :rows="data.models ?? []" :selected="filters.model" @select="id=>filter('model',id,data!.models.find(t=>t.id===id)!.name)" />
       </div>
       <Card size="md"><CardHeader><CardTitle>消耗构成</CardTitle></CardHeader><CardContent class="flex flex-col gap-4">

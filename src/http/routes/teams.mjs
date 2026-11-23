@@ -88,6 +88,26 @@ export function teamsRoutes(context) {
             snapshot: groupId => bus.teamStreaming(groupId),
             forward: (event, groupId) => event.stream?.groupId === groupId,
         }),
+        { methods: ['POST'], archived: false, matches: url => /^\/api\/teams\/[^/]+\/stop$/.test(url.pathname), handle: async () => {
+            if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return fail(415, '需要 application/json');
+            const body = await readJsonBody(request);
+            if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'memberId')) return fail(400, '停止运行参数无效');
+            const memberId = body.memberId === undefined ? null : typeof body.memberId === 'string' && body.memberId.trim() ? body.memberId.trim() : undefined;
+            if (memberId === undefined) return fail(400, 'memberId 必须为非空字符串');
+            const groupId = decodeURIComponent(url.pathname.split('/')[3]);
+            bus.store.group(groupId);
+            if (memberId) {
+                const isMember = Boolean(bus.store.get('SELECT id FROM members WHERE id=? AND group_id=?', memberId, groupId));
+                const isPanelAgent = bus.panelAgent()?.id === memberId;
+                if (!isMember && !isPanelAgent) return fail(404, '成员不存在');
+            }
+            const stopped = await bus.stopWhere(endpoint => (
+                endpoint.group_id === groupId
+                && !['private', 'home-summary', 'archive-summary'].includes(endpoint.context)
+                && (!memberId || (endpoint.owner_kind === 'panel_agent' ? endpoint.panel_agent_id : endpoint.member_id) === memberId)
+            ));
+            return { groupId, memberId, stopped };
+        } },
         { methods: ["GET", "POST"], archived: false, matches: url => (/^\/api\/teams\/([^/]+)\/directives$/.test(url.pathname)), handle: async () => {
                 let value;
                 const groupId = decodeURIComponent(directiveMatch[1]);

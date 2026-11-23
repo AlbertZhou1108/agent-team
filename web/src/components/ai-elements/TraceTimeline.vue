@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import PanelState from '@/components/panel/PanelState.vue';
 import { buildTurns } from '@/features/traces/reducer';
 import type { HistoryRow, TurnSummary } from '@/shared/api/raw-types';
-import type { Host } from '@/shared/models/view-types';
 import TurnTraceSection from './TurnTraceSection.vue';
 import TraceStepCard from './TraceStepCard.vue';
 
@@ -31,7 +30,7 @@ const emit = defineEmits<{ loadMore: [] }>();
 const unaffiliatedSteps = computed(() => {
   if (!props.unaffiliated.length || !props.endpointId) return [];
   const [view] = buildTurns(props.unaffiliated, {
-    hosts: { [props.endpointId]: (props.host ?? 'unknown') as Host },
+    hosts: { [props.endpointId]: props.host ?? 'unknown' },
   });
   return view?.steps ?? [];
 });

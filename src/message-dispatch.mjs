@@ -499,6 +499,7 @@ export class MessageDispatch {
     const active = [...this.bus.running.values()].filter(({ endpoint }) => predicate(endpoint));
     for (const { abort } of active) abort.abort();
     await Promise.allSettled(active.map(item => item.done));
+    return active.length;
   }
   retry(groupId) { this.bus.collaboration.requireCommunication(groupId); messagesAgg.resetDeliveryErrorsForGroup(this.bus.store, groupId); this.bus.pump(); return { retryRequested: true }; }
   resetSession(endpointId, reason, sessionKey = null) {

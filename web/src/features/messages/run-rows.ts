@@ -5,6 +5,7 @@ import type { StreamView } from './adapters';
 export type RunRow = {
   key: string;
   name: string;
+  memberId?: string;
   phase: StreamPhase;
   tool: StreamTool | null;
   /** 该回合最早的流创建时间,用于计时;缺失时不显示时长。 */
@@ -84,6 +85,7 @@ export function buildRunRows(views: StreamView[]): RunRow[] {
     return {
       key,
       name: primary.message.senderName,
+      memberId: primary.memberId,
       phase,
       tool: phase === 'tool' ? primary.tool ?? null : null,
       startedAt: list

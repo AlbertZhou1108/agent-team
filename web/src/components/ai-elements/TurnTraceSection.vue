@@ -10,7 +10,7 @@ import { buildTurns, serverStatus } from '@/features/traces/reducer';
 import { useTurnTraceQuery } from '@/features/queries';
 import { queryKeys } from '@/features/query-keys';
 import type { TurnSummary } from '@/shared/api/raw-types';
-import type { Host, TurnStatus } from '@/shared/models/view-types';
+import type { TurnStatus } from '@/shared/models/view-types';
 import TraceStepCard from './TraceStepCard.vue';
 
 /**
@@ -44,7 +44,7 @@ const statusMeta = computed(() => {
 const steps = computed(() => {
   if (!trace.value) return [];
   const [view] = buildTurns(query.events.value, {
-    hosts: { [props.endpointId]: (trace.value.turn.host ?? 'unknown') as Host },
+    hosts: { [props.endpointId]: trace.value.turn.host ?? 'unknown' },
     // 状态与事件数以回合摘要为准:事件按页返回,超长回合的结束事件可能不在已加载页里。
     turn: { state: props.turn.state, eventCount: props.turn.eventCount },
   });

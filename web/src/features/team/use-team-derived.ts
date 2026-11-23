@@ -181,7 +181,7 @@ export function useTeamDerived(
               : undefined;
           return [endpoint.id, member?.host ?? panelHost ?? 'unknown'];
         }),
-      ) as Record<string, 'codex' | 'claude' | 'dsh' | 'zcode' | 'unknown'>,
+      ) as Record<string, string>,
   );
 
   // 回合摘要正序(旧→新,服务端即升序):从第一回合起展示,「加载更多回合」取靠后的回合。

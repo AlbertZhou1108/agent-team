@@ -1,4 +1,5 @@
 import type { HistoryRow } from '@/shared/api/raw-types';
+import { normalizeTraceHost } from '@/shared/models/host-labels';
 import type {
   Host,
   StepKind,
@@ -62,7 +63,7 @@ function textOf(value: unknown) {
   }
 }
 
-function parseRows(rows: HistoryRow[], hosts: Record<string, Host>): ParsedRow[] {
+function parseRows(rows: HistoryRow[], hosts: Record<string, string>): ParsedRow[] {
   return rows.map(row => {
     let payload: Payload | null = null;
     try {
@@ -70,7 +71,7 @@ function parseRows(rows: HistoryRow[], hosts: Record<string, Host>): ParsedRow[]
     } catch {
       payload = null;
     }
-    return { ...row, payload, host: hosts[row.conversation_id] ?? 'unknown' };
+    return { ...row, payload, host: normalizeTraceHost(hosts[row.conversation_id]) };
   });
 }
 
@@ -396,7 +397,7 @@ export function serverStatus(state: string | undefined): TurnStatus {
 export function buildTurns(
   rows: HistoryRow[],
   options: {
-    hosts?: Record<string, Host>;
+    hosts?: Record<string, string>;
     running?: boolean;
     /**
      * 回合级事实。事件接口按页返回,超长回合的 turn_end 可能不在本页里:

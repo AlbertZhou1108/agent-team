@@ -11,6 +11,7 @@ import {
   hostCardModel,
   hostDisplayLabel,
 } from '@/features/settings/hosts/host-view-model';
+import { normalizeTraceHost } from '@/shared/models/host-labels';
 
 const available: DesktopApplicationStatus = {
   kind: 'codex', label: 'Codex', installed: true, state: 'available', reason: null,
@@ -60,14 +61,25 @@ describe('host view model', () => {
   it('uses one display name for CLI and desktop hosts', () => {
     expect(hostDisplayLabel('codex')).toBe('Codex');
     expect(hostDisplayLabel('claude')).toBe('Claude Code');
-    expect(hostDisplayLabel('dsh')).toBe('DSH');
+    expect(hostDisplayLabel('dsh')).toBe('DeepSeek Harness');
     expect(hostDisplayLabel('zcode')).toBe('ZCode');
+    expect(hostDisplayLabel('workbuddy')).toBe('WorkBuddy');
     expect(hostDisplayLabel('codex-desktop')).toBe('Codex 桌面应用');
     expect(hostDisplayLabel('claude-desktop')).toBe('Claude 桌面应用');
-    expect(hostDisplayLabel('dsh-desktop')).toBe('DSH 桌面应用');
+    expect(hostDisplayLabel('dsh-desktop')).toBe('DeepSeek Harness 桌面应用');
     expect(hostDisplayLabel('zcode-desktop')).toBe('ZCode 桌面应用');
     expect(hostDisplayLabel('custom')).toBe('custom');
     expect(hostDisplayLabel()).toBe('未选择');
+  });
+
+  it('normalizes desktop host aliases for trace parsing while keeping unknown hosts isolated', () => {
+    expect(normalizeTraceHost('codex-desktop')).toBe('codex');
+    expect(normalizeTraceHost('claude-desktop')).toBe('claude');
+    expect(normalizeTraceHost('dsh-desktop')).toBe('dsh');
+    expect(normalizeTraceHost('zcode-desktop')).toBe('zcode');
+    expect(normalizeTraceHost('codex')).toBe('codex');
+    expect(normalizeTraceHost('custom-desktop')).toBe('unknown');
+    expect(normalizeTraceHost(null)).toBe('unknown');
   });
 
   it('maps missing and error CLI hosts to needs-config', () => {

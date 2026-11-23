@@ -229,6 +229,12 @@ export const api = {
   sendTeamDirective(groupId: string, body: { text: string; operationId: string; controllerId: string }) {
     return mutate<TeamDirectiveReceipt>(`/api/teams/${encodeURIComponent(groupId)}/directives`, body);
   },
+  stopTeam(groupId: string, memberId?: string) {
+    return mutate<{ groupId: string; memberId: string | null; stopped: number }>(
+      `/api/teams/${encodeURIComponent(groupId)}/stop`,
+      memberId ? { memberId } : {},
+    );
+  },
   collaboration(group: string, signal?: AbortSignal) {
     return request<GroupCommunicationSummary>(query('/api/collaboration', { group }), signal);
   },

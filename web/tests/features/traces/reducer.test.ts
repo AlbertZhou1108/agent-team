@@ -171,4 +171,35 @@ describe('buildTurns', () => {
     expect(once[0].steps).toHaveLength(1);
     expect(once[0].steps[0].sourceEvents).toEqual([199, 201]);
   });
+
+  it('normalizes desktop host aliases to their base trace parser while preserving unknown hosts', () => {
+    const codexTurns = buildTurns([
+      row(1, 't-codex', {
+        method: 'item/completed',
+        params: { item: { id: 'cmd1', type: 'commandExecution', command: 'git status', exitCode: 0 } },
+      }),
+    ], { hosts: { endpoint: 'codex-desktop' } });
+    expect(codexTurns[0].steps.filter(step => step.kind === 'unknown')).toHaveLength(0);
+    expect(codexTurns[0].steps[0]).toMatchObject({ kind: 'terminal', status: 'success', title: 'git status' });
+
+    const claudeTurns = buildTurns([
+      row(2, 't-claude', {
+        type: 'assistant',
+        message: { content: [{ type: 'thinking', thinking: '检查改动' }] },
+      }),
+    ], { hosts: { endpoint: 'claude-desktop' } });
+    expect(claudeTurns[0].steps.filter(step => step.kind === 'unknown')).toHaveLength(0);
+    expect(claudeTurns[0].steps[0]).toMatchObject({ kind: 'reasoning' });
+
+    const dshTurns = buildTurns([
+      row(3, 't-dsh', { type: 'thinking', text: '分析步骤' }),
+    ], { hosts: { endpoint: 'dsh-desktop' } });
+    expect(dshTurns[0].steps.filter(step => step.kind === 'unknown')).toHaveLength(0);
+    expect(dshTurns[0].steps[0]).toMatchObject({ kind: 'reasoning' });
+
+    const unknownTurns = buildTurns([
+      row(4, 't-custom', { method: 'custom/unknown', params: {} }),
+    ], { hosts: { endpoint: 'custom-desktop' } });
+    expect(unknownTurns[0].steps[0]).toMatchObject({ kind: 'unknown', title: '未识别事件' });
+  });
 });

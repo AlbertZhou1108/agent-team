@@ -63,7 +63,16 @@ export class BusQueries {
         user: DEFAULT_USER_MODEL_RULES,
       },
       groupStates: this.bus.store.all('SELECT id,state,charter,policy,allow_shell FROM groups'),
+      runningByGroup: this.runningByGroup(),
     };
+  }
+  runningByGroup() {
+    const counts = {};
+    for (const { endpoint } of this.bus.running.values()) {
+      if (!endpoint.group_id || ['private', 'home-summary', 'archive-summary'].includes(endpoint.context)) continue;
+      counts[endpoint.group_id] = (counts[endpoint.group_id] ?? 0) + 1;
+    }
+    return counts;
   }
   queryDirectory() {
     const panelAgent = this.bus.panelAgent();
@@ -166,6 +175,9 @@ export class BusQueries {
     for (const key of ['groups', 'groupStates', 'panelTeams']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.id));
     for (const key of ['members', 'endpoints', 'agentTasks']) if (Array.isArray(value[key])) value[key] = value[key].filter(row => activeIds.has(row.group_id));
     if (value.endpoints) { const ids = new Set(value.endpoints.map(row => row.id)); value.sessionBindings = value.sessionBindings.filter(row => ids.has(row.endpoint_id)); value.runningEndpoints = value.runningEndpoints.filter(id => ids.has(id)); }
+    if (value.runningByGroup && typeof value.runningByGroup === 'object') {
+      value.runningByGroup = Object.fromEntries(Object.entries(value.runningByGroup).filter(([id]) => activeIds.has(id)));
+    }
     return value;
   }
   activeGroups() {

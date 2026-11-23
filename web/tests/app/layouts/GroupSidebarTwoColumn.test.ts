@@ -232,10 +232,28 @@ describe('TeamSecondaryPanel 新设计：固定排序、全分组折叠、最近
     await folderTriggers[1]!.trigger('click');
     expect(org.folders.find(f => f.id === fFe)?.collapsed).toBe(false);
 
-    // 最近访问在「全部」标签页可见且带横向滚动条。
+    // 最近访问在「全部」标签页可见且保持横向滚动（隐藏原生滚动条轨道）。
     const recentStrip = panel.get('.recent-teams-strip');
     expect(recentStrip.classes()).toContain('overflow-x-auto');
-    expect(recentStrip.classes()).toContain('scrollbar-thin');
+    expect(recentStrip.classes()).not.toContain('scrollbar-thin');
+  });
+
+  it('团队运行期间在侧栏卡片展示运行指示点，停止后消失', async () => {
+    const org = useTeamOrganization();
+    org.expandSection('ungrouped');
+    const wrapper = mountSidebar({
+      runningByGroup: { 'g-root-1': 2 },
+    } as Record<string, unknown>);
+    const panel = wrapper.get('[data-testid="team-secondary-panel"]');
+    const runningCard = panel.get('[data-team-id="g-root-1"]');
+    const dot = runningCard.find('[data-testid="team-running-dot"]');
+    expect(dot.exists()).toBe(true);
+    expect(dot.attributes('data-running-count')).toBe('2');
+    expect(panel.get('[data-team-id="g-root-2"]').find('[data-testid="team-running-dot"]').exists()).toBe(false);
+
+    await wrapper.setProps({ runningByGroup: { 'g-root-1': 0 } });
+    await nextTick();
+    expect(runningCard.find('[data-testid="team-running-dot"]').exists()).toBe(false);
   });
 
   it('最近访问随切换团队即时更新顺序、最多保留 9 个且过滤已归档团队', async () => {

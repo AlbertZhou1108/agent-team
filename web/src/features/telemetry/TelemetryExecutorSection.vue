@@ -10,6 +10,7 @@ import type {
   TelemetryMetrics,
   TelemetrySessionTelemetry,
 } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import TelemetryMetricGrid from './TelemetryMetricGrid.vue';
 import TelemetryContextSection from './TelemetryContextSection.vue';
 import { formatTimestamp, sessionStatusLabel } from './format';
@@ -32,7 +33,7 @@ defineProps<{
     <header class="flex min-w-0 flex-col gap-1">
       <h4 class="flex flex-wrap items-center gap-2 text-sm font-semibold">
         <span class="min-w-0 truncate" :title="title ?? executor.name">{{ title ?? executor.name }}</span>
-        <Badge variant="outline">{{ executor.host }}</Badge>
+        <Badge variant="outline">{{ hostDisplayLabel(executor.host) }}</Badge>
         <Badge v-if="!coverage.complete" variant="outline">部分采集</Badge>
         <Badge v-if="executor.kind === 'panel_agent'" variant="secondary"
           >Panel Agent</Badge
@@ -75,7 +76,7 @@ defineProps<{
                 :data-session-id="session.instanceId"
               >
                 <template #summary>
-                  <Badge variant="outline">{{ session.host }}</Badge>
+                  <Badge variant="outline">{{ hostDisplayLabel(session.host) }}</Badge>
                   <Badge variant="secondary">{{
                     sessionStatusLabel(session.status)
                   }}</Badge>

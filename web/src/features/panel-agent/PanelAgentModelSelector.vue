@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Slider } from '@/components/ui/slider';
 import type { ButtonVariants } from '@/components/ui/button';
 import type { CatalogModel } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import type { AvailableHost, PanelAgentForm } from './types';
 
 const props = withDefaults(
@@ -33,8 +34,7 @@ const view = ref<'panel' | 'provider'>('panel');
 // 记住已提交档位,避免拖动过程中重复提交同一档。
 const committedEffort = ref<string | null>(null);
 
-const hostLabels: Record<string, string> = { dsh: 'DeepSeek', claude: 'Claude', codex: 'Codex', zcode: 'ZCode' };
-const hostLabel = (host: string) => hostLabels[host] ?? host;
+const hostLabel = (host: string) => hostDisplayLabel(host);
 
 const selectedHost = computed(() =>
   props.hosts.find((host) => host.host === form.value.host),
@@ -51,6 +51,8 @@ const efforts = computed(() =>
 );
 const effortLabels: Record<string, string> = {
   off: '关闭',
+  disabled: '关闭',
+  none: '关闭',
   low: '低',
   medium: '中',
   high: '高',

@@ -233,6 +233,22 @@ describe('成员能力徽标', () => {
     expect(policyButton.getAttribute('aria-label')).toContain('运行中不可调整');
     wrapper.unmount();
   });
+
+  it('首行仅放成员名与运行状态徽标，官方宿主名与角色标签落入独立元信息行', () => {
+    const wrapper = mountPanel({
+      members: [member({ id: 'm-lead', name: '主控-Codex桌面', host: 'codex-desktop', role: 'lead' })],
+      runningMemberIds: new Set(['m-lead']),
+    });
+    const header = wrapper.get('[data-testid="member-card-header-m-lead"]');
+    const meta = wrapper.get('[data-testid="member-card-meta-m-lead"]');
+    expect(header.classes()).toContain('flex-nowrap');
+    expect(header.text()).toContain('主控-Codex桌面');
+    expect(header.text()).toContain('运行中');
+    expect(header.text()).not.toContain('Codex 桌面应用');
+    expect(meta.text()).toContain('Codex 桌面应用');
+    expect(meta.text()).toContain('主 Agent');
+    wrapper.unmount();
+  });
 });
 
 describe('调整权限弹窗', () => {

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/vue-query';
 import { ArrowLeft, LoaderCircle } from '@lucide/vue';
 import { api } from '@/shared/api/client';
 import type { Group } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Disclosure } from '@/components/ui/disclosure';
@@ -81,7 +82,7 @@ async function followSource(event: MouseEvent) {
       <Disclosure>
         <template #summary>团队与任务清单</template>
         <p v-if="snapshot.facts.group.charter" class="whitespace-pre-wrap break-words">{{ snapshot.facts.group.charter }}</p>
-        <p v-for="member in snapshot.facts.members" :key="member.id">{{ member.name }} · {{ member.host }}{{ member.removed ? ' · 已移除' : '' }}</p>
+        <p v-for="member in snapshot.facts.members" :key="member.id">{{ member.name }} · {{ hostDisplayLabel(member.host) }}{{ member.removed ? ' · 已移除' : '' }}</p>
         <div v-for="task in snapshot.facts.tasks" :key="task.owner_id" class="flex flex-col gap-1">
           <strong class="text-sm">{{ name(task.owner_id) }} · 成员自述</strong>
           <p v-for="(item, index) in task.tasks" :key="index" class="break-words text-sm">{{ taskLabels[item.state] }} · {{ item.text }}</p>

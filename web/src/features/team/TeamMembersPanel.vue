@@ -10,6 +10,7 @@ import { useMembersTelemetryQuery } from '@/features/queries';
 import { isPolicyMode } from '@/features/groups/create-team-model';
 import { compactNumber, numeric, ratioPercent } from '@/features/telemetry/visuals';
 import type { Member, SessionEndpoint } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import MemberPolicyDialog from './MemberPolicyDialog.vue';
 import MemberWorktreeDialog from './MemberWorktreeDialog.vue';
 
@@ -155,33 +156,37 @@ function modelSummary(member: Member): string {
         class="gap-2 p-3"
         :data-testid="`member-card-${member.id}`"
       >
-        <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-          <h4 class="min-w-0 truncate text-sm font-semibold text-foreground" :title="member.name">
+        <div class="flex min-w-0 flex-nowrap items-center justify-between gap-2" :data-testid="`member-card-header-${member.id}`">
+          <h4 class="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" :title="member.name">
             {{ member.name }}
           </h4>
-          <Badge variant="secondary" size="xs" class="shrink-0 font-mono">
-            {{ member.host }}
-          </Badge>
-          <Badge
-            v-if="member.role === 'lead' && member.name !== '主 Agent'"
-            variant="outline"
-            class="shrink-0"
-          >
-            主 Agent
-          </Badge>
           <Badge
             v-if="pausedMemberIds?.has(member.id)"
             variant="outline"
-            class="ms-auto shrink-0"
+            class="shrink-0"
           >
             原主 Agent · 暂停
           </Badge>
           <Badge
             v-else-if="runningMemberIds.has(member.id)"
             variant="secondary"
-            class="ms-auto shrink-0"
+            class="shrink-0"
           >
             <Radio />运行中
+          </Badge>
+        </div>
+
+        <div class="flex min-w-0 flex-wrap items-center gap-1.5" :data-testid="`member-card-meta-${member.id}`">
+          <Badge variant="secondary" size="xs" class="shrink-0">
+            {{ hostDisplayLabel(member.host) }}
+          </Badge>
+          <Badge
+            v-if="member.role === 'lead' && member.name !== '主 Agent'"
+            variant="outline"
+            size="xs"
+            class="shrink-0"
+          >
+            主 Agent
           </Badge>
         </div>
 

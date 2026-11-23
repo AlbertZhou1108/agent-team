@@ -64,7 +64,7 @@ describe('host integration panel', () => {
     const text = wrapper.text();
     expect(text).toContain('Codex 桌面应用');
     expect(text).toContain('Claude 桌面应用');
-    expect(text).toContain('DSH 桌面应用');
+    expect(text).toContain('DeepSeek Harness 桌面应用');
     expect(text).toContain('ZCode 桌面应用');
     expect(text).toContain('桌面应用已检测 · 内置引擎可用');
 

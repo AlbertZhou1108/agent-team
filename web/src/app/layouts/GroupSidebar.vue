@@ -48,6 +48,7 @@ const props = withDefaults(
     secondaryOpen?: boolean;
     groupUnreadByTeam?: ReadonlyMap<string, number>;
     activityByTeam?: ReadonlyMap<string, number>;
+    runningByGroup?: Record<string, number>;
   }>(),
   {
     members: () => [],
@@ -451,6 +452,7 @@ function fixedTitle(id: PrimaryNavId): string {
         :current-group-id="currentGroupId"
         :group-unread-by-team="groupUnreadByTeam"
         :activity-by-team="activityByTeam"
+        :running-by-group="runningByGroup"
         @select="handleSelectTeam"
         @create-team="emit('createTeam')"
         @archive="emit('archive', $event)"

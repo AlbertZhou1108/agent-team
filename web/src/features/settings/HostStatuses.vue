@@ -75,7 +75,7 @@ async function install(host: HostStatus) {
         <h3 id="host-status-title" class="text-sm font-semibold">适配器状态</h3>
         <HelpPopover title="适配器状态">
           <p>检测范围：运行服务的机器上，能否通过适配器与宿主通信；检测不会发送模型消息。</p>
-          <p>安装方式：Codex、DSH 使用 npm 全局安装；Claude Code 使用官方安装脚本；ZCode 随桌面应用分发，不可自动安装。</p>
+          <p>安装方式：Codex、DeepSeek Harness 使用 npm 全局安装；Claude Code 使用官方安装脚本；ZCode 随桌面应用分发，不可自动安装。</p>
           <p>后续配置：登录、API Key 和模型配置需在对应 CLI 中完成，已安装不代表已完成配置。</p>
         </HelpPopover>
       </div>

@@ -10,8 +10,6 @@ import { useMessageTraceQuery } from '@/features/messages/trace-query';
 import type { TurnStatus } from '@/shared/models/view-types';
 import TraceStepCard from './TraceStepCard.vue';
 
-type Host = 'codex' | 'claude' | 'dsh' | 'zcode' | 'unknown';
-
 /**
  * 气泡上方的行内执行轨迹（无外框折叠列表，先轨迹、后正文）。
  * 开关归外层触发条（见 MessageFeed），收起时零占位，展开才按消息段拉取事件并铺开步骤。
@@ -44,7 +42,7 @@ const turns = computed(() => {
   const endpointId = turn.value?.endpoint_id ?? '';
   // 宿主以回合自身为准:会话列表是右侧栏按需加载的,拿不到时会把全部事件
   // 判成 unknown 而退化成"未识别事件"。props.hosts 只在服务端缺失时兜底。
-  const host = (turn.value?.host ?? props.hosts[endpointId] ?? 'unknown') as Host;
+  const host = turn.value?.host ?? props.hosts[endpointId] ?? 'unknown';
   return buildTurns(segment.value.events, {
     hosts: { [endpointId]: host },
     // 段只覆盖这条消息的产出过程,不含回合结束事件;状态取服务端记录。

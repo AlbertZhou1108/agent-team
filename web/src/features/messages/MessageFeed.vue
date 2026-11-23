@@ -215,6 +215,7 @@ const messageIds = computed(() => {
         :source="readStreamViews"
         :selected-key="selectedRunKey"
         :group-names="groupNames"
+        :on-stop="onStopRun"
         @select="selectedRunKey = $event"
       />
       <slot name="bar-bottom" />

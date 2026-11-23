@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { api } from '@/shared/api/client';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import { PLUGIN_SEARCH_CONTEXT_KEY } from '@/plugins/types';
 import {
   Dialog,
@@ -104,7 +105,7 @@ const entries = computed(() => [
       id: m.id,
       label: m.name,
       path: `/groups/${encodeURIComponent(m.group_id)}`,
-      keywords: `成员 ${m.host}`,
+      keywords: `成员 ${hostDisplayLabel(m.host)} ${m.host}`,
     })),
 ]);
 const shortcuts = computed(() =>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ComponentPublicInstance } from 'vue';
+import { nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue';
 import {
   Archive,
   ChevronDown,
@@ -30,6 +30,7 @@ const props = withDefaults(
     currentGroupId?: string;
     groupUnreadByTeam?: ReadonlyMap<string, number>;
     activityByTeam?: ReadonlyMap<string, number>;
+    runningByGroup?: Record<string, number>;
   }>(),
   {
     members: () => [],
@@ -134,6 +135,41 @@ function folderHeadingRef(id: string) {
   return stableRef(`folder-heading:${id}`, (el, prev) => bindFolderHeading(id, el, prev));
 }
 
+function runningFor(teamId: string): number {
+  return props.runningByGroup?.[teamId] ?? 0;
+}
+
+const recentStripRef = ref<HTMLElement | null>(null);
+const recentOverflowEnd = ref(false);
+let recentStripObserver: ResizeObserver | null = null;
+
+function syncRecentOverflow() {
+  const el = recentStripRef.value;
+  if (!el) {
+    recentOverflowEnd.value = false;
+    return;
+  }
+  recentOverflowEnd.value = el.scrollWidth > el.clientWidth + 1 && el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+}
+
+watch(recentStripRef, (el, prev) => {
+  if (prev && recentStripObserver) recentStripObserver.unobserve(prev);
+  if (el && typeof ResizeObserver !== 'undefined') {
+    if (!recentStripObserver) recentStripObserver = new ResizeObserver(syncRecentOverflow);
+    recentStripObserver.observe(el);
+  }
+  void nextTick(syncRecentOverflow);
+});
+
+watch(() => recentList.value.length, () => {
+  void nextTick(syncRecentOverflow);
+});
+
+onBeforeUnmount(() => {
+  recentStripObserver?.disconnect();
+  recentStripObserver = null;
+});
+
 </script>
 
 <template>
@@ -230,12 +266,15 @@ function folderHeadingRef(id: string) {
       </TabsList>
     </Tabs>
 
-    <!-- 最近访问（仅在「全部」标签页出现；横向滚动，复用项目共享滚动条） -->
+    <!-- 最近访问（仅在「全部」标签页出现；横向滚动隐藏轨道，右侧溢出时渐隐） -->
     <div v-if="segment === 'all' && !hasQuery && recentList.length" class="mt-3 px-1">
       <div class="text-2xs font-medium text-muted-foreground">最近访问</div>
       <div
-        class="recent-teams-strip scrollbar-thin mt-1.5 flex items-center gap-2 overflow-x-auto pb-1.5"
+        ref="recentStripRef"
+        class="recent-teams-strip mt-1.5 flex items-center gap-2 overflow-x-auto pb-0.5"
+        :data-overflow-end="recentOverflowEnd ? 'true' : undefined"
         aria-label="最近访问团队"
+        @scroll="syncRecentOverflow"
       >
         <Tooltip v-for="team in recentList" :key="team.id">
           <TooltipTrigger as-child>
@@ -357,7 +396,17 @@ function folderHeadingRef(id: string) {
                   aria-hidden="true"
                 >{{ team.name.slice(0, 1) }}</span>
                 <span class="min-w-0 flex-1 text-left">
-                  <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                  <span class="flex items-center gap-1.5">
+                    <span class="min-w-0 truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                    <span
+                      v-if="runningFor(team.id) > 0"
+                      class="team-card-running-dot animate-pulse"
+                      data-testid="team-running-dot"
+                      :data-running-count="runningFor(team.id)"
+                      :title="`运行中（${runningFor(team.id)} 路）`"
+                      :aria-label="`运行中（${runningFor(team.id)} 路）`"
+                    />
+                  </span>
                   <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
                     {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
                   </span>
@@ -460,7 +509,17 @@ function folderHeadingRef(id: string) {
                     aria-hidden="true"
                   >{{ team.name.slice(0, 1) }}</span>
                   <span class="min-w-0 flex-1 text-left">
-                    <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                    <span class="flex items-center gap-1.5">
+                      <span class="min-w-0 truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                      <span
+                        v-if="runningFor(team.id) > 0"
+                        class="team-card-running-dot animate-pulse"
+                        data-testid="team-running-dot"
+                        :data-running-count="runningFor(team.id)"
+                        :title="`运行中（${runningFor(team.id)} 路）`"
+                        :aria-label="`运行中（${runningFor(team.id)} 路）`"
+                      />
+                    </span>
                     <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
                       {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
                     </span>
@@ -547,7 +606,17 @@ function folderHeadingRef(id: string) {
                   aria-hidden="true"
                 >{{ team.name.slice(0, 1) }}</span>
                 <span class="min-w-0 flex-1 text-left">
-                  <span class="block truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                  <span class="flex items-center gap-1.5">
+                    <span class="min-w-0 truncate text-sm font-medium leading-tight text-foreground">{{ team.name }}</span>
+                    <span
+                      v-if="runningFor(team.id) > 0"
+                      class="team-card-running-dot animate-pulse"
+                      data-testid="team-running-dot"
+                      :data-running-count="runningFor(team.id)"
+                      :title="`运行中（${runningFor(team.id)} 路）`"
+                      :aria-label="`运行中（${runningFor(team.id)} 路）`"
+                    />
+                  </span>
                   <span class="mt-0.5 block truncate text-2xs text-muted-foreground">
                     {{ memberCountFor(team.id) }} 位成员 · {{ activeLabelFor(team) }}
                   </span>

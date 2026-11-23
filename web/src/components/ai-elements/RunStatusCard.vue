@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Brain } from '@lucide/vue';
+import { Brain, Square } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
 import { identityColor } from '@/features/messages/identity';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
@@ -23,8 +23,37 @@ const props = defineProps<{
   source: () => StreamView[];
   selectedKey?: string | null;
   groupNames?: Record<string, string>;
+  onStop?: (memberId?: string) => Promise<void> | void;
 }>();
 const emit = defineEmits<{ select: [key: string] }>();
+
+const stoppingAll = ref(false);
+const stoppingMemberIds = ref<Set<string>>(new Set());
+
+async function handleStop(memberId?: string) {
+  if (!props.onStop) return;
+  if (!memberId) {
+    if (stoppingAll.value) return;
+    stoppingAll.value = true;
+    try {
+      await props.onStop();
+    } finally {
+      stoppingAll.value = false;
+    }
+    return;
+  }
+  if (stoppingAll.value || stoppingMemberIds.value.has(memberId)) return;
+  const next = new Set(stoppingMemberIds.value);
+  next.add(memberId);
+  stoppingMemberIds.value = next;
+  try {
+    await props.onStop(memberId);
+  } finally {
+    const after = new Set(stoppingMemberIds.value);
+    after.delete(memberId);
+    stoppingMemberIds.value = after;
+  }
+}
 
 const preferences = usePreferencesStore();
 // 计时每秒推进一次;只在卡片存在期间运行,卸载即停止。
@@ -89,6 +118,19 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
       <span v-if="headerPhase" class="run-phase">{{ headerPhase }}</span>
       <span v-if="headerElapsed" class="run-time tabular-nums">{{ headerElapsed }}</span>
       <button
+        v-if="onStop"
+        type="button"
+        class="run-card-stop"
+        :disabled="stoppingAll || (single?.memberId ? stoppingMemberIds.has(single.memberId) : false)"
+        :aria-label="single ? `停止 ${single.name}` : '停止全部运行中成员'"
+        :title="single ? `停止 ${single.name}` : '停止全部'"
+        data-testid="run-card-stop"
+        @click="handleStop(single?.memberId)"
+      >
+        <Square class="size-3 fill-current" aria-hidden="true" />
+        {{ stoppingAll || (single?.memberId && stoppingMemberIds.has(single.memberId)) ? '停止中…' : '停止' }}
+      </button>
+      <button
         v-if="canToggle"
         type="button"
         class="run-card-toggle"
@@ -119,39 +161,53 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
         <!-- 多路并发:每路一行,点选决定正文区展示哪一路。 -->
         <div v-else class="run-card-list">
           <div v-for="row in rows" :key="row.key" class="run-row-wrap">
-            <button
-              type="button"
-              class="run-row"
-              :class="activeKey === row.key && 'run-row-active'"
-              :aria-pressed="activeKey === row.key"
-              :aria-expanded="preferences.showReasoning && row.reasoning ? openReasoning === row.key : undefined"
-              :data-run-key="row.key"
-              @click="onRowClick(row.key, preferences.showReasoning && Boolean(row.reasoning))"
-            >
-              <span class="run-row-line">
-                <span
-                  class="run-dot"
-                  :class="{ 'animate-pulse': row.phase !== 'writing' }"
-                  :style="{ backgroundColor: identityColor(row.name) }"
-                  aria-hidden="true"
-                />
-                <span class="min-w-0 flex-1 truncate font-medium">{{ row.name }}</span>
-                <span class="run-phase">{{ runPhaseLabel(row.phase) }}</span>
-                <span v-if="elapsedLabel(row.startedAt, now)" class="run-time tabular-nums">
-                  {{ elapsedLabel(row.startedAt, now) }}
+            <div class="run-row-item">
+              <button
+                type="button"
+                class="run-row"
+                :class="activeKey === row.key && 'run-row-active'"
+                :aria-pressed="activeKey === row.key"
+                :aria-expanded="preferences.showReasoning && row.reasoning ? openReasoning === row.key : undefined"
+                :data-run-key="row.key"
+                @click="onRowClick(row.key, preferences.showReasoning && Boolean(row.reasoning))"
+              >
+                <span class="run-row-line">
+                  <span
+                    class="run-dot"
+                    :class="{ 'animate-pulse': row.phase !== 'writing' }"
+                    :style="{ backgroundColor: identityColor(row.name) }"
+                    aria-hidden="true"
+                  />
+                  <span class="min-w-0 flex-1 truncate font-medium">{{ row.name }}</span>
+                  <span class="run-phase">{{ runPhaseLabel(row.phase) }}</span>
+                  <span v-if="elapsedLabel(row.startedAt, now)" class="run-time tabular-nums">
+                    {{ elapsedLabel(row.startedAt, now) }}
+                  </span>
+                  <span
+                    v-if="preferences.showReasoning && row.reasoning"
+                    class="run-reasoning-hint"
+                  >
+                    <Brain class="run-reasoning-icon" aria-hidden="true" />
+                    思考
+                  </span>
                 </span>
-                <span
-                  v-if="preferences.showReasoning && row.reasoning"
-                  class="run-reasoning-hint"
-                >
-                  <Brain class="run-reasoning-icon" aria-hidden="true" />
-                  思考
+                <span v-if="row.tool" class="run-row-tool">
+                  {{ toolActionLabel(row.tool, groupNames) }}
                 </span>
-              </span>
-              <span v-if="row.tool" class="run-row-tool">
-                {{ toolActionLabel(row.tool, groupNames) }}
-              </span>
-            </button>
+              </button>
+              <button
+                v-if="onStop && row.memberId"
+                type="button"
+                class="run-row-stop"
+                :disabled="stoppingAll || stoppingMemberIds.has(row.memberId)"
+                :aria-label="`停止 ${row.name}`"
+                :title="`停止 ${row.name}`"
+                :data-stop-member="row.memberId"
+                @click.stop="handleStop(row.memberId)"
+              >
+                <Square class="size-3 fill-current" aria-hidden="true" />
+              </button>
+            </div>
             <CollapseReveal
               v-if="preferences.showReasoning && row.reasoning"
               :show="openReasoning === row.key"

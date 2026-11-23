@@ -7,6 +7,8 @@ export type StreamView = {
   message: MessageView;
   pending: boolean;
   reasoning?: string;
+  /** 产出该流的成员/智能体 id，供运行状态卡按成员停止。 */
+  memberId?: string;
   /** 回合标识:多条流(正文 + 工具草稿)按它汇总为一行运行状态。 */
   turnId?: string;
   toolCallId?: string;
@@ -88,6 +90,7 @@ export function toStreamMessageViews(
       } satisfies MessageView,
       pending: stream.phase !== 'complete' || !stream.messageId,
       reasoning: stream.reasoning,
+      memberId: stream.memberId,
       turnId: stream.turnId,
       toolCallId: stream.toolCallId,
       startedAt: stream.created,

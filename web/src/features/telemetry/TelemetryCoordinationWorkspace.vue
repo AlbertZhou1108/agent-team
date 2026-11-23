@@ -15,6 +15,7 @@ import type {
   TelemetryContextReference,
   TelemetryMetrics,
 } from '@/shared/api/raw-types';
+import { hostDisplayLabel } from '@/shared/models/host-labels';
 import TelemetrySourceSubtotals from './TelemetrySourceSubtotals.vue';
 import {
   CONTEXT_METRIC_LABELS,
@@ -323,8 +324,8 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
                   <span class="truncate text-xs font-semibold text-foreground">{{
                     row.entry.executor.name
                   }}</span>
-                  <Badge variant="secondary" size="xs" class="shrink-0 font-mono">
-                    {{ row.entry.executor.host }}
+                  <Badge variant="secondary" size="xs" class="shrink-0">
+                    {{ hostDisplayLabel(row.entry.executor.host) }}
                   </Badge>
                 </div>
                 <span class="shrink-0 text-xs font-semibold tabular-nums">{{
@@ -377,8 +378,8 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
               <h3 class="text-sm font-semibold">
                 {{ selectedMember.executor.name }} · 执行详情
               </h3>
-              <Badge variant="outline" class="font-mono">{{
-                selectedMember.executor.host
+              <Badge variant="outline">{{
+                hostDisplayLabel(selectedMember.executor.host)
               }}</Badge>
               <Badge variant="secondary">{{
                 executorRoleLabel(selectedMember.executor.kind)
@@ -460,7 +461,7 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
                 :data-session-id="session.instanceId"
               >
                 <div class="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" class="font-mono">{{ session.host }}</Badge>
+                  <Badge variant="outline">{{ hostDisplayLabel(session.host) }}</Badge>
                   <Badge variant="secondary">{{ sessionStatusLabel(session.status) }}</Badge>
                   <span class="min-w-0 truncate font-mono font-medium">{{
                     session.instanceId

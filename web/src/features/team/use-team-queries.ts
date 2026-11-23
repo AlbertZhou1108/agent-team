@@ -103,7 +103,7 @@ export function useTeamQueries(options: TeamQueriesOptions) {
   const homeQuery = useResourceQuery(
     queryKeys.home,
     api.homeSummary,
-    () => !groupId.value && route.name === 'group',
+    () => Boolean(groupsQuery.data.value?.length),
     QUERY_POLLING.slow,
   );
   const sessionQuery = useResourceQuery(

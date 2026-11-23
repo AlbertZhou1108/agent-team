@@ -976,6 +976,18 @@ button {
   overflow: hidden;
 }
 
+.recent-teams-strip {
+  scrollbar-width: none;
+}
+
+.recent-teams-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-teams-strip[data-overflow-end='true'] {
+  mask-image: linear-gradient(to right, currentColor 0, currentColor calc(100% - 20px), transparent 100%);
+}
+
 .recent-team-avatar {
   display: inline-flex;
   width: 32px;
@@ -1104,6 +1116,14 @@ button {
   color: var(--component-image-scrim-fg);
   font-size: 0.75rem;
   font-weight: 600;
+}
+
+.team-card-running-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: var(--primary);
 }
 
 .team-card-menu {
@@ -1243,11 +1263,10 @@ button {
 
 .jump-to-bottom {
   position: absolute;
-  left: 50%;
+  inset-inline-end: 1rem;
   /* 锚在底栏(输入区)上沿:垂直偏移由 ConversationScroller 按底栏实高注入
-     (内联 bottom),拖拽输入区高度时按钮跟随。 */
+     (内联 bottom),拖拽输入区高度时按钮跟随。右对齐避开左侧消息发送者标题行。 */
   z-index: 20;
-  transform: translateX(-50%);
 }
 
 .message-stream {
@@ -1573,6 +1592,29 @@ button {
   color: var(--foreground);
 }
 
+.run-card-stop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color var(--component-feedback-duration), background-color var(--component-feedback-duration);
+}
+
+.run-card-stop:hover:not(:disabled) {
+  background: var(--state-hover);
+  color: var(--destructive);
+}
+
+.run-card-stop:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .run-card-list {
   display: flex;
   min-width: 0;
@@ -1587,8 +1629,16 @@ button {
   gap: 4px;
 }
 
+.run-row-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
 .run-row {
   display: flex;
+  flex: 1;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
@@ -1599,6 +1649,29 @@ button {
   text-align: left;
   cursor: pointer;
   transition: background-color var(--component-feedback-duration);
+}
+
+.run-row-stop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--component-feedback-duration), background-color var(--component-feedback-duration);
+}
+
+.run-row-stop:hover:not(:disabled) {
+  background: var(--state-hover);
+  color: var(--destructive);
+}
+
+.run-row-stop:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .run-row:hover {

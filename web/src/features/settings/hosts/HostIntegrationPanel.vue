@@ -66,7 +66,7 @@ async function refresh() {
     <Empty v-if="applications.isSuccess.value && !cards.length">
       <EmptyHeader>
         <EmptyTitle>暂无受支持的桌面应用</EmptyTitle>
-        <EmptyDescription>受支持的桌面应用为 Codex、Claude 与 DSH。</EmptyDescription>
+        <EmptyDescription>受支持的桌面应用为 Codex、Claude、DeepSeek Harness 与 ZCode。</EmptyDescription>
       </EmptyHeader>
     </Empty>
 
