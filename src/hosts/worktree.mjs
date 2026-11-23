@@ -19,11 +19,23 @@ const BLOCKING_REFS = Object.freeze([
 ]);
 
 function safeRealpath(targetPath) {
+  const resolved = resolve(targetPath);
   try {
-    return realpathSync(resolve(targetPath));
+    // Windows 下 os.tmpdir() 等会带 8.3 短路径（如 RUNNER~1），而 git rev-parse 返回长路径；
+    // realpathSync.native 会走 GetFinalPathNameByHandleW 展开短路径与盘符大小写，三平台对齐。
+    return typeof realpathSync.native === 'function'
+      ? realpathSync.native(resolved)
+      : realpathSync(resolved);
   } catch {
-    return resolve(targetPath);
+    return resolved;
   }
+}
+
+function sameCanonicalPath(left, right) {
+  if (process.platform === 'win32') {
+    return left.toLowerCase() === right.toLowerCase();
+  }
+  return left === right;
 }
 
 function runGit(cwd, args) {
@@ -142,7 +154,7 @@ export function inspectGitRepoForWorktree(workspace) {
   }
   const canonicalWorkspace = safeRealpath(resolved);
   const canonicalTopLevel = safeRealpath(topLevel);
-  if (canonicalWorkspace !== canonicalTopLevel) {
+  if (!sameCanonicalPath(canonicalWorkspace, canonicalTopLevel)) {
     throw new Error('启用 worktree 隔离要求团队工作区为 Git 仓库根目录，不支持仅对子目录开启');
   }
   let headSha;
@@ -268,7 +280,10 @@ export function worktreeGitWritableRoots(worktreePath) {
     const rawGitDir = runGit(worktreePath, ['rev-parse', '--git-dir']).trim();
     if (rawGitDir) {
       const resolvedGitDir = safeRealpath(resolve(worktreePath, rawGitDir));
-      if (resolvedGitDir !== commonDir && resolvedGitDir.startsWith(`${commonDir}${sep}`)) {
+      const underCommon = process.platform === 'win32'
+        ? resolvedGitDir.toLowerCase().startsWith(`${commonDir.toLowerCase()}${sep}`)
+        : resolvedGitDir.startsWith(`${commonDir}${sep}`);
+      if (!sameCanonicalPath(resolvedGitDir, commonDir) && underCommon) {
         roots.push(resolvedGitDir);
       }
     }

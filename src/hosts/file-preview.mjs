@@ -21,6 +21,12 @@ function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
+function canonicalRealpath(targetPath) {
+  return typeof realpathSync.native === 'function'
+    ? realpathSync.native(targetPath)
+    : realpathSync(targetPath);
+}
+
 function isInsideRoot(rootReal, targetReal) {
   const rel = relative(rootReal, targetReal);
   return Boolean(rel) && !rel.startsWith('..') && !isAbsolute(rel);
@@ -38,7 +44,7 @@ function allowedRootsForGroup(group, members = [], memberId = null) {
   const pushRoot = (kind, rawPath, ownerMember = null) => {
     if (!rawPath || typeof rawPath !== 'string' || !existsSync(rawPath)) return;
     try {
-      const real = realpathSync(resolve(rawPath));
+      const real = canonicalRealpath(resolve(rawPath));
       if (!statSync(real).isDirectory()) return;
       if (!roots.some(item => item.real === real)) {
         roots.push({ kind, real, memberId: ownerMember?.id ?? null, memberName: ownerMember?.name ?? null });
@@ -77,7 +83,7 @@ export function previewGroupTextFile({ group, members = [], filePath, memberId =
   if (isAbsolute(normalizedInput)) {
     const resolvedInput = resolve(normalizedInput);
     if (!existsSync(resolvedInput)) throw httpError(404, '文件不存在');
-    const targetReal = realpathSync(resolvedInput);
+    const targetReal = canonicalRealpath(resolvedInput);
     const ownerRoot = roots.find(root => isInsideRoot(root.real, targetReal));
     if (!ownerRoot) throw httpError(403, '文件路径超出团队工作区边界');
     matched = { targetReal, root: ownerRoot };
@@ -92,7 +98,7 @@ export function previewGroupTextFile({ group, members = [], filePath, memberId =
         continue;
       }
       if (!existsSync(candidate)) continue;
-      const targetReal = realpathSync(candidate);
+      const targetReal = canonicalRealpath(candidate);
       if (!isInsideRoot(root.real, targetReal)) {
         sawSymlinkEscape = true;
         continue;

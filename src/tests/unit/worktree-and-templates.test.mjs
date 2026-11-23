@@ -24,6 +24,10 @@ import {
   worktreeGitWritableRoots,
 } from '../../hosts/worktree.mjs';
 
+const canonicalPath = (target) => (
+  typeof realpathSync.native === 'function' ? realpathSync.native(target) : realpathSync(target)
+);
+
 function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
@@ -164,9 +168,9 @@ test('codexSandboxConfig only appends git common-dir and worktree git-dir withou
   const sandbox = codexSandboxConfig({ mode: 'workspace-write', allowShell: true }, wt.worktreePath, roots);
   assert.equal(roots.length, 2);
   assert.equal(sandbox.turnSandboxPolicy.writableRoots[0], wt.worktreePath);
-  assert.equal(sandbox.turnSandboxPolicy.writableRoots[1], realpathSync(join(repo, '.git')));
-  assert.equal(sandbox.turnSandboxPolicy.writableRoots[2], realpathSync(join(repo, '.git', 'worktrees', 'm-codex')));
-  assert.equal(sandbox.turnSandboxPolicy.writableRoots.includes(realpathSync(repo)), false);
+  assert.equal(sandbox.turnSandboxPolicy.writableRoots[1], canonicalPath(join(repo, '.git')));
+  assert.equal(sandbox.turnSandboxPolicy.writableRoots[2], canonicalPath(join(repo, '.git', 'worktrees', 'm-codex')));
+  assert.equal(sandbox.turnSandboxPolicy.writableRoots.includes(canonicalPath(repo)), false);
 });
 
 test('previewGroupTextFile enforces realpath boundary, extensions and 128KB cap', t => {
