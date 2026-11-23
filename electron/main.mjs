@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ensureService, serviceAlive, serviceDirectory, stop, badgeCount } from './service.mjs';
 import { pickDirectory } from './dialogs.mjs';
-import { applicationMenuTemplate } from './menus.mjs';
+import { applicationMenuTemplate, desktopMenuState, windowChromeOptions } from './menus.mjs';
 import { BADGE_CAP, badgeLabel, badgeOverlayPng } from './badge.mjs';
 
 // 主进程自己不需要这个标记；清掉它，避免后续 spawn 把宿主拉成 GUI 实例。
@@ -85,6 +85,7 @@ function ensureWindow() {
   win = new BrowserWindow({
     width: 1280, height: 860, minWidth: 960, minHeight: 640,
     title: 'Agent Team', show: false,
+    ...windowChromeOptions(process.platform),
     // Electron 44+ 内置窗口状态持久化：位置、尺寸、显示模式按 name 保存。
     name: 'agent-team-main', windowStatePersistence: true,
     webPreferences: {
@@ -95,6 +96,12 @@ function ensureWindow() {
     },
   });
   win.once('ready-to-show', () => win.show());
+  win.on('maximize', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('window:maximized-changed', true);
+  });
+  win.on('unmaximize', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('window:maximized-changed', false);
+  });
   win.on('close', event => {
     if (state.quitting) return;
     event.preventDefault();
@@ -138,7 +145,28 @@ async function stopServiceFromMenu() {
   showError('本地服务已停止。点击重试可重新启动。');
 }
 
+const GUIDE_URL = 'https://github.com/AlbertZhou1108/agent-team/blob/main/guide/user-guide.md';
+
+function currentMenuState() {
+  return desktopMenuState({
+    panelUrl: state.panelUrl,
+    dev: DEV,
+    showingError: state.showingError,
+    version: app.getVersion(),
+  });
+}
+
+function broadcastMenuState() {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('desktop:menu-state-changed', currentMenuState());
+  }
+}
+
 function createApplicationMenu() {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
     platform: process.platform,
     panelUrl: state.panelUrl,
@@ -148,7 +176,7 @@ function createApplicationMenu() {
       openInBrowser,
       reconnect: () => { void openPanel(); },
       stopService: stopServiceFromMenu,
-      openGuide: () => shell.openExternal('https://github.com/AlbertZhou1108/agent-team/blob/main/guide/user-guide.md'),
+      openGuide: () => shell.openExternal(GUIDE_URL),
     },
   })));
 }
@@ -192,6 +220,7 @@ async function openPanel() {
 function refreshMenu() {
   // 服务地址变化（启动成功 / 停服 / 错误页）时，应用菜单的启用状态一起刷新。
   createApplicationMenu();
+  broadcastMenuState();
   if (!tray) return;
   const status = DEV ? '开发模式（服务由 npm run dev 管理）'
     : state.panelUrl ? `本地服务 ${state.panelUrl}` : '本地服务未就绪';
@@ -219,6 +248,10 @@ function createTray() {
   if (process.platform === 'darwin') icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip('Agent Team');
+  tray.on('click', () => {
+    if (process.platform !== 'darwin') showWindow();
+  });
+  tray.on('double-click', showWindow);
   refreshMenu();
 }
 
@@ -265,6 +298,46 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.handle('service:retry', async () => {
     await openPanel();
     return true;
+  });
+  ipcMain.handle('window:control', (_event, action) => {
+    if (!win || win.isDestroyed()) return false;
+    if (action === 'minimize') {
+      win.minimize();
+      return true;
+    }
+    if (action === 'maximize-toggle') {
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+      return true;
+    }
+    if (action === 'close') {
+      win.close();
+      return true;
+    }
+    return false;
+  });
+  ipcMain.handle('window:is-maximized', () => Boolean(win && !win.isDestroyed() && win.isMaximized()));
+  ipcMain.handle('desktop:menu-state', () => currentMenuState());
+  ipcMain.handle('desktop:action', async (_event, action) => {
+    if (action === 'show-window') { showWindow(); return true; }
+    if (action === 'open-in-browser') { openInBrowser(); return Boolean(state.panelUrl); }
+    if (action === 'reconnect-service') { await openPanel(); return true; }
+    if (action === 'stop-service') {
+      if (DEV || !state.panelUrl) return false;
+      await stopServiceFromMenu();
+      return true;
+    }
+    if (action === 'open-guide') { void shell.openExternal(GUIDE_URL); return true; }
+    if (action === 'toggle-devtools') {
+      if (DEV && win && !win.isDestroyed()) win.webContents.toggleDevTools();
+      return DEV;
+    }
+    if (action === 'close-window') {
+      if (win && !win.isDestroyed()) win.close();
+      return true;
+    }
+    if (action === 'quit') { quit(); return true; }
+    return false;
   });
   // 原生目录选择器：只在桌面壳里存在，浏览器版仍走 /api/local/directory-picker。
   ipcMain.handle('directory:choose', async () => {

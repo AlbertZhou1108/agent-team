@@ -14,6 +14,7 @@ import {
 import { usePreferencesStore } from '@/stores/preferences';
 import { useUiStore } from '@/stores/ui';
 import { startThemeApplication } from '@/theme/application';
+import DesktopTitlebar from '@/app/layouts/DesktopTitlebar.vue';
 
 startThemeApplication();
 const preferences = usePreferencesStore();
@@ -45,6 +46,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handlePluginHotkey))
 </script>
 
 <template>
+  <DesktopTitlebar />
   <RouterView />
   <div v-for="overlay in overlays" :key="overlay.key" class="contents">
     <component :is="overlay.component" />

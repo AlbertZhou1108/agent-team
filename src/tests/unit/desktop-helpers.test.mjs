@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { badgeCount } from '../../../electron/service.mjs';
 import { badgeLabel, badgeOverlayPng } from '../../../electron/badge.mjs';
 import { pickDirectory } from '../../../electron/dialogs.mjs';
-import { applicationMenuTemplate } from '../../../electron/menus.mjs';
+import { applicationMenuTemplate, desktopMenuState, windowChromeOptions } from '../../../electron/menus.mjs';
 
 function menuItem(template, label) {
   for (const menu of template) {
@@ -43,6 +43,20 @@ test('应用菜单启用状态随服务地址与运行模式变化', () => {
   assert.equal(menuItem(dev, '停止本地服务').enabled, false);
 
   assert.equal(applicationMenuTemplate({ platform: 'win32' })[0].label, '文件');
+
+  const darwinLabels = applicationMenuTemplate({ platform: 'darwin' }).map(item => item.label).filter(Boolean);
+  assert.deepEqual(darwinLabels, ['文件', '编辑', '窗口', '服务', '帮助']);
+  assert.deepEqual(windowChromeOptions('darwin'), {
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 12 },
+  });
+  assert.deepEqual(windowChromeOptions('win32'), { frame: false });
+  assert.deepEqual(windowChromeOptions('linux'), { frame: false });
+  assert.deepEqual(
+    desktopMenuState({ panelUrl: 'http://127.0.0.1:62048/', dev: false, showingError: false, version: '0.5.3' }),
+    { hasService: true, dev: false, showingError: false, version: '0.5.3' },
+  );
+  assert.equal(desktopMenuState({ panelUrl: 'http://127.0.0.1:62048/', showingError: true }).hasService, false);
 });
 
 test('Windows 任务栏角标文字与 PNG 覆盖图标生成', () => {
