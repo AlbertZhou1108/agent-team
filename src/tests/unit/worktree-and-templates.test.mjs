@@ -145,7 +145,7 @@ test('create, isolate writes, protected merge, conflict abort and conservative r
   git(wtB.worktreePath, ['add', 'b.txt', 'conflict.txt']);
   git(wtB.worktreePath, ['commit', '-m', 'branch conflict']);
   assert.throws(() => mergeMemberWorktree({ repoRoot: repo, worktreePath: wtB.worktreePath, branch: wtB.worktreeBranch }), /自动中止合并/);
-  assert.equal(readFileSync(join(repo, 'conflict.txt'), 'utf8'), 'main side\n');
+  assert.equal(readFileSync(join(repo, 'conflict.txt'), 'utf8').replace(/\r\n/g, '\n'), 'main side\n');
   assert.equal(git(repo, ['status', '--porcelain']), '');
 
   // 删除目录后 assertWorktreeUsable 明确拒绝，rollback 也能清干净强制清理目标。
