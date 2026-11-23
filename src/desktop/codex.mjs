@@ -8,13 +8,14 @@
 // 验证策略的真实运行会消耗模型额度(由验证执行器的额度确认门保护),且隔离
 // CODEX_HOME 是否被桌面内嵌引擎尊重、auth 链接是否够用,都要真宿主验收确认。
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
+import { restrictPrivateFile } from '../private-permissions.mjs';
 import { writeDesktopHostSpec } from './member-hosts.mjs';
 import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 export const BLOCK_BEGIN = '# ---- agent-team managed block:begin (由 Agent Team 维护,重装即更新) ----';
@@ -26,6 +27,90 @@ export function codexDesktopCliPath(cliPath = fileURLToPath(new URL('../cli.mjs'
 
 function tomlLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+const PROVIDER_TOP_LEVEL_KEYS = new Set([
+  'model_provider',
+  'model',
+  'model_reasoning_effort',
+  'model_reasoning_summary',
+  'model_verbosity',
+  'model_catalog_json',
+  'chatgpt_base_url',
+  'preferred_auth_method',
+  'oss_provider',
+  'profile',
+]);
+
+const PROVIDER_TABLE_HEADER = /^\[(?:model_providers|profiles)(?:\.|\])/;
+
+/**
+ * 从用户 ~/.codex/config.toml 中提取模型与 provider 路由配置(不含 mcp_servers / plugins / projects),
+ * 供隔离 CODEX_HOME(验证会话与桌面成员宿主)继承。相对路径的 model_catalog_json 解析为源目录下的绝对路径。
+ */
+export function extractCodexProviderConfig(configText, sourceCodexHome = join(homedir(), '.codex')) {
+  if (typeof configText !== 'string' || !configText.trim()) return '';
+  const topLines = [];
+  const tableBlocks = [];
+  let inTable = false;
+  let keepTable = false;
+  let currentBlock = [];
+  const flushTable = () => {
+    if (keepTable && currentBlock.length) tableBlocks.push(currentBlock.join('\n').trimEnd());
+    currentBlock = [];
+  };
+  for (const rawLine of configText.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith('[')) {
+      flushTable();
+      inTable = true;
+      keepTable = PROVIDER_TABLE_HEADER.test(trimmed);
+      if (keepTable) currentBlock.push(rawLine);
+      continue;
+    }
+    if (!inTable) {
+      const keyMatch = /^([A-Za-z0-9_-]+)\s*=/.exec(trimmed);
+      if (!keyMatch || !PROVIDER_TOP_LEVEL_KEYS.has(keyMatch[1])) continue;
+      if (keyMatch[1] === 'model_catalog_json') {
+        const pathMatch = /^(\s*model_catalog_json\s*=\s*)(['"])([^'"]+)\2(.*)$/.exec(rawLine);
+        if (pathMatch && !isAbsolute(pathMatch[3])) {
+          topLines.push(`${pathMatch[1]}${tomlLiteral(join(sourceCodexHome, pathMatch[3]))}${pathMatch[4]}`);
+          continue;
+        }
+      }
+      topLines.push(rawLine);
+    } else if (keepTable) {
+      currentBlock.push(rawLine);
+    }
+  }
+  flushTable();
+  const sections = [];
+  if (topLines.length) sections.push(topLines.join('\n'));
+  if (tableBlocks.length) sections.push(tableBlocks.join('\n\n'));
+  return sections.length ? `${sections.join('\n\n')}\n` : '';
+}
+
+function readUserCodexProviderConfig(sourceCodexHome = join(homedir(), '.codex')) {
+  const sourcePath = join(sourceCodexHome, 'config.toml');
+  if (!existsSync(sourcePath)) return '';
+  try {
+    return extractCodexProviderConfig(readFileSync(sourcePath, 'utf8'), sourceCodexHome);
+  } catch {
+    return '';
+  }
+}
+
+function combineCodexConfig(providerConfig, extraConfig) {
+  const parts = [providerConfig?.trim(), extraConfig?.trim()].filter(Boolean);
+  return parts.length ? `${parts.join('\n\n')}\n` : '';
+}
+
+function summarizeExecStderr(stderr, stdout) {
+  const source = (stderr || stdout || '').trim();
+  if (!source) return '';
+  const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const errorLine = [...lines].reverse().find(line => /(?:error|failed|timeout|unauthorized|forbidden|refused|missing|invalid|not found)/i.test(line));
+  return (errorLine ?? lines.at(-1) ?? '').slice(0, 400);
 }
 
 /** 受管 TOML 条目:单引号字面量字符串,Windows 反斜杠路径无需转义。 */
@@ -169,7 +254,7 @@ export async function installCodexDesktopIntegration(store, {
   if (configText) {
     backupPath = `${configPath}.agent-team-backup-${now.replace(/[:.]/g, '-')}`;
     copyFileSync(configPath, backupPath);
-    chmodSync(backupPath, 0o600);
+    restrictPrivateFile(backupPath);
     backupHash = createHash('sha256').update(configText).digest('hex');
   }
   const nextConfig = applyPluginEnabled(applyManagedBlock(configText, block));
@@ -192,12 +277,16 @@ export async function installCodexDesktopIntegration(store, {
   );
 
   // 成员宿主:内嵌引擎在框架私有 CODEX_HOME 里跑成员回合,不写用户可见聊天历史。
-  // 目录必须真实存在(引擎会在 CODEX_HOME 不存在时直接退出),并复用桌面登录态。
+  // 目录必须真实存在(引擎会在 CODEX_HOME 不存在时直接退出),并复用桌面登录态与自定义 provider 路由。
   const member = codexDesktopMemberHostSpec({ enginePath: detected.enginePath, dataDirectory: store.directory });
   const memberHome = member.spec.env.CODEX_HOME;
   mkdirSync(memberHome, { recursive: true, mode: 0o700 });
+  const memberProviderConfig = extractCodexProviderConfig(configText, codexHome);
+  if (memberProviderConfig) {
+    writeFileSync(join(memberHome, 'config.toml'), memberProviderConfig, { mode: 0o600 });
+  }
   try {
-    linkAuth(join(homedir(), '.codex', 'auth.json'), join(memberHome, 'auth.json'));
+    linkAuth(join(codexHome, 'auth.json'), join(memberHome, 'auth.json'));
   } catch {
     // 未登录、平台不支持或链接已存在:交给引擎自身报告失败原因。
   }
@@ -239,14 +328,19 @@ function linkAuth(source, target) {
   else symlinkSync(source, target);
 }
 
-function isolatedCodexHome(configText) {
-  const home = join(homedir(), '.agent-team', 'desktop-verify', randomUUID());
+function isolatedCodexHome(configText, {
+  sourceCodexHome = join(homedir(), '.codex'),
+  home = join(homedir(), '.agent-team', 'desktop-verify', randomUUID()),
+} = {}) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
-  writeFileSync(join(home, 'config.toml'), configText, { mode: 0o600 });
-  // 复用桌面应用的登录态而不复制凭据文件:auth.json 经符号链接引用。
+  // 继承用户 ~/.codex/config.toml 中的模型与自定义 provider 路由(不含用户 MCP/插件),
+  // 避免自定义 provider(如本地代理/中转)在隔离目录中丢失配置并回落到默认端点超时。
+  const providerConfig = readUserCodexProviderConfig(sourceCodexHome);
+  writeFileSync(join(home, 'config.toml'), combineCodexConfig(providerConfig, configText), { mode: 0o600 });
+  // 复用桌面应用的登录态而不复制凭据文件:POSIX 用符号链接,Windows 用复制。
   let authLinked = false;
   try {
-    linkAuth(join(homedir(), '.codex', 'auth.json'), join(home, 'auth.json'));
+    linkAuth(join(sourceCodexHome, 'auth.json'), join(home, 'auth.json'));
     authLinked = true;
   } catch {
     // 无登录态或平台不支持:交给引擎自身报告失败原因。
@@ -256,21 +350,43 @@ function isolatedCodexHome(configText) {
 
 async function runCodexExec({ enginePath, workspace, spawnTracked, timeoutMs, codexHome, prompt }) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('验证回合超时')), timeoutMs);
-    const child = spawnTracked(enginePath, ['exec', '--skip-git-repo-check', '-C', workspace, prompt], {
+    let settled = false;
+    let exitDrainTimer = null;
+    let timer = null;
+    const child = spawnTracked(enginePath, ['exec', '--skip-git-repo-check', '--ephemeral', '-C', workspace, prompt], {
       env: { ...process.env, CODEX_HOME: codexHome },
     });
+    const finish = (ok, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (exitDrainTimer) clearTimeout(exitDrainTimer);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      if (ok) resolve(value);
+      else reject(value);
+    };
+    timer = setTimeout(() => finish(false, new Error('验证回合超时')), timeoutMs);
     let output = '';
+    let stderr = '';
     child.stdout?.on('data', chunk => { output = (output + chunk).slice(-4000); });
-    child.on('close', code => {
-      clearTimeout(timer);
-      if (code === 0) resolve(output);
-      else reject(new Error(`内嵌引擎退出 (${code})`));
+    child.stderr?.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
+    const completeWithCode = code => {
+      if (code === 0) finish(true, output);
+      else {
+        const detail = summarizeExecStderr(stderr, output);
+        finish(false, new Error(detail ? `内嵌引擎退出 (${code})：${detail}` : `内嵌引擎退出 (${code})`));
+      }
+    };
+    // Windows 上 Codex 0.171+ 派生的后台守护子进程可能继承 stdout/stderr 管道句柄,
+    // 导致主进程 exit(0) 后 close 延迟 90 秒以上才触发;exit 后给 200ms 排空缓冲即结算。
+    child.on('exit', code => {
+      if (settled || exitDrainTimer) return;
+      exitDrainTimer = setTimeout(() => completeWithCode(code), 200);
+      exitDrainTimer.unref?.();
     });
-    child.on('error', error => {
-      clearTimeout(timer);
-      reject(new Error(`无法启动内嵌引擎: ${error.message}`));
-    });
+    child.on('close', code => completeWithCode(code));
+    child.on('error', error => finish(false, new Error(`无法启动内嵌引擎: ${error.message}`)));
   });
 }
 
@@ -298,6 +414,7 @@ export function codexDesktopVerification() {
       try {
         const { home, authLinked } = isolatedCodexHome(
           codexDesktopMcpBlock({ socketPath, bindingId: temp.binding.id, clientKey: temp.key }),
+          { home: join(workspace, 'codex-verify-controller-home') },
         );
         try {
           const output = await runCodexExec({
@@ -317,14 +434,14 @@ export function codexDesktopVerification() {
               : '回合未返回可确认的 control_protocol 版本',
           };
         } finally {
-          rmSync(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+          try { rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* 清理失败不覆盖验证结论 */ }
         }
       } finally {
         disableBinding(store, temp.binding.id);
       }
     },
     async verifyEngine({ workspace, detection, spawnTracked, timeoutMs }) {
-      const { home } = isolatedCodexHome('');
+      const { home } = isolatedCodexHome('', { home: join(workspace, 'codex-verify-engine-home') });
       try {
         const output = await runCodexExec({
           enginePath: detection.enginePath,
@@ -336,7 +453,7 @@ export function codexDesktopVerification() {
         });
         return { ok: /ok/i.test(output), detail: '内嵌引擎完成短任务' };
       } finally {
-        rmSync(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+        try { rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* 清理失败不覆盖验证结论 */ }
       }
     },
   };

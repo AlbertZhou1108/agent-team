@@ -347,6 +347,7 @@ function zcodeDefinitions({ root, serverScript }, { response = 'OK: control_prot
     label: 'ZCode',
     bundleCandidates: ({ applicationsRoot }) => [join(applicationsRoot, 'FakeZcode.app')],
     engineCandidates: ({ bundlePath }) => [{ path: join(bundlePath, 'Contents', 'Resources', 'glm', 'zcode.cjs') }],
+    engineVersionArgs: null,
     verifyController: verifyController ?? real.verifyController,
     verifyEngine: verifyEngine ?? real.verifyEngine,
   }]]);

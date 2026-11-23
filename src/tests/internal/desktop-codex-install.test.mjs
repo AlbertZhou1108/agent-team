@@ -5,7 +5,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../../store.mjs';
-import { installCodexDesktopIntegration, applyManagedBlock, codexDesktopMcpBlock, BLOCK_BEGIN, BLOCK_END } from '../../desktop/codex.mjs';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { installCodexDesktopIntegration, applyManagedBlock, codexDesktopMcpBlock, extractCodexProviderConfig, codexDesktopVerification, BLOCK_BEGIN, BLOCK_END } from '../../desktop/codex.mjs';
 import { createExternalIdentity, ControlPlane } from '../../control-plane.mjs';
 
 const NOW = '2026-11-20T00:00:00.000Z';
@@ -136,4 +138,74 @@ test('a conversation binding woken from the desktop config carries the activatio
   const fallback = plane.resolveActivationBinding(activationRow, null);
   assert.equal(fallback.id, other.id);
   store.close();
+});
+
+test('extractCodexProviderConfig preserves custom model providers, resolves relative catalog, and strips user MCP/plugins', async t => {
+  const sourceHome = tempDir(t, 'codex-provider-src-');
+  const raw = [
+    'model_provider = "custom"',
+    'model = "deepseek-flash"',
+    'model_catalog_json = "cc-switch-model-catalog.json"',
+    '',
+    '[model_providers.custom]',
+    'base_url = "http://127.0.0.1:15721/v1"',
+    'wire_api = "responses"',
+    '',
+    '[mcp_servers.private_tool]',
+    'command = "secret"',
+    '',
+    '[plugins."foo@bar"]',
+    'enabled = true',
+    '',
+    '[windows]',
+    'sandbox = "elevated"',
+  ].join('\n');
+  const extracted = extractCodexProviderConfig(raw, sourceHome);
+  assert.ok(extracted.includes('model_provider = "custom"'));
+  assert.ok(extracted.includes('model = "deepseek-flash"'));
+  assert.ok(extracted.includes(join(sourceHome, 'cc-switch-model-catalog.json')));
+  assert.ok(extracted.includes('[model_providers.custom]'));
+  assert.ok(extracted.includes('base_url = "http://127.0.0.1:15721/v1"'));
+  assert.equal(extracted.includes('private_tool'), false);
+  assert.equal(extracted.includes('[plugins.'), false);
+  assert.equal(extracted.includes('[windows]'), false);
+
+  // 安装桌面集成时,隔离成员目录也写入提取后的 provider 配置。
+  const store = new Store(tempDir(t, 'desktop-provider-store-'));
+  writeFileSync(join(sourceHome, 'config.toml'), raw);
+  await installCodexDesktopIntegration(store, {
+    detections: fakeDetections('/Applications/ChatGPT.app'),
+    codexHome: sourceHome,
+    socketPath: '/tmp/bus.sock',
+    now: NOW,
+  });
+  const memberConfig = readFileSync(join(store.directory, 'desktop-engines', 'codex', 'config.toml'), 'utf8');
+  assert.ok(memberConfig.includes('[model_providers.custom]'));
+  assert.equal(memberConfig.includes('private_tool'), false);
+  store.close();
+});
+
+test('codexDesktopVerification settles promptly after exit even if stdout pipe stays open', async t => {
+  const workspace = tempDir(t, 'codex-verify-exit-');
+  const strategy = codexDesktopVerification();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const fakeChild = Object.assign(new EventEmitter(), { stdout, stderr });
+  const started = Date.now();
+  const result = await strategy.verifyEngine({
+    workspace,
+    detection: { enginePath: 'fake-codex' },
+    timeoutMs: 10_000,
+    spawnTracked: () => {
+      setTimeout(() => {
+        stdout.write('OK\n');
+        // 模拟 Windows 后台子进程继承 stdout 管道:只触发 exit,永不触发 close。
+        fakeChild.emit('exit', 0);
+      }, 20);
+      return fakeChild;
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.ok(Date.now() - started < 3000, 'exit 后应快速结算,不得卡死等 close');
+  assert.equal(stdout.destroyed, true);
 });

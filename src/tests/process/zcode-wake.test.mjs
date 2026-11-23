@@ -142,8 +142,7 @@ test('ZCode detects legacy and modern provider layouts', t => {
   assert.equal(detectZcodeLayout(empty), null);
 });
 
-// `.app` 解析只在 darwin 分支生效,其他平台走直连命令,断言不成立。
-test('ZCode legacy layout keeps the Electron launch unchanged', { skip: process.platform !== 'darwin' }, t => {
+test('ZCode legacy layout keeps the Electron launch unchanged', t => {
   const app = fakeApp(t, 'legacy');
   delete process.env.AGENT_TEAM_ZCODE_COMMAND;
   delete process.env.ZCODE_AGENT_SERVER_COMMAND;
@@ -168,8 +167,7 @@ test('ZCode launch injects the personal provider config path for headless spawns
   assert.equal(direct.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE ?? null, expected);
 });
 
-// `.app` 解析只在 darwin 分支生效,其他平台走直连命令,断言不成立。
-test('ZCode modern layout uses a prepared copy launched by system node', { skip: process.platform !== 'darwin' }, t => {
+test('ZCode modern layout uses a prepared copy launched by system node', t => {
   const app = fakeApp(t, 'modern');
   delete process.env.AGENT_TEAM_ZCODE_COMMAND;
   delete process.env.ZCODE_AGENT_SERVER_COMMAND;

@@ -180,7 +180,21 @@ test('previewGroupTextFile enforces realpath boundary, extensions and 128KB cap'
   writeFileSync(join(repo, 'docs.md'), '# Spec Heading\nhello\n');
   writeFileSync(join(repo, 'photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]));
   writeFileSync(join(repo, 'big.txt'), 'a'.repeat(MAX_FILE_PREVIEW_BYTES + 200));
-  symlinkSync(outsideFile, join(repo, 'escape.md'));
+  const outsideDir = join(root, 'outside-dir');
+  mkdirSync(outsideDir, { recursive: true });
+  writeFileSync(join(outsideDir, 'secret.md'), '# Secret\n');
+  let escapePath = 'escape.md';
+  try {
+    symlinkSync(outsideFile, join(repo, 'escape.md'));
+  } catch (error) {
+    if (process.platform === 'win32' && error?.code === 'EPERM') {
+      // Windows 未开启开发者模式时文件 symlink 报 EPERM,改用目录 junction 测试等价的 realpath 越界拦截。
+      symlinkSync(outsideDir, join(repo, 'escape-dir'), 'junction');
+      escapePath = 'escape-dir/secret.md';
+    } else {
+      throw error;
+    }
+  }
 
   const repoInfo = inspectGitRepoForWorktree(repo);
   const wt = createMemberWorktree({
@@ -204,7 +218,7 @@ test('previewGroupTextFile enforces realpath boundary, extensions and 128KB cap'
   assert.equal(Buffer.byteLength(truncated.content), MAX_FILE_PREVIEW_BYTES);
 
   assert.throws(() => previewGroupTextFile({ group, members, filePath: '../secret.md' }), /边界/);
-  assert.throws(() => previewGroupTextFile({ group, members, filePath: 'escape.md' }), /边界/);
+  assert.throws(() => previewGroupTextFile({ group, members, filePath: escapePath }), /边界/);
   assert.throws(() => previewGroupTextFile({ group, members, filePath: outsideFile }), /边界/);
   assert.throws(() => previewGroupTextFile({ group, members, filePath: 'photo.png' }), /仅支持预览/);
 });

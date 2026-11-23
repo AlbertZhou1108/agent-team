@@ -4,15 +4,16 @@
  * 会真实调用 ZCode 与 Claude Code 并消耗模型额度；仅手动执行，不进 CI。
  * 全程使用隔离临时目录：agent-team 数据与 ZCode HOME 都不触碰真实运行数据。
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../src/server.mjs';
 import { rpc } from '../src/rpc.mjs';
 import { createExternalIdentity } from '../src/control-plane.mjs';
 import { CONTROL_CAPABILITIES, CONTROL_PROTOCOL_VERSION } from '../src/control-capabilities.mjs';
 import { createZcodeProtocol, headlessInteractionReply } from '../src/member/zcode/protocol.mjs';
+import { isolatedHomeEnv, resolveZcodeLaunch } from '../src/member/zcode/wake.mjs';
 
 // 若验收脚本跑在注入了文件访问 shim 的外围宿主环境里，NODE_OPTIONS 会随
 // process.env 透传给 zcode/包装子进程，导致读真实配置被拦截。验收需要读本机
@@ -27,14 +28,10 @@ const data = join(root, 'data');
 const hostsFile = join(root, 'hosts.json');
 const zcodeHome = join(root, 'zcode-home');
 const claudeConfigDirectory = join(homedir(), '.claude');
-const zcodeAppEntry = '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs';
-const zcodeAppProvider = '/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json';
 const zcodeRealV2 = join(homedir(), '.zcode', 'v2');
-const zcodeLaunchRoot = join(root, 'zcode-launch');
-// 复制入口到隔离目录，并把新版 app 的 provider 配置迁回 cjs 期望的 <入口>/provider/ 布局。
-const zcodeEntry = join(zcodeLaunchRoot, 'glm', 'zcode.cjs');
-// 包装脚本：以系统 node 直接跑复制的入口，绕开 Electron 对 ELECTRON_RUN_AS_NODE 的限制。
-const zcodeLauncher = join(root, 'zcode-app-server');
+// 跨平台包装脚本:POSIX 用可执行 .mjs,Windows 额外生成 .cmd shim 交给 spawnHost 展开。
+const zcodeWrapperScript = join(root, 'zcode-app-server.mjs');
+const zcodeLauncher = process.platform === 'win32' ? join(root, 'zcode-app-server.cmd') : zcodeWrapperScript;
 const marker = `ACK_${Date.now()}`;
 const reportFile = join(root, 'report.json');
 const timeoutMs = 8 * 60 * 1000;
@@ -56,59 +53,44 @@ writeFileSync(hostsFile, JSON.stringify({
 }, null, 2));
 
 /**
- * 构造本机可运行的 app-server 启动环境。本机 ZCode.app 升级后有两处不兼容，
- * 均在隔离临时目录内解决，不改动真实安装：
- * 1. Electron 二进制拒绝 ELECTRON_RUN_AS_NODE=1（"invoked by other apps"）——
- *    改用系统 node 直接执行复制的 zcode.cjs。
- * 2. cjs 仍按旧布局找 <入口>/provider/zcode-builtin.json，新版 app 已移到
- *    Contents/Resources/config/provider/ —— 把配置复制到入口旁旧路径。
- * 返回 { command, args, env }，供主控会话使用；同时通过 AGENT_TEAM_ZCODE_COMMAND
- * 让成员宿主与主动唤醒驱动走同一启动出口（resolveZcodeLaunch 读取该覆盖）。
+ * 复用 resolveZcodeLaunch 跨平台探测本机 ZCode 启动方式(macOS .app / Windows 安装目录 / PATH),
+ * 并生成一层跨平台包装脚本:为隔离 HOME/USERPROFILE 补齐最小 provider 配置层,再透传参数拉起真实入口。
  */
 function prepareZcodeLaunch() {
-  if (!existsSync(zcodeAppEntry)) throw new Error(`未找到 ZCode 入口: ${zcodeAppEntry}`);
-  const entryDir = dirname(zcodeEntry);
-  mkdirSync(join(entryDir, 'provider'), { recursive: true, mode: 0o700 });
-  copyFileSync(zcodeAppEntry, zcodeEntry);
-  if (!existsSync(zcodeAppProvider)) throw new Error(`未找到 ZCode provider 配置: ${zcodeAppProvider}`);
-  copyFileSync(zcodeAppProvider, join(entryDir, 'provider', 'zcode-builtin.json'));
-  // cjs 依赖同目录 node-runtime（内置 npm 等）；指向真实安装即可，避免整个复制。
-  const runtime = join(dirname(zcodeAppEntry), 'node-runtime');
-  if (existsSync(runtime)) {
-    try { symlinkSync(runtime, join(entryDir, 'node-runtime'), 'dir'); } catch { /* 已存在 */ }
-  }
-  // 包装脚本收到 ['app-server','--stdio',...]，转成系统 node 执行复制入口。
-  // 它还负责给隔离 HOME 补齐最小配置层（provider/凭据/默认模型选择），否则
-  // session 模型不在 Provider Registry。补齐下沉到启动出口，主控会话、成员
-  // endpoint、唤醒三条路径（各自 HOME 不同）都能覆盖。真实 v2 路径硬编码写入，
-  // 因为隔离 HOME 下 homedir() 会指向临时目录。
-  writeFileSync(zcodeLauncher, [
+  const baseLaunch = resolveZcodeLaunch();
+  const baseArgs = baseLaunch.args.filter(arg => !['app-server', '--stdio'].includes(arg));
+  writeFileSync(zcodeWrapperScript, [
     '#!/usr/bin/env node',
-    `import { spawn } from 'node:child_process';`,
-    `import { copyFileSync, existsSync, mkdirSync } from 'node:fs';`,
-    `import { join } from 'node:path';`,
+    "import { spawn } from 'node:child_process';",
+    "import { copyFileSync, existsSync, mkdirSync } from 'node:fs';",
+    "import { join } from 'node:path';",
     `const realV2 = ${JSON.stringify(zcodeRealV2)};`,
-    `const home = process.env.HOME;`,
-    `if (home && home !== ${JSON.stringify(homedir())}) {`,
-    '  const isoV2 = join(home, \'.zcode\', \'v2\');',
-    '  if (!existsSync(join(isoV2, \'provider_config.json\')) && existsSync(realV2)) {',
+    `const realHome = ${JSON.stringify(homedir())};`,
+    'const home = process.env.HOME || process.env.USERPROFILE;',
+    'if (home && home !== realHome) {',
+    "  const isoV2 = join(home, '.zcode', 'v2');",
+    "  if (!existsSync(join(isoV2, 'provider_config.json')) && existsSync(realV2)) {",
     '    mkdirSync(isoV2, { recursive: true, mode: 0o700 });',
-    `    for (const name of ['provider_config.json', 'credentials.json', 'credential-source', 'setting.json', 'config.json', 'onboarding-record.json']) {`,
+    "    for (const name of ['provider_config.json', 'credentials.json', 'credential-source', 'setting.json', 'config.json', 'onboarding-record.json']) {",
     '      const src = join(realV2, name);',
     '      if (existsSync(src)) copyFileSync(src, join(isoV2, name));',
     '    }',
     '  }',
     '}',
-    `const child = spawn(process.execPath, [${JSON.stringify(zcodeEntry)}, ...process.argv.slice(2)], {`,
+    `const child = spawn(${JSON.stringify(baseLaunch.command)}, [...${JSON.stringify(baseArgs)}, ...process.argv.slice(2)], {`,
     "  stdio: 'inherit',",
-    '  env: process.env,',
+    `  env: { ...process.env, ...${JSON.stringify(baseLaunch.env)} },`,
+    '  windowsHide: true,',
     '});',
-    `child.on('error', error => { console.error(error); process.exit(1); });`,
-    `child.on('exit', (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 0); });`,
+    'child.on(\'error\', error => { console.error(error); process.exit(1); });',
+    'child.on(\'exit\', (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 0); });',
   ].join('\n'), { mode: 0o700 });
-  // 成员宿主与唤醒驱动经 resolveZcodeLaunch 读取该覆盖，统一走系统 node 启动。
+  if (process.platform === 'win32') {
+    writeFileSync(zcodeLauncher, `@echo off\r\n"${process.execPath}" "%~dp0zcode-app-server.mjs" %*\r\n`);
+  }
+  // 成员宿主与唤醒驱动经 resolveZcodeLaunch 读取该覆盖，统一走同一包装出口。
   process.env.AGENT_TEAM_ZCODE_COMMAND = zcodeLauncher;
-  update('zcodeLauncher', { launcher: zcodeLauncher, entry: zcodeEntry });
+  update('zcodeLauncher', { launcher: zcodeLauncher, baseCommand: baseLaunch.command });
   return { command: zcodeLauncher, args: [], env: {} };
 }
 
@@ -150,7 +132,7 @@ async function openControllerSession() {
     command: zcodeLauncher,
     // 包装脚本补上复制入口后用系统 node 执行；绕开 Electron 的 ELECTRON_RUN_AS_NODE 限制。
     args: ['app-server', '--stdio', '--cwd', workspace],
-    env: { HOME: zcodeHome },
+    env: isolatedHomeEnv({}, zcodeHome),
     onRequest: headlessInteractionReply,
     onNotification(row) {
       if (row.method !== 'session/event' || row.params?.sessionId !== state.sessionId) return;

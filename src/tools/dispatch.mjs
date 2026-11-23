@@ -210,7 +210,19 @@ export class ToolDispatch {
       return { interaction: interaction.id, state: interaction.state };
     }
     if (name === 'tasks_set') {
-      return this.bus.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
+      const result = this.bus.setAgentTasks({ groupId, ownerId: member.id, tasks: args.tasks });
+      if (
+        member.role === 'lead'
+        && Array.isArray(result.tasks)
+        && result.tasks.length > 0
+        && result.tasks.every(item => item.state === 'done' || item.state === 'dropped')
+      ) {
+        return {
+          ...result,
+          note: '全部计划步骤已结束；若本回合由成员汇报触发且尚未向用户汇报最终结果，请显式调用 send（to: "user"）发送最终汇总。',
+        };
+      }
+      return result;
     }
     if (name === 'member_stop') {
       if (this.bus.teamController(groupId).id !== member.id) throw new Error('只有当前主控可以停止成员');

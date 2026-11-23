@@ -68,7 +68,8 @@ export class ApiError extends Error {
 
 async function jsonRequest<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
   const timeoutMs = path.includes('/install') || path.includes('/directory-picker') ? 330000
-    : path.includes('/model-catalog') ? 60000 : init.method === 'POST' ? 60000 : 15000;
+    : path.includes('/desktop/verify') ? 180000
+      : path.includes('/model-catalog') ? 60000 : init.method === 'POST' ? 60000 : 15000;
   const controller = new AbortController();
   let timedOut = false;
   const cancel = () => controller.abort(signal?.reason);

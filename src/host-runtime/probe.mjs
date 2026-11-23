@@ -42,6 +42,7 @@ export async function exchange(command, args, { initial, receive, signal, timeou
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
     lines?.close();
+    child.stdin?.end();
     try { await stopHost(child); }
     catch (error) { cleanupFailure = error; }
   }

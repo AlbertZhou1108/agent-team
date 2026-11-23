@@ -8,7 +8,7 @@ import { modelCatalog } from '../../hosts/catalog.mjs';
 import { capability, capabilities, executionConditions, tokenConditions } from '../../capability-contract.mjs';
 import { telemetryObservation } from '../../observation.mjs';
 import { createZcodeProtocol, headlessInteractionReply } from './protocol.mjs';
-import { resolveZcodeLaunch } from './wake.mjs';
+import { isolatedHomeEnv, resolveZcodeLaunch } from './wake.mjs';
 import { memberExecutionCapabilities, browserToolCapability } from '../../hosts/execution.mjs';
 import { probeBrowserMcpServers, normalizeBrowserProbeResult, BROWSER_MCP_UNAVAILABLE_REASON } from '../../hosts/browser-mcp-probe.mjs';
 
@@ -120,7 +120,7 @@ async function zcodeModelCatalog(launch, home, options = {}) {
   const protocol = createZcodeProtocol({
     command: launch.command,
     args: launch.args,
-    env: { ...launch.env, HOME: home },
+    env: isolatedHomeEnv(launch.env, home),
     // 启动期反向请求也要按无头默认应答：新版 app-server 校验
     // nativeSearchEnhancementsEnabled 必须是布尔值，回 {} 会让目录探测失败。
     onRequest: headlessInteractionReply,
@@ -387,7 +387,7 @@ export function createZcodeHost({
       const protocol = createZcodeProtocol({
         command: launch.command,
         args: launch.args,
-        env: { ...launch.env, HOME: home },
+        env: isolatedHomeEnv(launch.env, home),
         onRequest: headlessInteractionReply,
         onNotification(row) {
           if (row.method !== 'session/event' || row.params?.sessionId !== sessionId) return;

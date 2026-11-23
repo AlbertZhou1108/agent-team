@@ -244,7 +244,7 @@ test('upload works without any workspace and rejects a symlinked storage root', 
   bus.store.run("DELETE FROM attachments WHERE id=?", ok.id);
   const outside = mkdtempSync(join(tmpdir(), 'attachments-outside-'));
   t.after(() => { try { rmSync(outside, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* 清理失败不影响结论(Windows 句柄/杀软) */ } });
-  symlinkSync(outside, attachmentsRoot(directory));
+  symlinkSync(outside, attachmentsRoot(directory), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(
     () => bus.attachmentUpload(agentId, textBuffer(), { name: 'a.txt' }),
     error => error.code === 'storage_unavailable',

@@ -5,13 +5,14 @@ import net from 'node:net';
 import { observeResponsiveness } from './responsiveness.mjs';
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, chmodSync, lstatSync, closeSync, existsSync } from 'node:fs';
+import { mkdirSync, openSync, writeFileSync, readFileSync, unlinkSync, lstatSync, closeSync, existsSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bus } from './bus.mjs';
 import { rpc } from './rpc.mjs';
 import { HOST_FACTORIES, DEFAULT_HOST_SPECS, assertHostContract } from './hosts/index.mjs';
 import { desktopApplicationStatus, detectDesktopApplications, verifyDesktopApplication, disableDesktopApplication, enableDesktopApplication, removeDesktopApplication, installDesktopIntegration, readDesktopHostSpecs } from './desktop/index.mjs';
+import { hardenPrivateDirectoryAcl, restrictPrivateDirectory, restrictPrivateFile } from './private-permissions.mjs';
 
 export function socketFor(directory) {
   if (process.platform === 'win32') {
@@ -80,7 +81,8 @@ export async function syncDesktopHosts({ directory, socketPath, hosts, state }) 
 export async function startServer({ directory, port = 0, hosts, configFile }) {
   directory = resolve(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  chmodSync(directory, 0o700);
+  restrictPrivateDirectory(directory);
+  void hardenPrivateDirectoryAcl(directory);
   const socketPath = socketFor(directory), lockPath = resolve(directory, 'owner.json');
   let lock;
   try { lock = openSync(lockPath, 'wx', 0o600); }
@@ -180,7 +182,7 @@ export async function startServer({ directory, port = 0, hosts, configFile }) {
     });
     await new Promise((resolve, reject) => { ipc.once('error', reject); ipc.listen(socketPath, resolve); });
     socketOwned = true;
-    if (process.platform !== 'win32') chmodSync(socketPath, 0o600);
+    restrictPrivateFile(socketPath);
     diagnostics = observeResponsiveness(directory);
     panel = http.createServer(async (request, response) => {
       diagnostics.request(request, response);

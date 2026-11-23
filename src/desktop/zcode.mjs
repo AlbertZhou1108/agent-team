@@ -11,17 +11,18 @@
 // glm/zcode.cjs,启动与 provider 配置布局由 member/zcode/wake.mjs 的
 // resolveZcodeLaunch 兼容(legacy 直启 / modern 复制入口到兼容目录)。
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
+import { restrictPrivateFile } from '../private-permissions.mjs';
 import { writeDesktopHostSpec } from './member-hosts.mjs';
 import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 import { createZcodeProtocol, headlessInteractionReply } from '../member/zcode/protocol.mjs';
-import { resolveZcodeLaunch } from '../member/zcode/wake.mjs';
+import { isolatedHomeEnv, resolveZcodeLaunch } from '../member/zcode/wake.mjs';
 import { trustAgentTeamServer } from '../member/zcode/index.mjs';
 
 /** cliPath 指向 <root>/src/cli.mjs。 */
@@ -30,8 +31,13 @@ export function zcodeDesktopCliPath(cliPath = fileURLToPath(new URL('../cli.mjs'
 }
 
 /** 桌面 bundle 内启动 app-server 的 Electron 二进制;resolveZcodeLaunch 识别后按布局兼容启动。 */
-export function zcodeDesktopLaunchCommand(bundlePath) {
-  return join(bundlePath, 'Contents', 'MacOS', 'ZCode');
+export function zcodeDesktopLaunchCommand(bundlePath, platform = process.platform) {
+  if (/\.app$/i.test(bundlePath) || (platform === 'darwin' && existsSync(join(bundlePath, 'Contents')))) {
+    return join(bundlePath, 'Contents', 'MacOS', 'ZCode');
+  }
+  if (platform === 'win32') return join(bundlePath, 'ZCode.exe');
+  const lower = join(bundlePath, 'zcode');
+  return existsSync(lower) ? lower : join(bundlePath, 'ZCode');
 }
 
 /**
@@ -115,7 +121,7 @@ export async function installZcodeDesktopIntegration(store, {
   if (configText) {
     backupPath = `${configPath}.agent-team-backup-${now.replace(/[:.]/g, '-')}`;
     copyFileSync(configPath, backupPath);
-    chmodSync(backupPath, 0o600);
+    restrictPrivateFile(backupPath);
     backupHash = createHash('sha256').update(configText).digest('hex');
   }
   writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
@@ -186,7 +192,7 @@ async function runZcodeVerifyTurn({
   const protocol = createZcodeProtocol({
     command: launch.command,
     args: launch.args,
-    env: { ...launch.env, HOME: home },
+    env: isolatedHomeEnv(launch.env, home),
     spawn: spawnTracked,
     onRequest: headlessInteractionReply,
     onNotification(row) {

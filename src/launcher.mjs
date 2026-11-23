@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { join, resolve, delimiter, dirname } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { mkdirSync, openSync, closeSync, existsSync, realpathSync, writeFileSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -15,13 +15,32 @@ export function applicationData({ platform = process.platform, home = homedir(),
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'agent-team');
 }
 
-export function launchEnvironment() {
-  const env = { ...process.env };
-  const key = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
-  const candidates = [join(homedir(), '.local', 'bin'), join(homedir(), '.hermes', 'node', 'bin'), join(homedir(), '.volta', 'bin'), join(homedir(), '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
+export function launchEnvironment({
+  platform = process.platform,
+  home = homedir(),
+  env: baseEnv = process.env,
+} = {}) {
+  const env = { ...baseEnv };
+  const key = Object.keys(env).find(name => name.toLowerCase() === 'path') ?? 'PATH';
+  const candidates = platform === 'win32'
+    ? [
+        join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'npm'),
+        join(home, '.local', 'bin'),
+        join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'Volta', 'bin'),
+        join(home, '.volta', 'bin'),
+      ]
+    : [
+        join(home, '.local', 'bin'),
+        join(home, '.hermes', 'node', 'bin'),
+        join(home, '.volta', 'bin'),
+        join(home, '.npm-global', 'bin'),
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+      ];
   // GUI 应用自带的可执行文件目录不是 Node 安装目录，加入 PATH 只会带来误命中的风险。
   if (!process.versions.electron) candidates.push(dirname(process.execPath));
-  env[key] = [...new Set([...(env[key] ?? '').split(delimiter), ...candidates].filter(Boolean))].join(delimiter);
+  const sep = platform === 'win32' ? ';' : ':';
+  env[key] = [...new Set([...(env[key] ?? '').split(sep), ...candidates].filter(Boolean))].join(sep);
   return env;
 }
 

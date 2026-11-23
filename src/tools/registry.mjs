@@ -5,7 +5,7 @@ const string = { type: 'string', minLength: 1, maxLength: 48000 };
 // 成员策略上限:null 表示继承群策略;合法值只能向下收敛。
 const memberPolicyCeiling = { type: ['string', 'null'], enum: ['communication', 'read-only', 'workspace-write', null] };
 const definitions = [
-  ['send', '给一位成员发送消息。发给主 Agent时进入统一调度会话。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。跨能力派工前先对照 members 返回的能力名片：需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 别名自动归一化），需要大上下文模型时传 minContextWindow；写库前与执行前各校验一次，不满足即拒绝并保留消息。', {
+  ['send', '给一位成员或用户发送消息：普通成员只能发给群成员，发给主 Agent 时进入统一调度会话；主 Agent 向用户汇报进度或交付最终汇总结果时，将 to 设为 \'user\'（无需设置 expects_reply）。需要对方答复或确认时设置 expects_reply=true；答复某条请求时用 reply_to 填原消息 ID。普通汇报、通知不要设置。派工时可用 step_ref 指向当前计划的步骤，接收方会在回合输入里看到它。跨能力派工前先对照 members 返回的能力名片：需要目标成员具备特定执行能力时传 requiredCapabilities（exec.read/exec.write/exec.shell/modal.image/tool.browser，旧 file.* 别名自动归一化），需要大上下文模型时传 minContextWindow；写库前与执行前各校验一次，不满足即拒绝并保留消息。', {
     to: string,
     text: string,
     expects_reply: { type: 'boolean' },

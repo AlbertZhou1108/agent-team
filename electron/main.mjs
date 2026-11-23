@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { ensureService, serviceAlive, serviceDirectory, stop, badgeCount } from './service.mjs';
 import { pickDirectory } from './dialogs.mjs';
 import { applicationMenuTemplate } from './menus.mjs';
+import { BADGE_CAP, badgeLabel, badgeOverlayPng } from './badge.mjs';
 
 // 主进程自己不需要这个标记；清掉它，避免后续 spawn 把宿主拉成 GUI 实例。
 delete process.env.ELECTRON_RUN_AS_NODE;
@@ -34,21 +35,25 @@ const pickerLock = {
   release() { this.busy = false; },
 };
 // 待办徽标：待答复的卡片 + 未读消息。「等待回复」不计入，它是待办审计而不是通知。
-// 超过两位数时角标会挤，macOS 改用 dock 的字符串角标显示 99+。
-const BADGE_CAP = 99;
+// 超过两位数时角标会挤，统一用 99+：macOS 走 dock/托盘文字，Windows 走任务栏 OverlayIcon。
 const badge = {
   count: -1,
   update(count) {
     if (count === this.count) return;
     this.count = count;
+    const label = badgeLabel(count);
     if (count > BADGE_CAP && process.platform === 'darwin' && app.dock) {
-      app.dock.setBadge(`${BADGE_CAP}+`);
+      app.dock.setBadge(label);
     } else {
       app.setBadgeCount(Math.min(count, BADGE_CAP));
     }
+    if (process.platform === 'win32' && win && !win.isDestroyed()) {
+      const png = badgeOverlayPng(count);
+      win.setOverlayIcon(png ? nativeImage.createFromBuffer(png) : null, label ? `${label} 项待处理` : '');
+    }
     if (tray && !tray.isDestroyed()) {
       tray.setToolTip(count ? `Agent Team · ${count} 项待处理` : 'Agent Team');
-      if (process.platform === 'darwin') tray.setTitle(count ? ` ${count > BADGE_CAP ? `${BADGE_CAP}+` : count}` : '');
+      if (process.platform === 'darwin') tray.setTitle(label ? ` ${label}` : '');
     }
   },
 };
@@ -165,6 +170,9 @@ async function openPanel() {
       state.panelUrl = url;
     }
     await window.loadURL(url);
+    // Windows 下首次显示时 Chromium 表面可能尚未完成首帧提交。
+    // 页面加载完成后再次显示并聚焦窗口，强制原生表面刷新。
+    showWindow();
     state.showingError = false;
     refreshMenu();
     if (SMOKE) {

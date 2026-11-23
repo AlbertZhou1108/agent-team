@@ -25,6 +25,17 @@ describe('API request lifetime', () => {
     const failed = expect(api.chooseDirectory()).rejects.toThrow('避免重复提交');
     await vi.advanceTimersByTimeAsync(330000); await failed;
   });
+  it('gives desktop verification enough budget to outlast the backend watchdog', async () => {
+    vi.useFakeTimers(); stalledFetch();
+    let settled = false;
+    const pending = api.desktopVerify('codex', true).catch(error => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(120000);
+    const error = await pending;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('请求超时');
+  });
 });
 
 describe('chooseDirectory progressive enhancement', () => {

@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdirSync, chmodSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { restrictPrivateFile } from './private-permissions.mjs';
 import { DEFAULT_ATTACHMENT_SETTINGS, normalizeAttachmentSettings, serializeAttachmentSettings } from './attachment-settings.mjs';
 import { SCHEMA_VERSION, ensureCurrentSchema, ensureAuxiliarySchema, ensureV2Schema, seedGlobalModelPolicyAndRoleNames } from './store/schema.mjs';
 import * as migrations from './store/migrations.mjs';
@@ -15,7 +16,7 @@ export class Store {
     this.directory = resolve(directory);
     this.savepointDepth = 0;
     this.db = new DatabaseSync(resolve(directory, 'groups.sqlite'));
-    chmodSync(resolve(directory, 'groups.sqlite'), 0o600);
+    restrictPrivateFile(resolve(directory, 'groups.sqlite'));
     // 版本必须在建表前读取：新库与 v0 旧库都返回 0，用「是否存在任何用户表」区分。
     const existingVersion = this.schemaVersion();
     if (existingVersion > SCHEMA_VERSION) {

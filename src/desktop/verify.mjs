@@ -113,7 +113,11 @@ export async function verifyDesktopApplication(store, kind, {
   } finally {
     clearTimeout(watchdog);
     await stopAll(children);
-    rmSync(workspace, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    try {
+      rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      // Windows 偶发短暂句柄占用时不覆盖验证返回值。
+    }
     // 空的验证根目录也一并清掉;rmdirSync 只在目录为空时成功——
     // 还有并发验证运行时目录非空,抛错即忽略,绝不误删其他运行的工作区。
     try {

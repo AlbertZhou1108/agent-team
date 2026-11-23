@@ -2,16 +2,48 @@
 // 实测事实(交接文档):桌面 MCP 子进程拿不到 CLAUDE_SESSION_ID,也没有安全的
 // 同会话唤醒路径——Claude 桌面集成解析为应用级单连接并保持 Pull-only;
 // 内嵌引擎由应用按版本下载到 ~/Library/Application Support/Claude-3p/claude-code。
-import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
 import { createExternalIdentity } from '../control-plane.mjs';
 import { nodeRunner } from '../runtime.mjs';
 import { disableBinding } from '../aggregates/external-control.mjs';
+import { restrictPrivateFile } from '../private-permissions.mjs';
 import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
+
+/**
+ * 解析当前平台 Claude Desktop 的配置目录:
+ * - macOS: ~/Library/Application Support/Claude
+ * - Windows: 依次检查已存在的 Claude-3p、MSIX 虚拟化 Roaming 目录、%APPDATA%\Claude、%LOCALAPPDATA%\Claude;
+ *   均不存在时回落 %APPDATA%\Claude;
+ * - Linux: $XDG_CONFIG_HOME/Claude 或 ~/.config/Claude。
+ */
+export function defaultClaudeConfigDir({
+  platform = process.platform,
+  home = homedir(),
+  env = process.env,
+} = {}) {
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Claude');
+  if (platform === 'win32') {
+    const local = env.LOCALAPPDATA || join(home, 'AppData', 'Local');
+    const roaming = env.APPDATA || join(home, 'AppData', 'Roaming');
+    const candidates = [join(local, 'Claude-3p')];
+    const packagesRoot = join(local, 'Packages');
+    try {
+      for (const entry of readdirSync(packagesRoot)) {
+        if (entry.startsWith('Claude_')) {
+          candidates.push(join(packagesRoot, entry, 'LocalCache', 'Roaming', 'Claude'));
+        }
+      }
+    } catch { /* 无 MSIX 包目录时跳过 */ }
+    candidates.push(join(roaming, 'Claude'), join(local, 'Claude'));
+    const existing = candidates.find(dir => existsSync(join(dir, 'claude_desktop_config.json')));
+    return existing ?? join(roaming, 'Claude');
+  }
+  return join(env.XDG_CONFIG_HOME || join(home, '.config'), 'Claude');
+}
 
 /**
  * 安装 Claude Desktop 集成:claude_desktop_config.json 的 mcpServers.agent_team
@@ -21,7 +53,7 @@ import { CONTROL_MCP_NAME, desktopControlMcpSpec } from './mcp-spec.mjs';
 export async function installClaudeDesktopIntegration(store, {
   principalName = '本机用户',
   detections,
-  claudeConfigDir = join(homedir(), 'Library', 'Application Support', 'Claude'),
+  claudeConfigDir = defaultClaudeConfigDir(),
   socketPath,
   runner = nodeRunner(),
   cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url)),
@@ -72,7 +104,7 @@ export async function installClaudeDesktopIntegration(store, {
   if (configText) {
     backupPath = `${configPath}.agent-team-backup-${now.replace(/[:.]/g, '-')}`;
     copyFileSync(configPath, backupPath);
-    chmodSync(backupPath, 0o600);
+    restrictPrivateFile(backupPath);
     backupHash = createHash('sha256').update(configText).digest('hex');
   }
   writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });

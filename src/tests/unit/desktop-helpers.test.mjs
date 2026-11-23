@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { badgeCount } from '../../../electron/service.mjs';
+import { badgeLabel, badgeOverlayPng } from '../../../electron/badge.mjs';
 import { pickDirectory } from '../../../electron/dialogs.mjs';
 import { applicationMenuTemplate } from '../../../electron/menus.mjs';
 
@@ -42,4 +43,15 @@ test('应用菜单启用状态随服务地址与运行模式变化', () => {
   assert.equal(menuItem(dev, '停止本地服务').enabled, false);
 
   assert.equal(applicationMenuTemplate({ platform: 'win32' })[0].label, '文件');
+});
+
+test('Windows 任务栏角标文字与 PNG 覆盖图标生成', () => {
+  assert.equal(badgeLabel(0), '');
+  assert.equal(badgeLabel(7), '7');
+  assert.equal(badgeLabel(120), '99+');
+  assert.equal(badgeOverlayPng(0), null);
+  const png = badgeOverlayPng(12);
+  assert.ok(Buffer.isBuffer(png));
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], '应输出合法 PNG 文件头');
+  assert.ok(Buffer.isBuffer(badgeOverlayPng(150)));
 });
