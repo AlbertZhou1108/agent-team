@@ -42,8 +42,8 @@ Native desktop capabilities follow **progressive enhancement**: preload injects 
 | `src/aggregates/` | Core write boundaries and invariants (8 modules guarding `messages`, `turns`, `conversations`, etc.) |
 | `web/` | Vue 3, TypeScript, Vite frontend (npm workspace) |
 | `electron/` | Desktop shell: launcher, main process, tray, preload |
-| `src/tests/` | `node:test` backend suites (`unit/`, `contract/`, `internal/`, `process/`, plus `support/` helpers) |
-| `web/tests/` | Vitest frontend tests mirroring `web/src/` (plus `support/` helpers) |
+| `src/tests/` | `node:test` backend suites (`core/` logic & contracts + `smoke/` process smoke, plus `support/` fixtures) |
+| `web/tests/` | Vitest pure-logic frontend tests mirroring `web/src/` |
 | `scripts/` | Verification gates, release packager, and manual live-host scripts |
 | `guide/` | User and technical documentation (`guide/en/` for English) |
 | `assets/readme/` & `assets/architecture/` | README screenshots/illustrations and exported architecture diagrams |
@@ -53,12 +53,15 @@ Native desktop capabilities follow **progressive enhancement**: preload injects 
 ## Verification Gates
 
 ```bash
-npm run check
-npm test
+npm run check:docs     # Docs-only: local markdown link checks
+npm run check:web      # Frontend: design governance + web boundary + vue-tsc + lint:web
+npm run check:backend  # Backend/electron: syntax/imports + tsc + lint:backend
+npm run check          # Full static checks (also run in CI)
+npm test               # Full automated test suite (run targeted files locally; CI runs full suite)
 npm run build
 ```
 
-`check` runs syntax/import/doc-link checks, design governance (`check-design.mjs`), layering checks (`check-layering.mjs`), version consistency, dual typechecks, and backend ESLint. CI runs `check`, `build`, and `test` on Ubuntu, macOS, and Windows; keep tests platform-neutral and stub host CLIs instead of calling live models.
+`check` runs syntax/import/doc-link checks, design governance (`check-design.mjs`), pure-Web layering checks (`check-layering.mjs`), version consistency, dual typechecks, and dual ESLint. CI runs `check`, `build`, and `test` on Ubuntu, macOS, and Windows plus macOS `desktop-smoke`; keep tests platform-neutral and stub host CLIs instead of calling live models.
 
 Manual live-host verification (consumes real host auth and quota):
 

@@ -80,7 +80,7 @@ Troubleshooting notes:
 - **Unified launch override**: `AGENT_TEAM_ZCODE_COMMAND` (or `ZCODE_AGENT_SERVER_COMMAND`) overrides the launch command across member, wake, and catalog probe paths.
 - **Outer harness `NODE_OPTIONS`**: Verification scripts spawned from hosts that inject file-access shims via `NODE_OPTIONS` may clear it for their own child processes.
 
-Reference script: [verify-zcode-host.mjs](../../scripts/verify-zcode-host.mjs) (uses hardcoded host app paths and should be updated per machine/version; verify handshake first before spending model quota).
+After upgrading a ZCode desktop installation, verify handshake compatibility (`session/create` / `session/setThoughtLevel`) before running full live dual-role checks so model quota is not wasted.
 
 ## DSH Model Discovery & API Key Injection
 

@@ -1,7 +1,24 @@
 #!/usr/bin/env sh
 set -eu
 
-node scripts/check-design.mjs
-node scripts/check-layering.mjs
-npm run typecheck
-npm run lint:web
+# 按暂存区改动域触发对应静态检查；不跑自动化测试（本地定向单测，CI 全量兜底）。
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^(README.*\.md|AGENTS\.md|docs/|guide/|skills/)'; then
+  npm run check:docs
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^web/'; then
+  npm run check:web
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^(src/|scripts/|electron/)'; then
+  npm run check:backend
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^(package\.json|web/package\.json|src/version\.mjs)$'; then
+  npm run check:version
+fi

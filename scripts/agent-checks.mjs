@@ -16,10 +16,10 @@ export const AGENT_CHECKS = [
   },
   {
     name: 'layering',
-    label: '前后端分层',
-    match: /(?:^|\/)(?:src|web\/(?:src|tests))\//,
+    label: '纯 Web 分层',
+    match: /(?:^|\/)web\/(?:src|tests)\//,
     check: 'scripts/check-layering.mjs',
-    advice: '不要在 contract 测试直读 store 行，也不要在 web/ 导入 src/ 或 electron/',
+    advice: 'web/ 必须保持纯 Web，不要导入根目录 src/ 或 electron/',
   },
 ];
 

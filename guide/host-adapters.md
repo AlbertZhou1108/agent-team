@@ -80,7 +80,7 @@ ZCode 的主控唤醒、成员执行与模型目录探测都经 `zcode.cjs app-s
 - **统一启动出口**：`AGENT_TEAM_ZCODE_COMMAND`（或 `ZCODE_AGENT_SERVER_COMMAND`）可覆盖启动命令，`resolveZcodeLaunch` 的成员、唤醒、目录探测三条路径都读它，优先级高于内置布局探测。
 - **外围环境注入**：若脚本跑在注入了文件访问 shim 的外围宿主里，`NODE_OPTIONS` 会透传给子进程、拦截本机配置读取。验收类脚本可检测并清除该注入项（仅影响自身派生子进程）。
 
-可运行的完整参考是 [verify-zcode-host.mjs](../scripts/verify-zcode-host.mjs)：它在隔离临时目录内复制入口 cjs、迁移 provider 配置、用系统 Node 包装启动，并通过 `AGENT_TEAM_ZCODE_COMMAND` 让主控会话与成员宿主走同一出口；替换启动命令的适配集中在 `prepareZcodeLaunch()`。该脚本对宿主 app 是硬编码绝对路径，换机器或换版本需同步改常量。升级后先用不消耗额度的握手探测（启动握手 → `session/create` → `session/setThoughtLevel`）验证可行，再跑完整双角色验收，避免白花模型额度。
+升级 ZCode 宿主版本后，建议先用不消耗额度的握手探测（启动握手 → `session/create` → `session/setThoughtLevel`）验证布局与协议兼容，再跑完整双角色验收，避免白花模型额度。
 
 ## DSH 的模型发现与 API Key
 

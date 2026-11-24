@@ -24,8 +24,8 @@
 - 控制协议不兼容时只暴露只读工具，写操作明确失败。
 - `connect` 会为已知宿主安装或更新 Skill；重复连接轮换凭据，并把旧 Skill 目录保留为同级备份。
 - 2026-11-08 已完成一次真实 Codex ↔ Claude Code 验收：Codex 创建团队并派单，Claude 回复进入收件箱，Codex thread 被 resume 唤醒，`control_inbox` 消费回复并写回验收任务。
-- 2026-11-17 已完成一次真实 ZCode 双角色验收（`scripts/verify-zcode-host.mjs`，全隔离临时目录）：ZCode 主控创建团队并派单，Claude 回复进入收件箱，ZCode 会话被 `session/resume` 唤醒并领取回复、写回验收任务；ZCode 成员宿主在独立数据目录中执行指令并回复。2026-11-18 本机 ZCode.app 升级后，脚本已适配新版入口/配置布局与 Electron 启动约束并以系统 Node 包装启动复验 PASS；适配方式见[宿主配置与适配](host-adapters.md#zcode-桌面-app-的启动与版本适配)。
-- 2026-11-17 已完成一次真实 DSH 双角色验收（`scripts/verify-dsh-host.mjs`）：DSH 主控经 headless resume 建团队、派单、被唤醒后领取回复并写回任务；DSH 成员宿主执行指令并回复。
+- 2026-11-17 已完成一次真实 ZCode 双角色验收（全隔离临时目录）：ZCode 主控创建团队并派单，Claude 回复进入收件箱，ZCode 会话被 `session/resume` 唤醒并领取回复、写回验收任务；ZCode 成员宿主在独立数据目录中执行指令并回复。2026-11-18 本机 ZCode.app 升级后，已适配新版入口/配置布局与 Electron 启动约束并以系统 Node 包装启动复验 PASS；适配方式见[宿主配置与适配](host-adapters.md#zcode-桌面-app-的启动与版本适配)。
+- 2026-11-17 已完成一次真实 DSH 双角色验收：DSH 主控经 headless resume 建团队、派单、被唤醒后领取回复并写回任务；DSH 成员宿主执行指令并回复。
 
 尚未完成：
 

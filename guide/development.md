@@ -42,8 +42,8 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 | `src/aggregates/` | 核心领域写边界与不变式（`messages` / `turns` / `conversations` 等 8 个聚合） |
 | `web/` | Vue 3、TypeScript、Vite 前端，npm workspace |
 | `electron/` | 开发态桌面窗口：启动器、主进程、托盘、preload |
-| `src/tests/` | `node:test` 后端测试，按 `unit/` `contract/` `internal/` `process/` 分层，`support/` 放共用辅助 |
-| `web/tests/` | Vitest 前端测试，按 `web/src/` 模块结构分目录，`support/` 放共用辅助 |
+| `src/tests/` | `node:test` 后端测试，分 `core/`（核心逻辑与契约）与 `smoke/`（关键进程冒烟）两层，`support/` 放共用夹具 |
+| `web/tests/` | Vitest 前端纯逻辑单测，按 `web/src/` 模块结构分目录 |
 | `scripts/` | 门禁、发行构建与手动真宿主验证工具 |
 | `guide/` | 正式使用与技术文档 |
 | `assets/readme/` | 产品介绍使用的插画和实机截图 |
@@ -53,14 +53,17 @@ npm run dev              # 只想用浏览器开发时，仍可单独启动
 ## 检查
 
 ```bash
-npm run check
-npm test
+npm run check:docs     # 纯文档改动：文档本地链接检查
+npm run check:web      # 前端改动：设计治理 + 纯 Web 分层 + vue-tsc + lint:web
+npm run check:backend  # 后端/桌面壳改动：语法导入 + tsc + lint:backend
+npm run check          # 全量静态门禁（CI 同步执行）
+npm test               # 全量自动化测试（本地开发优先跑定向文件，CI 集中兜底）
 npm run build
 ```
 
-`check` 包含语法、设计治理、分层契约、双端类型与双端 ESLint（`lint:backend` + `lint:web`）。CI 在 Ubuntu、macOS、Windows 上执行 check、build、test。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
+`check` 包含语法/导入/文档链接、设计治理、纯 Web 分层、版本一致、双端类型与双端 ESLint（`lint:backend` + `lint:web`）。CI 在 Ubuntu、macOS、Windows 上执行全量 check、build、test 与 macOS `desktop-smoke`。测试需要平台中性；宿主行为用 fake command stub，不能依赖真实 CLI 或模型。
 
-如需在本地提交前自动阻断设计/类型/ESLint 违例，可启用仓库预置钩子：
+如需在本地提交前按暂存区改动域自动阻断静态违例，可启用仓库预置钩子：
 
 ```bash
 git config core.hooksPath .githooks

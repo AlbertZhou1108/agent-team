@@ -23,7 +23,7 @@ Implemented:
 - Bindings, pending deliveries, and decisions survive service restarts.
 - Incompatible control protocol versions expose read-only tools only, failing write operations cleanly.
 - `connect` installs/updates Skills for known hosts, rotates credentials on re-registration, and backs up prior skill folders.
-- Live host verification milestones: Codex <-> Claude Code (2026-11-08), ZCode dual-role verification via `scripts/verify-zcode-host.mjs` (2026-11-17, re-verified 2026-11-18 across updated ZCode.app layout), and DSH dual-role verification via `scripts/verify-dsh-host.mjs` (2026-11-17).
+- Live host verification milestones: Codex <-> Claude Code (2026-11-08), ZCode dual-role verification (2026-11-17, re-verified 2026-11-18 across updated ZCode.app layout), and DSH dual-role verification (2026-11-17).
 
 Not yet implemented:
 
