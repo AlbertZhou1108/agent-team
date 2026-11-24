@@ -7,8 +7,9 @@
 - **单一自适配流程（无档位、无降档请示）**：按客观条件决定是否落档拍板：
   - **必须先写 `docs/flows/<YYYY-MM-DD>-<topic>/spec.md` 经用户拍板再开工**：① 新增/改变用户可见功能、交互或外部接口契约；② 涉及架构、数据模型、新设计 token 或组件原语取舍；③ 需求存在歧义或跨多模块协同。
   - **直接动手（不强建 `docs/flows/`）**：纯文档、根因唯一的缺陷修复、改法已明确的局部样式/文案/参数微调。
-- **原型与契约默认跳过**：仅涉及新的 UI 视觉/布局/交互决策（或用户要求画原型）时才进入原型阶段并产出 `contract.md` 拍板；纯后端/文档/复用既有组件与 token 时直接跳过，无需请示。
-- **设想出入即停**：实现期发现现状、接口或效果与既定设想/`spec.md`/`contract.md` 不符，**立即停下上报分歧点**，先对齐再继续。
+- **原型与契约默认跳过**：仅涉及新的 UI 视觉/布局/动效语言/交互决策（或用户要求画原型）时才进入原型阶段并产出 `contract.md` 拍板；纯后端/文档/复用既有组件与 token 时直接跳过，无需请示。
+- **执行护栏**：① 外部框架/运行时 API 优先查本地类型或官方文档，禁止凭记忆臆造；② 实现期发现现状/接口/效果与设想/`spec.md`/`contract.md` 不符即**停下上报分歧点**；③ 遇非预期报错或测试失败立即**停线留证找根因**，修绿再推进下一切片；④ **反门禁稀释**：严禁为凑绿灯新增无理由 `eslint-disable`/`@ts-ignore`、弱化测试断言或同提交放松检查阈值。
+- **按需瘦身与专项复核**：多切片大改动跑通后验收前扫 `git diff` 做行为等价瘦身；触及 SQLite 迁移、并发/投递状态机、权限沙箱或公共契约等高风险改动时，验收前起一次干净上下文子 Agent 做证伪复核；涉复杂 UI 动效/手势时补跑动效审查。
 - **人机拍板点**：`spec.md` 定稿（触发时）、`contract.md` 定稿（触发时）、`git commit`、`git push` 与 GitHub Release 创建须经**用户确认**。
 
 ## 全局硬红线（跨分支不变式）
@@ -43,7 +44,7 @@
 
 | 当你处理或改动…… | 先读取 / 遵循 |
 | --- | --- |
-| `web/src/` 页面、组件、样式、主题、动效 | `docs/DESIGN.md` + `skills/design-system/SKILL.md`；执行 `shadcn-vue` CLI 时工作目录设为 `web/`（先跑 `npx shadcn-vue@latest info --json`） |
+| `web/src/` 页面、组件、样式、主题、动效 | `docs/DESIGN.md` + `skills/design-system/SKILL.md`（本仓规范优先）；涉新视觉构思或复杂动效时结合全局 `frontend-design` 与 `animate`/`choreograph`/`gestures`/`animation-performance`/`review-animations`；执行 `shadcn-vue` CLI 时工作目录设为 `web/`（先跑 `npx shadcn-vue@latest info --json`） |
 | 投递恢复、读水位、遥测与聚合细节 | `src/tests/core/delivery-and-read-state.test.mjs`、`src/aggregates/read-state.mjs`、`docs/adr/0001`–`0006` |
 | 宿主适配、无头控制、外部桌面宿主集成 | `guide/host-adapters.md`、`guide/headless-control-plane.md`、`docs/adr/0007`–`0013` |
 | `electron/` 桌面壳、服务托管、托盘与构建 | `guide/development.md` 桌面壳段落（独立 `launcher.mjs` 进程、`loadURL(instance.url)`、`src/runtime.mjs` `nodeRunner()` 带 `ELECTRON_RUN_AS_NODE=1`、不做签名/自动更新/发布渠道） |
