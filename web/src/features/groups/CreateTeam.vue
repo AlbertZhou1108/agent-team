@@ -519,7 +519,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="@container mx-auto flex w-full max-w-6xl flex-col gap-5 py-1">
+  <div class="@container mx-auto flex w-full max-w-6xl flex-col gap-5 px-5 py-6 sm:px-8">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0 flex-1 space-y-1">
         <h1 class="text-xl font-semibold tracking-tight text-foreground">创建团队</h1>

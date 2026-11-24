@@ -26,9 +26,9 @@ const props = withDefaults(
 );
 
 const valueClass: Record<ContainerSize, string> = {
-  sm: 'text-sm font-semibold text-foreground',
-  md: 'text-lg font-semibold text-foreground',
-  lg: 'text-xl font-semibold text-foreground',
+  sm: 'text-base leading-tight font-semibold tracking-tight text-foreground',
+  md: 'text-[1.375rem] leading-tight font-semibold tracking-tight text-foreground',
+  lg: 'text-2xl leading-tight font-semibold tracking-tight text-foreground',
 };
 </script>
 
@@ -38,34 +38,27 @@ const valueClass: Record<ContainerSize, string> = {
     :data-size="size"
     :class="
       cn(
-        'flex min-w-0 flex-col rounded-(--component-control-radius) border border-border bg-card/60 tabular-nums',
+        'flex min-w-0 flex-col rounded-(--component-control-radius) border border-border bg-secondary/50 tabular-nums',
         size === 'sm'
-          ? 'gap-0.5 px-3 py-2'
+          ? 'gap-1 px-3 py-2.5'
           : size === 'lg'
-            ? progress !== undefined ? 'gap-2 p-4' : 'gap-1.5 p-4'
-            : progress !== undefined ? 'gap-1.5 p-3' : 'gap-1 p-3',
+            ? 'gap-1.5 p-4'
+            : 'gap-1.5 p-3.5',
         props.class,
       )
     "
   >
-    <template v-if="progress !== undefined">
-      <div class="flex items-center justify-between gap-2 text-xs">
-        <span class="text-muted-foreground">{{ label }}</span>
-        <span class="font-semibold text-foreground" :title="valueTitle">{{ value }}</span>
-      </div>
-      <Progress
-        :model-value="progress ?? 0"
-        :aria-label="progressLabel ?? `${label} ${value}`"
-        class="h-1.5"
-      />
-    </template>
-    <template v-else>
-      <span class="text-xs text-muted-foreground">{{ label }}</span>
-      <span
-        :class="valueClass[size]"
-        :title="valueTitle"
-      >{{ value }}</span>
-    </template>
-    <span v-if="subtitle" class="text-xs text-muted-foreground">{{ subtitle }}</span>
+    <span class="truncate text-xs text-muted-foreground">{{ label }}</span>
+    <span
+      :class="valueClass[size]"
+      :title="valueTitle"
+    >{{ value }}</span>
+    <Progress
+      v-if="progress !== undefined"
+      :model-value="progress ?? 0"
+      :aria-label="progressLabel ?? `${label} ${value}`"
+      class="mt-0.5 h-1.5"
+    />
+    <span v-if="subtitle" class="truncate text-xs text-muted-foreground">{{ subtitle }}</span>
   </div>
 </template>

@@ -37,7 +37,7 @@ export const DESIGN_PRESETS = freezeConfiguration({
       style: { themePack: 'ivory', colorMode: 'system' },
       typography: { '--component-title-font-size': '1.0625rem' }, material: getMaterialCategory('paper'),
       behavior: { preference: 'simple' },
-      layout: { density: 'standard', tokens: { '--component-nav-padding-x': '14px', '--component-panel-gap': '18px', '--component-sidebar-inset': '16px' } },
+      layout: { density: 'standard', tokens: { '--component-nav-padding-x': '14px' } },
     },
   },
   vivid: {
@@ -46,7 +46,7 @@ export const DESIGN_PRESETS = freezeConfiguration({
       typography: {},
       material: getMaterialCategory('vivid'),
       behavior: { preference: 'simple' },
-      layout: { density: 'standard', tokens: { '--component-card-padding': '26px', '--component-panel-gap': '14px', '--component-sidebar-inset': '14px' } },
+      layout: { density: 'standard', tokens: { '--component-card-padding': '26px' } },
     },
   },
 } satisfies Record<string, DesignPreset>);

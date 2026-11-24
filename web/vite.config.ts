@@ -38,6 +38,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
+    // 禁止将字体/SVG 等静态资源内联为 data: URI，避免被 src/server.mjs 的严格 CSP (default-src 'self') 拦截
+    assetsInlineLimit: 0,
   },
   test: {
     environment: 'node',

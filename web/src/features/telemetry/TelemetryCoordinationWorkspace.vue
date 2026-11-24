@@ -306,15 +306,15 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
             <AlertDescription>读取成员遥测失败：{{ membersQuery.error.value.message }}</AlertDescription>
           </Alert>
           <PanelState v-else-if="!rankedMembers.length" :icon="Users" title="暂无成员遥测" />
-          <div v-else class="flex flex-col gap-1.5" data-testid="telemetry-member-ranking">
+          <div v-else class="flex flex-col divide-y divide-border/60" data-testid="telemetry-member-ranking">
             <button
               v-for="row in rankedMembers"
               :key="row.id"
               type="button"
-              class="flex w-full min-w-0 flex-col gap-1.5 rounded-(--component-control-radius) border p-2.5 text-left transition-colors"
+              class="flex w-full min-w-0 flex-col gap-1.5 border-l-2 px-3 py-2.5 text-left transition-colors"
               :class="row.id === selectedMember?.executor.memberId
-                ? 'border-primary bg-accent/60'
-                : 'border-border bg-card/60 hover:bg-accent/30'"
+                ? 'border-l-info bg-accent/65'
+                : 'border-l-transparent bg-transparent hover:bg-accent/35'"
               :aria-pressed="row.id === selectedMember?.executor.memberId"
               :data-member-rank-id="row.id"
               @click="selectMember(row.id)"

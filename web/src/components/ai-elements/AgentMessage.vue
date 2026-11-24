@@ -34,7 +34,7 @@ import type { MessageView } from '@/shared/models/view-types';
 import { useClipboard } from '@vueuse/core';
 import { useRoute, useRouter } from 'vue-router';
 import { cn } from '@/lib/utils';
-import { identityColor, identityForeground } from '@/features/messages/identity';
+import { identityColor, identityTintBg, identityTintFg } from '@/features/messages/identity';
 import { formatAbsoluteTime, formatMessageTime } from '@/shared/message-time';
 import { useNowMinute } from '@/shared/use-now-minute';
 import ExpandableText from './ExpandableText.vue';
@@ -103,9 +103,11 @@ const useMarkdown = computed(
   () => props.markdown && !(props.message.kind === 'send' && props.message.senderIsUser),
 );
 
-// 身份色以显示名为 key(群内唯一),让并发发言的成员一眼可辨。
+// 身份色以显示名为 key(群内唯一),采用 Quiet Instrument Tinted Identity Badges。
 const identity = computed(() => identityColor(props.message.senderName));
-const identityFg = identityForeground();
+const identityBg = computed(() => identityTintBg(props.message.senderName));
+const identityFg = computed(() => identityTintFg(props.message.senderName));
+const isAgentEditorial = computed(() => props.message.kind === 'send' && !props.message.senderIsUser);
 
 const icon = computed(() => {
   if (props.message.kind === 'system') return isFailureNotice.value ? AlertTriangle : Megaphone;
@@ -219,7 +221,7 @@ const timeTitle = computed(() => formatAbsoluteTime(timestamp.value));
       "
     >
       <Avatar v-if="message.kind === 'send' && !compact" aria-hidden="true">
-        <AvatarFallback :style="{ backgroundColor: identity, color: identityFg }">{{
+        <AvatarFallback :style="{ backgroundColor: identityBg, color: identityFg }">{{
           message.senderName.slice(0, 1)
         }}</AvatarFallback>
       </Avatar>
@@ -247,7 +249,9 @@ const timeTitle = computed(() => formatAbsoluteTime(timestamp.value));
                 : 'ghost'
           "
         >
-          <BubbleContent>
+          <BubbleContent
+            :class="isAgentEditorial && 'editorial-agent-bubble'"
+          >
             <!-- 引用块:按钮自带 whitespace-nowrap/shrink-0,这里必须放开换行并允许收缩,
                  否则长引用不换行,被气泡的 overflow-hidden 裁掉右边。 -->
             <div v-if="quoted.items.length" class="flex min-w-0 flex-col gap-1 pb-2">

@@ -46,14 +46,14 @@ const feedProps = computed(() => {
       >
         <div :class="$slots.context ? 'conversation-header-row' : 'flex min-w-0 flex-1 items-center gap-3'">
           <slot name="leading" />
-          <div class="min-w-0 flex-1">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 class="min-w-0 truncate text-base font-semibold" :title="heading">{{ heading }}</h1>
+          <div class="flex min-w-0 flex-1 items-center gap-2">
+            <h1 class="min-w-0 truncate text-base font-semibold" :title="heading">{{ heading }}</h1>
+            <div v-if="$slots['heading-meta']" class="hidden shrink-0 items-center gap-1.5 sm:flex">
               <slot name="heading-meta" />
             </div>
-            <p v-if="description" class="mt-1 truncate text-xs text-muted-foreground" :title="description">{{ description }}</p>
+            <p v-if="description" class="ml-auto hidden max-w-[260px] truncate text-xs text-muted-foreground lg:block" :title="description">{{ description }}</p>
           </div>
-          <div v-if="$slots.actions" class="flex shrink-0 flex-wrap items-center gap-2"><slot name="actions" /></div>
+          <div v-if="$slots.actions" class="flex shrink-0 items-center gap-1.5"><slot name="actions" /></div>
         </div>
         <slot name="context" />
       </Surface>
@@ -78,14 +78,14 @@ const feedProps = computed(() => {
         >
           <div :class="$slots.context ? 'conversation-header-row' : 'flex min-w-0 flex-1 items-center gap-3'">
             <slot name="leading" />
-            <div class="min-w-0 flex-1">
-              <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <h1 class="min-w-0 truncate text-base font-semibold" :title="heading">{{ heading }}</h1>
+            <div class="flex min-w-0 flex-1 items-center gap-2">
+              <h1 class="min-w-0 truncate text-base font-semibold" :title="heading">{{ heading }}</h1>
+              <div v-if="$slots['heading-meta']" class="hidden shrink-0 items-center gap-1.5 sm:flex">
                 <slot name="heading-meta" />
               </div>
-              <p v-if="description" class="mt-1 truncate text-xs text-muted-foreground" :title="description">{{ description }}</p>
+              <p v-if="description" class="ml-auto hidden max-w-[260px] truncate text-xs text-muted-foreground lg:block" :title="description">{{ description }}</p>
             </div>
-            <div v-if="$slots.actions" class="flex shrink-0 flex-wrap items-center gap-2"><slot name="actions" /></div>
+            <div v-if="$slots.actions" class="flex shrink-0 items-center gap-1.5"><slot name="actions" /></div>
           </div>
           <slot name="context" />
         </Surface>

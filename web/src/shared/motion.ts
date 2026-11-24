@@ -66,9 +66,10 @@ export function motionDurationMs(tier: MotionTier): number {
  * 弹性/材质抑制只作用于 CSS 变量,JS 动画按进入曲线处理。
  */
 export const MOTION_EASING = {
-  out: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  out: 'cubic-bezier(0.23, 1, 0.32, 1)',
   in: 'cubic-bezier(0.4, 0, 1, 1)',
   standard: 'cubic-bezier(0.2, 0, 0, 1)',
+  drawer: 'cubic-bezier(0.32, 0.72, 0, 1)',
 } as const;
 
 /**

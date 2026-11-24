@@ -50,9 +50,8 @@ export interface MaterialCategory {
 
 /**
  * 默认实色:表面走主题基线,不加模糊/纹理/投影。
- * 导航/上下文/操作面板取背景色(比 card 暗一档),内容面卡保持 card,
- * 成员气泡取 secondary —— 三级明度差承担全部层次,符合实色语言。
- * 浅色下 background 与 card 同为白,层次仍由边框承担,无副作用。
+ * 全贴边中性黑灰分层:主工作区碳黑(--card)最沉,左右栏深炭灰(--background)对称抬半档,
+ * 顶栏/底栏与主画布无缝衔接(--card),输入框/卡片独立抬起(--secondary)。
  */
 const SOLID: MaterialCategory = {
   id: 'solid',
@@ -60,7 +59,8 @@ const SOLID: MaterialCategory = {
   roles: {
     'nav-panel': { bg: 'var(--background)' },
     'context-panel': { bg: 'var(--background)' },
-    action: { bg: 'var(--background)' },
+    action: { bg: 'var(--card)' },
+    input: { bg: 'var(--secondary)' },
   },
   components: {
     '--component-content-shadow': 'none',

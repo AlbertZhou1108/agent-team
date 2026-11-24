@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ArrowUpRight, Brain, Square } from '@lucide/vue';
 import { usePreferencesStore } from '@/stores/preferences';
-import { identityColor, identityForeground } from '@/features/messages/identity';
+import { identityColor, identityTintBg, identityTintFg } from '@/features/messages/identity';
 import { MOTION_EASING, motionDurationMs, prefersReducedMotion } from '@/shared/motion';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
 import { DisclosureChevron } from '@/components/ui/disclosure';
@@ -354,8 +354,8 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
                       <span
                         class="run-row-avatar"
                         :style="{
-                          backgroundColor: identityColor(row.name),
-                          color: identityForeground(),
+                          backgroundColor: identityTintBg(row.name),
+                          color: identityTintFg(row.name),
                         }"
                         aria-hidden="true"
                       >{{ row.name.slice(0, 1) }}</span>
@@ -424,8 +424,8 @@ function onRowClick(rowKey: string, rowHasReasoning: boolean) {
               <span
                 class="run-row-avatar"
                 :style="{
-                  backgroundColor: identityColor(idle.name),
-                  color: identityForeground(),
+                  backgroundColor: identityTintBg(idle.name),
+                  color: identityTintFg(idle.name),
                 }"
                 aria-hidden="true"
               >{{ idle.name.slice(0, 1) }}</span>

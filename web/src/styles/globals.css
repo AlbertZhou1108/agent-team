@@ -133,14 +133,14 @@ html[data-desktop='true'] {
   /* 首页卡片高度:随视口缩放，数据从空态切换到列表时卡片不跳动。 */
   --home-card-block-size: clamp(17rem, 30vh, 23rem);
   --home-team-card-min-size: 4.75rem;
-  height: calc(100dvh - 32px - var(--desktop-titlebar-height));
+  height: calc(100dvh - var(--desktop-titlebar-height));
   overflow-y: auto;
-  padding: 32px 24px;
+  padding: 28px 28px;
 }
 
 /* 随心记:主列与详情各自滚动，长列表不会把整页顶开；窄屏回到顺序滚动。 */
 .notes-page {
-  block-size: calc(100dvh - 32px - var(--desktop-titlebar-height));
+  block-size: calc(100dvh - var(--desktop-titlebar-height));
   min-block-size: 0;
   overflow: hidden;
 }
@@ -252,7 +252,7 @@ html[data-desktop='true'] {
   min-block-size: 0;
   flex-direction: column;
   gap: 16px;
-  padding: 16px;
+  padding: 24px 28px;
 }
 
 .notes-page-body {
@@ -490,10 +490,14 @@ html[data-desktop='true'] {
   display: block;
 }
 
-/* 固定高度的首页卡片:内部滚动，不按内容长度改变外部布局。 */
-.home-card {
+/* 展开态固定高度的首页卡片:内部滚动；空态收薄为单行状态条，将进展摘要推至首屏核心。 */
+.home-card-expanded {
   block-size: var(--home-card-block-size);
   min-block-size: 0;
+}
+
+.home-status-strip {
+  min-block-size: 48px;
 }
 
 /* 进展摘要卡片:随内容自适应高度，受响应式最大高度约束并在超出时内部滚动。 */
@@ -513,21 +517,26 @@ html[data-desktop='true'] {
 }
 
 .settings-page {
-  height: calc(100dvh - 32px - var(--desktop-titlebar-height));
-  max-height: calc(100dvh - 32px - var(--desktop-titlebar-height));
+  height: calc(100dvh - var(--desktop-titlebar-height));
+  max-height: calc(100dvh - var(--desktop-titlebar-height));
   overflow: hidden;
-  padding: 4px;
+  padding: 0;
 }
 
 .settings-page-panel {
   display: flex;
-  width: min(100%, 960px);
-  height: calc(100dvh - 40px - var(--desktop-titlebar-height));
-  max-height: calc(100dvh - 40px - var(--desktop-titlebar-height));
+  width: 100%;
+  height: calc(100dvh - var(--desktop-titlebar-height));
+  max-height: calc(100dvh - var(--desktop-titlebar-height));
   min-height: 0;
-  margin-inline: auto;
   flex-direction: column;
   overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .settings-page-panel-split {
+    flex-direction: row;
+  }
 }
 
 .team-home-inner {
@@ -700,7 +709,7 @@ html[data-desktop='true'] {
 }
 
 .panel-agent-page {
-  height: calc(100dvh - 32px - var(--desktop-titlebar-height));
+  height: calc(100dvh - var(--desktop-titlebar-height));
   min-height: 0;
 }
 
@@ -718,7 +727,7 @@ html[data-desktop='true'] {
   gap: 16px;
   width: min(100%, 1040px);
   margin: 0 auto;
-  padding: clamp(16px, 4vh, 48px) 0;
+  padding: clamp(16px, 4vh, 48px) 24px;
 }
 
 .agent-catalog-state {
@@ -731,7 +740,7 @@ html[data-desktop='true'] {
 .agent-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 310px;
-  gap: 12px;
+  gap: var(--component-panel-gap, 0px);
   height: 100%;
   min-height: 0;
 }
@@ -896,28 +905,29 @@ button {
 
 .app-shell {
   display: grid;
-  background: color-mix(in oklab, var(--muted) 40%, var(--background));
-  grid-template-columns: calc(64px + var(--component-sidebar-inset, 12px) * 2) minmax(0, 1fr);
+  background: var(--component-content-bg, var(--card));
+  grid-template-columns: calc(64px + var(--component-sidebar-inset, 0px) * 2) minmax(0, 1fr);
   min-height: calc(100dvh - var(--desktop-titlebar-height));
 }
 
 .app-shell.secondary-is-open {
-  grid-template-columns: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 12px) * 2) minmax(0, 1fr);
+  grid-template-columns: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 0px) * 2) minmax(0, 1fr);
 }
 
 .group-sidebar {
-  /* 与右栏同语言:浮起的圆角卡片,两栏合在一块 nav-panel 表面内,避免嵌套重复模糊/纹理。
-     高度用 dvh 并扣除桌面标题栏高:否则在 Electron 下(titlebar + 100dvh)会永久撑出外层滚动条。 */
+  /* 方案 A 全贴边无缝分栏:左轨与团队列表合在一块 L0 nav-panel 表面内，贴边无外圆角，
+     右侧以 1px 发丝线与主工作面分隔；高度扣除桌面标题栏高避免 Electron 出现外层滚动条。 */
   position: sticky;
-  top: calc(var(--desktop-titlebar-height) + var(--component-sidebar-inset, 12px));
+  top: calc(var(--desktop-titlebar-height) + var(--component-sidebar-inset, 0px));
   z-index: 20;
   display: flex;
-  height: calc(100dvh - var(--desktop-titlebar-height) - var(--component-sidebar-inset, 12px) * 2);
+  height: calc(100dvh - var(--desktop-titlebar-height) - var(--component-sidebar-inset, 0px) * 2);
   min-width: 0;
   flex-direction: row;
-  margin: var(--component-sidebar-inset, 12px);
-  border: 1px solid var(--border);
-  border-radius: var(--component-panel-radius, var(--radius, 0.5rem));
+  margin: var(--component-sidebar-inset, 0px);
+  border: 0;
+  border-inline-end: 1px solid var(--border);
+  border-radius: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -1017,25 +1027,29 @@ button {
 
 .recent-team-avatar {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  color: var(--component-image-scrim-fg);
+  border-radius: var(--component-chip-radius);
+  border: 1px solid color-mix(in oklch, var(--team-avatar-color, var(--info)) 32%, transparent);
+  background-color: color-mix(in oklch, var(--team-avatar-color, var(--info)) 16%, transparent);
+  color: var(--team-avatar-color, var(--info));
   font-size: 0.75rem;
   font-weight: 600;
-  transition: transform var(--component-feedback-duration), border-color var(--component-feedback-duration);
+  transition: transform var(--component-feedback-duration), border-color var(--component-feedback-duration), background-color var(--component-feedback-duration);
 }
 
-.recent-team-avatar:hover {
-  transform: scale(1.05);
+@media (hover: hover) and (pointer: fine) {
+  .recent-team-avatar:hover {
+    transform: scale(1.04);
+    background-color: color-mix(in oklch, var(--team-avatar-color, var(--info)) 24%, transparent);
+  }
 }
 
 .recent-team-avatar[data-current='true'] {
-  border-color: var(--primary);
+  border-color: var(--info);
 }
 
 .team-group-section {
@@ -1085,7 +1099,7 @@ button {
 .team-card-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   padding: 2px 0 6px;
 }
 
@@ -1101,20 +1115,42 @@ button {
 }
 
 .team-card {
+  position: relative;
   display: flex;
   min-width: 0;
   flex: 1;
   align-items: center;
-  gap: 10px;
-  padding: 9px 32px 9px 10px;
+  gap: 9px;
+  min-height: 44px;
+  padding: 6px 30px 6px 10px;
   border: 1px solid transparent;
-  border-radius: var(--component-card-radius);
-  background: color-mix(in oklch, var(--muted) 42%, transparent);
+  border-radius: var(--component-chip-radius);
+  background: transparent;
   transition: background-color var(--component-feedback-duration), border-color var(--component-feedback-duration);
 }
 
-.team-card:hover {
-  background: var(--state-hover);
+.team-card::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 22%;
+  height: 56%;
+  width: var(--component-nav-marker-width, 2px);
+  border-radius: var(--component-chip-radius);
+  background: var(--info);
+  opacity: 0;
+  transform: scaleY(0.5);
+  transform-origin: center;
+  transition:
+    opacity var(--component-feedback-duration) var(--motion-ease-out, ease-out),
+    transform var(--component-feedback-duration) var(--motion-ease-out, ease-out);
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .team-card:hover {
+    background: var(--state-hover);
+  }
 }
 
 .team-card:active {
@@ -1126,21 +1162,28 @@ button {
   border-color: var(--component-nav-current-border);
 }
 
+.team-card[data-current='true']::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
 .team-card[data-selected='true']:not([data-current='true']),
 .team-navigation[data-multi-select='true'] .team-card[data-selected='true'] {
   background: var(--component-nav-selected-bg);
-  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  border-color: color-mix(in oklch, var(--info) 55%, transparent);
 }
 
 .team-card-avatar {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 9999px;
-  color: var(--component-image-scrim-fg);
+  border-radius: var(--component-chip-radius);
+  border: 1px solid color-mix(in oklch, var(--team-avatar-color, var(--info)) 30%, transparent);
+  background-color: color-mix(in oklch, var(--team-avatar-color, var(--info)) 16%, transparent);
+  color: var(--team-avatar-color, var(--info));
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -1241,8 +1284,8 @@ button {
 .workspace-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--context-width, 360px);
-  gap: var(--component-panel-gap, 12px);
-  height: calc(100dvh - 32px - var(--desktop-titlebar-height));
+  gap: var(--component-panel-gap, 0px);
+  height: calc(100dvh - var(--desktop-titlebar-height));
   min-height: 0;
 }
 
@@ -1377,6 +1420,10 @@ button {
   gap: 12px;
 }
 
+.message-row-left {
+  gap: 20px;
+}
+
 .message-row-right {
   flex-direction: row-reverse;
 }
@@ -1459,7 +1506,7 @@ button {
   align-items: center;
   gap: 8px;
   padding-block-start: 6px;
-  padding-inline-start: var(--message-avatar-column);
+  padding-inline-start: calc(var(--message-avatar-column) + 8px);
   font-size: var(--component-control-font-size);
   color: var(--muted-foreground);
 }
@@ -2240,7 +2287,42 @@ html[data-motion='reduced'] .run-card-capsule:active {
   width: 12px;
   height: 12px;
   background-color: var(--muted-foreground);
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url('./file-chip-icon.svg') center / contain no-repeat;
+  mask: url('./file-chip-icon.svg') center / contain no-repeat;
+}
+
+/* 统一编辑流消息垂直文本基线：主控气泡外扩 12px 视觉底框（margin-inline-start: -12px，与 20px 行距配合保留 8px 头像呼吸），
+   使主控正文、无气泡 ghost 成员正文、行内「执行轨迹 >」与底部操作栏严格落在同一条垂直文本基线上。 */
+.editorial-agent-bubble {
+  padding: 8px 12px;
+}
+
+.message-row-left [data-variant='secondary'] > .editorial-agent-bubble {
+  border-width: 0;
+  margin-inline-start: -12px;
+  max-width: calc(100% + 12px);
+}
+
+[data-variant='ghost'] > .editorial-agent-bubble {
+  border-width: 0;
+  padding: 4px 0;
+  background: transparent;
+}
+
+/* 回到底部按钮合成层入场：替换原硬编码 shadow-md backdrop-blur-sm。 */
+@keyframes jump-to-bottom-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.jump-to-bottom-enter {
+  animation: jump-to-bottom-in var(--component-content-duration) var(--component-content-easing);
 }
 
 /* 轻量级系统通知时间线事件条：替代原全宽描边气泡卡片，避免抢占对话流视觉权重。 */
@@ -2414,11 +2496,11 @@ html[data-motion='reduced'] .run-card-capsule:active {
     position: fixed;
     inset: var(--desktop-titlebar-height) 0 0 auto;
     z-index: 40;
-    width: min(400px, calc(100vw - 88px));
+    width: min(400px, calc(100vw - 64px));
     max-height: calc(100dvh - var(--desktop-titlebar-height));
     overflow-y: auto;
-    transform: translateX(105%);
-    transition: transform var(--component-layout-duration) var(--component-layout-easing);
+    transform: translateX(100%);
+    transition: transform var(--component-layout-duration) var(--motion-ease-drawer, var(--component-layout-easing));
   }
 
   .context-panel-open {
@@ -2448,7 +2530,7 @@ html[data-motion='reduced'] .run-card-capsule:active {
   }
 
   .group-sidebar {
-    /* 窄屏一级栏压成一条顶部横向图标条:固定区/插件区以竖线分隔，团队列表交给主页。 */
+    /* 窄屏一级栏压成一条顶部横向图标条:贴边底部 1px 分隔线，团队列表交给主页。 */
     position: relative;
     top: 0;
     height: auto;
@@ -2456,6 +2538,8 @@ html[data-motion='reduced'] .run-card-capsule:active {
     max-height: none;
     flex-direction: row;
     align-items: center;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--border);
     padding: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -2512,25 +2596,26 @@ html[data-motion='reduced'] .run-card-capsule:active {
   }
 
   main {
-    padding: 0.5rem;
+    padding: 0;
   }
 
   .workspace-shell {
-    height: calc(100svh - 178px);
+    height: calc(100dvh - var(--desktop-titlebar-height) - 53px);
     min-height: 0;
   }
 
   .conversation-header {
-    flex-wrap: wrap;
-    padding: 10px;
+    flex-wrap: nowrap;
+    padding: 8px 12px;
   }
 
   .chat-notice {
-    padding-inline: 10px;
+    padding-inline: 12px;
   }
 
+  /* 移动端保持 message-stream 零内边距，确保 sticky 顶栏与底栏严丝合缝，零消息漏出。 */
   .message-stream {
-    padding: 10px;
+    padding: 0;
   }
 
   .message-card {
@@ -2571,16 +2656,40 @@ html[data-motion='reduced'] .run-card-capsule:active {
     position: relative;
   }
   .left-resize-handle {
-    /* 仅挂在二级面板右缘（一级栏 64px + 二级栏宽 + 左外边距），不画竖线，悬停切换 col-resize 光标。 */
+    /* 贴合全贴边 1px 分隔线，4px 隐形热区，仅精细指针悬停或拖拽时显现 2px 强调线。 */
     display: block;
     position: fixed;
-    left: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 12px) - 4px);
-    top: calc(var(--desktop-titlebar-height) + var(--component-sidebar-inset, 12px));
-    bottom: var(--component-sidebar-inset, 12px);
+    left: calc(64px + var(--sidebar-width, 248px) + var(--component-sidebar-inset, 0px) - 4px);
+    top: calc(var(--desktop-titlebar-height) + var(--component-sidebar-inset, 0px));
+    bottom: var(--component-sidebar-inset, 0px);
     width: 8px;
     z-index: 25;
     cursor: col-resize;
     touch-action: none;
+  }
+  .left-resize-handle::after,
+  .right-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--info);
+    opacity: 0;
+    transition: opacity var(--component-feedback-duration);
+    pointer-events: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .left-resize-handle:hover::after,
+    .right-resize-handle:hover::after {
+      opacity: 0.7;
+    }
+  }
+  .is-resizing .left-resize-handle::after,
+  .is-resizing .right-resize-handle::after {
+    opacity: 0.9;
   }
   .is-resizing {
     cursor: col-resize;
@@ -2596,7 +2705,7 @@ html[data-motion='reduced'] .run-card-capsule:active {
     position: absolute;
     top: 0;
     bottom: 0;
-    right: calc(var(--context-width, 360px) + 3px);
+    right: calc(var(--context-width, 360px) - 4px);
     width: 8px;
     z-index: 25;
     cursor: col-resize;
@@ -2841,10 +2950,11 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
   --motion-duration-fast: calc(150ms * var(--motion-pace));
   --motion-duration-normal: calc(220ms * var(--motion-pace));
   --motion-duration-slow: calc(320ms * var(--motion-pace));
-  --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --motion-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-ease-spring: cubic-bezier(0.22, 1.18, 0.36, 1);
   /* Tailwind 的 transition-* 工具类在没写时长/曲线时读这两个默认值。
      在这里改指契约,而不是在每个类上补 duration-*:默认即契约,
      漏写的地方也不会掉到框架自带的 150ms / ease 上。 */
@@ -2860,8 +2970,8 @@ html[data-motion='lively'] {
   --motion-pace: 0.7;
   --animate-spin: spin calc(1s * var(--motion-pace, 1)) linear infinite;
   --animate-pulse: pulse calc(2s * var(--motion-pace, 1)) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  /* 灵动档仅将轻弹应用于进场/微反馈，大面积分栏与折叠（standard）保持无过冲利落收口。 */
   --motion-ease-out: var(--motion-ease-spring);
-  --motion-ease-standard: var(--motion-ease-spring);
 }
 
 /* 材质签名对动效词汇的否决权:物理上不允许弹性的材质(纸/水泥等)
@@ -2964,9 +3074,14 @@ html[data-material-effect='glass'] {
   --glass-rim: var(--component-light-rim);
 }
 
-html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action'], [data-surface='overlay']) {
+html[data-material-effect='glass'] :is([data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='action']) {
   border-color: var(--glass-rim);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+  box-shadow: none;
+}
+
+html[data-material-effect='glass'] [data-surface='overlay'] {
+  border-color: var(--glass-rim);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
 }
 
 /* 传送到 body 的浮层同样消费角色变量;实色模式不命中这条规则,
@@ -3087,6 +3202,48 @@ html[data-density='loose'] {
   white-space: nowrap;
 }
 
+/* ===== 外观预设缩略画廊（P07）与设置二级导航 ===== */
+.settings-nav-trigger {
+  position: relative;
+  border-radius: var(--component-chip-radius);
+}
+.settings-nav-trigger[data-state='active']::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 22%;
+  height: 56%;
+  width: var(--component-nav-marker-width, 2px);
+  border-radius: var(--component-chip-radius);
+  background: var(--info);
+}
+.preset-gallery-card:active {
+  transform: scale(var(--component-button-press-scale, 0.98));
+}
+.preset-thumb {
+  display: grid;
+  grid-template-columns: 22% 1fr 24%;
+  gap: 1px;
+  height: 44px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--component-chip-radius);
+  border: 1px solid var(--border);
+  background: var(--border);
+}
+.preset-thumb[data-preset-thumb='classic'] .preset-thumb-l0 { background: light-dark(#f5f5f6, #141415); }
+.preset-thumb[data-preset-thumb='classic'] .preset-thumb-l1 { background: light-dark(#ffffff, #0d0d0e); }
+.preset-thumb[data-preset-thumb='classic'] .preset-thumb-l0b { background: light-dark(#f5f5f6, #141415); }
+.preset-thumb[data-preset-thumb='frosted-glass'] .preset-thumb-l0 { background: light-dark(color-mix(in oklch, #dbeafe 42%, #f8fafc), color-mix(in oklch, #1e3a5f 36%, #141923)); }
+.preset-thumb[data-preset-thumb='frosted-glass'] .preset-thumb-l1 { background: light-dark(#ffffff, #1c222d); }
+.preset-thumb[data-preset-thumb='frosted-glass'] .preset-thumb-l0b { background: light-dark(color-mix(in oklch, #e0f2fe 38%, #f8fafc), color-mix(in oklch, #1e3a5f 28%, #161c26)); }
+.preset-thumb[data-preset-thumb='paper'] .preset-thumb-l0 { background: #efece6; }
+.preset-thumb[data-preset-thumb='paper'] .preset-thumb-l1 { background: #faf8f4; }
+.preset-thumb[data-preset-thumb='paper'] .preset-thumb-l0b { background: #f3f0ea; }
+.preset-thumb[data-preset-thumb='vivid'] .preset-thumb-l0 { background: light-dark(#e8f0fe, #152238); }
+.preset-thumb[data-preset-thumb='vivid'] .preset-thumb-l1 { background: light-dark(#ffffff, #1b2c49); }
+.preset-thumb[data-preset-thumb='vivid'] .preset-thumb-l0b { background: light-dark(#eef4ff, #182740); }
+
 /* ===== 外观样例:设置页内的微缩会话界面,实时反映材质/密度/阅读/动效草稿 ===== */
 .appearance-sample {
   display: grid;
@@ -3165,13 +3322,17 @@ html[data-density='loose'] {
   background-image: var(--component-content-image);
   box-shadow: var(--component-content-shadow);
 }
-[data-surface='nav-panel'], [data-surface='context-panel'], [data-surface='overlay'] {
+/* 方案 A 全贴边壳层：左右分栏贴边零外圆角零外投影，圆角与浮层投影仅留给 overlay。 */
+[data-surface='nav-panel'], [data-surface='context-panel'] {
+  border-color: var(--component-surface-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-surface='overlay'] {
   border-color: var(--component-surface-border);
   border-radius: var(--component-panel-radius);
+  box-shadow: var(--surface-overlay-shadow, var(--component-panel-shadow));
 }
-[data-surface='nav-panel'] { box-shadow: var(--surface-nav-panel-shadow, none); }
-[data-surface='context-panel'] { box-shadow: var(--surface-context-panel-shadow, var(--component-panel-shadow)); }
-[data-surface='overlay'] { box-shadow: var(--surface-overlay-shadow, var(--component-panel-shadow)); }
 [data-surface='action'] { box-shadow: var(--surface-action-shadow, none); }
 /* 只替换 Tailwind 阴影层,保留输入框聚焦/错误状态的 ring 层。 */
 [data-surface='input']:not([data-slot='input-group-control']) {

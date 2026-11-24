@@ -233,6 +233,13 @@ describe('design-presets', () => {
       expect(fallback.variables['--component-control-radius']).toBe('var(--radius-md)');
       expect(fallback.variables['--component-content-shadow']).toBe(COMPONENT_DEFAULTS.material['--component-content-shadow']);
     });
+    it('converges all built-in presets to edge-to-edge split-pane layout (Plan A)', () => {
+      for (const preset of Object.values(DESIGN_PRESETS)) {
+        const output = resolve(preset.id, preset.dimensions.material.id);
+        expect(output.variables['--component-sidebar-inset'], preset.id).toBe('0px');
+        expect(output.variables['--component-panel-gap'], preset.id).toBe('0px');
+      }
+    });
     it('gives default solid segmented choices and active tabs dark-mode separation', () => {
       const classic = resolve('classic', 'solid');
       expect(classic.variables['--component-choice-selected-bg']).toContain('light-dark(');

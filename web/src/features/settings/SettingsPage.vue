@@ -4,7 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { ArrowLeft } from '@lucide/vue';
 import type { Group, ModelPolicy, ModelPolicyDefaults } from '@/shared/api/raw-types';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Surface } from '@/components/surface';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import AppearanceTab from './tabs/AppearanceTab.vue';
@@ -27,6 +27,14 @@ const emit = defineEmits<{
   saved: [policy: ModelPolicy];
   restoreTeam: [team: Group];
 }>();
+
+const SECTIONS = [
+  { value: 'appearance', label: '外观' },
+  { value: 'general', label: '通用与宿主集成' },
+  { value: 'tools', label: '工具与扩展' },
+  { value: 'policy', label: '模型策略' },
+  { value: 'teams', label: '团队与归档管理' },
+] as const;
 
 // 设置页只负责分区导航与入参转发；各分区的状态和交互留在自己的标签组件里。
 const activeTab = ref('appearance');
@@ -59,53 +67,84 @@ watch(() => [route.query.section, route.query.setting], async () => {
 
 <template>
   <div class="settings-page">
-    <Card data-surface="context-panel" class="settings-page-panel">
-      <CardHeader class="flex shrink-0 flex-row items-center">
+    <div v-if="hostKind" class="settings-page-panel px-6 py-5 sm:px-8">
+      <div class="mb-4 flex shrink-0 items-center gap-2">
         <Button
           variant="ghost"
-          size="icon-md"
-          :title="hostKind ? '返回通用设置' : '返回'"
-          :aria-label="hostKind ? '返回通用设置' : '返回'"
-          @click="hostKind ? closeHostDetail() : emit('close')"
+          size="icon-sm"
+          title="返回通用设置"
+          aria-label="返回通用设置"
+          @click="closeHostDetail"
         >
           <ArrowLeft />
         </Button>
-        <div class="min-w-0 flex-1">
-          <h1 class="text-2xl font-semibold tracking-tight">设置</h1>
-        </div>
-      </CardHeader>
-      <CardContent class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div v-if="hostKind" class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <h1 class="text-lg font-semibold tracking-tight">设置 · 宿主详情</h1>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div class="mx-auto max-w-4xl pb-8">
           <HostDetailPanel :kind="hostKind" @back="closeHostDetail" />
         </div>
-        <Tabs v-else v-model="activeTab" class="flex min-h-0 flex-1 flex-col gap-4">
-          <!-- 标签栏固定，只有内容区滚动；药丸组按内容宽换行，数量变化不再撑破网格。 -->
-          <TabsList size="sm" class="flex h-auto w-fit max-w-full flex-wrap gap-1">
-            <TabsTrigger value="appearance" class="flex-none">外观</TabsTrigger>
-            <TabsTrigger value="general" class="flex-none">通用</TabsTrigger>
-            <TabsTrigger value="tools" class="flex-none">工具</TabsTrigger>
-            <TabsTrigger value="policy" class="flex-none">模型策略</TabsTrigger>
-            <TabsTrigger value="teams" class="flex-none">团队管理</TabsTrigger>
-          </TabsList>
-          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <TabsContent value="appearance" class="flex flex-col gap-6">
-              <AppearanceTab />
-            </TabsContent>
-            <TabsContent value="general" class="flex flex-col gap-6">
-              <GeneralTab @open-host-detail="openHostDetail" />
-            </TabsContent>
-            <TabsContent value="tools" class="flex flex-col gap-6">
-              <ToolsTab />
-            </TabsContent>
-            <TabsContent value="policy" class="flex flex-col gap-6">
-              <PolicyTab :policy="props.policy" :defaults="props.defaults" @saved="emit('saved', $event)" />
-            </TabsContent>
-            <TabsContent value="teams" class="flex flex-col gap-6">
-              <TeamsTab :archived-teams="props.archivedTeams ?? []" @restore-team="emit('restoreTeam', $event)" />
-            </TabsContent>
-          </div>
-        </Tabs>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
+
+    <!-- 方案 A 全贴边双栏设置工作台（P07）：左二级导航栏 L0 + 右主内容面 L1，1px 发丝线分隔。 -->
+    <Tabs
+      v-else
+      v-model="activeTab"
+      orientation="vertical"
+      class="settings-page-panel settings-page-panel-split gap-0"
+    >
+      <Surface
+        role="nav-panel"
+        as="aside"
+        class="flex shrink-0 flex-col border-b border-border px-3 py-3 md:w-56 md:border-r md:border-b-0 md:py-5"
+      >
+        <div class="mb-3 flex items-center gap-1.5 px-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="返回"
+            aria-label="返回"
+            @click="emit('close')"
+          >
+            <ArrowLeft />
+          </Button>
+          <h1 class="text-base font-semibold tracking-tight text-foreground">设置</h1>
+        </div>
+        <TabsList
+          size="sm"
+          class="flex h-auto w-full flex-row flex-wrap gap-1 bg-transparent p-0 md:flex-col"
+        >
+          <TabsTrigger
+            v-for="section in SECTIONS"
+            :key="section.value"
+            :value="section.value"
+            class="settings-nav-trigger w-auto justify-start px-3 py-2 text-left text-sm md:w-full"
+          >
+            {{ section.label }}
+          </TabsTrigger>
+        </TabsList>
+      </Surface>
+
+      <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-8">
+        <div class="mx-auto flex max-w-4xl flex-col pb-10">
+          <TabsContent value="appearance" class="flex flex-col gap-6">
+            <AppearanceTab />
+          </TabsContent>
+          <TabsContent value="general" class="flex flex-col gap-6">
+            <GeneralTab @open-host-detail="openHostDetail" />
+          </TabsContent>
+          <TabsContent value="tools" class="flex flex-col gap-6">
+            <ToolsTab />
+          </TabsContent>
+          <TabsContent value="policy" class="flex flex-col gap-6">
+            <PolicyTab :policy="props.policy" :defaults="props.defaults" @saved="emit('saved', $event)" />
+          </TabsContent>
+          <TabsContent value="teams" class="flex flex-col gap-6">
+            <TeamsTab :archived-teams="props.archivedTeams ?? []" @restore-team="emit('restoreTeam', $event)" />
+          </TabsContent>
+        </div>
+      </div>
+    </Tabs>
   </div>
 </template>

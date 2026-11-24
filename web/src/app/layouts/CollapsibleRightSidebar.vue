@@ -1,6 +1,5 @@
 <script setup lang="ts" generic="T extends string">
 import type { Component } from 'vue';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/surface';
 import SidebarCollapseButton from './SidebarCollapseButton.vue';
@@ -18,8 +17,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <!-- 本组件职能上就是上下文面板载体:角色天然固有,经 Surface 写入契约。 -->
-  <Surface role="context-panel" :as="Card" class="min-h-0 min-w-0 gap-4 overflow-hidden py-4">
+  <!-- 本组件职能上就是上下文面板载体:全贴边贴右缘（L0b），左侧 1px 发丝线分隔。 -->
+  <Surface
+    role="context-panel"
+    as="aside"
+    class="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden border-l border-border py-4 text-card-foreground"
+  >
     <div v-show="!collapsed" class="flex min-h-0 flex-1 flex-col">
       <slot />
     </div>

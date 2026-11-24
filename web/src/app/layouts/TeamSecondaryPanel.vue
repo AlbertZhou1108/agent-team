@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
               :data-current="team.id === currentGroupId ? 'true' : undefined"
               :aria-label="`打开团队 ${team.name}`"
               :title="team.name"
-              :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+              :style="{ '--team-avatar-color': teamAvatarColor(team.id, org.teams[team.id]?.color) }"
               @click="selectRecentTeam(team.id)"
             >
               {{ team.name.slice(0, 1) }}
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
               >
                 <span
                   class="team-card-avatar"
-                  :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                  :style="{ '--team-avatar-color': teamAvatarColor(team.id, org.teams[team.id]?.color) }"
                   aria-hidden="true"
                 >{{ team.name.slice(0, 1) }}</span>
                 <span class="min-w-0 flex-1 text-left">
@@ -504,7 +504,7 @@ onBeforeUnmount(() => {
                 >
                   <span
                     class="team-card-avatar"
-                    :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                    :style="{ '--team-avatar-color': teamAvatarColor(team.id, org.teams[team.id]?.color) }"
                     aria-hidden="true"
                   >{{ team.name.slice(0, 1) }}</span>
                   <span class="min-w-0 flex-1 text-left">
@@ -601,7 +601,7 @@ onBeforeUnmount(() => {
               >
                 <span
                   class="team-card-avatar"
-                  :style="{ backgroundColor: teamAvatarColor(team.id, org.teams[team.id]?.color) }"
+                  :style="{ '--team-avatar-color': teamAvatarColor(team.id, org.teams[team.id]?.color) }"
                   aria-hidden="true"
                 >{{ team.name.slice(0, 1) }}</span>
                 <span class="min-w-0 flex-1 text-left">

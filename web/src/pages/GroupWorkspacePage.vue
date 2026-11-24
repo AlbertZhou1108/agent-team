@@ -444,7 +444,7 @@ function onMemberPolicySaved() {
       @lostpointercapture="endResize"
       @keydown="keyboardResize($event, 'left')"
     />
-    <main class="min-w-0 p-3 sm:p-4 xl:pl-0">
+    <main class="min-w-0">
       <SettingsPage
         v-if="isSettingsRoute"
         :policy="currentModelPolicy"

@@ -241,10 +241,11 @@ defineExpose({ scrollToBottom });
     <ScrollBar class="z-30" :style="{ top: `${barTopHeight}px`, bottom: `${barBottomHeight}px`, height: 'auto' }" />
     <slot name="overlay" :viewport="stream" />
     <!-- 回底按钮锚在 viewport 层:底栏 sticky 钉在滚动口下沿,按钮按底栏实高
-         (ResizeObserver 注入)悬浮其上,任何滚动位置都可见可点。 -->
+         (ResizeObserver 注入)悬浮其上,走 overlay 语义表面与合成层入场动画。 -->
     <Button
       v-if="!atBottom"
-      class="jump-to-bottom shadow-md backdrop-blur-sm animate-in fade-in-0 slide-in-from-bottom-2 duration-[var(--component-content-duration)]"
+      data-surface="overlay"
+      class="jump-to-bottom jump-to-bottom-enter border border-border"
       :style="{ bottom: `${barBottomHeight + 8}px` }"
       variant="secondary"
       size="sm"

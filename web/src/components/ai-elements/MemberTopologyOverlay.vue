@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Send } from '@lucide/vue';
-import { identityColor, identityForeground } from '@/features/messages/identity';
+import { identityColor, identityTintBg, identityTintFg } from '@/features/messages/identity';
 import {
   buildCompactArcPath,
   buildExpandedCurvePath,
@@ -303,8 +303,8 @@ function isMemberDimmed(name: string) {
               class="topology-avatar"
               :class="{ 'topology-avatar-dimmed': isMemberDimmed(member.name) }"
               :style="{
-                backgroundColor: identityColor(member.name),
-                color: identityForeground(),
+                backgroundColor: identityTintBg(member.name),
+                color: identityTintFg(member.name),
               }"
               @mouseenter="emit('hoverMember', member.name)"
               @mouseleave="emit('hoverMember', null)"

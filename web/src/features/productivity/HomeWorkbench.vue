@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Disclosure } from '@/components/ui/disclosure';
+import { CollapseReveal } from '@/components/ui/collapse-reveal';
+import { Disclosure, DisclosureChevron } from '@/components/ui/disclosure';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import ConfirmDialog from '@/components/panel/ConfirmDialog.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -59,6 +61,14 @@ const {
   recentMeta,
   summarize,
 } = useWorkbenchPage();
+
+// 空态自动收薄为 48px 状态带（P04），有待处理/运行中项或用户手动展开时平滑呈现完整列表。
+const inboxManualOpen = ref(false);
+const activityManualOpen = ref(false);
+const inboxHasActive = computed(() => pending.value.length > 0 || unread.value.length > 0);
+const activityHasActive = computed(() => running.value.length > 0);
+const inboxExpanded = computed(() => inboxHasActive.value || inboxManualOpen.value);
+const activityExpanded = computed(() => activityHasActive.value || activityManualOpen.value);
 </script>
 
 <template>
@@ -73,14 +83,23 @@ const {
       <template #summary><span id="workbench-title">工作台</span></template>
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       <div class="flex min-w-0 flex-col gap-4">
-        <div class="grid min-w-0 gap-4 lg:grid-cols-2">
-          <!-- 左卡：未读（待处理 / 未读消息） -->
-          <Card size="md" class="home-card min-w-0">
-            <Tabs v-model="inboxTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
-              <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
-                <CardTitle>未读</CardTitle>
-                <div class="flex items-center gap-2">
-                  <TabsList class="grid w-fit grid-cols-2">
+        <div class="grid min-w-0 items-start gap-3 lg:grid-cols-2">
+          <!-- 左卡：未读（空态收薄为 48px 状态带，有待处理/未读或手动展开时显示完整面板） -->
+          <Card
+            size="sm"
+            class="min-w-0 gap-0 py-0"
+            :class="inboxExpanded ? 'home-card-expanded' : 'home-status-strip'"
+          >
+            <Tabs v-model="inboxTab" class="flex min-h-0 flex-1 flex-col gap-0">
+              <CardHeader class="flex min-h-12 flex-row flex-wrap items-center justify-between gap-2 px-3.5 py-2">
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <CardTitle>未读</CardTitle>
+                  <span v-if="!inboxExpanded" class="truncate text-xs text-muted-foreground tabular-nums">
+                    待处理 {{ pending.length }} · 未读消息 {{ unreadTotal }}
+                  </span>
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <TabsList v-if="inboxExpanded" size="xs" class="grid w-fit grid-cols-2">
                     <TabsTrigger value="pending">
                       <span>待处理</span>
                       <span
@@ -101,15 +120,28 @@ const {
                     </TabsTrigger>
                   </TabsList>
                   <WorkbenchCleanButton
+                    v-if="inboxExpanded"
                     :disabled="cleanPendingDisabled"
                     :busy="cleaning"
                     label="清理待处理卡片"
                     description="从工作台隐藏待处理卡片（未读消息不受影响）"
                     @click="cleanError = ''; confirmClean = true"
                   />
+                  <Button
+                    v-if="!inboxHasActive"
+                    variant="ghost"
+                    size="xs"
+                    class="gap-1 text-muted-foreground"
+                    :aria-expanded="inboxExpanded"
+                    @click="inboxManualOpen = !inboxManualOpen"
+                  >
+                    <span>{{ inboxExpanded ? '收起' : '展开' }}</span>
+                    <DisclosureChevron :open="inboxExpanded" />
+                  </Button>
                 </div>
               </CardHeader>
-              <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col border-t pt-2">
+              <CollapseReveal :show="inboxExpanded" class="min-h-0 flex-1">
+                <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col border-t px-3.5 pt-2 pb-3">
                 <TabsContent value="pending" class="flex min-h-0 flex-1 flex-col">
                   <Empty v-if="!pending.length">
                     <EmptyDescription>{{ emptyPendingText }}</EmptyDescription>
@@ -167,7 +199,8 @@ const {
                     </RouterLink>
                   </div>
                 </TabsContent>
-              </CardContent>
+                </CardContent>
+              </CollapseReveal>
             </Tabs>
             <ConfirmDialog
               :open="confirmClean"
@@ -182,13 +215,22 @@ const {
             />
           </Card>
 
-          <!-- 右卡：执行活动（运行活动 / 最近执行） -->
-          <Card size="md" class="home-card min-w-0">
-            <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-(--card-gap)">
-              <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
-                <CardTitle>执行活动</CardTitle>
-                <div class="flex items-center gap-2">
-                  <TabsList class="grid w-fit grid-cols-2">
+          <!-- 右卡：执行活动（空态收薄为 48px 状态带，运行中或手动展开时显示完整面板） -->
+          <Card
+            size="sm"
+            class="min-w-0 gap-0 py-0"
+            :class="activityExpanded ? 'home-card-expanded' : 'home-status-strip'"
+          >
+            <Tabs v-model="activityTab" class="flex min-h-0 flex-1 flex-col gap-0">
+              <CardHeader class="flex min-h-12 flex-row flex-wrap items-center justify-between gap-2 px-3.5 py-2">
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <CardTitle>执行活动</CardTitle>
+                  <span v-if="!activityExpanded" class="truncate text-xs text-muted-foreground tabular-nums">
+                    运行中 {{ running.length }} · 最近执行 {{ recent.length }} 条
+                  </span>
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <TabsList v-if="activityExpanded" size="xs" class="grid w-fit grid-cols-2">
                     <TabsTrigger value="running">
                       <span>运行活动</span>
                       <span
@@ -201,15 +243,28 @@ const {
                     <TabsTrigger value="recent">最近执行</TabsTrigger>
                   </TabsList>
                   <WorkbenchCleanButton
+                    v-if="activityExpanded"
                     :disabled="cleanActivityDisabled"
                     :busy="cleaningActivity"
                     label="清理最近执行"
                     description="从工作台隐藏最近执行（不删除执行记录）"
                     @click="cleanActivityError = ''; confirmCleanActivity = true"
                   />
+                  <Button
+                    v-if="!activityHasActive"
+                    variant="ghost"
+                    size="xs"
+                    class="gap-1 text-muted-foreground"
+                    :aria-expanded="activityExpanded"
+                    @click="activityManualOpen = !activityManualOpen"
+                  >
+                    <span>{{ activityExpanded ? '收起' : '展开' }}</span>
+                    <DisclosureChevron :open="activityExpanded" />
+                  </Button>
                 </div>
               </CardHeader>
-              <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col border-t pt-2">
+              <CollapseReveal :show="activityExpanded" class="min-h-0 flex-1">
+                <CardContent class="home-card-scroll flex min-h-0 flex-1 flex-col border-t px-3.5 pt-2 pb-3">
                 <TabsContent value="running" class="flex min-h-0 flex-1 flex-col">
                   <Empty v-if="!running.length">
                     <EmptyDescription>{{ emptyRunningText }}</EmptyDescription>
@@ -279,7 +334,8 @@ const {
                     </RouterLink>
                   </div>
                 </TabsContent>
-              </CardContent>
+                </CardContent>
+              </CollapseReveal>
             </Tabs>
             <ConfirmDialog
               :open="confirmCleanActivity"
