@@ -535,7 +535,7 @@ async function submit() {
 
     <Separator />
 
-    <form class="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-[minmax(0,1fr)_20rem]" @submit.prevent="submit">
+    <form class="grid grid-cols-1 items-start gap-6 @3xl:grid-cols-[minmax(0,1fr)_17.5rem] @5xl:grid-cols-[minmax(0,1fr)_20rem]" @submit.prevent="submit">
       <div class="@container flex min-w-0 flex-col gap-6">
         <section class="flex flex-col gap-4" aria-labelledby="section-goal-title">
           <h2 id="section-goal-title" class="text-xs font-semibold tracking-wide text-muted-foreground">1. 任务目标</h2>
@@ -818,7 +818,7 @@ async function submit() {
         </section>
       </div>
 
-      <aside class="min-w-0 @4xl:sticky @4xl:top-4">
+      <aside class="min-w-0 @3xl:sticky @3xl:top-[calc(var(--desktop-titlebar-height)+1rem)]">
         <Card size="sm" data-surface="context-panel">
           <CardHeader>
             <CardTitle class="text-base">创建概览</CardTitle>

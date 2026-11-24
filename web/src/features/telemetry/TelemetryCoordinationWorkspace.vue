@@ -291,9 +291,9 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
     </SectionBlock>
 
     <!-- 第二层：左右双栏主从区 -->
-    <div class="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-12">
+    <div class="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-12">
       <!-- 左栏 5 列：成员开销排行 + 来源分析 -->
-      <div class="flex min-w-0 flex-col gap-3 @3xl:col-span-5">
+      <div class="flex min-w-0 flex-col gap-3 @4xl:col-span-5">
         <SectionBlock
           :heading-level="3"
           :title="`成员开销排行（${rankedMembers.length}）`"
@@ -363,7 +363,7 @@ function executorRoleLabel(kind: 'member' | 'panel_agent'): string {
       <SectionBlock
         :container="false"
         size="lg"
-        class="@3xl:col-span-7"
+        class="@4xl:col-span-7"
         data-testid="telemetry-member-detail"
       >
         <PanelState

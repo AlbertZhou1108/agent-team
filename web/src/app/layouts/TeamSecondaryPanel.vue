@@ -12,7 +12,6 @@ import {
   X,
 } from '@lucide/vue';
 import type { Group, Member } from '@/shared/api/raw-types';
-import { Surface } from '@/components/surface';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapseReveal } from '@/components/ui/collapse-reveal';
@@ -337,7 +336,7 @@ onBeforeUnmount(() => {
 
     <!-- 团队列表（统一文件夹语义：置顶 → 文件夹按名称 → 未分组；组内按活跃时间） -->
     <nav
-      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-0.5 pb-14"
+      class="team-navigation mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-0.5 pb-1"
       :data-multi-select="selected.length > 1 ? 'true' : undefined"
       aria-label="团队列表"
     >
@@ -680,8 +679,8 @@ onBeforeUnmount(() => {
       </p>
     </nav>
 
-    <!-- 右下角浮动收起按钮：复用 overlay 表面，由一级栏「团队」图标重新展开 -->
-    <Surface role="overlay" class="secondary-panel-collapse-float">
+    <!-- 底部收起栏：独立于列表流外，不遮挡底部卡片且与左侧一级栏设置图标底部对齐 -->
+    <div class="secondary-panel-footer">
       <Tooltip>
         <TooltipTrigger as-child>
           <Button
@@ -698,6 +697,6 @@ onBeforeUnmount(() => {
         </TooltipTrigger>
         <TooltipContent side="left">收起团队面板</TooltipContent>
       </Tooltip>
-    </Surface>
+    </div>
   </div>
 </template>
