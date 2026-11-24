@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import FeedPanel from '@/components/ai-elements/FeedPanel.vue';
-import { computed, provide, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue';
+import { routeLocationKey, routerKey } from 'vue-router';
+import { prefersReducedMotion } from '@/shared/motion';
 import type { MessageFeedProps } from './message-feed-types';
 import { filePreviewContext } from './file-refs';
 import FilePreviewDialog from './FilePreviewDialog.vue';
@@ -166,6 +168,145 @@ const messageInteractions = computed(() => {
   }
   return map;
 });
+const HIGHLIGHT_DURATION_MS = 850;
+const SCROLL_START_GRACE_MS = 120;
+const SCROLL_IDLE_MS = 110;
+const SCROLL_MAX_WAIT_MS = 1200;
+
+const router = inject(routerKey, null);
+const route = inject(routeLocationKey, null);
+let highlightedNode: HTMLElement | null = null;
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+let cancelScrollWait: (() => void) | undefined;
+let jumpSequence = 0;
+
+function clearJumpHighlight() {
+  if (highlightTimer) {
+    clearTimeout(highlightTimer);
+    highlightTimer = undefined;
+  }
+  if (highlightedNode) {
+    delete highlightedNode.dataset.jumpHighlight;
+    highlightedNode = null;
+  }
+}
+
+function applyJumpHighlight(target: HTMLElement) {
+  clearJumpHighlight();
+  target.dataset.jumpHighlight = 'true';
+  highlightedNode = target;
+  highlightTimer = setTimeout(() => {
+    delete target.dataset.jumpHighlight;
+    if (highlightedNode === target) highlightedNode = null;
+    highlightTimer = undefined;
+  }, HIGHLIGHT_DURATION_MS);
+}
+
+function findScrollContainer(target: HTMLElement): HTMLElement | null {
+  return target.closest<HTMLElement>('[role="log"]');
+}
+
+function waitForScrollSettle(scroller: HTMLElement | null, token: number, onSettled: () => void) {
+  cancelScrollWait?.();
+  if (prefersReducedMotion() || !scroller) {
+    const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 0);
+    const handle = schedule(() => {
+      cancelScrollWait = undefined;
+      if (token === jumpSequence) onSettled();
+    });
+    cancelScrollWait = () => {
+      if (typeof handle === 'number' && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(handle);
+      } else {
+        clearTimeout(handle);
+      }
+      cancelScrollWait = undefined;
+    };
+    return;
+  }
+
+  let settled = false;
+  let scrollStarted = false;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const cleanup = () => {
+    scroller.removeEventListener('scroll', onScroll);
+    scroller.removeEventListener('scrollend', onScrollEnd);
+    clearTimeout(startTimer);
+    clearTimeout(maxTimer);
+    if (idleTimer) clearTimeout(idleTimer);
+    cancelScrollWait = undefined;
+  };
+
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    if (token === jumpSequence) onSettled();
+  };
+
+  const onScroll = () => {
+    scrollStarted = true;
+    clearTimeout(startTimer);
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(finish, SCROLL_IDLE_MS);
+  };
+
+  const onScrollEnd = () => {
+    finish();
+  };
+
+  const startTimer = setTimeout(() => {
+    if (!scrollStarted) finish();
+  }, SCROLL_START_GRACE_MS);
+
+  const maxTimer = setTimeout(finish, SCROLL_MAX_WAIT_MS);
+
+  scroller.addEventListener('scroll', onScroll, { passive: true });
+  scroller.addEventListener('scrollend', onScrollEnd, { passive: true });
+  cancelScrollWait = () => {
+    settled = true;
+    cleanup();
+  };
+}
+
+async function jumpToMessage(id: string) {
+  if (!id) return;
+  const token = ++jumpSequence;
+  cancelScrollWait?.();
+  clearJumpHighlight();
+  const idx = filtered.value.findIndex(m => m.id === id);
+  if (idx >= 0) {
+    const needed = filtered.value.length - idx;
+    if (needed > renderedLimit.value) {
+      renderedLimit.value = needed;
+    }
+  }
+  const alreadyAnchored = Boolean(router && route && route.query.message === id);
+  if (router && route && !alreadyAnchored) {
+    const { interaction: _interaction, ...rest } = route.query;
+    await router.replace({ query: { ...rest, message: id } });
+  }
+  await nextTick();
+  if (token !== jumpSequence) return;
+  const target = document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`);
+  if (!target) return;
+  if (!router || !route || alreadyAnchored) {
+    target.scrollIntoView({
+      block: 'center',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
+  }
+  waitForScrollSettle(findScrollContainer(target), token, () => {
+    applyJumpHighlight(target);
+  });
+}
+
+onBeforeUnmount(() => {
+  cancelScrollWait?.();
+  clearJumpHighlight();
+});
+
 // ids 身份保持:元素集合没变时不产出新数组,避免滚动容器在每个增量
 // 都重跑跟底逻辑(每次都要读 scrollHeight,强制同步布局)。
 let previousIds: string[] = [];
@@ -213,10 +354,12 @@ const messageIds = computed(() => {
     <template #bar-bottom>
       <RunStatusCard
         :source="readStreamViews"
+        :messages="messages"
         :selected-key="selectedRunKey"
         :group-names="groupNames"
         :on-stop="onStopRun"
         @select="selectedRunKey = $event"
+        @jump-message="jumpToMessage"
       />
       <slot name="bar-bottom" />
     </template>

@@ -105,7 +105,10 @@ async function revealLinkedInteraction() {
     revealedInteraction = id;
     revealSequence += 1;
     atBottom.value = false;
-    element.scrollIntoView({ block: 'center' });
+    element.scrollIntoView({
+      block: 'center',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
     element.focus({ preventScroll: true });
   });
 }

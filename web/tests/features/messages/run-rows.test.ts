@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import RunStatusCard from '@/components/ai-elements/RunStatusCard.vue';
+import {
+  buildCompactArcPath,
+  buildExpandedCurvePath,
+  buildMemberActivitySummaries,
+  buildTopology,
+  detectNewFlights,
+} from '@/features/messages/topology';
+import type { MessageView } from '@/shared/models/view-types';
 import { buildRunRows, elapsedLabel, runPhaseOf, toolActionLabel } from '@/features/messages/run-rows';
 import type { StreamView } from '@/features/messages/adapters';
 
@@ -83,14 +91,123 @@ describe('run rows', () => {
         onStop,
       },
     });
+    expect(wrapper.find('[data-testid="run-card-capsule"]').exists()).toBe(true);
+    await wrapper.get('.run-card-toggle').trigger('click');
+    expect(wrapper.find('[data-testid="member-topology-overlay"]').exists()).toBe(false);
+
     await wrapper.get('[data-testid="run-card-stop"]').trigger('click');
     await flushPromises();
     expect(onStop).toHaveBeenNthCalledWith(1);
 
-    await wrapper.get('.run-card-toggle').trigger('click');
     await wrapper.get('[data-stop-member="m-worker"]').trigger('click');
     await flushPromises();
     expect(onStop).toHaveBeenCalledWith('m-worker');
     wrapper.unmount();
+  });
+
+  it('builds communication topology edges and prevents duplicate flights on token updates', async () => {
+    const rows = [
+      {
+        key: 'turn-1',
+        name: '主 Agent',
+        phase: 'thinking' as const,
+        tool: null,
+        startedAt: null,
+        reasoning: '',
+        views: [],
+      },
+      {
+        key: 'turn-2',
+        name: '前端研发',
+        phase: 'tool' as const,
+        tool: null,
+        startedAt: null,
+        reasoning: '',
+        views: [],
+      },
+    ];
+    const msg = (id: string, senderName: string, recipientName: string): MessageView => ({
+      id,
+      seq: 1,
+      pairKey: `${senderName}:${recipientName}`,
+      senderName,
+      recipientName,
+      senderIsLead: senderName === '主 Agent',
+      senderIsUser: false,
+      kind: 'send',
+      text: 'hi',
+      createdAt: '2026-11-24T00:00:00.000Z',
+      turnId: null,
+    });
+    const messages = [
+      msg('m1', '用户指令', '主 Agent'),
+      msg('m2', '主 Agent', '前端研发'),
+      msg('m3', '前端研发', '后端研发'),
+    ];
+
+    const topoIdle = buildTopology(rows, messages, []);
+    expect(topoIdle.members.map(m => m.name)).toEqual(['主 Agent', '前端研发', '后端研发']);
+    // No lines when nobody is actively communicating.
+    expect(topoIdle.edges).toHaveLength(0);
+
+    const activeStream = view({
+      turnId: 't-active',
+      pending: true,
+      message: { ...view().message, id: 'stream:t-active', senderName: '主 Agent', recipientName: '前端研发' },
+    });
+    const topoActive = buildTopology(rows, messages, [activeStream]);
+    expect(topoActive.edges).toHaveLength(1);
+    expect(topoActive.edges.map(e => `${e.from}->${e.to}`)).toEqual(['主 Agent->前端研发']);
+
+    const summaries = buildMemberActivitySummaries(messages);
+    expect(summaries['前端研发']?.count).toBe(2);
+    expect(summaries['前端研发']?.lastMessageId).toBe('m3');
+    expect(summaries['前端研发']?.lastSummary).toContain('后端研发');
+    // Member who never sent a message has no lastSummary or jump target.
+    expect(summaries['后端研发']?.count).toBe(1);
+    expect(summaries['后端研发']?.lastMessageId).toBeNull();
+    expect(summaries['后端研发']?.lastSummary).toBe('');
+
+    const seenMessages = new Set<string>();
+    const seenStreams = new Set<string>();
+    // Initial hydration does not trigger flights.
+    expect(detectNewFlights(seenMessages, seenStreams, messages, [], false)).toEqual([]);
+
+    const stream = view({
+      turnId: 't-new',
+      message: { ...view().message, id: 'stream:t-new', senderName: '主 Agent', recipientName: '前端研发' },
+    });
+    const firstFlights = detectNewFlights(seenMessages, seenStreams, messages, [stream], true);
+    expect(firstFlights).toHaveLength(1);
+    expect(firstFlights[0]?.from).toBe('主 Agent');
+    expect(firstFlights[0]?.to).toBe('前端研发');
+
+    // Subsequent token updates on the same stream do not re-trigger flights.
+    const tokenUpdated = { ...stream, message: { ...stream.message, text: 'hello world' } };
+    expect(detectNewFlights(seenMessages, seenStreams, messages, [tokenUpdated], true)).toEqual([]);
+
+    expect(buildCompactArcPath(20, 14, 76, 14, 1)).toMatch(/^M 20 14 C 20 /);
+    expect(buildExpandedCurvePath(380, 32, 380, 112, 1)).toMatch(/^M 380 32 C /);
+
+    // Keeps the collapsed capsule visible when idle if >=2 members have communicated.
+    setActivePinia(createPinia());
+    const idleCard = mount(RunStatusCard, {
+      props: {
+        source: () => [],
+        messages,
+      },
+    });
+    expect(idleCard.find('[data-testid="run-card-capsule"]').exists()).toBe(true);
+    await idleCard.get('.run-card-toggle').trigger('click');
+    expect(idleCard.text()).toContain('成员通信 · 3 位成员');
+    expect(idleCard.text()).not.toContain('待命中');
+    expect(idleCard.text()).toContain('收发 2 条');
+    expect(idleCard.find('.topology-expanded').exists()).toBe(false);
+    expect(idleCard.find('[data-testid="run-card-stop"]').exists()).toBe(false);
+    // 后端研发 never sent a message, so no jump button is rendered for it.
+    expect(idleCard.findAll('[data-jump-message]')).toHaveLength(2);
+    await idleCard.get('[data-jump-message="m3"]').trigger('click');
+    expect(idleCard.emitted('jumpMessage')).toEqual([['m3']]);
+    idleCard.unmount();
   });
 });

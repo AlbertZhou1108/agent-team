@@ -11,7 +11,7 @@ import type { StreamView } from '@/features/messages/adapters';
 vi.mock('@/components/ai-elements/ConversationScroller.vue', () => ({
   default: defineComponent({
     setup: (_props, { slots }) => () =>
-      h('div', { 'data-testid': 'scroller' }, [
+      h('div', { 'data-testid': 'scroller', role: 'log' }, [
         slots['bar-top']?.(),
         slots.default?.(),
         h('div', { 'data-sticky-bottom': true }, slots['bar-bottom']?.()),
@@ -19,7 +19,17 @@ vi.mock('@/components/ai-elements/ConversationScroller.vue', () => ({
   }),
 }));
 vi.mock('@/components/ai-elements/RunStatusCard.vue', () => ({
-  default: defineComponent({ setup: () => () => h('aside') }),
+  default: defineComponent({
+    emits: ['select', 'jumpMessage'],
+    setup: (_props, { emit }) => () =>
+      h('aside', { 'data-testid': 'run-status-card-mock' }, [
+        h('button', {
+          type: 'button',
+          'data-testid': 'mock-jump-m1',
+          onClick: () => emit('jumpMessage', 'm1'),
+        }),
+      ]),
+  }),
 }));
 vi.mock('@/components/ai-elements/ConversationOutline.vue', () => ({
   default: defineComponent({ setup: () => () => h('nav') }),
@@ -166,5 +176,45 @@ describe('MessageFeed 执行轨迹折叠', () => {
     const notTraceable = renderFeed([message({ turnId: 'turn-1' })], { traceable: false });
     expect(notTraceable.findAll('[data-testid="message-trace"]')).toHaveLength(0);
     expect(notTraceable.find('[aria-label="消息 #1 的执行轨迹"]').exists()).toBe(false);
+  });
+});
+
+describe('MessageFeed 消息跳转与延迟高光', () => {
+  it('滚动未结束前不高亮，收到 scrollend 后才高亮并按更短时长自动消退', async () => {
+    vi.useFakeTimers();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    const wrapper = mount(MessageFeed, {
+      attachTo: document.body,
+      props: { messages: [message({ id: 'm1' })], selectedPair: '' },
+    });
+
+    try {
+      const target = wrapper.get('[data-message-id="m1"]').element as HTMLElement;
+      const scroller = wrapper.get('[data-testid="scroller"]').element as HTMLElement;
+
+      await wrapper.get('[data-testid="mock-jump-m1"]').trigger('click');
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+
+      // 滚动刚开始：尚未结束，不高亮
+      scroller.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(50);
+      expect(target.dataset.jumpHighlight).toBeUndefined();
+
+      // 滚动结束：立刻开始高亮
+      scroller.dispatchEvent(new Event('scrollend'));
+      expect(target.dataset.jumpHighlight).toBe('true');
+
+      // 短时保持后（850ms）自动消退
+      vi.advanceTimersByTime(800);
+      expect(target.dataset.jumpHighlight).toBe('true');
+      vi.advanceTimersByTime(60);
+      expect(target.dataset.jumpHighlight).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      vi.useRealTimers();
+    }
   });
 });
